@@ -64,7 +64,7 @@ namespace StationeersUIAscended
             MasterEnable = cfg.Bind("1. General", "MasterEnable", true,
                 "Master switch. When off, the mod draws and patches nothing.");
             SettingsWindowKey = cfg.Bind("1. General", "SettingsWindowKey", KeyCode.F10,
-                "Key that toggles the in-game SSUI settings window.");
+                "Key that toggles the in-game UI Ascended settings window.");
             HoldThresholdMs = cfg.Bind("1. General", "HoldThresholdMs", 180,
                 new ConfigDescription("How long a radial key must be held before the radial opens (ms). Shorter taps fall through to the vanilla action.",
                     new AcceptableValueRange<int>(60, 600)));
@@ -109,7 +109,7 @@ namespace StationeersUIAscended
                 "Allow SmartStow+ to target bags nested inside other bags.");
 
             HudEnabled = cfg.Bind("7. HUD", "Enabled", true,
-                "Draw the SSUI visor HUD overlay.");
+                "Draw the UI Ascended visor HUD overlay.");
             HudHandBoxes = cfg.Bind("7. HUD", "HandBoxes", true,
                 "Bottom-center two-hand boxes (icon, name, charge, state). Never a ten-slot hotbar.");
             HudStatusStrip = cfg.Bind("7. HUD", "StatusStrip", true,
@@ -125,7 +125,7 @@ namespace StationeersUIAscended
             HudScale = cfg.Bind("7. HUD", "Scale", 1.0f,
                 new ConfigDescription("Overall HUD scale.", new AcceptableValueRange<float>(0.6f, 1.6f)));
             HideVanillaHands = cfg.Bind("7. HUD", "HideVanillaHands", false,
-                "Hide the vanilla hand slots panel while the SSUI hand boxes are shown (objects stay alive; restored on toggle/exit).");
+                "Hide the vanilla hand slots panel while the UI Ascended hand boxes are shown (objects stay alive; restored on toggle/exit).");
             HideVanillaClothing = cfg.Bind("7. HUD", "HideVanillaClothing", false,
                 "Hide the vanilla clothing/equipment panel.");
             HideVanillaStatus = cfg.Bind("7. HUD", "HideVanillaStatus", false,

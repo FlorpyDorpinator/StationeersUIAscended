@@ -27,7 +27,7 @@ namespace StationeersUIAscended.Features
     {
         private readonly List<IRadialFeature> _features = new List<IRadialFeature>();
         private readonly RadialMenu _menu = new RadialMenu();
-        private readonly ModalScope _modal = new ModalScope("SSUIA_Radial");
+        private readonly ModalScope _modal = new ModalScope("UIAscended_Radial");
 
         private IRadialFeature _pending;   // key down, waiting for hold threshold
         private float _pendingSince;

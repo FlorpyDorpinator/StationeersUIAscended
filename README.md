@@ -1,6 +1,6 @@
-# Stationeers UI Ascended (SSUI)
+# Stationeers UI Ascended
 
-> SSUI redesigns Stationeers' inventory and HUD around modern radial interactions, smarter bag
+> Stationeers UI Ascended redesigns Stationeers' inventory and HUD around modern radial interactions, smarter bag
 > organization, and a cleaner visor-style two-hand interface — while preserving the game's
 > physical inventory logic and survival-engineering complexity.
 
@@ -39,7 +39,7 @@ auto-renders in its in-game mod-config panel.
 5. **Fail soft.** Every Harmony patch group applies independently; a broken patch after a game
    update degrades one feature instead of killing the mod.
 
-See [Documentation/SSUI-Viability-Assessment-and-Plan.md](Documentation/SSUI-Viability-Assessment-and-Plan.md)
+See [Documentation/UI-Ascended-Viability-Assessment-and-Plan.md](Documentation/UI-Ascended-Viability-Assessment-and-Plan.md)
 for the full technical assessment and
 [Documentation/stationeers_ui_redesign_proposal.pdf](Documentation/stationeers_ui_redesign_proposal.pdf)
 for the design proposal (Draft v0.1).
@@ -70,10 +70,10 @@ dotnet build -c Release -p:GameDir="D:\SteamLibrary\steamapps\common\Stationeers
 
 VS Code tasks (`Terminal → Run Task`):
 
-- **SSUI: Build + Hot Reload (scripts)** — Debug build with embedded PDBs copied to
+- **UI Ascended: Build + Hot Reload (scripts)** — Debug build with embedded PDBs copied to
   `BepInEx\scripts` for [ScriptEngine](https://github.com/BepInEx/BepInEx.Debug) hot reload (F6 in game).
-- **SSUI: Deploy (plugins)** — Release build copied to `BepInEx\plugins` (plain BepInEx install).
-- **SSUI: Package (SLP mod folder)** — Release build staged as a StationeersLaunchPad folder mod
+- **UI Ascended: Deploy (plugins)** — Release build copied to `BepInEx\plugins` (plain BepInEx install).
+- **UI Ascended: Package (SLP mod folder)** — Release build staged as a StationeersLaunchPad folder mod
   (`About/About.xml` + DLL) into `Documents\My Games\Stationeers\mods\StationeersUIAscended`
   and `<game>\mods\StationeersUIAscended`, ready for Workshop publishing.
 

@@ -4,7 +4,7 @@ using UnityEngine;
 namespace StationeersUIAscended.Overlay
 {
     /// <summary>
-    /// SSUI visual language, from the proposal's Figure 1: dark translucent teal glass
+    /// Stationeers UI Ascended visual language, from the proposal's Figure 1: dark translucent teal glass
     /// panels, cyan primary text, orange accents, high contrast for dark environments.
     /// </summary>
     public static class Theme

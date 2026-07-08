@@ -1,6 +1,6 @@
-# SSUI Viability Assessment & Implementation Plan
+# UI Ascended Viability Assessment & Implementation Plan
 
-**Assessed against:** decompiled build `Stationeers 6-30-2026 V27676 Orbit Update Beta` (cross-checked against `V24790 Toilet Update`), the existing BepInEx mods in this workspace (PasswordFix, SprayColor, TestSpawn), and the SSUI proposal PDF (Draft v0.1).
+**Assessed against:** decompiled build `Stationeers 6-30-2026 V27676 Orbit Update Beta` (cross-checked against `V24790 Toilet Update`), the existing BepInEx mods in this workspace (PasswordFix, SprayColor, TestSpawn), and the UI Ascended proposal PDF (Draft v0.1).
 **Date:** 2026-07-08
 
 ---
@@ -11,7 +11,7 @@
 
 1. **Stationeers ships Dear ImGui.** The game bundles `RG.ImGui.dll` / `RG.ImGui.Unity.dll` (ImGuiNET + a custom Unity mesh renderer) and uses it for the console, loading screen, creative spawn menu, and all debug windows. `ImGuiManager` (`Assets\Scripts\UI\ImGuiManager.cs`) runs a full ImGui frame every `LateUpdate` and composites it over the game. Even better, `UI.ImGuiUi.ImGuiWindows.ImGuiWindowManager` is a **public static registry**: `ImGuiWindowManager.Open(myWindow)` renders any `ImGuiWindow` subclass you write, with mouse-control and key-capture state handled for you — **zero Harmony patches needed for basic windows**. You don't need an external IMGUI library; you piggyback on the game's own, so fonts, style, cursor handling, and click-blocking all match vanilla behavior for free.
 
-2. **Every inventory/interaction mutation the proposal needs has a multiplayer-safe funnel.** The game routes all item movement through `OnServer.*` static methods that branch on `GameManager.RunSimulation`: apply locally on host/singleplayer, else send an authoritative message (`MoveToSlotMessage`, `SwapSlotsMessage`, `MergeStackablesMessage`, `InteractionMessage`) to the server. The mod never needs its own netcode — it computes *intent* (which item, which slot) and calls the same entry points the vanilla UI calls. Given your own desync history on high-latency servers (June 18 session), this is the single most important property: SSUI actions behave exactly like manual clicks on the wire.
+2. **Every inventory/interaction mutation the proposal needs has a multiplayer-safe funnel.** The game routes all item movement through `OnServer.*` static methods that branch on `GameManager.RunSimulation`: apply locally on host/singleplayer, else send an authoritative message (`MoveToSlotMessage`, `SwapSlotsMessage`, `MergeStackablesMessage`, `InteractionMessage`) to the server. The mod never needs its own netcode — it computes *intent* (which item, which slot) and calls the same entry points the vanilla UI calls. Given your own desync history on high-latency servers (June 18 session), this is the single most important property: UI Ascended actions behave exactly like manual clicks on the wire.
 
 3. **The devs are already converging on this design.** The Orbit Update beta has `KeyMap.SmartStow = KeyCode.G` — vanilla shipped basic smart-stow on **exactly the key the proposal picks** — plus `SmartTool` scaffolding (currently stubbed) and a `PingHighlight` on middle mouse. This validates the proposal's direction, shrinks the Smart Stow phase to "add stack-priority + bag profiles on top of vanilla," and provides a perfect patch point (`InventoryManager.SmartStow`, line 1809).
 
@@ -36,7 +36,7 @@ The genuinely hard parts are **not** the radials or smart stow — they're (a) r
 
 Things learned from the code that should feed back into the design doc:
 
-- **G is taken — by the feature itself.** Vanilla `InventoryManager.SmartStow(Slot)` already does: free worn slot by type → remembered original slot → open windows (type-priority) → inside worn containers → fail sound. It does **not** do stack-merge priority, item-type destination memory across bags, or profiles. SSUI's Smart Stow becomes **SmartStow+**: a Harmony prefix that runs the profile/stack logic first and falls through to vanilla on no match. Small, robust, update-tolerant.
+- **G is taken — by the feature itself.** Vanilla `InventoryManager.SmartStow(Slot)` already does: free worn slot by type → remembered original slot → open windows (type-priority) → inside worn containers → fail sound. It does **not** do stack-merge priority, item-type destination memory across bags, or profiles. UI Ascended's Smart Stow becomes **SmartStow+**: a Harmony prefix that runs the profile/stack logic first and falls through to vanilla on no match. Small, robust, update-tolerant.
 - **Input conflicts to design around** (all rebindable; defaults from `KeyManager.SetDefaultKeys()`, KeyManager.cs:397):
   - `R` = `ActiveHandSlot` (opens active-hand slot) → use **hold-R** for the tool radial, tap stays vanilla; or default to a free key.
   - `Mouse2` (MMB) = `PingHighlight` (new in these betas) → **hold-MMB** radial vs tap-ping is workable but test the feel; offer alternates.
@@ -70,7 +70,7 @@ The mod's entire contact surface with the game. Everything below was read direct
 | Event bindings with input-state filtering | `new KeyWrap(...)` + `keyWrap.Bind(InputPhase.Down, action, KeyInputState.Game)` (`InputSystem\KeyWrapBindings.cs`) |
 | "Is gameplay input allowed" guards | `KeyManager.IsMenuInputAllowed`, `ConsoleWindow.IsOpen`, `InputWindowBase.IsInputWindow`, `ImguiCreativeSpawnMenu.Show`, `GameManager.GameState == GameState.Running` |
 | Unlock cursor while radial is held | implement `IModal { UnlockCursor => true }`, `MouseModeController.AddModal/RemoveModal` (`Assets\Scripts\MouseModeController.cs:30` — proven in SprayColor mod) |
-| Block game keys while radial open | `KeyManager.SetInputState("SSUI_Radial", KeyInputState.Typing)` / `RemoveInputState` |
+| Block game keys while radial open | `KeyManager.SetInputState("UI Ascended_Radial", KeyInputState.Typing)` / `RemoveInputState` |
 
 ### Inventory read model
 | Need | API |
@@ -83,7 +83,7 @@ The mod's entire contact surface with the game. Everything below was read direct
 | Live updates for HUD | `InventoryManager.OnActiveHandChanged` (static event, InventoryManager.cs:116), `HumanHandsBehaviour.SwapHandsEvent`, `Slot.OnEnter/OnExit` |
 | Tool state for radial labels | `thing.OnOff`, `Interactable.State`, `StatusUpdates` evaluators for vitals |
 
-### Mutations (ALL multiplayer-safe — the only ways SSUI may change state)
+### Mutations (ALL multiplayer-safe — the only ways UI Ascended may change state)
 | Action | API |
 |---|---|
 | Move item → slot | `OnServer.MoveToSlot(thing, slot)` (`OnServer.cs:60`) or `slot.PlayerMoveToSlot(thing)` (adds SFX/hand bookkeeping) |
@@ -101,8 +101,8 @@ The mod's entire contact surface with the game. Everything below was read direct
 
 1. **Beta churn.** You track beta builds (two snapshots in this workspace, ~2 weeks apart). Mitigations: the core funnel (`OnServer`, `Slot`, `Interact`) is identical across both snapshots; keep the Harmony patch surface tiny (SmartStow prefix + one ImGui draw hook + optional HUD-hide); use SprayColor's fail-soft `TryPatch` pattern so one broken patch degrades a feature instead of killing the mod; re-dump and diff on each update.
 2. **Multiplayer feel on laggy links.** Actions are echo-round-trip (client sends message, server applies, state syncs back). On your ~180ms+ RocketWerkz connection, a radial-triggered equip lands visibly later than singleplayer. Mitigations: optimistic *UI-only* highlight (never optimistic state mutation); one action = one message (no bulk loops — a "stow all" must throttle); design multi-step swaps (battery A out → battery B in) to fire step 2 off the slot-change event, or accept the vanilla two-click semantics. Avoid anything that fires `MoveToSlot` per-frame.
-3. **HUD replacement fragility.** `PlayerStateWindow.Update`, `StatusUpdates.HandleDamageIndicators`, etc. dereference serialized fields unguarded. Hide via `Canvas.enabled` / `SetUIPanelVisibility` / `UiComponentRenderer` alpha only; keep the objects alive. Ship the SSUI HUD as *overlay first, vanilla-hide second* (separate toggles) so users can bail out per-element.
-4. **Input-conflict papercuts.** MMB-hold vs ping, R-hold vs active-hand-slot, radial-open key leaking into gameplay. Use `KeyManager.SetInputState` while radials are open, hold-vs-tap thresholds (~150–200 ms), and make every SSUI binding configurable (`BepInEx` `KeyboardShortcut` config, as in SprayColor).
+3. **HUD replacement fragility.** `PlayerStateWindow.Update`, `StatusUpdates.HandleDamageIndicators`, etc. dereference serialized fields unguarded. Hide via `Canvas.enabled` / `SetUIPanelVisibility` / `UiComponentRenderer` alpha only; keep the objects alive. Ship the UI Ascended HUD as *overlay first, vanilla-hide second* (separate toggles) so users can bail out per-element.
+4. **Input-conflict papercuts.** MMB-hold vs ping, R-hold vs active-hand-slot, radial-open key leaking into gameplay. Use `KeyManager.SetInputState` while radials are open, hold-vs-tap thresholds (~150–200 ms), and make every UI Ascended binding configurable (`BepInEx` `KeyboardShortcut` config, as in SprayColor).
 5. **ImGui frame-order coupling.** Draw hooks must run between `NewFrame`/`Render` — patch `ImGuiWindowManager.Draw` (inside the gameplay branch of `RenderOverlay`), guard on `GameManager.GameState == Running`, `!ImGuiLoadingScreen.IsShowing`, `!GameManager.IsBatchMode` (dedicated servers run headless — every UI path must no-op there).
 6. **Curved visor expectations.** ImGui can fake curvature (status strip as arc-positioned segments, side visor lines via draw-list arcs) but not true distortion/parallax. That's the prefab/shader phase — exactly where the proposal already schedules it (Phase 7 hardcore/diegetic polish). Set expectations in the POC: "flat-but-clean first."
 7. **Distribution.** Vanilla workshop mods are data-only; BepInEx installs stay manual (your current model) or via the community StationeersLaunchPad/StationeersMods route for workshop-visible code mods. Decide at ship time; irrelevant for the POC.
@@ -114,7 +114,7 @@ The mod's entire contact surface with the game. Everything below was read direct
 Re-sequenced from the proposal: the radial goes **first** (highest daily-play value, lowest risk, best ImGui showcase), the HUD overlay second (additive before subtractive), and all prefab/visual polish last — matching your "POC in ImGui, then make it cool" strategy.
 
 ### Phase 0 — Skeleton + ImGui hello world *(1 evening)*
-New `StationeersSSUI` project cloned from the SprayColor csproj (net48, BepInEx 5, Harmony), adding references to `RG.ImGui.dll` + `RG.ImGui.Unity.dll` from `rocketstation_Data\Managed`.
+New `StationeersUIAscended` project cloned from the SprayColor csproj (net48, BepInEx 5, Harmony), adding references to `RG.ImGui.dll` + `RG.ImGui.Unity.dll` from `rocketstation_Data\Managed`.
 - Postfix `ImGuiWindowManager.Draw` → draw a test circle + text via `ImGui.GetForegroundDrawList()` with the game font pushed.
 - Prove an `ImGuiWindow` subclass opens via `ImGuiWindowManager.Open` (this becomes the settings window).
 - Guards: `GameState.Running`, `!IsBatchMode`, fail-soft TryPatch.
@@ -151,7 +151,7 @@ Backpack radial → bag radials → category pages; item pick uses Phase 1 equip
 ### Phase 8 — The "make it cool" phase (prefabs/UGUI)
 Only after the interaction model is proven: Unity project + asset bundles (or runtime-built UGUI), curved visor via shader/mesh (building on `FirstPersonHelmetOverlay`), animated transitions, custom art. This is also the decision point for the proposal's §17.5 (mod vs. RocketWerkz pitch) — by then you'll have gameplay video of the full interaction model, which is a far stronger pitch than mockups, and the POC contains zero AI-generated art to remake.
 
-**MVP cut for "Jackson's SSUI update" (proposal §20.6):** Phases 0–1 + Phase 4. Radial tool selection + smarter stow is a complete, demoable, daily-driver mod on its own.
+**MVP cut (proposal §20 item 6):** Phases 0–1 + Phase 4. Radial tool selection + smarter stow is a complete, demoable, daily-driver mod on its own.
 
 ---
 
@@ -163,7 +163,7 @@ Only after the interaction model is proven: Unity project + asset bundles (or ru
 | MMB confirm on release or click? | **Release** — matches the modal cursor pattern and Helldivers-style muscle memory; keep a tap-passthrough for ping. |
 | Left vs right hand decision? | Follow vanilla: act on `ActiveHandSlot`; `E` already swaps hands. Preferred-hand rules = later setting. |
 | Both hands occupied? | `OnServer.SwapSlots` with the active hand — same as vanilla drag-swap semantics. |
-| Smart stow search depth? | Vanilla: worn slots → original slot → open windows → 1 level inside worn containers. SSUI profiles extend depth deliberately (config: nested-bag stow on/off, matching §8.3). |
+| Smart stow search depth? | Vanilla: worn slots → original slot → open windows → 1 level inside worn containers. UI Ascended profiles extend depth deliberately (config: nested-bag stow on/off, matching §8.3). |
 | Batteries inside other tools available? | Technically trivial (recursive slot walk). Gate behind a setting + show the consequence line ("Mining Drill will be unpowered" — readable from the source tool's `OnOff`/battery state), per §7.3. |
 | Profiles per save or global? | **Definitions global** (XML files in the plugin config dir), **assignments per save** (bag `ReferenceId` → profile name), since ReferenceIds are save-scoped. |
 | Curved visor default? | Off/flat default. ImGui approximates arcs; real curvature is Phase 8. |
@@ -174,6 +174,6 @@ Only after the interaction model is proven: Unity project + asset bundles (or ru
 
 ## 7. Why this will probably work (evidence trail)
 
-- Your three existing mods already exercise every technique SSUI needs: Harmony patching UGUI singletons (PasswordFix), `MouseModeController` modal + custom GUI + `OnServer.*` server-trusted calls (SprayColor), console-command invocation (TestSpawn) — all against this exact game install.
-- The game's own creative spawn menu (`ImguiCreativeSpawnMenu`) is the existence proof for "complex interactive ImGui UI with cursor unlock and key capture, in-game" — SSUI's radials are the same category of thing.
+- Your three existing mods already exercise every technique UI Ascended needs: Harmony patching UGUI singletons (PasswordFix), `MouseModeController` modal + custom GUI + `OnServer.*` server-trusted calls (SprayColor), console-command invocation (TestSpawn) — all against this exact game install.
+- The game's own creative spawn menu (`ImguiCreativeSpawnMenu`) is the existence proof for "complex interactive ImGui UI with cursor unlock and key capture, in-game" — UI Ascended's radials are the same category of thing.
 - Vanilla `SmartStow` + the `Slot.PlayerXxx` wrappers are the existence proof that programmatic, UI-initiated, multiplayer-replicated inventory moves are a supported first-class pattern, not a hack.

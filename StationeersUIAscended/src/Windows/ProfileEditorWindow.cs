@@ -24,7 +24,7 @@ namespace StationeersUIAscended.Windows
         private string _newItemPrefab = "";
         private int _newItemPriority = 100;
 
-        public ProfileEditorWindow() : base("SSUI - Bag Profiles", new Vector2(560f, 520f)) { }
+        public ProfileEditorWindow() : base("UI Ascended - Bag Profiles", new Vector2(560f, 520f)) { }
 
         public override void OnOpen() => BagProfileStore.EnsureSaveLoaded();
         public override void OnClose() { }

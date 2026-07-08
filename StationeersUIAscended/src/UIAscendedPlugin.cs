@@ -11,7 +11,7 @@ using UnityEngine;
 namespace StationeersUIAscended
 {
     /// <summary>
-    /// Stationeers UI Ascended (SSUI). Loads three ways with identical behavior:
+    /// Stationeers UI Ascended. Loads three ways with identical behavior:
     /// BepInEx chainloader (plugins folder), StationeersLaunchPad (folder mod — SLP
     /// AddComponents any BaseUnityPlugin it finds), and ScriptEngine hot reload (scripts
     /// folder — OnDestroy performs full cleanup so reloads never double-patch).
@@ -52,7 +52,7 @@ namespace StationeersUIAscended
 
                 if (GameManager.IsBatchMode)
                 {
-                    UIALog.Info("Dedicated server detected — SSUI is client-side only; nothing will load.");
+                    UIALog.Info("Dedicated server detected — Stationeers UI Ascended is client-side only; nothing will load.");
                     return;
                 }
 

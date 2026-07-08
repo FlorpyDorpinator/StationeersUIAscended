@@ -2,7 +2,7 @@
   "version": "2.0.0",
   "tasks": [
     {
-      "label": "SSUI: Build + Hot Reload (scripts)",
+      "label": "UI Ascended: Build + Hot Reload (scripts)",
       "type": "shell",
       "command": "dotnet build -c Debug; if ($?) { Copy-Item 'bin\\Debug\\StationeersUIAscended.dll' 'C:\\Program Files (x86)\\Steam\\steamapps\\common\\Stationeers\\BepInEx\\scripts\\' -Force; Write-Host 'Deployed to BepInEx\\scripts (ScriptEngine will hot-reload, or press F6 in game)' }",
       "options": { "cwd": "${workspaceFolder}/StationeersUIAscended" },
@@ -10,14 +10,14 @@
       "group": { "kind": "build", "isDefault": true }
     },
     {
-      "label": "SSUI: Deploy (plugins)",
+      "label": "UI Ascended: Deploy (plugins)",
       "type": "shell",
       "command": "dotnet build -c Release; if ($?) { Copy-Item 'bin\\Release\\StationeersUIAscended.dll' 'C:\\Program Files (x86)\\Steam\\steamapps\\common\\Stationeers\\BepInEx\\plugins\\' -Force; Write-Host 'Deployed to BepInEx\\plugins' }",
       "options": { "cwd": "${workspaceFolder}/StationeersUIAscended" },
       "problemMatcher": "$msCompile"
     },
     {
-      "label": "SSUI: Package (SLP mod folder)",
+      "label": "UI Ascended: Package (SLP mod folder)",
       "type": "shell",
       "command": "dotnet msbuild -t:Package -p:Configuration=Release",
       "options": { "cwd": "${workspaceFolder}/StationeersUIAscended" },

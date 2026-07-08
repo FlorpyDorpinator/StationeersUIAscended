@@ -13,7 +13,7 @@ namespace StationeersUIAscended.Windows
     /// </summary>
     public sealed class SettingsWindow : GameImGuiWindow
     {
-        public SettingsWindow() : base("SSUI - Stationeers UI Ascended", new Vector2(430f, 560f)) { }
+        public SettingsWindow() : base("Stationeers UI Ascended", new Vector2(430f, 560f)) { }
 
         public override void OnOpen() { }
         public override void OnClose() { }

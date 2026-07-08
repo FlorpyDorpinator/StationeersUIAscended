@@ -6,7 +6,7 @@ using Assets.Scripts.Objects.Items;
 namespace StationeersUIAscended.Core
 {
     /// <summary>
-    /// The ONLY place SSUI mutates game state. Every method routes through the game's
+    /// The ONLY place this mod mutates game state. Every method routes through the game's
     /// multiplayer-safe funnel (OnServer.* / Slot.Player* / Thing.Interact / Thing.Merge),
     /// which applies locally in singleplayer/host and sends authoritative messages on
     /// clients. Nothing here touches DynamicThing.MoveToSlot, Slot.Take or Quantity.
