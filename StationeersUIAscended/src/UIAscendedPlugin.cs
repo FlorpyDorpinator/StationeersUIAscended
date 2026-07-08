@@ -94,8 +94,9 @@ namespace StationeersUIAscended
             {
                 _radials.Update();
 
-                // Settings window toggle (works in menus too, as long as a world is loaded)
-                if (Input.GetKeyDown(UIAConfig.SettingsWindowKey.Value) && Guards.CanDraw())
+                // Settings window toggle (not while a radial owns the screen)
+                if (Input.GetKeyDown(UIAConfig.SettingsWindowKey.Value) && Guards.CanDraw()
+                    && !_radials.IsRadialOpen)
                     ToggleSettingsWindow();
             }
             catch (Exception e)

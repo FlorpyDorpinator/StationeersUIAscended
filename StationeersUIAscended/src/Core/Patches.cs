@@ -61,7 +61,7 @@ namespace StationeersUIAscended.Core
     /// radial owns it; taps are re-dispatched by ToolRadialFeature.OnTap so nothing is lost.
     /// Other display slots (equipment keys) are untouched.
     /// </summary>
-    [HarmonyPatch(typeof(InventoryManager), "CheckDisplaySlot")]
+    [HarmonyPatch(typeof(InventoryManager), "CheckDisplaySlot", typeof(SlotDisplay), typeof(string))]
     internal static class Patch_InventoryManager_CheckDisplaySlot
     {
         private static bool Prefix(SlotDisplay displaySlot, string buttonName, ref bool __result)

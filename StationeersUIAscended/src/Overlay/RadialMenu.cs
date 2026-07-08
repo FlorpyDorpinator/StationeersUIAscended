@@ -43,6 +43,7 @@ namespace StationeersUIAscended.Overlay
         private readonly List<Level> _stack = new List<Level>();
         private bool _sticky;
         private int _hovered = -1;
+        private float _hoverDist;
         private Action<RadialEntry> _onLeaf;
 
         public bool IsOpen => _stack.Count > 0;
@@ -103,6 +104,10 @@ namespace StationeersUIAscended.Overlay
             }
             if (Input.GetMouseButtonDown(0))
             {
+                // Clicks on ImGui windows (settings/profile editor) belong to ImGui.
+                try { if (ImGui.GetIO().WantCaptureMouse) return; } catch { }
+                // Clicks far outside the ring keep the menu open (no accidental selects).
+                if (_hoverDist > UIAConfig.RadialOuterRadius.Value * 1.15f) return;
                 var entry = HoveredEntry();
                 if (entry == null) return; // clicking dead zone/outside keeps the menu
                 if (!entry.Enabled) return;
@@ -163,6 +168,7 @@ namespace StationeersUIAscended.Overlay
             var mouse = DrawUtil.MousePos();
             var delta = mouse - center;
             float dist = delta.magnitude;
+            _hoverDist = dist;
             _hovered = -1;
             if (count > 0 && dist >= innerR * 0.9f)
             {
