@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ModMetadata>
+  <Name>Stationeers UI Ascended</Name>
+  <ModID>StationeersUIAscended</ModID>
+  <Author>FlorpyDorp</Author>
+  <Version>0.1.0</Version>
+  <Description>Radial interaction, smart storage, and a modern visor HUD for Stationeers.
+
+Hold Middle Mouse for a toolbelt radial, hold R for tool controls and slot swapping, press G for profile-aware Smart Stow, and enjoy a clean two-hand visor HUD - no ten-slot hotbar, ever.
+
+This is a Plugin Mod. It requires BepInEx with the StationeersLaunchPad plugin.
+
+Client-side only: all inventory actions go through the game's own server-authoritative logic, so it is safe on any multiplayer server.</Description>
+  <InGameDescription><![CDATA[<b>Stationeers UI Ascended</b> (SSUI)
+
+<i>Radials, radials, radials - but only where they support the physical two-hand logic of Stationeers.</i>
+
+* <b>Toolbelt radial</b> - hold Middle Mouse, flick, release to equip
+* <b>Tool radial</b> - hold R: toggle, mode, and slot swaps for the held tool
+* <b>Slot finder</b> - swap in a battery from anywhere in your inventory, even inside another tool
+* <b>SmartStow+</b> - G stacks into partial stacks and profile-assigned bags first
+* <b>Bag profiles</b> - per-bag item/category rules, shareable as XML
+* <b>Visor HUD</b> - two-hand boxes, slim status strip, compact vitals, hardcore gating
+
+Client-side and multiplayer-safe: every item move uses the game's own authoritative logic.]]></InGameDescription>
+  <ChangeLog>0.1.0: Initial proof-of-concept release. Toolbelt radial, tool radial, slot swap discovery, SmartStow+, bag profiles, visor HUD overlay, nested bag radial.</ChangeLog>
+  <Tags>
+    <Tag>StationeersLaunchPad</Tag>
+    <Tag>UI</Tag>
+    <Tag>QualityOfLife</Tag>
+    <Tag>Helper</Tag>
+  </Tags>
+</ModMetadata>

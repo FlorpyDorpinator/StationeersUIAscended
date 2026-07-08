@@ -1,0 +1,94 @@
+using System;
+using Assets.Scripts.Inventory;
+using Assets.Scripts.UI;
+using HarmonyLib;
+using UI.ImGuiUi.ImGuiWindows;
+
+namespace StationeersUIAscended.Core
+{
+    /// <summary>
+    /// Fail-soft patch harness (SprayColor pattern): each patch class applies independently,
+    /// so a game update that breaks one target degrades that feature instead of the mod.
+    /// </summary>
+    public static class PatchHarness
+    {
+        public static int Applied { get; private set; }
+        public static int Failed { get; private set; }
+
+        public static void TryPatchAll(Harmony harmony, params Type[] patchClasses)
+        {
+            foreach (var type in patchClasses)
+            {
+                try
+                {
+                    harmony.CreateClassProcessor(type).Patch();
+                    Applied++;
+                    UIALog.Debug("Patched: " + type.Name);
+                }
+                catch (Exception e)
+                {
+                    Failed++;
+                    UIALog.Error($"Patch {type.Name} FAILED (feature degraded): {e.Message}");
+                }
+            }
+            UIALog.Info($"Harmony patches applied: {Applied}, failed: {Failed}.");
+        }
+    }
+
+    /// <summary>
+    /// Single per-frame ImGui hook: runs inside the gameplay branch of the game's own
+    /// ImGui frame (after ImGuiWindowManager windows, before the frame is rendered), so we
+    /// never touch frame begin/end ourselves and we never draw during splash/loading.
+    /// </summary>
+    [HarmonyPatch(typeof(ImGuiWindowManager), nameof(ImGuiWindowManager.Draw))]
+    internal static class Patch_ImGuiWindowManager_Draw
+    {
+        private static void Postfix()
+        {
+            try
+            {
+                UIAscendedPlugin.Instance?.DrawOverlay();
+            }
+            catch (Exception e)
+            {
+                UIAscendedPlugin.Instance?.ReportDrawException(e);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Suppresses the vanilla polled handling of the active-hand key (R) while the tool
+    /// radial owns it; taps are re-dispatched by ToolRadialFeature.OnTap so nothing is lost.
+    /// Other display slots (equipment keys) are untouched.
+    /// </summary>
+    [HarmonyPatch(typeof(InventoryManager), "CheckDisplaySlot")]
+    internal static class Patch_InventoryManager_CheckDisplaySlot
+    {
+        private static bool Prefix(SlotDisplay displaySlot, string buttonName, ref bool __result)
+        {
+            if (buttonName == "ActiveHandSlot" && UIAscendedPlugin.Instance != null
+                && UIAscendedPlugin.Instance.ToolRadialOwnsVanillaKey)
+            {
+                __result = false;
+                return false;
+            }
+            return true;
+        }
+    }
+
+    /// <summary>
+    /// Suppresses the vanilla Tab scoreboard toggle while the bag radial owns Tab; taps are
+    /// re-dispatched by BagRadialFeature.OnTap.
+    /// </summary>
+    [HarmonyPatch(typeof(KeyManager), "ToggleScoreboard")]
+    internal static class Patch_KeyManager_ToggleScoreboard
+    {
+        private static bool Prefix()
+        {
+            var plugin = UIAscendedPlugin.Instance;
+            if (plugin != null && plugin.BagRadialOwnsVanillaKey)
+                return false;
+            return true;
+        }
+    }
+}

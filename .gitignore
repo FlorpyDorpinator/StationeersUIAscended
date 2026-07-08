@@ -1,0 +1,24 @@
+# --- Never commit: decompiled game code, game assets, third-party mod sources ---
+Reference/
+
+# StationpediaAscendedWorkspace is its own git repo
+StationpediaAscendedWorkspace/
+
+# SpecStory session histories (may contain private info)
+.specstory/
+
+# Claude local config
+.claude/
+
+# --- Build output ---
+bin/
+obj/
+build_dev/
+build_release/
+*.user
+*.suo
+.vs/
+
+# --- Misc ---
+*.log
+Thumbs.db
