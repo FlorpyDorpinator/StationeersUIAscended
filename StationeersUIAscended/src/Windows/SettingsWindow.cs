@@ -30,7 +30,9 @@ namespace StationeersUIAscended.Windows
             {
                 Toggle(UIAConfig.ToolbeltRadialEnabled, "Toolbelt radial  (hold " + UIAConfig.ToolbeltRadialKey.Value + ")");
                 Toggle(UIAConfig.ToolRadialEnabled, "Tool radial  (hold " + UIAConfig.ToolRadialKey.Value + ")");
-                Toggle(UIAConfig.BagRadialEnabled, "Bag radial  (hold " + UIAConfig.BagRadialKey.Value + ")");
+                Toggle(UIAConfig.BagRadialEnabled, "Bag radial  ("
+                    + (UIAConfig.BagRadialTapOpens.Value ? "tap " : "hold ") + UIAConfig.BagRadialKey.Value + ")");
+                Toggle(UIAConfig.BagRadialTapOpens, "Tap opens bag radial / hold shows scoreboard");
                 Toggle(UIAConfig.EquipmentKeyRadialsEnabled, "Equipment key radials  (tap 1-6)");
                 Toggle(UIAConfig.ToolbeltShowStowEntries, "Show empty belt slots in the toolbelt radial");
                 IntSlider(UIAConfig.HoldThresholdMs, "Hold threshold (ms)", 60, 600);

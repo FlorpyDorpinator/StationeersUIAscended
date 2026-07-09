@@ -9,18 +9,19 @@ using UnityEngine;
 namespace StationeersUIAscended.Features
 {
     /// <summary>
-    /// Hold Tab: your inventory as radials. Root shows worn containers plus two
+    /// Tab: your inventory as radials. Root shows worn containers plus two
     /// nesting-killers: "Find item" (everything you can reach, flattened and grouped by
     /// type — no digging) and "Grab another: X" (repeats your last retrieval in one
     /// flick). Inside a bag: click a bag to enter it, click an item to take it, slide out
-    /// on an item to open its controls/slots. Tap keeps the vanilla scoreboard.
+    /// on an item to open its controls/slots. By default TAP opens the radial (sticky)
+    /// and HOLD shows the vanilla scoreboard; a config flips the two.
     /// </summary>
     public sealed class BagRadialFeature : IRadialFeature
     {
         public string Title => "Inventory";
         public bool Enabled => UIAConfig.BagRadialEnabled.Value;
         public KeyCode Key => UIAConfig.BagRadialKey.Value;
-        public bool OpenOnTap => false;
+        public bool OpenOnTap => UIAConfig.BagRadialTapOpens.Value;
 
         public bool CanOpen() => Guards.LocalHuman != null;
 
@@ -247,14 +248,24 @@ namespace StationeersUIAscended.Features
             };
         }
 
-        /// <summary>Tap-Tab passthrough: the vanilla scoreboard toggle we suppressed.</summary>
-        public void OnTap()
+        /// <summary>The vanilla scoreboard toggle we suppressed — dispatched on tap when the
+        /// radial opens on hold, or on hold when the radial opens on tap.</summary>
+        private static void ShowScoreboard()
         {
-            if (!OwnsVanillaKey) return;
             InventoryManager.Instance?.ToggleScoreboard(false);
         }
 
-        public void OnHold() { }
+        public void OnTap()
+        {
+            if (!OwnsVanillaKey) return;
+            ShowScoreboard();
+        }
+
+        public void OnHold()
+        {
+            if (!OwnsVanillaKey) return;
+            ShowScoreboard();
+        }
 
         public bool OwnsVanillaKey => Enabled && Key == KeyMap.ShowScoreBoard;
     }

@@ -27,6 +27,7 @@ namespace StationeersUIAscended
         // --- Bag radial ---
         public static ConfigEntry<bool> BagRadialEnabled;
         public static ConfigEntry<KeyCode> BagRadialKey;
+        public static ConfigEntry<bool> BagRadialTapOpens;
         public static ConfigEntry<int> BagRadialGroupThreshold;
 
         // --- Equipment key radials (1-6) ---
@@ -89,7 +90,10 @@ namespace StationeersUIAscended
             BagRadialEnabled = cfg.Bind("4. Bag Radial", "Enabled", true,
                 "Hold a key to navigate backpack/bags/items as nested radials.");
             BagRadialKey = cfg.Bind("4. Bag Radial", "Key", KeyCode.Tab,
-                "Radial key. Default Tab: tap keeps the vanilla scoreboard, hold opens the bag radial.");
+                "Radial key (default Tab).");
+            BagRadialTapOpens = cfg.Bind("4. Bag Radial", "TapOpensRadial", true,
+                "On: TAP opens the bag radial (sticky - click to navigate) and HOLD shows the vanilla scoreboard. " +
+                "Off: hold opens the radial and tap shows the scoreboard.");
             BagRadialGroupThreshold = cfg.Bind("4. Bag Radial", "GroupThreshold", 10,
                 new ConfigDescription("When a bag holds more than this many items, group them by sorting category first.",
                     new AcceptableValueRange<int>(4, 24)));
