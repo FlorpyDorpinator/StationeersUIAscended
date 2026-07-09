@@ -38,6 +38,8 @@ namespace StationeersUIAscended.Overlay
         // Stow slices: the whole wedge reads orange so "put the held item HERE" is unmistakable.
         public static readonly uint RingStow      = C(0.85f, 0.45f, 0.10f, 0.50f);
         public static readonly uint RingStowHover = C(1.00f, 0.55f, 0.16f, 0.85f);
+        // Hub (dead zone) backing: dark enough that the center readout is always readable.
+        public static readonly uint HubBg         = C(0.04f, 0.07f, 0.08f, 0.80f);
 
         public static uint StateColor(float ratio01)
         {
