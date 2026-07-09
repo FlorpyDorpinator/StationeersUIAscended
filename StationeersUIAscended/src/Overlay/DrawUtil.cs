@@ -74,13 +74,37 @@ namespace StationeersUIAscended.Overlay
             dl.AddRect(min, max, border, rounding);
         }
 
+        /// <summary>Draws a sprite fitted into a size×size box, preserving its aspect ratio.</summary>
         public static void Icon(ImDrawListPtr dl, Sprite sprite, Vector2 center, float size, float alpha = 1f)
         {
             var info = IconCache.Get(sprite);
             if (!info.Valid) return;
-            var half = new Vector2(size, size) * 0.5f;
+            float w = size, h = size;
+            try
+            {
+                var r = sprite.rect;
+                if (r.width > 1f && r.height > 1f)
+                {
+                    float scale = size / Mathf.Max(r.width, r.height);
+                    w = r.width * scale;
+                    h = r.height * scale;
+                }
+            }
+            catch { }
+            var half = new Vector2(w, h) * 0.5f;
             uint tint = Theme.C(1f, 1f, 1f, alpha);
             dl.AddImage(info.TextureId, center - half, center + half, info.Uv0, info.Uv1, tint);
+        }
+
+        /// <summary>Truncates text (with ellipsis) so its rendered width fits maxWidth.</summary>
+        public static string FitText(string s, float maxWidth)
+        {
+            if (string.IsNullOrEmpty(s)) return s;
+            if (ImGui.CalcTextSize(s).x <= maxWidth) return s;
+            int len = s.Length;
+            while (len > 1 && ImGui.CalcTextSize(s.Substring(0, len) + "…").x > maxWidth)
+                len--;
+            return s.Substring(0, len) + "…";
         }
 
         /// <summary>Horizontal progress bar with themed state color.</summary>

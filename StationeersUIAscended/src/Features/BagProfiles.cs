@@ -35,10 +35,10 @@ namespace StationeersUIAscended.Features
                 if (!string.IsNullOrEmpty(rule.Prefab) && rule.Prefab == thing.PrefabName)
                     best = Max(best, rule.Priority + 20000);
             foreach (var rule in SlotClasses)
-                if (Enum.TryParse(rule.Name, out Slot.Class cls) && thing.SlotType == cls)
+                if (Enum.TryParse(rule.Name, true, out Slot.Class cls) && thing.SlotType == cls)
                     best = Max(best, rule.Priority + 10000);
             foreach (var rule in Categories)
-                if (Enum.TryParse(rule.Name, out SortingClass sc) && thing.SortingClass == sc)
+                if (Enum.TryParse(rule.Name, true, out SortingClass sc) && thing.SortingClass == sc)
                     best = Max(best, rule.Priority);
             return best;
         }

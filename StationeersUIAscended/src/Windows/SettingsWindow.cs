@@ -13,7 +13,7 @@ namespace StationeersUIAscended.Windows
     /// </summary>
     public sealed class SettingsWindow : GameImGuiWindow
     {
-        public SettingsWindow() : base("Stationeers UI Ascended", new Vector2(430f, 560f)) { }
+        public SettingsWindow() : base("Stationeers UI Ascended " + UIAscendedPlugin.VersionDisplay, new Vector2(430f, 560f)) { }
 
         public override void OnOpen() { }
         public override void OnClose() { }
@@ -31,7 +31,8 @@ namespace StationeersUIAscended.Windows
                 Toggle(UIAConfig.ToolbeltRadialEnabled, "Toolbelt radial  (hold " + UIAConfig.ToolbeltRadialKey.Value + ")");
                 Toggle(UIAConfig.ToolRadialEnabled, "Tool radial  (hold " + UIAConfig.ToolRadialKey.Value + ")");
                 Toggle(UIAConfig.BagRadialEnabled, "Bag radial  (hold " + UIAConfig.BagRadialKey.Value + ")");
-                Toggle(UIAConfig.ToolbeltShowStowEntries, "Show stow targets on empty belt slots");
+                Toggle(UIAConfig.EquipmentKeyRadialsEnabled, "Equipment key radials  (tap 1-6)");
+                Toggle(UIAConfig.ToolbeltShowStowEntries, "Show empty belt slots in the toolbelt radial");
                 IntSlider(UIAConfig.HoldThresholdMs, "Hold threshold (ms)", 60, 600);
                 FloatSlider(UIAConfig.RadialOuterRadius, "Radial size", 120f, 480f);
             }

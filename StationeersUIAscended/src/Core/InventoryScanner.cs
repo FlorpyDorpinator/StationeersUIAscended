@@ -14,8 +14,16 @@ namespace StationeersUIAscended.Core
         public string Location;       // human-readable: "Toolbelt", "inside Mining Drill", ...
         public int Depth;
         public bool InsideTool;       // slot's holder is a tool-ish item rather than a bag/human
+        public DynamicThing Expected; // occupant at menu-build time; actions verify it still matches
 
         public DynamicThing Occupant => Slot?.Get();
+
+        /// <summary>Snapshot the current occupant so a later click can't act on a different item.</summary>
+        public ScannedSlot Pin()
+        {
+            Expected = Slot?.Get();
+            return this;
+        }
     }
 
     /// <summary>
@@ -107,7 +115,7 @@ namespace StationeersUIAscended.Core
                 DynamicThing occ = scanned.Occupant;
                 if (occ == null || scanned.Slot == targetSlot) continue;
                 if (!IsTypeCompatible(targetSlot, occ)) continue;
-                found.Add(scanned);
+                found.Add(scanned.Pin());
             }
             return found;
         }

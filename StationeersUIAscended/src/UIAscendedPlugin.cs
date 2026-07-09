@@ -21,7 +21,8 @@ namespace StationeersUIAscended
     {
         public const string PluginGuid = "com.florpydorp.stationeers.uiascended";
         public const string PluginName = "Stationeers UI Ascended";
-        public const string PluginVersion = "0.1.0";
+        public const string PluginVersion = "0.1.0"; // BepInEx needs System.Version format
+        public const string VersionDisplay = "0.1.0 Alpha";
 
         public static UIAscendedPlugin Instance { get; private set; }
 
@@ -32,6 +33,8 @@ namespace StationeersUIAscended
         private HudOverlayFeature _hud;
         private SettingsWindow _settingsWindow;
         private ProfileEditorWindow _profileEditor;
+        private readonly System.Collections.Generic.List<EquipmentKeyRadialFeature> _equipFeatures
+            = new System.Collections.Generic.List<EquipmentKeyRadialFeature>();
         private int _drawExceptions;
 
         private void Awake()
@@ -64,6 +67,12 @@ namespace StationeersUIAscended
                 _radials.Register(new ToolbeltRadialFeature());
                 _radials.Register(_toolRadial);
                 _radials.Register(_bagRadial);
+                _equipFeatures.Clear();
+                foreach (var equipFeature in EquipmentKeyRadialFeature.CreateAll())
+                {
+                    _equipFeatures.Add(equipFeature);
+                    _radials.Register(equipFeature);
+                }
                 _hud = new HudOverlayFeature();
 
                 _harmony = new Harmony(PluginGuid);
@@ -75,9 +84,16 @@ namespace StationeersUIAscended
 
                 BoosterBridge.TryRegister("StationeersUIAscended", PluginVersion);
 
-                UIALog.Info($"{PluginName} v{PluginVersion} initialized. " +
+                UIALog.Info($"{PluginName} v{VersionDisplay} initialized. " +
                             $"Hold {UIAConfig.ToolbeltRadialKey.Value} for the toolbelt radial, " +
                             $"{UIAConfig.SettingsWindowKey.Value} for settings.");
+                // Visible in the in-game F3 console, so ScriptEngine hot reloads are obvious.
+                try
+                {
+                    ConsoleWindow.Print($"[UI Ascended] v{VersionDisplay} loaded ({System.DateTime.Now:HH:mm:ss}). " +
+                                        "F6 = hot reload (ScriptEngine).", System.ConsoleColor.Cyan);
+                }
+                catch { }
             }
             catch (Exception e)
             {
@@ -135,10 +151,35 @@ namespace StationeersUIAscended
         }
 
         public bool ToolRadialOwnsVanillaKey =>
-            UIAConfig.MasterEnable.Value && _toolRadial != null && _toolRadial.OwnsVanillaKey;
+            UIAConfig.MasterEnable.Value && Assets.Scripts.Inventory.InventoryManager.ShowUi
+            && _toolRadial != null && _toolRadial.OwnsVanillaKey;
 
         public bool BagRadialOwnsVanillaKey =>
             UIAConfig.MasterEnable.Value && _bagRadial != null && _bagRadial.OwnsVanillaKey;
+
+        /// <summary>
+        /// True when the equipment-key radials own the given vanilla slot button RIGHT NOW.
+        /// Falls back to vanilla when: the mod/HUD is disabled, the key collides with another
+        /// radial key (which would shadow us), or we have no possible action for the current
+        /// state (empty slot + nothing fitting in hand) — so vanilla behavior is never simply
+        /// eaten without a replacement.
+        /// </summary>
+        public bool EquipmentKeysOwnButton(string buttonName)
+        {
+            if (!UIAConfig.MasterEnable.Value || !UIAConfig.EquipmentKeyRadialsEnabled.Value) return false;
+            if (!Assets.Scripts.Inventory.InventoryManager.ShowUi) return false;
+            foreach (var feature in _equipFeatures)
+            {
+                if (feature.ButtonName != buttonName) continue;
+                var key = feature.Key;
+                if (key == KeyCode.None) return false;
+                if (key == UIAConfig.ToolbeltRadialKey.Value || key == UIAConfig.ToolRadialKey.Value
+                    || key == UIAConfig.BagRadialKey.Value || key == UIAConfig.SettingsWindowKey.Value)
+                    return false; // collision: the other feature wins the key, leave vanilla alive
+                return feature.CanAct();
+            }
+            return false;
+        }
 
         public void ToggleSettingsWindow()
         {
@@ -160,7 +201,7 @@ namespace StationeersUIAscended
             if (Instance != this) return;
             try
             {
-                _radials?.CloseAll();
+                _radials?.ShutdownImmediate();
                 if (_settingsWindow != null && _settingsWindow.IsShowing) ImGuiWindowManager.Close(_settingsWindow);
                 if (_profileEditor != null && _profileEditor.IsShowing) ImGuiWindowManager.Close(_profileEditor);
                 _hud?.RestoreVanillaIfNeeded();
@@ -168,6 +209,12 @@ namespace StationeersUIAscended
                 IconCache.Clear();
                 _harmony?.UnpatchSelf();
                 UIALog.Info("Cleaned up (hot reload safe).");
+                try
+                {
+                    ConsoleWindow.Print($"[UI Ascended] v{VersionDisplay} unloading ({System.DateTime.Now:HH:mm:ss}) — hot reload in progress…",
+                        System.ConsoleColor.Yellow);
+                }
+                catch { }
             }
             catch (Exception e)
             {

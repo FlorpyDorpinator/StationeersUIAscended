@@ -57,17 +57,23 @@ namespace StationeersUIAscended.Core
     }
 
     /// <summary>
-    /// Suppresses the vanilla polled handling of the active-hand key (R) while the tool
-    /// radial owns it; taps are re-dispatched by ToolRadialFeature.OnTap so nothing is lost.
-    /// Other display slots (equipment keys) are untouched.
+    /// Suppresses the vanilla polled handling of keys we own: the active-hand key (R) when
+    /// the tool radial has it, and the 1-6 equipment keys when equipment-key radials are on.
+    /// Taps/holds are re-dispatched by the owning feature so nothing is lost.
     /// </summary>
     [HarmonyPatch(typeof(InventoryManager), "CheckDisplaySlot", typeof(SlotDisplay), typeof(string))]
     internal static class Patch_InventoryManager_CheckDisplaySlot
     {
         private static bool Prefix(SlotDisplay displaySlot, string buttonName, ref bool __result)
         {
-            if (buttonName == "ActiveHandSlot" && UIAscendedPlugin.Instance != null
-                && UIAscendedPlugin.Instance.ToolRadialOwnsVanillaKey)
+            var plugin = UIAscendedPlugin.Instance;
+            if (plugin == null) return true;
+            if (buttonName == "ActiveHandSlot" && plugin.ToolRadialOwnsVanillaKey)
+            {
+                __result = false;
+                return false;
+            }
+            if (plugin.EquipmentKeysOwnButton(buttonName))
             {
                 __result = false;
                 return false;

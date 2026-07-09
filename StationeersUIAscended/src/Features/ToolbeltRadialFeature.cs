@@ -9,15 +9,17 @@ using UnityEngine;
 namespace StationeersUIAscended.Features
 {
     /// <summary>
-    /// Phase 1 — the flagship: hold Middle Mouse, flick to a tool on your belt, release to
-    /// equip it into the active hand (vanilla-style swap when the hand is occupied).
-    /// Empty belt slots optionally appear as stow targets for the held item.
+    /// The flagship: hold Middle Mouse, flick to a tool on your belt, release to equip it
+    /// into the active hand (vanilla-style swap when the hand is occupied). Empty belt
+    /// slots are always shown so you can put a tool back. Sliding out past the rim on a
+    /// tool opens its controls/slots as a satellite ring.
     /// </summary>
     public sealed class ToolbeltRadialFeature : IRadialFeature
     {
         public string Title => "Toolbelt";
         public bool Enabled => UIAConfig.ToolbeltRadialEnabled.Value;
         public KeyCode Key => UIAConfig.ToolbeltRadialKey.Value;
+        public bool OpenOnTap => false;
 
         public bool CanOpen()
         {
@@ -41,28 +43,37 @@ namespace StationeersUIAscended.Features
                 DynamicThing occ = slot.Get();
                 if (occ != null)
                 {
-                    var source = new ScannedSlot { Slot = slot, Holder = belt, Location = "Toolbelt" };
+                    var source = new ScannedSlot { Slot = slot, Holder = belt, Location = "Toolbelt" }.Pin();
+                    bool handEmpty = hand != null && hand.Get() == null;
                     bool canEquip = hand != null &&
-                        (hand.Get() == null ? Slot.AllowMove(occ, hand) : Slot.AllowSwap(slot, hand));
+                        (handEmpty ? Slot.AllowMove(occ, hand) : Slot.AllowSwap(slot, hand));
+                    var thing = occ;
                     entries.Add(new RadialEntry
                     {
                         Label = occ.DisplayName,
+                        ActionText = handEmpty ? "Equip" : "Swap into hand",
                         Sublabel = DescribeState(occ),
                         Icon = occ.GetThumbnail(),
                         Enabled = canEquip,
                         DisabledReason = canEquip ? null : "Can't equip",
                         OnSelect = () => ItemActions.EquipToActiveHand(source),
+                        SlideOutProvider = () => ItemMenuBuilder.BuildManageEntries(thing, slot, includeTakeEntry: false),
+                        SlideOutLabel = "Open",
                     });
                 }
-                else if (UIAConfig.ToolbeltShowStowEntries.Value && held != null && Slot.AllowMove(held, slot))
+                else if (UIAConfig.ToolbeltShowStowEntries.Value)
                 {
                     Slot target = slot;
+                    bool canStow = held != null && Slot.AllowMove(held, slot);
                     entries.Add(new RadialEntry
                     {
-                        Label = "Stow " + held.DisplayName,
-                        Sublabel = slot.DisplayName,
-                        Icon = held.GetThumbnail(),
-                        AccentOverride = Theme.Good,
+                        Label = string.IsNullOrEmpty(slot.DisplayName) ? "Empty" : slot.DisplayName,
+                        ActionText = canStow ? "Stow " + held.DisplayName : null,
+                        Sublabel = "(empty)",
+                        Icon = canStow ? held.GetThumbnail() : slot.SlotTypeIcon,
+                        Enabled = canStow,
+                        DisabledReason = held == null ? "Nothing in hand" : "Held item doesn't fit",
+                        AccentOverride = canStow ? Theme.Good : (uint?)null,
                         OnSelect = () => ItemActions.StowActiveHandTo(target),
                     });
                 }
@@ -74,6 +85,8 @@ namespace StationeersUIAscended.Features
         {
             // Middle mouse has no vanilla action in this build (PingHighlight is unbound); nothing to re-dispatch.
         }
+
+        public void OnHold() { }
 
         internal static string DescribeState(DynamicThing thing)
         {

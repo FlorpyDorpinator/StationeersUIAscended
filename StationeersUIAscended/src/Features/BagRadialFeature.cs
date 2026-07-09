@@ -9,14 +9,18 @@ using UnityEngine;
 namespace StationeersUIAscended.Features
 {
     /// <summary>
-    /// Phase 7 — hold Tab: worn containers → bag contents (grouped by category when large)
-    /// → equip to hand / dive into nested bags. Tap keeps the vanilla scoreboard.
+    /// Hold Tab: your inventory as radials. Root shows worn containers plus two
+    /// nesting-killers: "Find item" (everything you can reach, flattened and grouped by
+    /// type — no digging) and "Grab another: X" (repeats your last retrieval in one
+    /// flick). Inside a bag: click a bag to enter it, click an item to take it, slide out
+    /// on an item to open its controls/slots. Tap keeps the vanilla scoreboard.
     /// </summary>
     public sealed class BagRadialFeature : IRadialFeature
     {
         public string Title => "Inventory";
         public bool Enabled => UIAConfig.BagRadialEnabled.Value;
         public KeyCode Key => UIAConfig.BagRadialKey.Value;
+        public bool OpenOnTap => false;
 
         public bool CanOpen() => Guards.LocalHuman != null;
 
@@ -26,12 +30,106 @@ namespace StationeersUIAscended.Features
             var human = Guards.LocalHuman;
             if (human == null) return entries;
 
+            // "Grab another: X" — one flick to repeat the last retrieval.
+            if (RetrievalMemory.LastName != null)
+            {
+                var again = FindByPrefab(RetrievalMemory.LastPrefabHash);
+                if (again != null)
+                {
+                    entries.Add(new RadialEntry
+                    {
+                        Label = RetrievalMemory.LastName,
+                        ActionText = "Grab another",
+                        Sublabel = again.Location,
+                        Icon = RetrievalMemory.LastIcon,
+                        AccentOverride = Theme.Accent,
+                        OnSelect = () => TakeAndRemember(again),
+                    });
+                }
+            }
+
+            // "Find item" — the whole reachable inventory, flattened and grouped by type.
+            entries.Add(new RadialEntry
+            {
+                Label = "Find item",
+                Sublabel = "search all bags",
+                ActionText = "Open",
+                ChildProvider = BuildFindLevel,
+            });
+
             AddContainer(entries, human.BackpackSlot, "Backpack");
             AddContainer(entries, human.ToolbeltSlot, "Toolbelt");
             AddContainer(entries, human.SuitSlot, "Suit");
             AddContainer(entries, human.UniformSlot, "Uniform");
             return entries;
         }
+
+        // ---------- Find item ----------
+
+        private static List<RadialEntry> BuildFindLevel()
+        {
+            var entries = new List<RadialEntry>();
+            var groups = InventoryScanner
+                .Scan(UIAConfig.ScanDepth.Value, UIAConfig.AllowToolSlotSources.Value)
+                .Where(s => s.Occupant != null && s.Depth > 0)
+                .GroupBy(s => s.Occupant.PrefabHash)
+                .OrderBy(g => g.First().Occupant.DisplayName)
+                .ToList();
+
+            foreach (var group in groups)
+            {
+                var instances = group.OrderBy(s => s.Depth).Select(s => s.Pin()).ToList();
+                var first = instances[0];
+                var thing = first.Occupant;
+                entries.Add(new RadialEntry
+                {
+                    Label = thing.DisplayName,
+                    ActionText = "Take nearest",
+                    Sublabel = (instances.Count > 1 ? "×" + instances.Count + " · " : "") + first.Location,
+                    Icon = thing.GetThumbnail(),
+                    OnSelect = () => TakeAndRemember(first),
+                    // Pick a specific one when there are several.
+                    SlideOutProvider = instances.Count > 1
+                        ? () => instances.Select(InstanceEntry).ToList()
+                        : (System.Func<List<RadialEntry>>)null,
+                    SlideOutLabel = "Pick one",
+                });
+            }
+            return entries;
+        }
+
+        private static RadialEntry InstanceEntry(ScannedSlot scanned)
+        {
+            var thing = scanned.Occupant;
+            if (thing == null) return new RadialEntry { Label = "(gone)", Enabled = false };
+            return new RadialEntry
+            {
+                Label = thing.DisplayName,
+                ActionText = "Take to hand",
+                Sublabel = scanned.Location,
+                Warning = InventoryScanner.ConsequenceOfRemoving(scanned),
+                Icon = thing.GetThumbnail(),
+                OnSelect = () => TakeAndRemember(scanned),
+            };
+        }
+
+        private static ScannedSlot FindByPrefab(int prefabHash)
+        {
+            return InventoryScanner
+                .Scan(UIAConfig.ScanDepth.Value, UIAConfig.AllowToolSlotSources.Value)
+                .Where(s => s.Occupant != null && s.Depth > 0 && s.Occupant.PrefabHash == prefabHash)
+                .OrderBy(s => s.Depth)
+                .FirstOrDefault()?.Pin();
+        }
+
+        private static void TakeAndRemember(ScannedSlot source)
+        {
+            var thing = source?.Occupant;
+            if (ItemActions.EquipToActiveHand(source) && thing != null)
+                RetrievalMemory.Record(thing);
+        }
+
+        // ---------- containers ----------
 
         private static void AddContainer(List<RadialEntry> entries, Slot slot, string fallbackName)
         {
@@ -41,6 +139,7 @@ namespace StationeersUIAscended.Features
             entries.Add(new RadialEntry
             {
                 Label = container.DisplayName,
+                ActionText = "Open",
                 Sublabel = $"{fallbackName} · {used}/{container.Slots.Count}",
                 Icon = container.GetThumbnail(),
                 ChildProvider = () => BuildBagLevel(container),
@@ -73,6 +172,7 @@ namespace StationeersUIAscended.Features
                     entries.Add(new RadialEntry
                     {
                         Label = group.Key.ToString(),
+                        ActionText = "Open",
                         Sublabel = slots.Count + " item(s)",
                         Icon = first?.GetThumbnail(),
                         ChildProvider = () => slots.Select(s => ItemEntry(bag, s)).Where(e => e != null).ToList(),
@@ -88,7 +188,8 @@ namespace StationeersUIAscended.Features
                 }
             }
 
-            // One stow target when holding something and the bag has room
+            // One stow target when holding something and the bag has room — this is how you
+            // choose WHICH bag an item goes into.
             var hand = InventoryManager.ActiveHandSlot;
             var held = hand?.Get();
             if (held != null)
@@ -98,7 +199,8 @@ namespace StationeersUIAscended.Features
                 {
                     entries.Add(new RadialEntry
                     {
-                        Label = "Stow " + held.DisplayName,
+                        Label = held.DisplayName,
+                        ActionText = "Stow here",
                         Sublabel = "into " + bag.DisplayName,
                         Icon = held.GetThumbnail(),
                         AccentOverride = Theme.Good,
@@ -113,25 +215,35 @@ namespace StationeersUIAscended.Features
         {
             DynamicThing occ = slot.Get();
             if (occ == null) return null;
-            var source = new ScannedSlot { Slot = slot, Holder = bag, Location = bag.DisplayName };
+            var source = new ScannedSlot { Slot = slot, Holder = bag, Location = bag.DisplayName }.Pin();
 
-            // Nested bags become branches; plain items equip to hand.
-            if (occ.Slots != null && occ.Slots.Count > 0 && occ.Slots.Any(s => s?.Get() != null))
+            // Bags are navigated; everything else is taken (click) or opened (slide-out).
+            if (ItemMenuBuilder.LooksLikeContainer(occ))
             {
                 return new RadialEntry
                 {
                     Label = occ.DisplayName,
-                    Sublabel = "open bag",
+                    ActionText = "Open bag",
+                    Sublabel = occ.Slots.Count(s => s?.Get() != null) + "/" + occ.Slots.Count,
                     Icon = occ.GetThumbnail(),
                     ChildProvider = () => BuildBagLevel(occ),
                 };
             }
+
+            var thing = occ;
+            bool hasInnards = (occ.Slots != null && occ.Slots.Count > 0)
+                || occ.InteractOnOff != null || occ.InteractMode != null;
             return new RadialEntry
             {
                 Label = occ.DisplayName,
+                ActionText = "Take to hand",
                 Sublabel = ToolbeltRadialFeature.DescribeState(occ),
                 Icon = occ.GetThumbnail(),
-                OnSelect = () => ItemActions.EquipToActiveHand(source),
+                OnSelect = () => TakeAndRemember(source),
+                SlideOutProvider = hasInnards
+                    ? () => ItemMenuBuilder.BuildManageEntries(thing, slot, includeTakeEntry: false)
+                    : (System.Func<List<RadialEntry>>)null,
+                SlideOutLabel = "Open",
             };
         }
 
@@ -141,6 +253,8 @@ namespace StationeersUIAscended.Features
             if (!OwnsVanillaKey) return;
             InventoryManager.Instance?.ToggleScoreboard(false);
         }
+
+        public void OnHold() { }
 
         public bool OwnsVanillaKey => Enabled && Key == KeyMap.ShowScoreBoard;
     }

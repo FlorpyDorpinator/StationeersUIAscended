@@ -29,6 +29,9 @@ namespace StationeersUIAscended
         public static ConfigEntry<KeyCode> BagRadialKey;
         public static ConfigEntry<int> BagRadialGroupThreshold;
 
+        // --- Equipment key radials (1-6) ---
+        public static ConfigEntry<bool> EquipmentKeyRadialsEnabled;
+
         // --- Slot finder ---
         public static ConfigEntry<int> ScanDepth;
         public static ConfigEntry<bool> AllowToolSlotSources;
@@ -74,7 +77,7 @@ namespace StationeersUIAscended
             ToolbeltRadialKey = cfg.Bind("2. Toolbelt Radial", "Key", KeyCode.Mouse2,
                 "Radial key (default: middle mouse; the vanilla PingHighlight binding on Mouse2 is currently unused by the game).");
             ToolbeltShowStowEntries = cfg.Bind("2. Toolbelt Radial", "ShowStowEntries", true,
-                "Show empty belt slots as 'Stow' targets for the currently held item.");
+                "Always show empty belt slots in the radial, so you can put the held tool back (disabled entries when nothing fits).");
 
             ToolRadialEnabled = cfg.Bind("3. Tool Radial", "Enabled", true,
                 "Hold a key while holding a tool to open its Controls/Slots radial.");
@@ -90,6 +93,10 @@ namespace StationeersUIAscended
             BagRadialGroupThreshold = cfg.Bind("4. Bag Radial", "GroupThreshold", 10,
                 new ConfigDescription("When a bag holds more than this many items, group them by sorting category first.",
                     new AcceptableValueRange<int>(4, 24)));
+
+            EquipmentKeyRadialsEnabled = cfg.Bind("4b. Equipment Keys", "Enabled", true,
+                "Tap 1-6 to open a management radial for that equipment piece (on/off, slots, swaps); " +
+                "hold 1-6 to equip/unequip it to the active hand. Replaces the vanilla slot-window toggle on those keys.");
 
             ScanDepth = cfg.Bind("5. Slot Finder", "ScanDepth", 3,
                 new ConfigDescription("How many container levels deep to search for compatible items (1 = only worn slots).",

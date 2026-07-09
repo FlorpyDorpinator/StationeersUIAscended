@@ -37,6 +37,25 @@ namespace StationeersUIAscended.Core
             if (Stationpedia.IsOpenAndLocked) return false;
             if (ImguiCreativeSpawnMenu.Show) return false;
             if (KeyManager.InputState != KeyInputState.Game) return false;
+            // Vanilla parity (InventoryManager.ManagerUpdate): no slot hotkeys while the
+            // cursor is free (escape menu / Alt mouse-control) or the player is out cold.
+            if (UnityEngine.Cursor.visible) return false;
+            var parent = InventoryManager.Parent;
+            if (parent == null || parent.IsUnresponsive) return false;
+            return true;
+        }
+
+        /// <summary>True while an OPEN radial may stay open (cursor is intentionally free).</summary>
+        public static bool CanKeepRadialOpen()
+        {
+            if (!CanDraw()) return false;
+            if (WorldManager.IsGamePaused) return false;
+            if (ConsoleWindow.IsOpen) return false;
+            if (InputWindowBase.IsInputWindow) return false;
+            if (Stationpedia.IsOpenAndLocked) return false;
+            if (ImguiCreativeSpawnMenu.Show) return false;
+            var parent = InventoryManager.Parent;
+            if (parent == null || parent.IsUnresponsive) return false;
             return true;
         }
     }

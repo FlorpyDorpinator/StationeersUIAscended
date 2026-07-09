@@ -6,17 +6,20 @@ using UnityEngine;
 
 namespace StationeersUIAscended.Features
 {
-    /// <summary>A feature that owns one hold-key radial (toolbelt / tool / bags).</summary>
+    /// <summary>A feature that owns one radial key.</summary>
     public interface IRadialFeature
     {
         string Title { get; }
         bool Enabled { get; }
         KeyCode Key { get; }
-        /// <summary>Cheap pre-check before the hold timer even starts (e.g. "holding a tool").</summary>
+        /// <summary>When true the radial opens on TAP (sticky) and OnHold() runs on a long press.
+        /// When false the radial opens on HOLD and OnTap() re-dispatches the vanilla tap.</summary>
+        bool OpenOnTap { get; }
+        /// <summary>Cheap pre-check before anything happens (e.g. "holding a tool").</summary>
         bool CanOpen();
         List<RadialEntry> BuildRoot();
-        /// <summary>Key released before the hold threshold: re-dispatch the vanilla tap action, if any.</summary>
         void OnTap();
+        void OnHold();
     }
 
     /// <summary>
@@ -29,9 +32,10 @@ namespace StationeersUIAscended.Features
         private readonly RadialMenu _menu = new RadialMenu();
         private readonly ModalScope _modal = new ModalScope("UIAscended_Radial");
 
-        private IRadialFeature _pending;   // key down, waiting for hold threshold
+        private IRadialFeature _pending;   // key down, waiting to resolve tap vs hold
         private float _pendingSince;
         private IRadialFeature _active;    // radial open
+        private KeyCode _releaseKey;       // key to wait out during a deferred modal release
 
         public bool IsRadialOpen => _menu.IsOpen;
         public IRadialFeature ActiveFeature => _active;
@@ -46,8 +50,15 @@ namespace StationeersUIAscended.Features
                 return;
             }
 
-            // Session ended externally (menu closed itself) — release the modal.
-            if (_modal.IsOpen) _modal.Close();
+            // Finish a deferred modal release: the Typing state is held until the closing
+            // keys (Escape/RMB/hold key) are physically up, so their key-UP events can't
+            // fire vanilla actions (pause menu, ToggleActiveHandTool).
+            if (_modal.IsOpen)
+            {
+                _modal.RequestDeferredClose();
+                _modal.Pump(_releaseKey);
+                return;
+            }
 
             if (!Guards.CanAcceptGameplayInput())
             {
@@ -76,36 +87,57 @@ namespace StationeersUIAscended.Features
         private void UpdatePending()
         {
             var feature = _pending;
+            float heldMs = (Time.unscaledTime - _pendingSince) * 1000f;
+
             if (!Input.GetKey(feature.Key))
             {
-                // Tap: fall through to the vanilla action for this key.
                 _pending = null;
-                feature.OnTap();
+                if (feature.OpenOnTap)
+                {
+                    // Tap opens the management radial (sticky — the key is already up).
+                    OpenRadial(feature, sticky: true);
+                }
+                else
+                {
+                    // Tap falls through to the vanilla action for this key.
+                    feature.OnTap();
+                }
                 return;
             }
-            float heldMs = (Time.unscaledTime - _pendingSince) * 1000f;
-            if (heldMs < UIAConfig.HoldThresholdMs.Value) return;
 
+            if (heldMs < UIAConfig.HoldThresholdMs.Value) return;
             _pending = null;
+
+            if (feature.OpenOnTap)
+            {
+                // Long press = the feature's hold action (e.g. equip to hand).
+                feature.OnHold();
+                return;
+            }
+            OpenRadial(feature, sticky: false);
+        }
+
+        private void OpenRadial(IRadialFeature feature, bool sticky)
+        {
             if (!feature.CanOpen())
             {
-                UIAudioManager.Play(UIAudioManager.ActionFailHash);
+                // No radial to show — give tap-features their hold action instead
+                // (e.g. tap 3 with an empty suit slot dons the suit from your hand).
+                if (feature.OpenOnTap) feature.OnHold();
+                else UIAudioManager.Play(UIAudioManager.ActionFailHash);
                 return;
             }
-            var entries = feature.BuildRoot();
             _active = feature;
             _modal.Open();
-            _menu.Open(feature.Title, entries);
+            _menu.Open(feature.Title, feature.BuildRoot, sticky);
             UIAudioManager.Play(UIAudioManager.ClickLightHash);
         }
 
         private void UpdateOpen()
         {
-            // Bail out of the radial whenever the world stops being interactable.
-            if (GameManager.GameState != Assets.Scripts.GridSystem.GameState.Running
-                || WorldManager.IsGamePaused
-                || ConsoleWindow.IsOpen
-                || Guards.LocalHuman == null)
+            // Bail out whenever the world stops being interactable or vanilla UI takes over
+            // (pause, console, keyboard windows, Stationpedia, creative menu, unconscious).
+            if (!Guards.CanKeepRadialOpen())
             {
                 CloseAll();
                 return;
@@ -149,6 +181,17 @@ namespace StationeersUIAscended.Features
         }
 
         public void CloseAll()
+        {
+            _menu.Close();
+            _releaseKey = _active?.Key ?? KeyCode.None;
+            _modal.RequestDeferredClose();
+            _modal.Pump(_releaseKey);
+            _active = null;
+            _pending = null;
+        }
+
+        /// <summary>Immediate teardown (plugin OnDestroy / hot reload) — no deferred release.</summary>
+        public void ShutdownImmediate()
         {
             _menu.Close();
             _modal.Close();

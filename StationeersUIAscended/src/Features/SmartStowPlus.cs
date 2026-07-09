@@ -43,6 +43,8 @@ namespace StationeersUIAscended.Features
                 foreach (var scanned in slots)
                 {
                     if (scanned.Slot == selectedSlot) continue;
+                    // Hands are never stow destinations ("stowing" into your other hand).
+                    if (scanned.Slot == human.LeftHandSlot || scanned.Slot == human.RightHandSlot) continue;
                     DynamicThing occ = scanned.Occupant;
                     if (occ == null || !(occ is IMergeable target)) continue;
                     if (!target.CanStack(heldMergeable) || target.IsStackFull) continue;
@@ -62,6 +64,7 @@ namespace StationeersUIAscended.Features
                 foreach (var scanned in slots)
                 {
                     if (scanned.Slot == selectedSlot || scanned.Occupant != null) continue;
+                    if (scanned.Slot == human.LeftHandSlot || scanned.Slot == human.RightHandSlot) continue;
                     var bag = scanned.Holder;
                     if (bag == null || bag == human) continue;
                     var profile = BagProfileStore.GetAssignedProfile(bag);
@@ -91,6 +94,7 @@ namespace StationeersUIAscended.Features
                     slots = slots ?? InventoryScanner.Scan(depth, false);
                     var target = slots.FirstOrDefault(s =>
                         s.Occupant == null &&
+                        s.Slot != human.LeftHandSlot && s.Slot != human.RightHandSlot &&
                         s.Holder != null &&
                         s.Holder.ReferenceId == bagRef.Value &&
                         Slot.AllowMove(held, s.Slot));

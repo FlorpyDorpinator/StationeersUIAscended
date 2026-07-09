@@ -21,7 +21,9 @@ namespace StationeersUIAscended.Features
     /// </summary>
     public sealed class HudOverlayFeature
     {
-        private bool _vanillaHidden;
+        // Per-panel applied state (null = untouched), so toggling one Hide* setting
+        // takes effect without being masked by the others.
+        private bool? _appliedHands, _appliedClothing, _appliedStatus;
 
         public void Draw()
         {
@@ -297,17 +299,22 @@ namespace StationeersUIAscended.Features
 
         private void SyncVanillaVisibility()
         {
-            bool wantHide = UIAConfig.HideVanillaHands.Value || UIAConfig.HideVanillaClothing.Value || UIAConfig.HideVanillaStatus.Value;
-            if (wantHide == _vanillaHidden) return;
-            ApplyVanillaVisibility(!UIAConfig.HideVanillaHands.Value, !UIAConfig.HideVanillaClothing.Value, !UIAConfig.HideVanillaStatus.Value);
-            _vanillaHidden = wantHide;
+            bool hands = !UIAConfig.HideVanillaHands.Value;
+            bool clothing = !UIAConfig.HideVanillaClothing.Value;
+            bool status = !UIAConfig.HideVanillaStatus.Value;
+            if (_appliedHands == hands && _appliedClothing == clothing && _appliedStatus == status) return;
+            ApplyVanillaVisibility(hands, clothing, status);
+            _appliedHands = hands;
+            _appliedClothing = clothing;
+            _appliedStatus = status;
         }
 
         public void RestoreVanillaIfNeeded()
         {
-            if (!_vanillaHidden) return;
+            bool touchedAnything = _appliedHands == false || _appliedClothing == false || _appliedStatus == false;
+            _appliedHands = _appliedClothing = _appliedStatus = null;
+            if (!touchedAnything) return;
             ApplyVanillaVisibility(true, true, true);
-            _vanillaHidden = false;
         }
 
         private static void ApplyVanillaVisibility(bool hands, bool clothing, bool status)

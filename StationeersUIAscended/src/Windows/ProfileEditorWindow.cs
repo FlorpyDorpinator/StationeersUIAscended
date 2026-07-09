@@ -23,11 +23,33 @@ namespace StationeersUIAscended.Windows
         private string _newProfileName = "";
         private string _newItemPrefab = "";
         private int _newItemPriority = 100;
+        // The worn-bag list is cached: DrawContent runs every ImGui frame and a full
+        // recursive inventory scan per frame is wasted work.
+        private List<DynamicThing> _wornBags = new List<DynamicThing>();
+        private float _wornBagsScannedAt = -999f;
 
         public ProfileEditorWindow() : base("UI Ascended - Bag Profiles", new Vector2(560f, 520f)) { }
 
-        public override void OnOpen() => BagProfileStore.EnsureSaveLoaded();
+        public override void OnOpen()
+        {
+            BagProfileStore.EnsureSaveLoaded();
+            _wornBagsScannedAt = -999f;
+        }
+
         public override void OnClose() { }
+
+        private void RefreshWornBags()
+        {
+            if (Time.unscaledTime - _wornBagsScannedAt < 1f) return;
+            _wornBagsScannedAt = Time.unscaledTime;
+            _wornBags.Clear();
+            foreach (var scanned in InventoryScanner.Scan(2, false))
+            {
+                var bag = scanned.Occupant;
+                if (bag == null || bag.Slots == null || bag.Slots.Count < 2) continue;
+                if (!_wornBags.Contains(bag)) _wornBags.Add(bag);
+            }
+        }
 
         public override void DrawContent()
         {
@@ -55,11 +77,10 @@ namespace StationeersUIAscended.Windows
                 ImGui.TextDisabled("(no player)");
                 return;
             }
-            foreach (var scanned in InventoryScanner.Scan(2, false))
+            RefreshWornBags();
+            foreach (var bag in _wornBags)
             {
-                var bag = scanned.Occupant;
-                if (bag == null || bag.Slots == null || bag.Slots.Count == 0) continue;
-                if (bag.Slots.Count < 2) continue; // ignore single-slot tools
+                if (bag == null) continue;
                 string current = BagProfileStore.GetAssignedProfileName(bag) ?? "(none)";
                 if (ImGui.BeginCombo("##assign_" + bag.ReferenceId, bag.DisplayName + "  ->  " + current))
                 {

@@ -18,11 +18,44 @@ namespace StationeersUIAscended.Core
 
         private readonly UiaModal _modal = new UiaModal();
         private readonly string _inputStateKey;
+        private bool _releasePending;
+        private int _clearFrames;
         public bool IsOpen { get; private set; }
 
         public ModalScope(string inputStateKey)
         {
             _inputStateKey = inputStateKey;
+        }
+
+        /// <summary>
+        /// Close, but keep the key-capture (Typing) state until the closing keys are
+        /// physically released. The vanilla bindings for RMB (ToggleActiveHandTool) and
+        /// Escape (menu/cancel) fire on key-UP — releasing the input state on the DOWN
+        /// frame would hand that very key-up to the game (torch toggles, pause menu).
+        /// Call Pump() every frame to finish the release.
+        /// </summary>
+        public void RequestDeferredClose()
+        {
+            if (!IsOpen) return;
+            _releasePending = true;
+            _clearFrames = 0;
+        }
+
+        /// <summary>Per-frame: completes a deferred close once Escape/mouse/holdKey are all up.</summary>
+        public void Pump(UnityEngine.KeyCode holdKey)
+        {
+            if (!_releasePending || !IsOpen) return;
+            bool anyDown = UnityEngine.Input.GetKey(UnityEngine.KeyCode.Escape)
+                || UnityEngine.Input.GetMouseButton(0)
+                || UnityEngine.Input.GetMouseButton(1)
+                || (holdKey != UnityEngine.KeyCode.None && UnityEngine.Input.GetKey(holdKey));
+            if (anyDown)
+            {
+                _clearFrames = 0;
+                return;
+            }
+            if (++_clearFrames >= 2)
+                Close();
         }
 
         public void Open()
@@ -36,6 +69,8 @@ namespace StationeersUIAscended.Core
 
         public void Close()
         {
+            _releasePending = false;
+            _clearFrames = 0;
             if (!IsOpen) return;
             IsOpen = false;
             ImGuiManager.SetBlockUguiClicks(false);

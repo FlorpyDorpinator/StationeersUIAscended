@@ -13,14 +13,32 @@ namespace StationeersUIAscended.Core
     /// </summary>
     public static class ItemActions
     {
-        /// <summary>Equip a thing into the active hand: move when empty, vanilla-style swap when occupied.</summary>
+        /// <summary>Equip a thing into the active hand: move when empty, vanilla-style swap when
+        /// occupied. When the item sits INSIDE the thing the active hand is holding (welder in
+        /// hand → its battery), a swap with that hand is a parent-child paradox the game rejects,
+        /// so the item goes to the other hand instead.</summary>
         public static bool EquipToActiveHand(ScannedSlot source)
         {
             Slot hand = InventoryManager.ActiveHandSlot;
             DynamicThing item = source?.Occupant;
             if (hand == null || item == null) return Fail();
+            if (source.Expected != null && item != source.Expected) return Fail(); // menu is stale
 
-            if (hand.Get() == null)
+            DynamicThing handOcc = hand.Get();
+            if (handOcc != null && IsInsideThing(source.Slot, handOcc))
+            {
+                var human = InventoryManager.ParentHuman;
+                Slot other = human == null ? null
+                    : hand == human.LeftHandSlot ? human.RightHandSlot : human.LeftHandSlot;
+                if (other != null && other.Get() == null && Slot.AllowMove(item, other))
+                {
+                    other.PlayerMoveToSlot(item);
+                    return true;
+                }
+                return Fail(); // both hands busy: taking a part out of the held tool needs a free hand
+            }
+
+            if (handOcc == null)
             {
                 if (!Slot.AllowMove(item, hand)) return Fail();
                 hand.PlayerMoveToSlot(item);
@@ -29,6 +47,19 @@ namespace StationeersUIAscended.Core
             if (!Slot.AllowSwap(source.Slot, hand)) return Fail();
             source.Slot.PlayerSwapToSlot(hand);
             return true;
+        }
+
+        /// <summary>Is this slot part of the given thing (directly or nested inside it)?</summary>
+        private static bool IsInsideThing(Slot slot, Thing root)
+        {
+            Thing parent = slot?.Parent;
+            int depth = 0;
+            while (parent != null && depth++ < 8)
+            {
+                if (parent == root) return true;
+                parent = (parent as DynamicThing)?.ParentSlot?.Parent;
+            }
+            return false;
         }
 
         /// <summary>Stow the active-hand item into a specific empty slot.</summary>
@@ -52,6 +83,7 @@ namespace StationeersUIAscended.Core
         {
             DynamicThing item = candidate?.Occupant;
             if (item == null || targetSlot == null) return Fail();
+            if (candidate.Expected != null && item != candidate.Expected) return Fail(); // menu is stale
 
             if (targetSlot.Get() == null)
             {
