@@ -3,27 +3,26 @@
   "tasks": [
     {
       "label": "UI Mod: Build + Hot Reload (ScriptEngine)",
-      "detail": "Builds Assets/Scripts/StationeersUIMod (+ dev ScriptEngine shim) and drops StationeersUIMod.dll into BepInEx\\scripts. Press F6 in game, or wait ~3s for the watcher.",
+      "detail": "THE build task. Compiles Assets/Scripts/StationeersUIMod (+ dev ScriptEngine shim) and drops StationeersUIMod.dll into BepInEx\\scripts, after sweeping out any stale mod DLL. Press F6 in game, or wait ~3s for the watcher.",
       "type": "shell",
-      "command": "dotnet build -c Debug",
+      "command": "Remove-Item 'C:\\Program Files (x86)\\Steam\\steamapps\\common\\Stationeers\\BepInEx\\scripts\\StationeersUIAscended.dll' -Force -ErrorAction SilentlyContinue; dotnet build -c Debug",
       "options": { "cwd": "${workspaceFolder}/Dev" },
       "problemMatcher": "$msCompile",
       "group": { "kind": "build", "isDefault": true }
     },
     {
       "label": "UI Mod: Clean ScriptEngine deploy",
-      "detail": "Removes StationeersUIMod.dll from BepInEx\\scripts (stops ScriptEngine loading it).",
+      "detail": "Removes every UI-mod DLL from BepInEx\\scripts, so ScriptEngine loads none of them.",
       "type": "shell",
-      "command": "Remove-Item 'C:\\Program Files (x86)\\Steam\\steamapps\\common\\Stationeers\\BepInEx\\scripts\\StationeersUIMod.dll' -Force -ErrorAction SilentlyContinue; Write-Host 'Cleared StationeersUIMod.dll from BepInEx\\scripts'",
+      "command": "$s='C:\\Program Files (x86)\\Steam\\steamapps\\common\\Stationeers\\BepInEx\\scripts'; Remove-Item \"$s\\StationeersUIMod.dll\",\"$s\\StationeersUIAscended.dll\" -Force -ErrorAction SilentlyContinue; Write-Host 'Cleared UI mod DLLs from BepInEx\\scripts'; Get-ChildItem $s -Filter *.dll | Select-Object Name",
       "problemMatcher": []
     },
     {
-      "label": "Legacy ImGui POC: Build + Hot Reload",
-      "detail": "DEPRECATED. The old BepInEx-only project (StationeersUIAscended). Kept for reference; do not run alongside the Unity mod - both would patch the same methods.",
+      "label": "UI Mod: Show what ScriptEngine will load",
+      "detail": "Lists the DLLs in BepInEx\\scripts. There must be exactly one UI-mod DLL (StationeersUIMod.dll).",
       "type": "shell",
-      "command": "dotnet build -c Debug; if ($?) { Copy-Item 'bin\\Debug\\StationeersUIAscended.dll' 'C:\\Program Files (x86)\\Steam\\steamapps\\common\\Stationeers\\BepInEx\\scripts\\' -Force; Write-Host 'DEPRECATED build deployed. Remove StationeersUIMod.dll from scripts first!' }",
-      "options": { "cwd": "${workspaceFolder}/StationeersUIAscended" },
-      "problemMatcher": "$msCompile"
+      "command": "Get-ChildItem 'C:\\Program Files (x86)\\Steam\\steamapps\\common\\Stationeers\\BepInEx\\scripts' -Filter *.dll | Select-Object Name, Length, LastWriteTime | Format-Table -AutoSize",
+      "problemMatcher": []
     }
   ]
 }
