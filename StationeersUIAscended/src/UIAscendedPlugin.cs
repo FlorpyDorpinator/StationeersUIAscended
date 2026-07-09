@@ -150,12 +150,25 @@ namespace StationeersUIAscended
                 UIALog.Error("Further overlay draw errors suppressed.");
         }
 
+        /// <summary>
+        /// Vanilla-key suppression must only happen while WE can actually handle the key —
+        /// i.e. a radial is open, or gameplay input is ours to take. Otherwise the vanilla
+        /// handler must stay alive: e.g. the scoreboard is a cursor-unlocking modal, and once
+        /// it is open our controller (correctly) ignores Tab — blocking vanilla too would
+        /// leave the scoreboard stuck open with all input dead.
+        /// </summary>
+        private bool CanHandleSuppressedKeys =>
+            _radials != null && (_radials.IsRadialOpen || Guards.CanAcceptGameplayInput());
+
         public bool ToolRadialOwnsVanillaKey =>
             UIAConfig.MasterEnable.Value && Assets.Scripts.Inventory.InventoryManager.ShowUi
-            && _toolRadial != null && _toolRadial.OwnsVanillaKey;
+            && _toolRadial != null && _toolRadial.OwnsVanillaKey
+            && CanHandleSuppressedKeys;
 
         public bool BagRadialOwnsVanillaKey =>
-            UIAConfig.MasterEnable.Value && _bagRadial != null && _bagRadial.OwnsVanillaKey;
+            UIAConfig.MasterEnable.Value && Assets.Scripts.Inventory.InventoryManager.ShowUi
+            && _bagRadial != null && _bagRadial.OwnsVanillaKey
+            && CanHandleSuppressedKeys;
 
         /// <summary>
         /// True when the equipment-key radials own the given vanilla slot button RIGHT NOW.
@@ -168,6 +181,7 @@ namespace StationeersUIAscended
         {
             if (!UIAConfig.MasterEnable.Value || !UIAConfig.EquipmentKeyRadialsEnabled.Value) return false;
             if (!Assets.Scripts.Inventory.InventoryManager.ShowUi) return false;
+            if (!CanHandleSuppressedKeys) return false;
             foreach (var feature in _equipFeatures)
             {
                 if (feature.ButtonName != buttonName) continue;
