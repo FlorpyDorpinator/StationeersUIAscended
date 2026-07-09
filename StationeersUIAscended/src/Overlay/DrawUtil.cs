@@ -107,6 +107,33 @@ namespace StationeersUIAscended.Overlay
             return s.Substring(0, len) + "..";
         }
 
+        /// <summary>
+        /// Fits text into at most two lines of maxWidth: word-wraps at spaces, truncating the
+        /// second line if needed. line2 is null when one line suffices.
+        /// </summary>
+        public static void FitTextTwoLines(string s, float maxWidth, out string line1, out string line2)
+        {
+            line2 = null;
+            if (string.IsNullOrEmpty(s) || ImGui.CalcTextSize(s).x <= maxWidth)
+            {
+                line1 = s;
+                return;
+            }
+            int split = -1;
+            for (int i = s.Length - 1; i > 0; i--)
+            {
+                if (s[i] != ' ') continue;
+                if (ImGui.CalcTextSize(s.Substring(0, i)).x <= maxWidth) { split = i; break; }
+            }
+            if (split <= 0)
+            {
+                line1 = FitText(s, maxWidth); // one unbreakable word
+                return;
+            }
+            line1 = s.Substring(0, split);
+            line2 = FitText(s.Substring(split + 1), maxWidth);
+        }
+
         /// <summary>Horizontal progress bar with themed state color.</summary>
         public static void Bar(ImDrawListPtr dl, Vector2 min, Vector2 max, float ratio01, uint fillColor)
         {

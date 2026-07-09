@@ -62,11 +62,12 @@ namespace StationeersUIAscended.Features
         {
             if (IsRealControl(thing.InteractOnOff))
             {
+                // The wedge label is the ACTION (the item's name is already the ring's context).
                 entries.Add(new RadialEntry
                 {
-                    Label = thing.DisplayName,
+                    Label = thing.OnOff ? "Turn Off" : "Turn On",
                     ActionText = thing.OnOff ? "Turn OFF" : "Turn ON",
-                    Sublabel = thing.OnOff ? "Currently on" : "Currently off",
+                    Sublabel = thing.DisplayName + (thing.OnOff ? " - currently on" : " - currently off"),
                     AccentOverride = thing.OnOff ? Theme.Warn : Theme.Good,
                     OnSelect = () => ItemActions.ToggleOnOff(thing),
                 });

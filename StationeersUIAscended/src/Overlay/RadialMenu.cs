@@ -246,7 +246,8 @@ namespace StationeersUIAscended.Overlay
             _satOpenedAt = Time.unscaledTime;
             float sector = Mathf.PI * 2f / Mathf.Max(1, mainCount);
             float aMid = -Mathf.PI * 0.5f + sector * sourceIndex;
-            float outer = Mathf.Clamp(mainOuterR * 0.55f, 100f, 190f);
+            // Roomier satellites: scale up with entry count so wedge labels stay readable.
+            float outer = Mathf.Clamp(mainOuterR * 0.55f + Mathf.Max(0, entries.Count - 4) * 8f, 130f, 220f);
             var dir = new Vector2(Mathf.Cos(aMid), Mathf.Sin(aMid));
             _satellite = new SatelliteRing
             {
@@ -396,18 +397,27 @@ namespace StationeersUIAscended.Overlay
                 float maxTextWidth = Mathf.Clamp(2f * midRadius * Mathf.Sin(sectorSize * 0.5f) - 14f, 42f, ringWidth * 1.6f);
 
                 float iconAlpha = (entry.Enabled ? 1f : 0.35f) * contentAlpha;
+                uint labelColor = entry.Enabled ? Theme.TextPrimary : Theme.TextDisabled;
+                DrawUtil.FitTextTwoLines(entry.Label, maxTextWidth, out string line1, out string line2);
                 if (entry.Icon != null)
                 {
                     DrawUtil.Icon(dl, entry.Icon, slotCenter - new Vector2(0f, 9f), iconSize, iconAlpha);
-                    string label = DrawUtil.FitText(entry.Label, maxTextWidth);
-                    DrawUtil.TextShadowCentered(dl, slotCenter + new Vector2(0f, iconSize * 0.5f + 1f),
-                        entry.Enabled ? Theme.TextPrimary : Theme.TextDisabled, label);
+                    float textY = slotCenter.y + iconSize * 0.5f + 1f;
+                    DrawUtil.TextShadowCentered(dl, new Vector2(slotCenter.x, textY), labelColor, line1);
+                    if (line2 != null)
+                        DrawUtil.TextShadowCentered(dl, new Vector2(slotCenter.x, textY + 15f), labelColor, line2);
                 }
                 else
                 {
-                    string label = DrawUtil.FitText(entry.Label, maxTextWidth);
-                    DrawUtil.TextShadowCentered(dl, slotCenter,
-                        entry.Enabled ? Theme.TextPrimary : Theme.TextDisabled, label);
+                    if (line2 != null)
+                    {
+                        DrawUtil.TextShadowCentered(dl, slotCenter - new Vector2(0f, 8f), labelColor, line1);
+                        DrawUtil.TextShadowCentered(dl, slotCenter + new Vector2(0f, 8f), labelColor, line2);
+                    }
+                    else
+                    {
+                        DrawUtil.TextShadowCentered(dl, slotCenter, labelColor, line1);
+                    }
                 }
 
                 // ASCII only: the game's ImGui font atlas has no glyphs for fancy arrows.
@@ -421,7 +431,11 @@ namespace StationeersUIAscended.Overlay
         /// <summary>The center always says what the hovered entry will do.</summary>
         private void DrawCenterReadout(ImDrawListPtr dl, Vector2 center, Level level)
         {
-            DrawUtil.TextShadowCentered(dl, center - new Vector2(0f, 34f), Theme.TextDim, level.Title);
+            // Breadcrumb: which ring the pointer is acting in ("Toolbelt" / "Open: Spray Gun").
+            string title = _satellite != null ? _satellite.Title : level.Title;
+            if (_satellite != null)
+                DrawUtil.TextShadowCentered(dl, center - new Vector2(0f, 52f), Theme.TextDisabled, level.Title);
+            DrawUtil.TextShadowCentered(dl, center - new Vector2(0f, 34f), Theme.TextDim, title);
 
             RadialEntry hovered = _satellite != null && _satHovered >= 0 ? SatEntry(_satHovered)
                                 : _hovered >= 0 ? MainEntry(_hovered)
