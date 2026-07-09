@@ -50,9 +50,17 @@ namespace StationeersUIAscended.Features
             return entries;
         }
 
+        /// <summary>
+        /// Vanilla's own filter for "show this interaction to the player" (InventoryWindow.cs:220).
+        /// Unity serializes EMPTY Interactable instances on prefabs that don't use them, so a
+        /// null check alone produces phantom entries (e.g. "Activate" on a crowbar).
+        /// </summary>
+        public static bool IsRealControl(Interactable interactable) =>
+            interactable != null && interactable.CanKeyInteract && interactable.Slot == null;
+
         public static void AddControlEntries(List<RadialEntry> entries, DynamicThing thing)
         {
-            if (thing.InteractOnOff != null)
+            if (IsRealControl(thing.InteractOnOff))
             {
                 entries.Add(new RadialEntry
                 {
@@ -63,7 +71,7 @@ namespace StationeersUIAscended.Features
                     OnSelect = () => ItemActions.ToggleOnOff(thing),
                 });
             }
-            if (thing.InteractMode != null)
+            if (IsRealControl(thing.InteractMode))
             {
                 string current = null;
                 try
@@ -81,7 +89,7 @@ namespace StationeersUIAscended.Features
                     OnSelect = () => ItemActions.CycleMode(thing),
                 });
             }
-            if (thing.InteractOpen != null)
+            if (IsRealControl(thing.InteractOpen))
             {
                 entries.Add(new RadialEntry
                 {
@@ -90,7 +98,7 @@ namespace StationeersUIAscended.Features
                     OnSelect = () => ItemActions.ToggleInteractable(thing.InteractOpen),
                 });
             }
-            if (thing.InteractActivate != null)
+            if (IsRealControl(thing.InteractActivate))
             {
                 entries.Add(new RadialEntry
                 {
@@ -116,7 +124,7 @@ namespace StationeersUIAscended.Features
             var entry = new RadialEntry
             {
                 Label = occ != null ? occ.DisplayName : slotName,
-                Sublabel = occ != null ? slotName + " · " + (ToolbeltRadialFeature.DescribeState(occ) ?? "") : "(empty)",
+                Sublabel = occ != null ? slotName + " - " + (ToolbeltRadialFeature.DescribeState(occ) ?? "") : "(empty)",
                 Icon = occ != null ? occ.GetThumbnail() : slot.SlotTypeIcon,
                 SlideOutProvider = () => BuildSlotCandidateEntries(slot),
                 SlideOutLabel = "Swap",
@@ -132,7 +140,8 @@ namespace StationeersUIAscended.Features
             else if (held != null && Slot.AllowMove(held, slot))
             {
                 entry.ActionText = "Insert " + held.DisplayName;
-                entry.AccentOverride = Theme.Good;
+                entry.AccentOverride = Theme.Accent;
+                entry.FillOverride = Theme.RingStow;
                 entry.OnSelect = () => ItemActions.StowActiveHandTo(slot);
             }
             else
@@ -169,7 +178,8 @@ namespace StationeersUIAscended.Features
                     Label = held.DisplayName,
                     ActionText = "Insert from hand",
                     Icon = held.GetThumbnail(),
-                    AccentOverride = Theme.Good,
+                    AccentOverride = Theme.Accent,
+                    FillOverride = Theme.RingStow,
                     OnSelect = () => ItemActions.StowActiveHandTo(targetSlot),
                 });
             }

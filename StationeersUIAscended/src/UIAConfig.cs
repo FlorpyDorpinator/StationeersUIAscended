@@ -33,6 +33,11 @@ namespace StationeersUIAscended
         // --- Equipment key radials (1-6) ---
         public static ConfigEntry<bool> EquipmentKeyRadialsEnabled;
 
+        // --- Emergency inject (testing aid) ---
+        public static ConfigEntry<bool> EmergencyInjectEnabled;
+        public static ConfigEntry<KeyCode> EmergencyHealKey;
+        public static ConfigEntry<KeyCode> EmergencyStimKey;
+
         // --- Slot finder ---
         public static ConfigEntry<int> ScanDepth;
         public static ConfigEntry<bool> AllowToolSlotSources;
@@ -97,6 +102,15 @@ namespace StationeersUIAscended
             BagRadialGroupThreshold = cfg.Bind("4. Bag Radial", "GroupThreshold", 10,
                 new ConfigDescription("When a bag holds more than this many items, group them by sorting category first.",
                     new AcceptableValueRange<int>(4, 24)));
+
+            EmergencyInjectEnabled = cfg.Bind("4c. Emergency Inject", "Enabled", true,
+                "Testing aid: a modifier+key that finds a health/stim auto-injector you OWN and uses it on " +
+                "yourself, even while incapacitated. On a multiplayer client the mod cannot heal you directly " +
+                "(health is server-authoritative) - it brings the injector to hand for a one-click vanilla use.");
+            EmergencyHealKey = cfg.Bind("4c. Emergency Inject", "HealKey", KeyCode.Alpha9,
+                "Hold Shift + this key = use a health auto-injector on yourself.");
+            EmergencyStimKey = cfg.Bind("4c. Emergency Inject", "StimKey", KeyCode.Alpha8,
+                "Hold Shift + this key = use a stim (epinephrine) auto-injector on yourself.");
 
             EquipmentKeyRadialsEnabled = cfg.Bind("4b. Equipment Keys", "Enabled", true,
                 "Tap 1-6 to open a management radial for that equipment piece (on/off, slots, swaps); " +

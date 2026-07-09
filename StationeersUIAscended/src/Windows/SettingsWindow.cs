@@ -20,7 +20,7 @@ namespace StationeersUIAscended.Windows
 
         public override void DrawContent()
         {
-            ImGui.TextDisabled("Radials, radials, radials — hold the key, flick, release.");
+            ImGui.TextDisabled("Radials, radials, radials - hold the key, flick, release.");
             ImGui.Separator();
 
             Toggle(UIAConfig.MasterEnable, "Master enable");

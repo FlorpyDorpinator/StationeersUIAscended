@@ -31,6 +31,7 @@ namespace StationeersUIAscended
         private ToolRadialFeature _toolRadial;
         private BagRadialFeature _bagRadial;
         private HudOverlayFeature _hud;
+        private EmergencyInjectFeature _emergencyInject;
         private SettingsWindow _settingsWindow;
         private ProfileEditorWindow _profileEditor;
         private readonly System.Collections.Generic.List<EquipmentKeyRadialFeature> _equipFeatures
@@ -74,6 +75,7 @@ namespace StationeersUIAscended
                     _radials.Register(equipFeature);
                 }
                 _hud = new HudOverlayFeature();
+                _emergencyInject = new EmergencyInjectFeature();
 
                 _harmony = new Harmony(PluginGuid);
                 PatchHarness.TryPatchAll(_harmony,
@@ -109,6 +111,7 @@ namespace StationeersUIAscended
             try
             {
                 _radials.Update();
+                _emergencyInject?.Update();
 
                 // Settings window toggle (not while a radial owns the screen)
                 if (Input.GetKeyDown(UIAConfig.SettingsWindowKey.Value) && Guards.CanDraw()
@@ -225,7 +228,7 @@ namespace StationeersUIAscended
                 UIALog.Info("Cleaned up (hot reload safe).");
                 try
                 {
-                    ConsoleWindow.Print($"[UI Ascended] v{VersionDisplay} unloading ({System.DateTime.Now:HH:mm:ss}) — hot reload in progress…",
+                    ConsoleWindow.Print($"[UI Ascended] v{VersionDisplay} unloading ({System.DateTime.Now:HH:mm:ss}) - hot reload in progress...",
                         System.ConsoleColor.Yellow);
                 }
                 catch { }

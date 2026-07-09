@@ -73,7 +73,8 @@ namespace StationeersUIAscended.Features
                         Icon = canStow ? held.GetThumbnail() : slot.SlotTypeIcon,
                         Enabled = canStow,
                         DisabledReason = held == null ? "Nothing in hand" : "Held item doesn't fit",
-                        AccentOverride = canStow ? Theme.Good : (uint?)null,
+                        AccentOverride = canStow ? Theme.Accent : (uint?)null,
+                        FillOverride = canStow ? Theme.RingStow : (uint?)null, // orange = "held item goes here"
                         OnSelect = () => ItemActions.StowActiveHandTo(target),
                     });
                 }
@@ -100,15 +101,15 @@ namespace StationeersUIAscended.Features
                 {
                     var cell = pt.Battery;
                     state = cell == null ? "No battery" : cell.CurrentPowerPercentage + "%";
-                    if (thing.InteractOnOff != null && thing.OnOff) state += " · On";
+                    if (ItemMenuBuilder.IsRealControl(thing.InteractOnOff) && thing.OnOff) state += " - On";
                 }
-                else if (thing.InteractOnOff != null)
+                else if (ItemMenuBuilder.IsRealControl(thing.InteractOnOff))
                 {
                     state = thing.OnOff ? "On" : "Off";
                 }
             }
             catch { }
-            if (!string.IsNullOrEmpty(qty) && !string.IsNullOrEmpty(state)) return Strip(qty) + " · " + state;
+            if (!string.IsNullOrEmpty(qty) && !string.IsNullOrEmpty(state)) return Strip(qty) + " - " + state;
             if (!string.IsNullOrEmpty(state)) return state;
             return Strip(qty);
         }

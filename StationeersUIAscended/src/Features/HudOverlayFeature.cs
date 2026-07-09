@@ -264,7 +264,7 @@ namespace StationeersUIAscended.Features
             string state = null;
             try
             {
-                if (target.InteractOnOff != null)
+                if (ItemMenuBuilder.IsRealControl(target.InteractOnOff))
                     state = target.OnOff ? "ONLINE" : "OFFLINE";
             }
             catch { }

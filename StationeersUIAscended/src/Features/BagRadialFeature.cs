@@ -86,7 +86,7 @@ namespace StationeersUIAscended.Features
                 {
                     Label = thing.DisplayName,
                     ActionText = "Take nearest",
-                    Sublabel = (instances.Count > 1 ? "×" + instances.Count + " · " : "") + first.Location,
+                    Sublabel = (instances.Count > 1 ? "x" + instances.Count + " - " : "") + first.Location,
                     Icon = thing.GetThumbnail(),
                     OnSelect = () => TakeAndRemember(first),
                     // Pick a specific one when there are several.
@@ -141,7 +141,7 @@ namespace StationeersUIAscended.Features
             {
                 Label = container.DisplayName,
                 ActionText = "Open",
-                Sublabel = $"{fallbackName} · {used}/{container.Slots.Count}",
+                Sublabel = $"{fallbackName} - {used}/{container.Slots.Count}",
                 Icon = container.GetThumbnail(),
                 ChildProvider = () => BuildBagLevel(container),
             });
@@ -204,7 +204,8 @@ namespace StationeersUIAscended.Features
                         ActionText = "Stow here",
                         Sublabel = "into " + bag.DisplayName,
                         Icon = held.GetThumbnail(),
-                        AccentOverride = Theme.Good,
+                        AccentOverride = Theme.Accent,
+                        FillOverride = Theme.RingStow, // orange = "held item goes here"
                         OnSelect = () => ItemActions.StowActiveHandTo(free),
                     });
                 }
@@ -233,7 +234,8 @@ namespace StationeersUIAscended.Features
 
             var thing = occ;
             bool hasInnards = (occ.Slots != null && occ.Slots.Count > 0)
-                || occ.InteractOnOff != null || occ.InteractMode != null;
+                || ItemMenuBuilder.IsRealControl(occ.InteractOnOff)
+                || ItemMenuBuilder.IsRealControl(occ.InteractMode);
             return new RadialEntry
             {
                 Label = occ.DisplayName,

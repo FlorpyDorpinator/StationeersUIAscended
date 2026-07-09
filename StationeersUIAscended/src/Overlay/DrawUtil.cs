@@ -102,9 +102,9 @@ namespace StationeersUIAscended.Overlay
             if (string.IsNullOrEmpty(s)) return s;
             if (ImGui.CalcTextSize(s).x <= maxWidth) return s;
             int len = s.Length;
-            while (len > 1 && ImGui.CalcTextSize(s.Substring(0, len) + "…").x > maxWidth)
+            while (len > 1 && ImGui.CalcTextSize(s.Substring(0, len) + "..").x > maxWidth)
                 len--;
-            return s.Substring(0, len) + "…";
+            return s.Substring(0, len) + "..";
         }
 
         /// <summary>Horizontal progress bar with themed state color.</summary>

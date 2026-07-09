@@ -17,6 +17,7 @@ namespace StationeersUIAscended.Overlay
         public bool Enabled = true;
         public string DisabledReason;
         public uint? AccentOverride;
+        public uint? FillOverride;          // colors the whole wedge (e.g. orange stow slices)
         public Action OnSelect;                        // primary action (click / release)
         public Func<List<RadialEntry>> ChildProvider;  // branch entered by click/release (when no OnSelect)
         public Func<List<RadialEntry>> SlideOutProvider; // satellite ring opened by sliding past the outer edge
@@ -375,6 +376,7 @@ namespace StationeersUIAscended.Overlay
                 const float gap = 0.012f;
 
                 uint fill = !entry.Enabled ? Theme.RingDisabled
+                          : entry.FillOverride.HasValue ? (i == hovered ? Theme.RingStowHover : entry.FillOverride.Value)
                           : i == hovered ? Theme.RingHover
                           : Theme.RingBg;
                 DrawUtil.RingSector(dl, center, innerR, outerR, a0 + gap, a1 - gap, fill);
@@ -408,10 +410,11 @@ namespace StationeersUIAscended.Overlay
                         entry.Enabled ? Theme.TextPrimary : Theme.TextDisabled, label);
                 }
 
+                // ASCII only: the game's ImGui font atlas has no glyphs for fancy arrows.
                 if (entry.HasSlideOut)
-                    DrawUtil.TextShadowCentered(dl, center + dir * (outerR - 10f), Theme.Accent, "▸");
+                    DrawUtil.TextShadowCentered(dl, center + dir * (outerR - 10f), Theme.Accent, ">");
                 else if (entry.IsBranch)
-                    DrawUtil.TextShadowCentered(dl, center + dir * (outerR - 10f), Theme.TextDim, "•");
+                    DrawUtil.TextShadowCentered(dl, center + dir * (outerR - 10f), Theme.TextDim, "+");
             }
         }
 
@@ -426,7 +429,7 @@ namespace StationeersUIAscended.Overlay
             if (hovered == null)
             {
                 DrawUtil.TextShadowCentered(dl, center - new Vector2(0f, 10f), Theme.TextDisabled,
-                    _sticky ? "click: select · right-click: back" : "release to cancel");
+                    _sticky ? "click: select | right-click: back" : "release to cancel");
                 return;
             }
 
@@ -443,7 +446,7 @@ namespace StationeersUIAscended.Overlay
                 DrawUtil.TextShadowCentered(dl, center + new Vector2(0f, 44f), Theme.Warn, hovered.Warning);
             else if (hovered.HasSlideOut && _satellite == null)
                 DrawUtil.TextShadowCentered(dl, center + new Vector2(0f, 44f), Theme.TextDim,
-                    "slide out ▸ " + (hovered.SlideOutLabel ?? "more"));
+                    "slide out > " + (hovered.SlideOutLabel ?? "more"));
         }
     }
 }
