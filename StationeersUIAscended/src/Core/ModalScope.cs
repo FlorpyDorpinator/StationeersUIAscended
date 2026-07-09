@@ -36,7 +36,7 @@ namespace StationeersUIAscended.Core
         /// </summary>
         public void RequestDeferredClose()
         {
-            if (!IsOpen) return;
+            if (!IsOpen || _releasePending) return; // idempotent: re-requesting must NOT reset the countdown
             _releasePending = true;
             _clearFrames = 0;
         }
