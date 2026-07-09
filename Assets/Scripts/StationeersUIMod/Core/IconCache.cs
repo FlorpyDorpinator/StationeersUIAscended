@@ -19,6 +19,10 @@ namespace StationeersUIMod.Core
             public IntPtr TextureId;
             public Vector2 Uv0;
             public Vector2 Uv1;
+            /// <summary>Pixel size of the SAMPLED region — i.e. the same rect the UVs derive
+            /// from. Aspect must come from here: using sprite.rect while the UVs come from
+            /// sprite.textureRect warps every trimmed / atlas-packed sprite.</summary>
+            public Vector2 PixelSize;
             public bool Valid;
         }
 
@@ -26,6 +30,7 @@ namespace StationeersUIMod.Core
         {
             public Vector2 Uv0;
             public Vector2 Uv1;
+            public Vector2 PixelSize;
         }
 
         private static readonly Dictionary<Sprite, UvInfo> UvCache = new Dictionary<Sprite, UvInfo>();
@@ -52,11 +57,12 @@ namespace StationeersUIMod.Core
                     {
                         Uv0 = flip ? new Vector2(uvMin.x, uvMax.y) : uvMin,
                         Uv1 = flip ? new Vector2(uvMax.x, uvMin.y) : uvMax,
+                        PixelSize = new Vector2(Mathf.Abs(r.width), Mathf.Abs(r.height)),
                     };
                 }
                 catch
                 {
-                    uv = new UvInfo { Uv0 = Vector2.zero, Uv1 = Vector2.one };
+                    uv = new UvInfo { Uv0 = Vector2.zero, Uv1 = Vector2.one, PixelSize = new Vector2(tex.width, tex.height) };
                 }
                 UvCache[sprite] = uv;
             }
@@ -68,6 +74,7 @@ namespace StationeersUIMod.Core
                     TextureId = ImGuiManager.ImGuiPointerFor(tex), // per frame, like vanilla
                     Uv0 = uv.Uv0,
                     Uv1 = uv.Uv1,
+                    PixelSize = uv.PixelSize,
                     Valid = true,
                 };
             }

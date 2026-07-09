@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("StationeersUIAscended")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("0.1.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("0.1.0+cacb84bbd8fc21f0c63c85e315abf9707b099ec3")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("0.1.0+dfc3b6e9c4774e3ff8f72a333bdaa16394fa0082")]
 [assembly: System.Reflection.AssemblyProductAttribute("StationeersUIAscended")]
 [assembly: System.Reflection.AssemblyTitleAttribute("StationeersUIAscended")]
 [assembly: System.Reflection.AssemblyVersionAttribute("0.1.0.0")]

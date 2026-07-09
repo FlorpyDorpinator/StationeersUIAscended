@@ -344,6 +344,23 @@ namespace StationeersUIMod.Overlay
                 _slideOutCandidate = -1;
             }
 
+            // Only the PAINT differs between renderers — hover, satellites, slide-out and all
+            // selection state above are shared, so the two can be A/B'd live.
+            if (UIAConfig.UseUnityRadial.Value)
+            {
+                RadialEntry readout = _satellite != null && _satHovered >= 0 ? SatEntry(_satHovered)
+                                    : _hovered >= 0 ? MainEntry(_hovered)
+                                    : null;
+                UI.UnityRadialView.Render(
+                    center, innerR, outerR, level.Entries,
+                    _satellite == null ? _hovered : -1, level.Title,
+                    _satellite?.Center, _satellite?.InnerR ?? 0f, _satellite?.OuterR ?? 0f,
+                    _satellite?.Entries, _satHovered, _satellite?.Title,
+                    readout, null, _sticky);
+                return;
+            }
+            UI.UnityRadialView.Hide();
+
             DrawRing(dl, center, innerR, outerR, level.Entries,
                 _satellite == null ? _hovered : (_satellite != null ? _satellite.SourceIndex : -1),
                 _satellite != null, solidHub: true);
@@ -377,16 +394,26 @@ namespace StationeersUIMod.Overlay
                 var entry = entries[i];
                 float a0 = -Mathf.PI * 0.5f - sectorSize * 0.5f + sectorSize * i;
                 float a1 = a0 + sectorSize;
-                const float gap = 0.012f;
 
                 uint fill = !entry.Enabled ? Theme.RingDisabled
                           : entry.FillOverride.HasValue ? (i == hovered ? Theme.RingStowHover : entry.FillOverride.Value)
                           : i == hovered ? Theme.RingHover
                           : Theme.RingBg;
-                DrawUtil.RingSector(dl, center, innerR, outerR, a0 + gap, a1 - gap, fill);
+
+                // Wedges touch (no angular gap); a thin radial separator divides them instead.
+                // A lone entry is drawn as a complete annulus — stroking a 2*PI arc leaves a
+                // notch where the path's ends meet (the "circle doesn't close" bug).
+                if (count == 1)
+                    DrawUtil.RingFull(dl, center, innerR, outerR, fill);
+                else
+                    DrawUtil.RingSector(dl, center, innerR, outerR, a0, a1, fill);
+
                 if (i == hovered && entry.Enabled && !dimmed)
-                    DrawUtil.ArcLine(dl, center, outerR - 2f, a0 + gap, a1 - gap,
-                        entry.AccentOverride ?? Theme.RingHoverRim, 3f);
+                {
+                    uint rim = entry.AccentOverride ?? Theme.RingHoverRim;
+                    if (count == 1) DrawUtil.CircleOutline(dl, center, outerR - 2f, rim, 3f);
+                    else DrawUtil.ArcLine(dl, center, outerR - 2f, a0, a1, rim, 3f);
+                }
 
                 // Content: icon (aspect preserved) with one centered, width-fitted label under it.
                 float aMid = (a0 + a1) * 0.5f;
@@ -396,31 +423,31 @@ namespace StationeersUIMod.Overlay
 
                 float ringWidth = outerR - innerR;
                 float iconSize = Mathf.Clamp(ringWidth * 0.48f, 22f, 56f);
-                // Room available across the wedge at mid radius, minus padding.
-                float maxTextWidth = Mathf.Clamp(2f * midRadius * Mathf.Sin(sectorSize * 0.5f) - 14f, 42f, ringWidth * 1.6f);
+
+                // Usable label width. The tangential chord at midRadius bounds wedges at the top
+                // and bottom; the ring's radial thickness bounds those at the left and right.
+                // Blend by direction. Clamping the half-angle at PI/2 matters: with one entry the
+                // sector spans 2*PI and sin(PI) == 0, which used to collapse the budget to 42px
+                // (the "B.." bug).
+                float halfAngle = Mathf.Min(sectorSize * 0.5f, Mathf.PI * 0.5f);
+                float chord = 2f * midRadius * Mathf.Sin(halfAngle);
+                float availW = Mathf.Abs(dir.x) * ringWidth + Mathf.Abs(dir.y) * chord;
+                availW = Mathf.Clamp(availW - 10f, 44f, ringWidth * 2.4f);
 
                 float iconAlpha = (entry.Enabled ? 1f : 0.35f) * contentAlpha;
                 uint labelColor = entry.Enabled ? Theme.TextPrimary : Theme.TextDisabled;
-                DrawUtil.FitTextTwoLines(entry.Label, maxTextWidth, out string line1, out string line2);
+
                 if (entry.Icon != null)
                 {
-                    DrawUtil.Icon(dl, entry.Icon, slotCenter - new Vector2(0f, 9f), iconSize, iconAlpha);
-                    float textY = slotCenter.y + iconSize * 0.5f + 1f;
-                    DrawUtil.TextShadowCentered(dl, new Vector2(slotCenter.x, textY), labelColor, line1);
-                    if (line2 != null)
-                        DrawUtil.TextShadowCentered(dl, new Vector2(slotCenter.x, textY + 15f), labelColor, line2);
+                    DrawUtil.Icon(dl, entry.Icon, slotCenter - new Vector2(0f, ringWidth * 0.16f), iconSize, iconAlpha);
+                    float textTop = slotCenter.y - ringWidth * 0.16f + iconSize * 0.5f + 2f;
+                    float textH = Mathf.Max(16f, ringWidth * 0.42f);
+                    var textCenter = new Vector2(slotCenter.x, textTop + textH * 0.5f);
+                    DrawUtil.TextFittedCentered(dl, textCenter, availW, textH, labelColor, entry.Label);
                 }
                 else
                 {
-                    if (line2 != null)
-                    {
-                        DrawUtil.TextShadowCentered(dl, slotCenter - new Vector2(0f, 8f), labelColor, line1);
-                        DrawUtil.TextShadowCentered(dl, slotCenter + new Vector2(0f, 8f), labelColor, line2);
-                    }
-                    else
-                    {
-                        DrawUtil.TextShadowCentered(dl, slotCenter, labelColor, line1);
-                    }
+                    DrawUtil.TextFittedCentered(dl, slotCenter, availW, ringWidth * 0.72f, labelColor, entry.Label, 3);
                 }
 
                 // ASCII only: the game's ImGui font atlas has no glyphs for fancy arrows.
@@ -428,6 +455,17 @@ namespace StationeersUIMod.Overlay
                     DrawUtil.TextShadowCentered(dl, center + dir * (outerR - 10f), Theme.Accent, ">");
                 else if (entry.IsBranch)
                     DrawUtil.TextShadowCentered(dl, center + dir * (outerR - 10f), Theme.TextDim, "+");
+            }
+
+            // Wedges now touch, so draw the dividers on top of them (skipped for a lone entry,
+            // which is a continuous annulus with no boundaries).
+            if (count > 1)
+            {
+                for (int i = 0; i < count; i++)
+                {
+                    float boundary = -Mathf.PI * 0.5f - sectorSize * 0.5f + sectorSize * i;
+                    DrawUtil.RingSeparator(dl, center, innerR, outerR, boundary, Theme.RingSep, 1.5f);
+                }
             }
         }
 
@@ -451,7 +489,8 @@ namespace StationeersUIMod.Overlay
                 if (string.IsNullOrEmpty(text)) return;
                 float w = ChordW(y);
                 if (w < 24f) return; // no room at this height — drop the line entirely
-                DrawUtil.TextShadowCentered(dl, center + new Vector2(0f, y), color, DrawUtil.FitText(text, w));
+                // Shrink to fit rather than truncate; single line, so a long name stays whole.
+                DrawUtil.TextFittedCentered(dl, center + new Vector2(0f, y), w, 18f, color, text, maxLines: 1);
             }
 
             // Breadcrumb: which ring the pointer is acting in ("Toolbelt" / "Open: Spray Gun").

@@ -67,6 +67,7 @@ namespace StationeersUIMod
         public static ConfigEntry<float> RadialOuterRadius;
         public static ConfigEntry<float> RadialInnerRadius;
         public static ConfigEntry<bool> IconFlipV;
+        public static ConfigEntry<bool> UseUnityRadial;
 
         public static void Bind(ConfigFile cfg)
         {
@@ -164,6 +165,10 @@ namespace StationeersUIMod
                 new ConfigDescription("Inner hub radius in pixels (the center readout circle; hovering here selects nothing).", new AcceptableValueRange<float>(60f, 260f)));
             IconFlipV = cfg.Bind("8. Radial Visuals", "IconFlipV", false,
                 "Flip item icons vertically (toggle if atlas-packed icons render upside down).");
+            UseUnityRadial = cfg.Bind("8. Radial Visuals", "UseUnityRadial", false,
+                "EXPERIMENTAL: draw radials with Unity UGUI (procedural wedges, TMP text, hover animation) " +
+                "instead of the game's ImGui. Identical interaction model and entries - only the renderer differs. " +
+                "Toggle live to A/B compare.");
         }
     }
 }

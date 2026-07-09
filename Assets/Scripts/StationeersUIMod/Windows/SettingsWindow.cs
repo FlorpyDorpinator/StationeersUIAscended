@@ -38,6 +38,7 @@ namespace StationeersUIMod.Windows
                 IntSlider(UIAConfig.HoldThresholdMs, "Hold threshold (ms)", 60, 600);
                 FloatSlider(UIAConfig.RadialOuterRadius, "Radial size", 120f, 480f);
                 FloatSlider(UIAConfig.RadialInnerRadius, "Hub (center circle) size", 60f, 260f);
+                Toggle(UIAConfig.UseUnityRadial, "EXPERIMENTAL: Unity UGUI renderer (A/B vs ImGui)");
             }
 
             if (ImGui.CollapsingHeader("SmartStow+", ImGuiTreeNodeFlags.DefaultOpen))

@@ -178,6 +178,7 @@ namespace StationeersUIMod.Features
         public void Draw()
         {
             if (_menu.IsOpen) _menu.Draw();
+            else UI.UnityRadialView.Hide(); // the UGUI canvas persists; it must be told to hide
         }
 
         public void CloseAll()
@@ -195,6 +196,7 @@ namespace StationeersUIMod.Features
         {
             _menu.Close();
             _modal.Close();
+            UI.UnityRadialView.Shutdown(); // destroy the canvas, or every hot reload stacks another
             _active = null;
             _pending = null;
         }

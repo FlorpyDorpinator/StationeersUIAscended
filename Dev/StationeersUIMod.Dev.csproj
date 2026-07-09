@@ -63,6 +63,13 @@
     <Reference Include="UnityEngine.AnimationModule" Private="false">
       <HintPath>$(Managed)\UnityEngine.AnimationModule.dll</HintPath>
     </Reference>
+    <!-- Procedural UGUI radial: MaskableGraphic / Image / Canvas + TMP labels -->
+    <Reference Include="UnityEngine.UI" Private="false">
+      <HintPath>$(Managed)\UnityEngine.UI.dll</HintPath>
+    </Reference>
+    <Reference Include="Unity.TextMeshPro" Private="false">
+      <HintPath>$(Managed)\Unity.TextMeshPro.dll</HintPath>
+    </Reference>
     <Reference Include="RG.ImGui" Private="false">
       <HintPath>$(Managed)\RG.ImGui.dll</HintPath>
     </Reference>
