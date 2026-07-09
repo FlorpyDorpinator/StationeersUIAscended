@@ -7,33 +7,14 @@ using UnityEngine.UI;
 
 namespace StationeersUIMod.UI
 {
-    /// <summary>
-    /// The primary radial renderer: a Unity/UGUI implementation built ENTIRELY IN CODE at runtime.
-    ///
-    /// Florpy built this on top of the earlier prefab-based radial work (from main) and the
-    /// shared interaction model refined during the radial UX overhaul.
-    ///
-    /// Why procedural + code-built (no prefabs):
-    /// - A prefab bakes the wedge count (N) into the asset → forces one prefab per N, or paging
-    ///   that hides items, or dead hover sectors. A radial is inherently variable (1..14+ entries).
-    /// - One RadialWedgeGraphic + runtime mesh in OnPopulateMesh serves any count.
-    /// - Building the Canvas, RingViews, wedges, icons, and TMP labels entirely in C# means:
-    ///   no AssetBundle, no editor round-trips for the core UI, and perfect ScriptEngine hot-reload (F6).
-    ///
-    /// Advantages over the original ImGui painter and over the earlier prefab approach:
-    /// - Real TextMeshPro (auto-sizing + wrapping, no manual chord fitting hacks).
-    /// - Icons use Unity Image.preserveAspect = true (no more warping).
-    /// - Per-wedge hover animation (outward bulge + color lerp) and open scale-in reveal.
-    /// - Clean polar geometry and raycast filter.
-    /// - Easy future path to custom shaders or curved visor visuals.
-    ///
-    /// All interaction logic (hover math, satellite rings, sticky mode, level stack, actions)
-    /// remains in RadialMenu / RadialController. This view is purely a consumer of that state.
-    /// </summary>
+
     public static class UnityRadialView
     {
-        private const float HoverBulge = 12f;      // px the hovered wedge grows outward
-        private const float AnimSpeed = 14f;       // lerp rate (1/s)
+        private const float HoverBulge = 13f;      // px the hovered wedge grows outward
+        private const float AnimSpeed = 16f;       // lerp rate (1/s) - snappier modern feel
+        private const float BorderWidth = 3.2f;    // slim but powerful border
+        private const float HoverContentPop = 6f;  // extra outward for icon+label on hover
+        private const float HoverScale = 1.04f;    // subtle label/icon scale on hover
 
         private static Canvas _canvas;
         private static CanvasGroup _group;
@@ -56,12 +37,14 @@ namespace StationeersUIMod.UI
             _canvas.gameObject.SetActive(true);
 
             float dt = Mathf.Min(Time.unscaledDeltaTime, 0.05f);
+            // Slightly nicer open curve (ease out)
+            float openT = EaseOut01(_openAnim);
             _openAnim = Mathf.Lerp(_openAnim, 1f, dt * AnimSpeed);
 
-            _main.Render(center, innerR, outerR, entries, hovered, _openAnim, dimmed: satEntries != null);
+            _main.Render(center, innerR, outerR, entries, hovered, openT, dimmed: satEntries != null);
 
             if (satEntries != null && satCenter.HasValue)
-                _satellite.Render(satCenter.Value, satInnerR, satOuterR, satEntries, satHovered, _openAnim, dimmed: false);
+                _satellite.Render(satCenter.Value, satInnerR, satOuterR, satEntries, satHovered, openT, dimmed: false);
             else
                 _satellite.Hide();
 
@@ -140,6 +123,12 @@ namespace StationeersUIMod.UI
             => new Vector2(imguiCenter.x - Screen.width * 0.5f,
                            (Screen.height - imguiCenter.y) - Screen.height * 0.5f);
 
+        private static float EaseOut01(float t)
+        {
+            t = Mathf.Clamp01(t);
+            return 1f - (1f - t) * (1f - t); // quadratic ease out
+        }
+
         // ---------- one ring ----------
 
         private sealed class RingView
@@ -166,12 +155,12 @@ namespace StationeersUIMod.UI
             {
                 _root.gameObject.SetActive(true);
                 _root.anchoredPosition = CanvasAnchoredPos(center);
-                _root.localScale = Vector3.one * Mathf.Lerp(0.86f, 1f, openAnim);
+                _root.localScale = Vector3.one * Mathf.Lerp(0.82f, 1f, openAnim);
 
                 int count = entries?.Count ?? 0;
                 EnsureCapacity(count);
 
-                float dt = Mathf.Min(Time.unscaledDeltaTime, 0.05f);
+                float dt = Mathf.Min(Time.unscaledDeltaTime, 0.04f);
                 float sector = count > 0 ? Mathf.PI * 2f / count : 0f;
                 float ringWidth = outerR - innerR;
 
@@ -190,52 +179,143 @@ namespace StationeersUIMod.UI
                     wedge.SetGeometry(innerR, outerR, a0, a0 + sector, fullRing: count == 1);
 
                     bool isHovered = i == hovered && entry.Enabled;
-                    Color target = ResolveColor(entry, isHovered, dimmed);
-                    wedge.color = Color.Lerp(wedge.color, target, dt * AnimSpeed);
+
+                    // Dynamic background shading: non-highlighted wedges shade darker when any wedge is highlighted.
+                    // This makes the highlighted wedge stand out (the background shades based on the active one).
+                    float bgShade = 1f;
+                    if (hovered >= 0 && !isHovered)
+                    {
+                        bgShade = 0.52f;
+                    }
+
+                    // Resolve modern UGUI colors (after feedback):
+                    // - Blue on selected/hovered (the popping selected state)
+                    // - Orange for borders + rim/outer highlight
+                    Color fillTarget = ResolveUguiFill(entry, isHovered, dimmed);
+                    Color borderTarget = ResolveUguiBorder(entry, isHovered, dimmed);
+
+                    if (bgShade < 1f)
+                    {
+                        // Shade non-highlighted wedge backgrounds
+                        float d = 0.62f;
+                        fillTarget = new Color(fillTarget.r * d, fillTarget.g * d, fillTarget.b * d, fillTarget.a * bgShade);
+                    }
+
+                    // Lerp current toward target (smooth)
+                    wedge.color = Color.Lerp(wedge.color, fillTarget, dt * AnimSpeed);
 
                     float bulgeTarget = isHovered ? HoverBulge : 0f;
                     if (!Mathf.Approximately(wedge.OuterBulge, bulgeTarget))
                     {
                         wedge.OuterBulge = Mathf.Lerp(wedge.OuterBulge, bulgeTarget, dt * AnimSpeed);
-                        wedge.RefreshGeometry();
                     }
 
-                    // Content sits at the wedge's mid-radius, upright (never rotated).
+                    // Border (slim but powerful, derived from the wedge's own bg color + accent)
+                    float borderWTarget = isHovered ? BorderWidth * 1.2f : BorderWidth;
+                    wedge.BorderWidth = Mathf.Lerp(wedge.BorderWidth, borderWTarget, dt * AnimSpeed * 0.7f);
+                    wedge.BorderColor = Color.Lerp(wedge.BorderColor, borderTarget, dt * AnimSpeed);
+
+                    // Modern rim shine + orange highlight (stronger + more visible on hover for pop)
+                    float shineTarget = isHovered ? 0.72f : 0.18f;
+                    wedge.RimHighlight = Mathf.Lerp(wedge.RimHighlight, shineTarget, dt * AnimSpeed);
+
+                    // Any geometry property (bulge/border/rim) changed -> rebuild mesh this frame
+                    wedge.RefreshGeometry();
+
+                    // === Content placement (icon + label) with hover pop ===
                     float aMid = a0 + sector * 0.5f;
-                    float midR = (innerR + outerR) * 0.5f + (isHovered ? HoverBulge * 0.35f : 0f);
-                    var slot = new Vector2(Mathf.Cos(aMid), -Mathf.Sin(aMid)) * midR;
+                    float baseMidR = (innerR + outerR) * 0.5f;
+                    float hoverExtra = isHovered ? (HoverBulge * 0.32f + HoverContentPop) : 0f;
+                    float midR = baseMidR + hoverExtra;
+
+                    var dir = new Vector2(Mathf.Cos(aMid), -Mathf.Sin(aMid));
+                    var slot = dir * midR;
 
                     float iconSize = Mathf.Clamp(ringWidth * 0.46f, 20f, 56f);
+                    float contentScale = isHovered ? HoverScale : 1f;
+
                     var icon = _icons[i];
                     icon.sprite = entry.Icon;
                     icon.enabled = entry.Icon != null;
-                    icon.color = new Color(1f, 1f, 1f, (entry.Enabled ? 1f : 0.35f) * (dimmed ? 0.5f : 1f));
-                    icon.rectTransform.sizeDelta = new Vector2(iconSize, iconSize);
-                    icon.rectTransform.anchoredPosition = slot + new Vector2(0f, entry.Icon != null ? ringWidth * 0.14f : 0f);
+                    float iconAlpha = (entry.Enabled ? 1f : 0.32f) * (dimmed ? 0.45f : 1f);
+                    icon.color = new Color(1f, 1f, 1f, iconAlpha);
+                    icon.rectTransform.sizeDelta = new Vector2(iconSize, iconSize) * contentScale;
+                    icon.rectTransform.anchoredPosition = slot + dir * (ringWidth * 0.05f) +
+                                                         new Vector2(0f, entry.Icon != null ? ringWidth * 0.12f : 0f);
 
                     var label = _labels[i];
                     label.text = entry.Label ?? string.Empty;
                     label.color = FromImGui(entry.Enabled ? Theme.TextPrimary : Theme.TextDisabled);
-                    // TMP auto-sizes and wraps inside the box: no ellipsis, no manual fitting.
+                    label.rectTransform.localScale = Vector3.one * contentScale;
+
+                    // Modern auto box width
                     float halfAngle = Mathf.Min(sector * 0.5f, Mathf.PI * 0.5f);
                     float chord = 2f * midR * Mathf.Sin(halfAngle);
-                    float boxW = Mathf.Clamp(Mathf.Abs(Mathf.Cos(aMid)) * ringWidth + Mathf.Abs(Mathf.Sin(aMid)) * chord - 8f,
-                                             44f, ringWidth * 2.4f);
-                    label.rectTransform.sizeDelta = new Vector2(boxW, ringWidth * 0.5f);
+                    float boxW = Mathf.Clamp(Mathf.Abs(Mathf.Cos(aMid)) * ringWidth + Mathf.Abs(Mathf.Sin(aMid)) * chord - 6f,
+                                             42f, ringWidth * 2.5f);
+                    label.rectTransform.sizeDelta = new Vector2(boxW, ringWidth * 0.48f);
                     label.rectTransform.anchoredPosition =
-                        slot - new Vector2(0f, entry.Icon != null ? iconSize * 0.5f + 2f : 0f);
+                        slot - dir * (ringWidth * 0.02f) -
+                        new Vector2(0f, entry.Icon != null ? iconSize * contentScale * 0.48f + 1f : 0f);
                 }
             }
 
-            private static Color ResolveColor(RadialEntry entry, bool hovered, bool dimmed)
+            private static Color ResolveUguiFill(RadialEntry entry, bool hovered, bool dimmed)
             {
-                uint c = !entry.Enabled ? Theme.RingDisabled
-                       : entry.FillOverride.HasValue ? (hovered ? Theme.RingStowHover : entry.FillOverride.Value)
-                       : hovered ? Theme.RingHover
-                       : Theme.RingBg;
-                var col = FromImGui(c);
-                if (dimmed) col.a *= 0.55f;
+                Color col;
+                if (!entry.Enabled)
+                {
+                    col = Theme.UguiDisabled;
+                }
+                else if (entry.FillOverride.HasValue)
+                {
+                    // Stow uses orange fill (orange works really well)
+                    col = hovered ? Theme.UguiOrangeBright : Theme.UguiOrange;
+                }
+                else if (hovered)
+                {
+                    // Blue on selected/hovered - darker/richer so it pops without being "too bright" as a background
+                    col = Theme.UguiSelectedBlue;
+                }
+                else
+                {
+                    col = Theme.UguiBg;
+                }
+
+                if (dimmed) col.a *= 0.48f;
                 return col;
+            }
+
+            private static Color ResolveUguiBorder(RadialEntry entry, bool hovered, bool dimmed)
+            {
+                // Orange borders + orange highlight (as requested). Blue is reserved for the selected wedge fill.
+                Color baseBorder;
+                if (!entry.Enabled)
+                {
+                    baseBorder = new Color(0.22f, 0.22f, 0.22f, 0.40f);
+                }
+                else if (entry.FillOverride.HasValue)
+                {
+                    // Stronger orange border on stow
+                    baseBorder = hovered ? Theme.UguiOrangeBright : Theme.UguiOrange;
+                }
+                else
+                {
+                    // Orange border for normal wedges too (powerful accent)
+                    baseBorder = hovered ? Theme.UguiOrangeBright : Theme.UguiOrange;
+                }
+
+                // Slim but powerful border - higher alpha on hover for pop
+                float alphaMul = dimmed ? 0.55f : (hovered ? 0.95f : 0.68f);
+                baseBorder.a *= alphaMul;
+
+                // Make blue-selected wedges have slightly more saturated/powerful orange border for contrast
+                if (hovered && !entry.FillOverride.HasValue)
+                {
+                    baseBorder = Color.Lerp(baseBorder, Theme.UguiOrangeBright, 0.25f);
+                }
+
+                return baseBorder;
             }
 
             private void EnsureCapacity(int n)
@@ -248,6 +328,8 @@ namespace StationeersUIMod.UI
                     wgo.transform.SetParent(_root, false);
                     var wedge = wgo.AddComponent<RadialWedgeGraphic>();
                     wedge.raycastTarget = false;
+                    wedge.BorderWidth = 0f;
+                    wedge.RimHighlight = 0f;
                     _wedges.Add(wedge);
 
                     var igo = new GameObject("Icon" + idx, typeof(RectTransform));
@@ -278,6 +360,7 @@ namespace StationeersUIMod.UI
         private sealed class ReadoutView
         {
             private readonly RectTransform _root;
+            private readonly Image _hubBacking;
             private readonly TextMeshProUGUI _title, _verb, _label, _sub, _warn;
 
             public ReadoutView(Transform parent, TMP_FontAsset font)
@@ -286,6 +369,13 @@ namespace StationeersUIMod.UI
                 go.transform.SetParent(parent, false);
                 _root = (RectTransform)go.transform;
                 _root.anchorMin = _root.anchorMax = new Vector2(0.5f, 0.5f);
+
+                // Very subtle modern hub backing (slightly transparent dark glass)
+                var hub = new GameObject("HubBacking", typeof(RectTransform));
+                hub.transform.SetParent(_root, false);
+                _hubBacking = hub.AddComponent<Image>();
+                _hubBacking.color = new Color(0.06f, 0.06f, 0.06f, 0.38f); // very subtle glass
+                _hubBacking.raycastTarget = false;
 
                 _title = Make(font, 13f, out var t0); t0.SetParent(_root, false);
                 _verb = Make(font, 15f, out var t1); t1.SetParent(_root, false);
@@ -314,13 +404,23 @@ namespace StationeersUIMod.UI
                 RadialEntry hovered, string hint, bool sticky)
             {
                 _root.anchoredPosition = CanvasAnchoredPos(center);
-                float w = (innerR - 8f) * 1.8f;
+                float w = (innerR - 6f) * 1.85f;
 
-                Place(_title, 40f, w);
-                Place(_verb, 14f, w);
-                Place(_label, -6f, w);
-                Place(_sub, -26f, w);
-                Place(_warn, -46f, w);
+                // Modern slim hub backing (glass over the center)
+                if (_hubBacking != null)
+                {
+                    // Subtle dark glass center. Square for now (no sprite/mask to stay asset-free).
+                    // Can be replaced with a circular mask + sprite later for perfect modern visor look.
+                    float hubSize = innerR * 1.48f;
+                    _hubBacking.rectTransform.sizeDelta = new Vector2(hubSize, hubSize);
+                    _hubBacking.rectTransform.anchoredPosition = Vector2.zero;
+                }
+
+                Place(_title, 38f, w);
+                Place(_verb, 13f, w);
+                Place(_label, -7f, w);
+                Place(_sub, -25f, w);
+                Place(_warn, -43f, w);
 
                 _title.text = satTitle ?? title ?? string.Empty;
                 _title.color = FromImGui(Theme.TextDim);

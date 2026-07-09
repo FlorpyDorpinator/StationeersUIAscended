@@ -47,6 +47,29 @@ namespace StationeersUIMod.Overlay
             if (ratio01 <= 0.40f) return Warn;
             return Good;
         }
+        
+        // =====================================================
+        // Modern UGUI Radial Theme (revised)
+        // - Backgrounds dynamically shade when a wedge is highlighted (others recede)
+        // - Orange for borders + rim highlights (powerful, works great)
+        // - Richer darker blue for selected/hovered state (pops via contrast, not too bright as bg)
+        // - #141414 bases, good transparency
+        // =====================================================
+
+        public static readonly Color UguiBg = new Color(0.078f, 0.078f, 0.078f, 0.76f); // #141414
+
+        // Blue used on selected/hovered wedges - richer saturation + tuned brightness so it pops more as the selected state (not too bright for backgrounds)
+        public static readonly Color UguiSelectedBlue      = new Color(0.16f, 0.38f, 0.52f, 0.84f);
+        public static readonly Color UguiSelectedBlueBright = new Color(0.22f, 0.50f, 0.65f, 0.92f);
+
+        // Orange for borders, highlights/rim shine, and stow fills
+        public static readonly Color UguiOrange       = new Color(0.988f, 0.455f, 0.016f, 0.82f);
+        public static readonly Color UguiOrangeBright = new Color(1.00f, 0.58f, 0.12f, 0.96f);
+
+        public static readonly Color UguiDisabled = new Color(0.12f, 0.12f, 0.12f, 0.50f);
+
+        // Subtle outer rim shine (mixed into outer verts)
+        public static readonly Color UguiShine = new Color(1f, 1f, 1f, 0.15f);
     }
 }
 
