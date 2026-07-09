@@ -4,17 +4,18 @@ using UnityEngine.UI;
 namespace StationeersUIMod.UI
 {
     /// <summary>
-    /// A single annular-sector wedge, generated procedurally at runtime.
+    /// A single annular-sector wedge, generated procedurally at runtime via OnPopulateMesh.
     ///
-    /// This is the piece that makes a Unity radial actually work: because the mesh is built
-    /// from (startAngle, endAngle, innerRadius, outerRadius) every time those change, ONE
-    /// wedge type serves any entry count. Pre-authored prefabs bake N into an asset, which
-    /// forces a prefab per N, or paging that silently hides items, or dead sectors where
-    /// there is no wedge to hover.
+    /// This is the key component Florpy introduced to make a reliable Unity radial possible
+    /// without the problems of the earlier prefab implementation (on main).
     ///
-    /// Angles are radians in ImGui screen convention (y DOWN, 0 = +X, increasing clockwise),
-    /// matching RadialMenu's existing sector math. The Y flip happens here, once, when the
-    /// vertices are emitted into UGUI's y-up local space.
+    /// Because the mesh is emitted from (a0, a1, innerR, outerR) on every change, a single
+    /// component type handles any number of entries (N=1..14+). Pre-authored prefabs baked
+    /// a fixed capacity or per-N layout into assets, causing capacity limits, dead zones,
+    /// and maintenance pain.
+    ///
+    /// Angles come in ImGui convention (y-down, clockwise from +X). The sine negation for
+    /// UGUI's y-up space is applied once when emitting vertices.
     /// </summary>
     [RequireComponent(typeof(CanvasRenderer))]
     public sealed class RadialWedgeGraphic : MaskableGraphic, ICanvasRaycastFilter

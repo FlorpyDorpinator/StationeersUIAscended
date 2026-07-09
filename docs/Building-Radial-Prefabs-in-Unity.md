@@ -1,7 +1,9 @@
 # Building Radial UI Prefabs in Unity for StationeersUIMod
 
-**Status:** Planning / migration guide from current ImGui implementation.  
-**Target:** Replace (or coexist with) the ImGui `RadialMenu` + HUD overlays using real Unity prefabs, while preserving exact gameplay semantics.  
+> **Historical note (2026-07-09):** The procedural Unity UGUI implementation (runtime code-built, no prefabs) is now the primary and loved radial renderer on this branch. Florpy created it to solve the problems of the earlier prefab-based approach while delivering real TMP, animations, and perfect hot-reload. Prefab work for the *radial gesture system* is not the current path. This document is retained as historical reference. See `docs/Procedural-UGUI-Radial-System.md` for the actual system we are keeping.
+
+**Status:** Historical planning document.  
+**Target (at time of writing):** Replace (or coexist with) the ImGui `RadialMenu` + HUD overlays using real Unity prefabs, while preserving exact gameplay semantics.  
 **Entry point reminder:** `public void OnLoaded(List<GameObject> prefabs, ConfigFile config)` — the `prefabs` list is for things registered via `MOD.AddPrefabs(...)` in more complex mods. For pure UI we can also Instantiate prefabs we author directly (they get included via the mod export process).
 
 ---

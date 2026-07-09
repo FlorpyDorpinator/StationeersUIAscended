@@ -8,18 +8,27 @@ using UnityEngine.UI;
 namespace StationeersUIMod.UI
 {
     /// <summary>
-    /// A Unity/UGUI renderer for the radial, built ENTIRELY IN CODE at runtime.
+    /// The primary radial renderer: a Unity/UGUI implementation built ENTIRELY IN CODE at runtime.
     ///
-    /// Why no prefabs: a prefab bakes the wedge count into the asset, so it needs one prefab
-    /// per entry count (or paging that hides items). Wedges here are procedural
-    /// (RadialWedgeGraphic), so any N works. Building in code also means no AssetBundle, no
-    /// Unity Editor round-trip, and ScriptEngine hot reload keeps working.
+    /// Florpy built this on top of the earlier prefab-based radial work (from main) and the
+    /// shared interaction model refined during the radial UX overhaul.
     ///
-    /// What this buys over ImGui: real TMP typography, per-wedge animation (hover pop-out,
-    /// scale-in reveal), sprite icons with automatic aspect preservation, and a path to
-    /// shaders / curved-visor rendering later.
+    /// Why procedural + code-built (no prefabs):
+    /// - A prefab bakes the wedge count (N) into the asset → forces one prefab per N, or paging
+    ///   that hides items, or dead hover sectors. A radial is inherently variable (1..14+ entries).
+    /// - One RadialWedgeGraphic + runtime mesh in OnPopulateMesh serves any count.
+    /// - Building the Canvas, RingViews, wedges, icons, and TMP labels entirely in C# means:
+    ///   no AssetBundle, no editor round-trips for the core UI, and perfect ScriptEngine hot-reload (F6).
     ///
-    /// State still lives in RadialMenu — this class only draws what it is told.
+    /// Advantages over the original ImGui painter and over the earlier prefab approach:
+    /// - Real TextMeshPro (auto-sizing + wrapping, no manual chord fitting hacks).
+    /// - Icons use Unity Image.preserveAspect = true (no more warping).
+    /// - Per-wedge hover animation (outward bulge + color lerp) and open scale-in reveal.
+    /// - Clean polar geometry and raycast filter.
+    /// - Easy future path to custom shaders or curved visor visuals.
+    ///
+    /// All interaction logic (hover math, satellite rings, sticky mode, level stack, actions)
+    /// remains in RadialMenu / RadialController. This view is purely a consumer of that state.
     /// </summary>
     public static class UnityRadialView
     {

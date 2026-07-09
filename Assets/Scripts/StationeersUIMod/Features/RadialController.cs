@@ -178,7 +178,7 @@ namespace StationeersUIMod.Features
         public void Draw()
         {
             if (_menu.IsOpen) _menu.Draw();
-            else UI.UnityRadialView.Hide(); // the UGUI canvas persists; it must be told to hide
+            else UI.UnityRadialView.Hide(); // UGUI canvas must be explicitly hidden when closed (or every reload stacks)
         }
 
         public void CloseAll()

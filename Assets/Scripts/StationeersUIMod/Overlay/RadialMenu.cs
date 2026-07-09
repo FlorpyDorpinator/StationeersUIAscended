@@ -344,8 +344,8 @@ namespace StationeersUIMod.Overlay
                 _slideOutCandidate = -1;
             }
 
-            // Only the PAINT differs between renderers — hover, satellites, slide-out and all
-            // selection state above are shared, so the two can be A/B'd live.
+            // The interaction model (hover, satellites, levels, sticky/hold logic) lives in RadialMenu.
+            // Only the paint differs. Unity UGUI (procedural) is the primary renderer.
             if (UIAConfig.UseUnityRadial.Value)
             {
                 RadialEntry readout = _satellite != null && _satHovered >= 0 ? SatEntry(_satHovered)
@@ -361,6 +361,7 @@ namespace StationeersUIMod.Overlay
             }
             UI.UnityRadialView.Hide();
 
+            // Legacy ImGui draw-list path (kept for A/B and as reference)
             DrawRing(dl, center, innerR, outerR, level.Entries,
                 _satellite == null ? _hovered : (_satellite != null ? _satellite.SourceIndex : -1),
                 _satellite != null, solidHub: true);

@@ -5,7 +5,7 @@
   <Description>
 	  [h1]Stationeers UI Mod[/h1]
 	  
-    Radial inventory and HUD overhaul for Stationeers (ImGui-based). Toolbelt, tool, bag radials, SmartStow+, visor HUD, equipment keys. Client-side optional mod.
+    Radial inventory and HUD overhaul for Stationeers (procedural Unity UGUI radials + ImGui HUD). Toolbelt, tool, bag radials, SmartStow+, visor HUD, equipment keys. Client-side optional mod.
 	  [h3]POC integrated as Unity mod base[/h3]
 
   </Description>
@@ -14,14 +14,15 @@
 <br>
 <b>Stationeers UI Mod</b> — Radials for tools/bags, SmartStow+, two-hand visor HUD. Replaces hotbar friction with modern interaction while keeping physical inventory rules.
 <br><br>
-Ported from BepInEx proof-of-concept into Unity mod project.
+Ported from BepInEx proof-of-concept into Unity mod project. Radials are now drawn with a fully procedural Unity UGUI renderer (code-built canvas + runtime mesh wedges).
 <br>
 ]]></InGameDescription>
   <ChangeLog>
     [h3]Version 0.2.0:[/h3]
     [list]
     [*] Rebased as StationeersUIMod Unity/SLP mod (namespace StationeersUIMod)
-    [*] Hooked ImGui radials + overlays to SLP OnLoaded entrypoint
+    [*] Procedural Unity UGUI radial renderer (built in code, no prefabs) as primary
+    [*] Hooked to SLP OnLoaded entrypoint; legacy ImGui painter retained for reference
     [*] All BepInEx plugin code integrated, patches preserved (fail-soft)
     [/list]
   </ChangeLog>

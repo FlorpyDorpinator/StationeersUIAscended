@@ -25,8 +25,26 @@ Assets/Scripts/StationeersUIMod/
 
 Entry point: `StationeersUIMod` (MonoBehaviour + OnLoaded via LaunchPadBooster / SLP).
 
-## Next steps
+## Current direction (as of 2026-07-09)
 
-- Build the real Unity UI prefabs for radials and HUD (see `docs/Building-Radial-Prefabs-in-Unity.md`).
+The primary, loved implementation for the core radials is the **procedural Unity UGUI renderer** that Florpy built on this branch.
+
+- Fully code-built at runtime (no prefabs, no AssetBundles).
+- `RadialWedgeGraphic` emits correct annular sector meshes for any entry count.
+- TMP auto-sizing + preserveAspect icons + hover bulge + scale-in animations.
+- Built on top of the earlier prefab experiments + the shared interaction model (`RadialMenu` / `RadialController` / `RadialEntry`).
+
+It is enabled by default (`UseUnityRadial` in config). Toggle it off in F10 settings or the SLP panel to use the legacy ImGui painter for comparison.
+
+See:
+- `docs/Procedural-UGUI-Radial-System.md` — explains exactly how Florpy's procedural UGUI system works, how it was built on the earlier work, and why we love and are keeping it.
+- `docs/How-the-Radial-System-Works.md`
+- Changes Report "2026-07-09 - Procedural Unity UGUI Radial"
+
+The older prefab planning in `Building-Radial-Prefabs-in-Unity.md` is historical.
+
+The visor HUD is still drawn with ImGui for now.
+
+## Other notes
 - Explore middle-mouse-button unification (future).
-- Keep iterating on the radial personalities while the ImGui version is still authoritative.
+- Keep iterating on radial personalities and SmartStow+ / bag profiles while the ImGui implementation is the reference.

@@ -1,9 +1,11 @@
 # How the Radial System Works (and How to Use It)
 
 **Project:** StationeersUIMod (Unity + LaunchPadBooster)  
-**Current implementation:** ImGui overlay (Dear ImGui draw lists) replacing/supplementing vanilla slot windows and scoreboards.  
-**Date of analysis:** 2026-07-09  
-**Goal of this doc:** Complete technical + UX understanding so we can faithfully recreate the experience with real Unity UI prefabs.
+**Current implementation:** Procedural Unity UGUI renderer (code-built canvas + runtime annular wedges via MaskableGraphic) — the primary and loved implementation. A legacy ImGui draw-list painter is available as a toggleable fallback.  
+**Date of analysis:** 2026-07-09 (updated)  
+**Status:** Florpy built the procedural UGUI system on top of earlier prefab work and the shared interaction model. This is what we are keeping. See `docs/Procedural-UGUI-Radial-System.md` for the deep dive into the system Florpy built.
+
+**Goal of this doc:** Explain the complete architecture, UX model, and extension points so developers understand exactly how the system behaves today. The ImGui code is the executable spec.
 
 ---
 
@@ -230,6 +232,16 @@ All keys rebindable (live KeyManager.GetKey for equipment). Hold threshold, radi
 
 ---
 
+## Decision Note (2026-07-09)
+
+The procedural Unity UGUI renderer (code-built at runtime, `RadialWedgeGraphic` for any-N annular sectors, TMP, hover animations) is the primary and loved implementation that Florpy built on this branch. It is based on the earlier prefab work plus the shared `RadialMenu` interaction engine.
+
+We are keeping it. The legacy ImGui painter remains as a toggleable fallback. The interaction model is renderer-agnostic by design.
+
+The older `Building-Radial-Prefabs-in-Unity.md` is historical. The actual Unity realization is the procedural one.
+
+---
+
 ## 7. Current UX Observations & Pain Points
 
 1. **MMB toolbelt is the sweet spot.** Instant, low-conflict, flick-to-equip or stow.
@@ -266,16 +278,18 @@ All keys rebindable (live KeyManager.GetKey for equipment). Hold threshold, radi
 
 ---
 
-## 10. What Must Be Preserved When Moving to Prefabs
+## 10. What Must Be Preserved (Renderer-Agnostic Core)
 
-- The exact `IRadialFeature` + `RadialEntry` data model (or a very close analogue) so features don't change.
-- Tap/hold + sticky semantics and the four feature personalities (or consciously redesign them).
-- `ModalScope` input isolation (or equivalent Canvas + EventSystem + game's modal system).
+- The exact `IRadialFeature` + `RadialEntry` data model so features don't change.
+- Tap/hold + sticky semantics and the four feature personalities.
+- `ModalScope` input isolation (and the deferred release trick).
 - `ItemActions` as the single mutation path.
 - Consequence warnings, "Grab another", "Find item", slide-outs, center readout.
 - Rebind respect + fallbacks when `!CanOpen()`.
 - Guards against pause/console/creative menu/unconscious.
 
-This document + the companion prefab doc + the code in `Features/`, `Overlay/RadialMenu.cs`, `RadialController.cs`, and `ItemMenuBuilder.cs` should give a complete picture.
+This document + the procedural UGUI implementation docs + the code in `Features/`, `Overlay/RadialMenu.cs`, `RadialController.cs`, `UI/UnityRadialView.cs`, `UI/RadialWedgeGraphic.cs`, `Core/ItemActions.cs`, and `ItemMenuBuilder.cs` give the full picture.
+
+The procedural UGUI view (`UI/UnityRadialView.cs` + `RadialWedgeGraphic.cs`) is the current primary renderer. The model in `RadialMenu` is deliberately shared so any future visual work (or the legacy ImGui path) consumes the same data.
 
 Next step: design the Unity prefab equivalent that can host the same `List<RadialEntry>` and drive the same actions with proper UGUI interactions.
