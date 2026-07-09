@@ -17,10 +17,10 @@ namespace StationeersUIAscended.Overlay
         public static readonly uint PanelBgSolid = C(0.03f, 0.11f, 0.13f, 0.88f);
         public static readonly uint PanelBorder  = C(0.28f, 0.75f, 0.80f, 0.55f);
 
-        // Text
-        public static readonly uint TextPrimary  = C(0.72f, 0.93f, 0.95f, 1.00f);
-        public static readonly uint TextDim      = C(0.48f, 0.66f, 0.68f, 0.85f);
-        public static readonly uint TextDisabled = C(0.40f, 0.50f, 0.52f, 0.55f);
+        // Text — no greys: secondary text is dimmer CYAN so everything stays on-palette.
+        public static readonly uint TextPrimary  = C(0.78f, 0.96f, 0.98f, 1.00f);
+        public static readonly uint TextDim      = C(0.55f, 0.88f, 0.92f, 1.00f);
+        public static readonly uint TextDisabled = C(0.42f, 0.72f, 0.78f, 0.80f);
 
         // Accents
         public static readonly uint Accent       = C(1.00f, 0.55f, 0.16f, 1.00f);
