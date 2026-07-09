@@ -1,8 +1,0 @@
-C:\Dev\Stationeers UI Ascended\StationeersUIAscended\bin\Release\StationeersUIAscended.dll
-C:\Dev\Stationeers UI Ascended\StationeersUIAscended\obj\Release\StationeersUIAscended.csproj.AssemblyReference.cache
-C:\Dev\Stationeers UI Ascended\StationeersUIAscended\obj\Release\StationeersUIAscended.GeneratedMSBuildEditorConfig.editorconfig
-C:\Dev\Stationeers UI Ascended\StationeersUIAscended\obj\Release\StationeersUIAscended.AssemblyInfoInputs.cache
-C:\Dev\Stationeers UI Ascended\StationeersUIAscended\obj\Release\StationeersUIAscended.AssemblyInfo.cs
-C:\Dev\Stationeers UI Ascended\StationeersUIAscended\obj\Release\StationeersUIAscended.csproj.CoreCompileInputs.cache
-C:\Dev\Stationeers UI Ascended\StationeersUIAscended\obj\Release\StationeersUIAscended.sourcelink.json
-C:\Dev\Stationeers UI Ascended\StationeersUIAscended\obj\Release\StationeersUIAscended.dll
