@@ -215,8 +215,8 @@ namespace StationeersUIMod.UI
                     wedge.BorderWidth = Mathf.Lerp(wedge.BorderWidth, borderWTarget, dt * AnimSpeed * 0.7f);
                     wedge.BorderColor = Color.Lerp(wedge.BorderColor, borderTarget, dt * AnimSpeed);
 
-                    // Modern rim shine + orange highlight (stronger + more visible on hover for pop)
-                    float shineTarget = isHovered ? 0.72f : 0.18f;
+                    // Rim gloss: subtle, and only really visible on the selected wedge.
+                    float shineTarget = isHovered ? 0.55f : 0.10f;
                     wedge.RimHighlight = Mathf.Lerp(wedge.RimHighlight, shineTarget, dt * AnimSpeed);
 
                     // Any geometry property (bulge/border/rim) changed -> rebuild mesh this frame
@@ -231,8 +231,9 @@ namespace StationeersUIMod.UI
                     var dir = new Vector2(Mathf.Cos(aMid), -Mathf.Sin(aMid));
                     var slot = dir * midR;
 
-                    float iconSize = Mathf.Clamp(ringWidth * 0.46f, 20f, 56f);
+                    float iconSize = Mathf.Clamp(ringWidth * 0.46f, 20f, 56f) * UIAConfig.RadialIconScale.Value;
                     float contentScale = isHovered ? HoverScale : 1f;
+                    bool showLabels = UIAConfig.RadialShowWedgeLabels.Value;
 
                     var icon = _icons[i];
                     icon.sprite = entry.Icon;
@@ -240,15 +241,21 @@ namespace StationeersUIMod.UI
                     float iconAlpha = (entry.Enabled ? 1f : 0.32f) * (dimmed ? 0.45f : 1f);
                     icon.color = new Color(1f, 1f, 1f, iconAlpha);
                     icon.rectTransform.sizeDelta = new Vector2(iconSize, iconSize) * contentScale;
-                    icon.rectTransform.anchoredPosition = slot + dir * (ringWidth * 0.05f) +
-                                                         new Vector2(0f, entry.Icon != null ? ringWidth * 0.12f : 0f);
+                    // With labels hidden the icon owns the wedge, so centre it in the band.
+                    icon.rectTransform.anchoredPosition = showLabels
+                        ? slot + dir * (ringWidth * 0.05f) + new Vector2(0f, ringWidth * 0.12f)
+                        : slot;
 
                     var label = _labels[i];
+                    // The hub readout already names whatever is selected; per-wedge names just
+                    // collide with neighbouring icons on a crowded belt.
+                    label.gameObject.SetActive(showLabels);
+                    if (!showLabels) continue;
+
                     label.text = entry.Label ?? string.Empty;
-                    label.color = FromImGui(entry.Enabled ? Theme.TextPrimary : Theme.TextDisabled);
+                    label.color = entry.Enabled ? RadialPalette.TextPrimary.Value : RadialPalette.WedgeDisabled.Value;
                     label.rectTransform.localScale = Vector3.one * contentScale;
 
-                    // Modern auto box width
                     float halfAngle = Mathf.Min(sector * 0.5f, Mathf.PI * 0.5f);
                     float chord = 2f * midR * Mathf.Sin(halfAngle);
                     float boxW = Mathf.Clamp(Mathf.Abs(Mathf.Cos(aMid)) * ringWidth + Mathf.Abs(Mathf.Sin(aMid)) * chord - 6f,
@@ -256,7 +263,7 @@ namespace StationeersUIMod.UI
                     label.rectTransform.sizeDelta = new Vector2(boxW, ringWidth * 0.48f);
                     label.rectTransform.anchoredPosition =
                         slot - dir * (ringWidth * 0.02f) -
-                        new Vector2(0f, entry.Icon != null ? iconSize * contentScale * 0.48f + 1f : 0f);
+                        new Vector2(0f, iconSize * contentScale * 0.48f + 1f);
                 }
             }
 
@@ -264,58 +271,28 @@ namespace StationeersUIMod.UI
             {
                 Color col;
                 if (!entry.Enabled)
-                {
-                    col = Theme.UguiDisabled;
-                }
+                    col = RadialPalette.WedgeDisabled.Value;
                 else if (entry.FillOverride.HasValue)
-                {
-                    // Stow uses orange fill (orange works really well)
-                    col = hovered ? Theme.UguiOrangeBright : Theme.UguiOrange;
-                }
+                    col = hovered ? RadialPalette.WedgeStowHover.Value : RadialPalette.WedgeStow.Value;
                 else if (hovered)
-                {
-                    // Blue on selected/hovered - darker/richer so it pops without being "too bright" as a background
-                    col = Theme.UguiSelectedBlue;
-                }
+                    col = RadialPalette.WedgeHover.Value;
                 else
-                {
-                    col = Theme.UguiBg;
-                }
+                    col = RadialPalette.WedgeBg.Value;
 
                 if (dimmed) col.a *= 0.48f;
                 return col;
             }
 
+            /// <summary>Only the SELECTED wedge gets the orange border; the rest wear a faint
+            /// blue hairline, so the selection reads instantly.</summary>
             private static Color ResolveUguiBorder(RadialEntry entry, bool hovered, bool dimmed)
             {
-                // Orange borders + orange highlight (as requested). Blue is reserved for the selected wedge fill.
-                Color baseBorder;
-                if (!entry.Enabled)
-                {
-                    baseBorder = new Color(0.22f, 0.22f, 0.22f, 0.40f);
-                }
-                else if (entry.FillOverride.HasValue)
-                {
-                    // Stronger orange border on stow
-                    baseBorder = hovered ? Theme.UguiOrangeBright : Theme.UguiOrange;
-                }
-                else
-                {
-                    // Orange border for normal wedges too (powerful accent)
-                    baseBorder = hovered ? Theme.UguiOrangeBright : Theme.UguiOrange;
-                }
-
-                // Slim but powerful border - higher alpha on hover for pop
-                float alphaMul = dimmed ? 0.55f : (hovered ? 0.95f : 0.68f);
-                baseBorder.a *= alphaMul;
-
-                // Make blue-selected wedges have slightly more saturated/powerful orange border for contrast
-                if (hovered && !entry.FillOverride.HasValue)
-                {
-                    baseBorder = Color.Lerp(baseBorder, Theme.UguiOrangeBright, 0.25f);
-                }
-
-                return baseBorder;
+                Color border = !entry.Enabled
+                    ? RadialPalette.WedgeDisabled.Value
+                    : hovered ? RadialPalette.WedgeBorderHover.Value
+                              : RadialPalette.WedgeBorder.Value;
+                if (dimmed) border.a *= 0.55f;
+                return border;
             }
 
             private void EnsureCapacity(int n)
@@ -360,7 +337,7 @@ namespace StationeersUIMod.UI
         private sealed class ReadoutView
         {
             private readonly RectTransform _root;
-            private readonly Image _hubBacking;
+            private readonly CircleGraphic _hubBacking;
             private readonly TextMeshProUGUI _title, _verb, _label, _sub, _warn;
 
             public ReadoutView(Transform parent, TMP_FontAsset font)
@@ -370,11 +347,11 @@ namespace StationeersUIMod.UI
                 _root = (RectTransform)go.transform;
                 _root.anchorMin = _root.anchorMax = new Vector2(0.5f, 0.5f);
 
-                // Very subtle modern hub backing (slightly transparent dark glass)
+                // A CircleGraphic, not an Image: an Image with no sprite renders a white QUAD,
+                // which is why the hub used to be a square.
                 var hub = new GameObject("HubBacking", typeof(RectTransform));
                 hub.transform.SetParent(_root, false);
-                _hubBacking = hub.AddComponent<Image>();
-                _hubBacking.color = new Color(0.06f, 0.06f, 0.06f, 0.38f); // very subtle glass
+                _hubBacking = hub.AddComponent<CircleGraphic>();
                 _hubBacking.raycastTarget = false;
 
                 _title = Make(font, 13f, out var t0); t0.SetParent(_root, false);
@@ -406,14 +383,14 @@ namespace StationeersUIMod.UI
                 _root.anchoredPosition = CanvasAnchoredPos(center);
                 float w = (innerR - 6f) * 1.85f;
 
-                // Modern slim hub backing (glass over the center)
                 if (_hubBacking != null)
                 {
-                    // Subtle dark glass center. Square for now (no sprite/mask to stay asset-free).
-                    // Can be replaced with a circular mask + sprite later for perfect modern visor look.
-                    float hubSize = innerR * 1.48f;
-                    _hubBacking.rectTransform.sizeDelta = new Vector2(hubSize, hubSize);
                     _hubBacking.rectTransform.anchoredPosition = Vector2.zero;
+                    _hubBacking.SetRadius(innerR - 6f);
+                    _hubBacking.color = RadialPalette.HubFill.Value;
+                    _hubBacking.BorderColor = RadialPalette.HubBorder.Value;
+                    _hubBacking.BorderWidth = 2.5f;
+                    _hubBacking.Refresh();
                 }
 
                 Place(_title, 38f, w);
@@ -423,22 +400,22 @@ namespace StationeersUIMod.UI
                 Place(_warn, -43f, w);
 
                 _title.text = satTitle ?? title ?? string.Empty;
-                _title.color = FromImGui(Theme.TextDim);
+                _title.color = RadialPalette.TextDim.Value;
 
                 if (hovered == null)
                 {
                     _verb.text = hint ?? (sticky ? "LMB select | RMB back" : "release to cancel");
-                    _verb.color = FromImGui(Theme.TextDisabled);
+                    _verb.color = RadialPalette.TextDim.Value;
                     _label.text = _sub.text = _warn.text = string.Empty;
                     return;
                 }
 
                 _verb.text = hovered.ActionText ?? (hovered.IsBranch ? "Open" : "Select");
-                _verb.color = FromImGui(hovered.Enabled ? Theme.Accent : Theme.TextDisabled);
+                _verb.color = hovered.Enabled ? RadialPalette.TextAccent.Value : RadialPalette.TextDim.Value;
                 _label.text = hovered.Label ?? string.Empty;
-                _label.color = FromImGui(hovered.Enabled ? Theme.TextPrimary : Theme.TextDisabled);
+                _label.color = hovered.Enabled ? RadialPalette.TextPrimary.Value : RadialPalette.TextDim.Value;
                 _sub.text = hovered.Sublabel ?? string.Empty;
-                _sub.color = FromImGui(Theme.TextDim);
+                _sub.color = RadialPalette.TextDim.Value;
 
                 if (!hovered.Enabled && !string.IsNullOrEmpty(hovered.DisabledReason))
                 {

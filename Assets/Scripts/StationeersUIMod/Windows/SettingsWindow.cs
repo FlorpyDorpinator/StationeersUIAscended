@@ -38,7 +38,23 @@ namespace StationeersUIMod.Windows
                 IntSlider(UIAConfig.HoldThresholdMs, "Hold threshold (ms)", 60, 600);
                 FloatSlider(UIAConfig.RadialOuterRadius, "Radial size", 120f, 480f);
                 FloatSlider(UIAConfig.RadialInnerRadius, "Hub (center circle) size", 60f, 260f);
+                FloatSlider(UIAConfig.RadialIconScale, "Icon size", 0.5f, 2.5f);
+                Toggle(UIAConfig.RadialShowWedgeLabels, "Show item name under each icon");
                 Toggle(UIAConfig.UseUnityRadial, "Unity UGUI renderer (procedural wedges, TMP, animations)");
+            }
+
+            if (ImGui.CollapsingHeader("Radial Colours"))
+            {
+                ImGui.TextDisabled("Click a swatch for a colour wheel. The A slider is transparency.");
+                ImGui.TextDisabled("Changes apply live and persist to the config file.");
+                ImGui.Spacing();
+
+                foreach (var entry in Overlay.RadialPalette.All)
+                    ColorWheel(entry);
+
+                ImGui.Spacing();
+                if (ImGui.Button("Reset all colours to defaults"))
+                    Overlay.RadialPalette.ResetToDefaults();
             }
 
             if (ImGui.CollapsingHeader("SmartStow+", ImGuiTreeNodeFlags.DefaultOpen))
@@ -82,6 +98,21 @@ namespace StationeersUIMod.Windows
             ImGui.Separator();
             ImGui.TextDisabled("All settings persist to BepInEx config and are editable in");
             ImGui.TextDisabled("StationeersLaunchPad's mod config panel as well.");
+        }
+
+        /// <summary>
+        /// A swatch that opens ImGui's hue-wheel picker with an alpha bar. Colours round-trip
+        /// through the config as hex, so they persist and survive a hot reload.
+        /// </summary>
+        private static void ColorWheel(Overlay.RadialPalette.Entry entry)
+        {
+            Color c = entry.Value;
+            var v = new Vector4(c.r, c.g, c.b, c.a);
+            const ImGuiColorEditFlags flags = ImGuiColorEditFlags.AlphaBar
+                                            | ImGuiColorEditFlags.AlphaPreviewHalf
+                                            | ImGuiColorEditFlags.PickerHueWheel;
+            if (ImGui.ColorEdit4(entry.Name, ref v, flags))
+                entry.Value = new Color(v.x, v.y, v.z, v.w);
         }
 
         private static void Toggle(ConfigEntry<bool> entry, string label)

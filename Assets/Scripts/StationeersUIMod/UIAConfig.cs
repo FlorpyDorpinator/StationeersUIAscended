@@ -68,6 +68,8 @@ namespace StationeersUIMod
         public static ConfigEntry<float> RadialInnerRadius;
         public static ConfigEntry<bool> IconFlipV;
         public static ConfigEntry<bool> UseUnityRadial;
+        public static ConfigEntry<float> RadialIconScale;
+        public static ConfigEntry<bool> RadialShowWedgeLabels;
 
         public static void Bind(ConfigFile cfg)
         {
@@ -169,6 +171,15 @@ namespace StationeersUIMod
                 "Use the procedural Unity UGUI radial renderer (runtime-generated wedges via MaskableGraphic, " +
                 "TMP auto-sized labels, preserveAspect icons, hover pop animations). This is the primary renderer. " +
                 "Turn off to fall back to the legacy ImGui draw-list painter for comparison.");
+            RadialIconScale = cfg.Bind("8. Radial Visuals", "IconScale", 1.30f,
+                new ConfigDescription("Size multiplier for the item icons inside radial wedges.",
+                    new AcceptableValueRange<float>(0.5f, 2.5f)));
+            RadialShowWedgeLabels = cfg.Bind("8. Radial Visuals", "ShowWedgeLabels", false,
+                "Draw the item name under each wedge icon. Off by default: the hub already names " +
+                "whatever is selected, and per-wedge names collide on a crowded toolbelt.");
+
+            // Every radial colour, live-editable from the F10 colour wheels.
+            Overlay.RadialPalette.Bind(cfg);
         }
     }
 }
