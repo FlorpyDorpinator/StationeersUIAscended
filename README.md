@@ -24,18 +24,9 @@ Assets/Scripts/StationeersUIMod/
 ```
 
 Entry point: `StationeersUIMod` (MonoBehaviour + OnLoaded via LaunchPadBooster / SLP).
-│   ├── PipeConnectionHelper.cs   OpenEnd → pipe network
-│   ├── AtmosphereDisplaySync.cs  MP logic read mirrors
-│   └── WireframeMaker.cs         Blueprint wireframes
-└── patches/
-    ├── ThingSaveDataPatch.cs       Save corruption guard
-    └── StationpediaPatch.cs        Encyclopedia registration
-```
-
----
 
 ## Next steps
 
-1. You: finish Blender model + answer `docs/QUESTIONS.md`
-2. You: say **GO** for POC script implementation
-3. Agent: implement `StructureAquarium` per `docs/POC-SPEC.md`
+- Build the real Unity UI prefabs for radials and HUD (see `docs/Building-Radial-Prefabs-in-Unity.md`).
+- Explore middle-mouse-button unification (future).
+- Keep iterating on the radial personalities while the ImGui version is still authoritative.
