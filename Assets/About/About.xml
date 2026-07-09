@@ -1,0 +1,36 @@
+﻿<ModMetadata xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <Name>StationeersUIMod</Name>
+  <Author>FlorpyDorp + JXSN</Author>
+  <Version>0.2.0</Version>
+  <Description>
+	  [h1]Stationeers UI Mod[/h1]
+	  
+    Radial inventory and HUD overhaul for Stationeers (ImGui-based). Toolbelt, tool, bag radials, SmartStow+, visor HUD, equipment keys. Client-side optional mod.
+	  [h3]POC integrated as Unity mod base[/h3]
+
+  </Description>
+  <InGameDescription><![CDATA[<size="30"><color=#4fc3f7>Stationeers UI Mod</color></size>
+<b>WARNING:</b> <color=#ff0000>This is a StationeersLaunchPad Plugin Mod. It requires BepInEx + StationeersLaunchPad.</color>
+<br>
+<b>Stationeers UI Mod</b> — Radials for tools/bags, SmartStow+, two-hand visor HUD. Replaces hotbar friction with modern interaction while keeping physical inventory rules.
+<br><br>
+Ported from BepInEx proof-of-concept into Unity mod project.
+<br>
+]]></InGameDescription>
+  <ChangeLog>
+    [h3]Version 0.2.0:[/h3]
+    [list]
+    [*] Rebased as StationeersUIMod Unity/SLP mod (namespace StationeersUIMod)
+    [*] Hooked ImGui radials + overlays to SLP OnLoaded entrypoint
+    [*] All BepInEx plugin code integrated, patches preserved (fail-soft)
+    [/list]
+  </ChangeLog>
+  <WorkshopHandle>0</WorkshopHandle>
+  <Tags>
+    <Tag>StationeersLaunchPad</Tag>
+    <Tag>UI</Tag>
+  </Tags>
+  <Dependencies />
+  <LoadBefore />
+  <LoadAfter />
+</ModMetadata>
