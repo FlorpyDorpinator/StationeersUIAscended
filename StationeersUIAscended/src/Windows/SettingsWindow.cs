@@ -37,6 +37,7 @@ namespace StationeersUIAscended.Windows
                 Toggle(UIAConfig.ToolbeltShowStowEntries, "Show empty belt slots in the toolbelt radial");
                 IntSlider(UIAConfig.HoldThresholdMs, "Hold threshold (ms)", 60, 600);
                 FloatSlider(UIAConfig.RadialOuterRadius, "Radial size", 120f, 480f);
+                FloatSlider(UIAConfig.RadialInnerRadius, "Hub (center circle) size", 60f, 260f);
             }
 
             if (ImGui.CollapsingHeader("SmartStow+", ImGuiTreeNodeFlags.DefaultOpen))

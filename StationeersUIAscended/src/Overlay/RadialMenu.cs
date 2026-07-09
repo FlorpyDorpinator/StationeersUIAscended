@@ -280,8 +280,8 @@ namespace StationeersUIAscended.Overlay
             var dl = ImGui.GetForegroundDrawList();
             var center = DrawUtil.ScreenCenter;
             float outerR = UIAConfig.RadialOuterRadius.Value;
-            // Hub floor of 78px: the six-line center readout needs that much vertical room.
-            float innerR = Mathf.Clamp(UIAConfig.RadialInnerRadius.Value, 78f, Mathf.Max(78f, outerR - 30f));
+            // Hub floor of 104px: the six-line center readout needs that much vertical room.
+            float innerR = Mathf.Clamp(UIAConfig.RadialInnerRadius.Value, 104f, Mathf.Max(104f, outerR - 30f));
             var level = Top();
             int count = level.Entries.Count;
             var mouse = DrawUtil.MousePos();

@@ -160,8 +160,8 @@ namespace StationeersUIAscended
 
             RadialOuterRadius = cfg.Bind("8. Radial Visuals", "OuterRadius", 240f,
                 new ConfigDescription("Outer radius of radial menus in pixels.", new AcceptableValueRange<float>(120f, 480f)));
-            RadialInnerRadius = cfg.Bind("8. Radial Visuals", "InnerRadius", 90f,
-                new ConfigDescription("Inner dead-zone radius in pixels (hovering here selects nothing / backs out).", new AcceptableValueRange<float>(40f, 240f)));
+            RadialInnerRadius = cfg.Bind("8. Radial Visuals", "InnerRadius", 120f,
+                new ConfigDescription("Inner hub radius in pixels (the center readout circle; hovering here selects nothing).", new AcceptableValueRange<float>(60f, 260f)));
             IconFlipV = cfg.Bind("8. Radial Visuals", "IconFlipV", false,
                 "Flip item icons vertically (toggle if atlas-packed icons render upside down).");
         }
