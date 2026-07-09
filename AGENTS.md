@@ -12,18 +12,16 @@ This also contains a bunch of reference how to handle certain things (especially
 
 We are working in 
 
-D:\Unity\Tankioneers on this: 
+D:\Unity\StationeersUIAscended on this: 
 
-**Tankioneers** — Stationeers Aquarium Mod
+**StationeersUIMod** — Stationeers UI overhaul (radials, SmartStow+, visor HUD) as proper Unity + SLP mod.
 
-Pipe-connected aquarium with real liquid simulation, custom volume (bypasses 2×2 m world grid liquid), IC10 logic.
+Rebased onto https://github.com/FlorpyDorpinator/StationeersUIAscended history.
 
-## Before implementing POC
+Uses the Stationeers modding template patterns for entrypoints (OnLoaded + LaunchPadBooster.Mod).
 
-Read `docs/POC-SPEC.md`. Do not write aquarium scripts until user gives manual GO.
+## Notes
 
-## Key technical facts
-
-- Vanilla liquid **rendering** is World-mode only at 2 m grid cells.
-- Aquarium uses `AtmosphereMode.Thing` + custom water plane visual.
-- Port patterns from TrainMod: `InitInternalAtmosphere`, `AtmosphereDisplaySync`, `PipeConnectionHelper`.
+- Pure client-side UI mod. No prefabs required for core (ImGui).
+- Use Unity for future prefab-based UI polish.
+- All original BepInEx POC logic ported and cleaned of hacks.
