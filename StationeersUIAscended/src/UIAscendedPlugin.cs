@@ -128,14 +128,19 @@ namespace StationeersUIAscended
         public void DrawOverlay()
         {
             if (Instance != this || _radials == null) return;
-            if (!Guards.CanDraw())
-            {
-                if (_radials.IsRadialOpen) _radials.CloseAll();
-                return;
-            }
+            if (GameManager.IsBatchMode || Assets.Scripts.UI.ImGuiLoadingScreen.IsShowing) return;
+
             Localization.PushFont();
             try
             {
+                // Toast draws even without a living player (death/incapacitated feedback).
+                Overlay.Toast.Draw();
+
+                if (!Guards.CanDraw())
+                {
+                    if (_radials.IsRadialOpen) _radials.CloseAll();
+                    return;
+                }
                 _hud.Draw();
                 _radials.Draw();
             }

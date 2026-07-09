@@ -4,6 +4,7 @@ using Assets.Scripts.Inventory;
 using Assets.Scripts.Objects;
 using Assets.Scripts.Objects.Entities;
 using StationeersUIAscended.Core;
+using StationeersUIAscended.Overlay;
 using UnityEngine;
 
 namespace StationeersUIAscended.Features
@@ -31,8 +32,27 @@ namespace StationeersUIAscended.Features
         {
             if (!UIAConfig.EmergencyInjectEnabled.Value) return;
             if (GameManager.IsBatchMode) return;
+
+            // Raw keypress detection FIRST (before any human/state gate), so pressing the
+            // hotkey always produces visible feedback — proves the key is registering and
+            // tells you WHY nothing happened. Accepts both top-row and numpad digits.
+            bool shift = Input.GetKey(KeyCode.LeftShift) || Input.GetKey(KeyCode.RightShift);
+            bool healPressed = shift && (Input.GetKeyDown(UIAConfig.EmergencyHealKey.Value)
+                                         || Input.GetKeyDown(KeyCode.Keypad9));
+            bool stimPressed = shift && (Input.GetKeyDown(UIAConfig.EmergencyStimKey.Value)
+                                         || Input.GetKeyDown(KeyCode.Keypad8));
+
             var human = InventoryManager.ParentHuman;
-            if (human == null) { _pendingInjector = null; return; }
+            if (healPressed || stimPressed)
+                UIALog.Info($"[EmergencyInject] hotkey detected (heal={healPressed} stim={stimPressed}, human={(human != null)})");
+
+            if (human == null)
+            {
+                if (healPressed || stimPressed)
+                    Toast.Show("No living body — can't inject", Theme.Critical, 3f);
+                _pendingInjector = null;
+                return;
+            }
 
             // Deferred fire: the injector was moved to the active hand; use it once it arrives.
             if (_pendingInjector != null)
@@ -50,12 +70,9 @@ namespace StationeersUIAscended.Features
                 return;
             }
 
-            bool shift = Input.GetKey(KeyCode.LeftShift) || Input.GetKey(KeyCode.RightShift);
-            if (!shift) return;
-
-            if (Input.GetKeyDown(UIAConfig.EmergencyHealKey.Value))
+            if (healPressed)
                 UseInjector("HealthInjector", "health");
-            else if (Input.GetKeyDown(UIAConfig.EmergencyStimKey.Value))
+            else if (stimPressed)
                 UseInjector("EpiInjector", "stim");
         }
 
@@ -68,9 +85,11 @@ namespace StationeersUIAscended.Features
             if (found == null)
             {
                 Announce($"[UI Ascended] No {label} auto-injector found on you.");
+                Toast.Show($"No {label} injector on you", Theme.Critical, 3f);
                 UIAudioManager.Play(UIAudioManager.ActionFailHash);
                 return;
             }
+            Toast.Show($"Using {found.Occupant.DisplayName}...", Theme.Accent, 3f);
 
             Slot hand = InventoryManager.ActiveHandSlot;
             if (hand != null && hand.Get() == found.Occupant)
@@ -116,6 +135,7 @@ namespace StationeersUIAscended.Features
                     NetworkClient.UseItemSecondary(entity, slotId, 1f);
                 UIAudioManager.Play(UIAudioManager.ObjectIntoHandHash);
                 Announce("[UI Ascended] Injector used on yourself (server applies the effect).");
+                Toast.Show("Injector used - server applying effect", Theme.Good, 3f);
             }
             catch (System.Exception e)
             {
