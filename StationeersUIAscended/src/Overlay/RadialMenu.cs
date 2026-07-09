@@ -280,7 +280,8 @@ namespace StationeersUIAscended.Overlay
             var dl = ImGui.GetForegroundDrawList();
             var center = DrawUtil.ScreenCenter;
             float outerR = UIAConfig.RadialOuterRadius.Value;
-            float innerR = Mathf.Min(UIAConfig.RadialInnerRadius.Value, outerR - 30f);
+            // Hub floor of 78px: the six-line center readout needs that much vertical room.
+            float innerR = Mathf.Clamp(UIAConfig.RadialInnerRadius.Value, 78f, Mathf.Max(78f, outerR - 30f));
             var level = Top();
             int count = level.Entries.Count;
             var mouse = DrawUtil.MousePos();
@@ -431,46 +432,53 @@ namespace StationeersUIAscended.Overlay
         }
 
         /// <summary>The center always says what the hovered entry will do. Every line is
-        /// width-fitted to the hub so nothing bleeds over the wedges.</summary>
+        /// fitted to the hub circle's CHORD at that line's height, so text can never cross
+        /// the circle no matter how long the strings or how small the hub.</summary>
         private void DrawCenterReadout(ImDrawListPtr dl, Vector2 center, float innerR, Level level)
         {
-            float maxW = innerR * 1.7f; // keep text inside the hub disc
+            float hubR = innerR - 6f;
+
+            // Usable width inside the circle at vertical offset y (text is ~16px tall).
+            float ChordW(float y)
+            {
+                float edge = Mathf.Abs(y) + 9f;
+                if (edge >= hubR) return 0f;
+                return 2f * Mathf.Sqrt(hubR * hubR - edge * edge) - 8f;
+            }
+
+            void Line(float y, uint color, string text)
+            {
+                if (string.IsNullOrEmpty(text)) return;
+                float w = ChordW(y);
+                if (w < 24f) return; // no room at this height — drop the line entirely
+                DrawUtil.TextShadowCentered(dl, center + new Vector2(0f, y), color, DrawUtil.FitText(text, w));
+            }
 
             // Breadcrumb: which ring the pointer is acting in ("Toolbelt" / "Open: Spray Gun").
             string title = _satellite != null ? _satellite.Title : level.Title;
             if (_satellite != null)
-                DrawUtil.TextShadowCentered(dl, center - new Vector2(0f, 58f), Theme.TextDisabled,
-                    DrawUtil.FitText(level.Title, maxW));
-            DrawUtil.TextShadowCentered(dl, center - new Vector2(0f, 40f), Theme.TextDim,
-                DrawUtil.FitText(title, maxW));
+                Line(-58f, Theme.TextDisabled, level.Title);
+            Line(-40f, Theme.TextDim, title);
 
             RadialEntry hovered = _satellite != null && _satHovered >= 0 ? SatEntry(_satHovered)
                                 : _hovered >= 0 ? MainEntry(_hovered)
                                 : null;
             if (hovered == null)
             {
-                DrawUtil.TextShadowCentered(dl, center - new Vector2(0f, 12f), Theme.TextDisabled,
-                    DrawUtil.FitText(_sticky ? "click: select | right-click: back" : "release to cancel", maxW));
+                Line(-12f, Theme.TextDisabled, _sticky ? "LMB select | RMB back" : "release to cancel");
                 return;
             }
 
             string verb = hovered.ActionText ?? (hovered.IsBranch ? "Open" : "Select");
-            DrawUtil.TextShadowCentered(dl, center - new Vector2(0f, 14f),
-                hovered.Enabled ? Theme.Accent : Theme.TextDisabled, DrawUtil.FitText(verb, maxW));
-            DrawUtil.TextShadowCentered(dl, center + new Vector2(0f, 6f),
-                hovered.Enabled ? Theme.TextPrimary : Theme.TextDisabled, DrawUtil.FitText(hovered.Label, maxW));
-            if (!string.IsNullOrEmpty(hovered.Sublabel))
-                DrawUtil.TextShadowCentered(dl, center + new Vector2(0f, 26f), Theme.TextDim,
-                    DrawUtil.FitText(hovered.Sublabel, maxW));
+            Line(-14f, hovered.Enabled ? Theme.Accent : Theme.TextDisabled, verb);
+            Line(6f, hovered.Enabled ? Theme.TextPrimary : Theme.TextDisabled, hovered.Label);
+            Line(26f, Theme.TextDim, hovered.Sublabel);
             if (!hovered.Enabled && !string.IsNullOrEmpty(hovered.DisabledReason))
-                DrawUtil.TextShadowCentered(dl, center + new Vector2(0f, 46f), Theme.Critical,
-                    DrawUtil.FitText(hovered.DisabledReason, maxW));
+                Line(46f, Theme.Critical, hovered.DisabledReason);
             else if (!string.IsNullOrEmpty(hovered.Warning))
-                DrawUtil.TextShadowCentered(dl, center + new Vector2(0f, 46f), Theme.Warn,
-                    DrawUtil.FitText(hovered.Warning, maxW));
+                Line(46f, Theme.Warn, hovered.Warning);
             else if (hovered.HasSlideOut && _satellite == null)
-                DrawUtil.TextShadowCentered(dl, center + new Vector2(0f, 46f), Theme.TextDim,
-                    DrawUtil.FitText("slide out > " + (hovered.SlideOutLabel ?? "more"), maxW));
+                Line(46f, Theme.TextDim, "slide out > " + (hovered.SlideOutLabel ?? "more"));
         }
     }
 }
