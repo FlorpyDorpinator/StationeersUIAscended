@@ -21,8 +21,8 @@ namespace StationeersUIAscended
     {
         public const string PluginGuid = "com.florpydorp.stationeers.uiascended";
         public const string PluginName = "Stationeers UI Ascended";
-        public const string PluginVersion = "0.1.0"; // BepInEx needs System.Version format
-        public const string VersionDisplay = "0.1.0 Alpha";
+        public const string PluginVersion = "0.2.0"; // BepInEx needs System.Version format
+        public const string VersionDisplay = "0.2.0 Alpha";
 
         public static UIAscendedPlugin Instance { get; private set; }
 

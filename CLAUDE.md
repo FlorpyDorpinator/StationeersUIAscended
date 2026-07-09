@@ -51,8 +51,9 @@ Design sources (read these before large changes):
   "UI Ascended: Build + Hot Reload (scripts)" for ScriptEngine hot reload (F6 in game; remove
   the plugins copy first or the reloaded instance stays inert), "UI Ascended: Package (SLP mod
   folder)" for the StationeersLaunchPad/Workshop route (never install two routes at once).
-- **Version**: `[BepInPlugin]` uses `PluginVersion` ("0.1.0", System.Version format);
-  human-facing `VersionDisplay` ("0.1.0 Alpha") is shown in UI/logs/About.xml.
+- **Version**: bump ALL of these together — `UIAscendedPlugin.PluginVersion` (System.Version
+  format for BepInEx) + `VersionDisplay` ("x.y.z Alpha"), `About/About.xml` `<Version>` and
+  `<ChangeLog>`, `CHANGELOG.md` at repo root, and a git tag `vX.Y.Z-alpha` pushed to GitHub.
 - **Git/GitHub**: repo https://github.com/FlorpyDorpinator/StationeersUIAscended (private).
   Pushes require the FlorpyDorpinator gh account (`gh auth switch --user FlorpyDorpinator`);
   the repo's credential helper is already routed through gh.

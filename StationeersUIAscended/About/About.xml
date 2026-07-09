@@ -3,7 +3,7 @@
   <Name>Stationeers UI Ascended</Name>
   <ModID>StationeersUIAscended</ModID>
   <Author>FlorpyDorp</Author>
-  <Version>0.1.0 Alpha</Version>
+  <Version>0.2.0 Alpha</Version>
   <Description>Radial interaction, smart storage, and a modern visor HUD for Stationeers.
 
 Hold Middle Mouse for a toolbelt radial, hold R for tool controls and slot swapping, press G for profile-aware Smart Stow, and enjoy a clean two-hand visor HUD - no ten-slot hotbar, ever.
@@ -23,7 +23,7 @@ Client-side only: all inventory actions go through the game's own server-authori
 * <b>Visor HUD</b> - two-hand boxes, slim status strip, compact vitals, hardcore gating
 
 Client-side and multiplayer-safe: every item move uses the game's own authoritative logic.]]></InGameDescription>
-  <ChangeLog>0.1.0 Alpha: Initial proof-of-concept release. Toolbelt radial with slide-out item opening, tool radial, slot swap discovery, Find-item flattened search, Grab-again memory, equipment key radials (tap 1-6), SmartStow+, bag profiles, visor HUD overlay, nested bag radial.</ChangeLog>
+  <ChangeLog>0.2.0 Alpha: Playtest-driven polish. Tab tap opens the bag radial (hold = scoreboard); real-control filtering (no phantom Activate entries); orange stow slices; two-line wedge labels; readable dark hub with geometry-fitted text, 33% bigger; all-cyan text palette; emergency inject hotkeys (Shift+9/8); 25 adversarial-review fixes including input-freeze hotfixes.</ChangeLog>
   <Tags>
     <Tag>StationeersLaunchPad</Tag>
     <Tag>UI</Tag>
