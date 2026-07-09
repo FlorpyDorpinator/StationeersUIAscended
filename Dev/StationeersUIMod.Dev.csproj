@@ -1,0 +1,93 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    DEV build of the SLP mod for BepInEx ScriptEngine hot reload.
+
+    Unity compiles Assets/Scripts/StationeersUIMod via Assets/StationeersUIMod.asmdef into
+    StationeersUIMod.dll for the shipped SLP mod. That requires opening the Unity Editor,
+    which is far too slow for iterating on ImGui code. This project compiles the SAME sources
+    with dotnet, plus Dev/ScriptEngineLoader.cs (the BaseUnityPlugin shim ScriptEngine needs),
+    and drops the DLL straight into BepInEx/scripts.
+
+    References mirror the asmdef's precompiledReferences exactly. Keep them in sync.
+  -->
+
+  <PropertyGroup>
+    <TargetFramework>net48</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>disable</Nullable>
+    <AssemblyName>StationeersUIMod</AssemblyName>
+    <RootNamespace>StationeersUIMod</RootNamespace>
+    <!-- Embedded PDBs are required for ScriptEngine hot reload -->
+    <DebugType>embedded</DebugType>
+    <DebugSymbols>true</DebugSymbols>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <!-- Unity's own obj/ lives at the repo root; keep ours out of its way -->
+    <BaseIntermediateOutputPath>obj\</BaseIntermediateOutputPath>
+    <GameDir Condition="'$(GameDir)' == ''">C:\Program Files (x86)\Steam\steamapps\common\Stationeers</GameDir>
+    <Managed>$(GameDir)\rocketstation_Data\Managed</Managed>
+    <SlpDir>$(GameDir)\BepInEx\plugins\StationeersLaunchPad</SlpDir>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- The real mod sources (same set Unity's asmdef compiles) -->
+    <Compile Include="..\Assets\Scripts\StationeersUIMod\**\*.cs" />
+    <!-- Dev-only ScriptEngine bridge; never part of the Unity/SLP build -->
+    <Compile Include="ScriptEngineLoader.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Reference Include="Assembly-CSharp" Private="false">
+      <HintPath>$(Managed)\Assembly-CSharp.dll</HintPath>
+    </Reference>
+    <Reference Include="Assembly-CSharp-firstpass" Private="false">
+      <HintPath>$(Managed)\Assembly-CSharp-firstpass.dll</HintPath>
+    </Reference>
+    <Reference Include="UnityEngine" Private="false">
+      <HintPath>$(Managed)\UnityEngine.dll</HintPath>
+    </Reference>
+    <Reference Include="UnityEngine.CoreModule" Private="false">
+      <HintPath>$(Managed)\UnityEngine.CoreModule.dll</HintPath>
+    </Reference>
+    <Reference Include="UnityEngine.UIModule" Private="false">
+      <HintPath>$(Managed)\UnityEngine.UIModule.dll</HintPath>
+    </Reference>
+    <Reference Include="UnityEngine.InputLegacyModule" Private="false">
+      <HintPath>$(Managed)\UnityEngine.InputLegacyModule.dll</HintPath>
+    </Reference>
+    <Reference Include="UnityEngine.TextRenderingModule" Private="false">
+      <HintPath>$(Managed)\UnityEngine.TextRenderingModule.dll</HintPath>
+    </Reference>
+    <!-- Animator.StringToHash — Booster derives its mod hash from it -->
+    <Reference Include="UnityEngine.AnimationModule" Private="false">
+      <HintPath>$(Managed)\UnityEngine.AnimationModule.dll</HintPath>
+    </Reference>
+    <Reference Include="RG.ImGui" Private="false">
+      <HintPath>$(Managed)\RG.ImGui.dll</HintPath>
+    </Reference>
+    <Reference Include="RG.ImGui.Unity" Private="false">
+      <HintPath>$(Managed)\RG.ImGui.Unity.dll</HintPath>
+    </Reference>
+    <Reference Include="UniTask" Private="false">
+      <HintPath>$(Managed)\UniTask.dll</HintPath>
+    </Reference>
+    <Reference Include="BepInEx" Private="false">
+      <HintPath>$(GameDir)\BepInEx\core\BepInEx.dll</HintPath>
+    </Reference>
+    <Reference Include="0Harmony" Private="false">
+      <HintPath>$(GameDir)\BepInEx\core\0Harmony.dll</HintPath>
+    </Reference>
+    <!-- Ships inside StationeersLaunchPad; never bundle a copy with the mod -->
+    <Reference Include="LaunchPadBooster" Private="false">
+      <HintPath>$(SlpDir)\LaunchPadBooster.dll</HintPath>
+    </Reference>
+  </ItemGroup>
+
+  <!-- Deploy to ScriptEngine's watch folder for F6 / auto hot reload -->
+  <Target Name="HotReload" AfterTargets="Build" Condition="'$(Configuration)' == 'Debug'">
+    <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(GameDir)\BepInEx\scripts" />
+    <Message Text="Hot-reload: $(TargetPath) -> $(GameDir)\BepInEx\scripts (press F6 in game)" Importance="high" />
+  </Target>
+
+</Project>

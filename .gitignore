@@ -78,3 +78,16 @@ DecompiledGameCode/**
 Assets/Plugins/**
 Reference/**
 StationpediaAscendedWorkspace/**
+
+# ===== Dev / privacy (Stationeers UI Ascended) =====
+# Private session logs (contain account details) - keep out of the repo
+.specstory/
+# Dev-only ScriptEngine build project (Unity ignores anything outside Assets/)
+Dev/bin/
+Dev/obj/
+# ...but the dev csproj itself must be committable despite the Unity-wide *.csproj rule
+!Dev/*.csproj
+# Legacy BepInEx POC build output
+StationeersUIAscended/bin/
+StationeersUIAscended/obj/
+!StationeersUIAscended/**/*.csproj
