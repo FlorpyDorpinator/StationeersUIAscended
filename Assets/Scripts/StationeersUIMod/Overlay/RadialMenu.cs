@@ -490,6 +490,17 @@ namespace StationeersUIMod.Overlay
             catch { }
         }
 
+        /// <summary>Rebuild the current level and satellite — for when OUTSIDE state the
+        /// entries depend on changes while the radial is open (e.g. the Q/E hand switch:
+        /// STOW previews, "Equip/Swap" verbs and insert targets all follow the active hand).</summary>
+        public void RefreshAll()
+        {
+            if (!IsOpen) return;
+            _press = null; // the rebuilt entries are new objects; a held press means nothing now
+            Top().Refresh();
+            RefreshSatellite();
+        }
+
         // ---------- internals ----------
 
         private Level Top() => _stack[_stack.Count - 1];

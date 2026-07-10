@@ -146,6 +146,10 @@ namespace StationeersUIMod.Features
             // Option A: scroll-wheel value adjust works in both hold and sticky modes.
             if (UIAConfig.IsA) _menu.UpdateScroll();
 
+            // Q/E pick the active hand while any radial is open (never while the search
+            // panel is typing — Q and E are letters there).
+            if (!_menu.IsSearchOpen) UpdateHandSwitch();
+
             if (!_menu.IsSticky)
             {
                 if (_active != null && !Input.GetKey(_active.Key))
@@ -187,6 +191,47 @@ namespace StationeersUIMod.Features
                     CloseAll();
                     return;
                 }
+            }
+        }
+
+        /// <summary>
+        /// Q = left hand, E = right hand while a radial is open (configurable). The modal
+        /// holds these keys in the Typing state, so vanilla can't see them (its own E-swap
+        /// binding is KeyInputState.Game-gated and Q-drop likewise) — we drive the same
+        /// vanilla toggle underneath: HumanHandsBehaviour.SwapHands(), the exact path the
+        /// vanilla E key runs, including its own gates (smart tool, unresponsive, sleeping).
+        /// After a switch the radial rebuilds: STOW previews and equip verbs follow the
+        /// active hand.
+        /// </summary>
+        private void UpdateHandSwitch()
+        {
+            KeyCode leftKey = UIAConfig.RadialHandLeftKey.Value;
+            KeyCode rightKey = UIAConfig.RadialHandRightKey.Value;
+            KeyCode ownKey = _active != null ? _active.Key : KeyCode.None;
+            bool wantLeft = leftKey != KeyCode.None && leftKey != ownKey && Input.GetKeyDown(leftKey);
+            bool wantRight = rightKey != KeyCode.None && rightKey != ownKey && Input.GetKeyDown(rightKey);
+            if (!wantLeft && !wantRight) return;
+
+            var human = Guards.LocalHuman;
+            if (human == null) return;
+            try
+            {
+                var im = Assets.Scripts.Inventory.InventoryManager.Instance;
+                if (im == null || im.IsUsingSmartTool) return;       // vanilla's own swap gates
+                if (human.IsUnresponsive || human.IsSleeping) return;
+
+                var active = Assets.Scripts.Inventory.InventoryManager.ActiveHandSlot;
+                bool leftActive = active == human.LeftHandSlot;
+                if (wantLeft && leftActive) return;   // already on that hand
+                if (wantRight && !leftActive && !wantLeft) return;
+
+                human.HumanHandsBehaviour.SwapHands();
+                UIAudioManager.Play(UIAudioManager.ClickLightHash);
+                _menu.RefreshAll();
+            }
+            catch (System.Exception e)
+            {
+                UIALog.Warn("Hand switch failed: " + e.Message);
             }
         }
 

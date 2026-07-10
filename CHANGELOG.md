@@ -20,6 +20,9 @@ classic behavior (now "Option D"). Full write-up: `docs/Option-A-Control-Schema.
   TAKE / OPEN instead.
 - **Auto-close**: one successful action closes the radial. Tap MMB to dismiss any
   sticky radial.
+- **Q/E hand switching while a radial is open** (both schemas): Q = left hand active,
+  E = right hand active, and the radial rebuilds so stow/equip targets follow. Drives
+  the vanilla swap underneath; keys configurable.
 - **Search all bags**: the radial transforms into a type-to-filter panel; click a
   result → free hand, or drops at your feet when both hands are full.
 - **Drag-out parking**: press-drag items out of radials and park them on screen (≤12);

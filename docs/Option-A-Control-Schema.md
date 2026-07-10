@@ -73,6 +73,17 @@ preview happens exactly when you're aiming at it.
 - **Middle-mouse tap dismisses** any sticky radial that isn't the toolbelt's own.
 - Tab / MMB / 1–6 all share this model.
 
+## Hand switching (Q / E)
+
+While any radial is open, **Q makes the left hand active and E the right hand**
+(configurable; works in Option D too). Radials aim everything at the active hand —
+stows, equips, insert previews — so you can retarget mid-flick: open the toolbelt,
+tap Q, and the wrench equips into your left hand. The radial rebuilds on switch, so
+STOW previews immediately show the newly-active hand's item. Under the hood this
+drives the vanilla hand-swap (the same thing E does outside radials, with vanilla's
+own gates); vanilla's E/Q meanings are suppressed while a radial is open, and both
+keys type normally inside the search panel.
+
 ## Search all bags
 
 The Tab radial's **SEARCH** wedge transforms the radial into a panel: search box on

@@ -28,6 +28,8 @@ namespace StationeersUIMod
         public static ConfigEntry<KeyCode> SettingsWindowKey;
         public static ConfigEntry<int> HoldThresholdMs;
         public static ConfigEntry<ControlSchema> Schema;
+        public static ConfigEntry<KeyCode> RadialHandLeftKey;
+        public static ConfigEntry<KeyCode> RadialHandRightKey;
 
         /// <summary>Shorthand for "the Option A behavior set is active".</summary>
         public static bool IsA => Schema == null || Schema.Value == ControlSchema.OptionA;
@@ -107,6 +109,12 @@ namespace StationeersUIMod
                 "Radial interaction model. OptionA: STOW wedges, device-control satellites with scroll " +
                 "values, take/open on nested bags, auto-close after actions, search panel, drag-out " +
                 "parking. OptionD: the classic behavior, kept for A/B comparison.");
+            RadialHandLeftKey = cfg.Bind("1. General", "RadialHandLeftKey", KeyCode.Q,
+                "While a radial is open: make the LEFT hand the active hand (radials aim stows and " +
+                "equips at the active hand). Vanilla Q (drop) is suppressed while a radial is open.");
+            RadialHandRightKey = cfg.Bind("1. General", "RadialHandRightKey", KeyCode.E,
+                "While a radial is open: make the RIGHT hand the active hand. Vanilla E (swap hands) " +
+                "is suppressed while a radial is open; this drives the same vanilla swap underneath.");
 
             ToolbeltRadialEnabled = cfg.Bind("2. Toolbelt Radial", "Enabled", true,
                 "Hold a key to open a radial of everything on your toolbelt; release over a tool to equip it into the active hand.");
