@@ -53,72 +53,82 @@ namespace StationeersUIMod.UI
             float a0 = _a0;
             float a1 = _fullRing ? _a0 + Mathf.PI * 2f : _a1;
             float sweep = Mathf.Abs(a1 - a0);
-            // ~4px of arc per segment keeps big rings smooth without exploding vertex count.
-            int segments = Mathf.Clamp(Mathf.CeilToInt(sweep * outer / 4f), 3, 192);
+            // ~2.5px of arc per segment: curved edges read as curves, not polygons.
+            int segments = Mathf.Clamp(Mathf.CeilToInt(sweep * outer / 2.5f), 4, 256);
 
             Color fill = color;
             Color border = BorderColor;
             float bWidth = Mathf.Max(0f, BorderWidth);
             bool hasBorder = bWidth > 0.1f && border.a > 0.01f;
 
-            float borderOuter = outer + bWidth;
+            // Outer edge gloss (only really visible on the selected wedge).
+            Color outerFill = fill;
+            if (RimHighlight > 0.001f)
+            {
+                Color shine = Overlay.RadialPalette.RimShine != null
+                    ? Overlay.RadialPalette.RimShine.Value
+                    : new Color(1f, 1f, 1f, 0.10f);
+                outerFill = Color.Lerp(fill, shine, RimHighlight * 0.55f);
+                outerFill.a = fill.a;
+            }
 
-            // Build main fill + optional outer shine rim + border band
+            // ---- radial stops, inner -> outer, each with its colour ----
+            // Screen-space overlay canvases never get MSAA, so a hard mesh edge is a hard
+            // stair-step. Fringe rings of the same colour at alpha 0 give the rasteriser a
+            // one-pixel gradient to interpolate across — cheap, shader-free anti-aliasing.
+            _stopR[0] = inner - Feather; _stopC[0] = Fade(fill);
+            _stopR[1] = inner;           _stopC[1] = fill;
+            _stopR[2] = outer;           _stopC[2] = outerFill;
+            int stops = 3;
+            if (hasBorder)
+            {
+                _stopR[stops] = outer;             _stopC[stops++] = border;
+                _stopR[stops] = outer + bWidth;    _stopC[stops++] = border;
+                _stopR[stops] = outer + bWidth + Feather; _stopC[stops++] = Fade(border);
+            }
+            else
+            {
+                _stopR[stops] = outer + Feather; _stopC[stops++] = Fade(outerFill);
+            }
+
+            // Angular (side) edges are deliberately NOT feathered: neighbouring wedges abut
+            // along them, so fading both sides would paint a visible seam. Only the inner and
+            // outer radial edges border empty space, and those are the curves that stair-step.
             for (int i = 0; i <= segments; i++)
             {
                 float t = Mathf.Lerp(a0, a1, i / (float)segments);
-                var dir = new Vector2(Mathf.Cos(t), -Mathf.Sin(t));
-
-                // Inner vert (pure fill)
-                vh.AddVert(dir * inner, fill, Vector2.zero);
-
-                // Outer vert for fill (with optional rim shine/highlight)
-                Color outerFill = fill;
-                if (RimHighlight > 0.001f)
-                {
-                    // Orange-tinted highlight/rim for "orange highlight" as requested.
-                    // Pulls the outer edge toward warm orange for pop (especially nice against blue selected fill).
-                    Color orangeHighlight = new Color(1.0f, 0.55f, 0.15f, 0.35f);
-                    outerFill = Color.Lerp(fill, orangeHighlight, RimHighlight * 0.55f);
-                    outerFill.a = fill.a;
-                }
-                vh.AddVert(dir * outer, outerFill, Vector2.one);
-
-                // Optional border band outer verts
-                if (hasBorder)
-                {
-                    vh.AddVert(dir * borderOuter, border, new Vector2(0, 2));
-                }
+                EmitColumn(vh, t, stops, 1f);
             }
 
-            // Fill triangles (inner to main outer ring). 
-            // When hasBorder the vertex stride is 3 per radial line: [inner, fillOuter, borderOuter]
-            int stride = hasBorder ? 3 : 2;
             for (int i = 0; i < segments; i++)
-            {
-                int b0 = i * stride;           // inner i
-                int b1 = b0 + 1;               // fill outer i
-                int n0 = (i + 1) * stride;     // inner i+1
-                int n1 = n0 + 1;               // fill outer i+1
+                Quads(vh, i, i + 1, stops);
+        }
 
-                // Two triangles for the annular sector fill
-                vh.AddTriangle(b0, b1, n1);
-                vh.AddTriangle(b0, n1, n0);
+        private const float Feather = 1.25f;   // px of alpha fade on every free edge
+        private static readonly float[] _stopR = new float[6];
+        private static readonly Color[] _stopC = new Color[6];
+
+        private static Color Fade(Color c) { c.a = 0f; return c; }
+
+        private static void EmitColumn(VertexHelper vh, float angle, int stops, float alphaMul)
+        {
+            var dir = new Vector2(Mathf.Cos(angle), -Mathf.Sin(angle));
+            for (int s = 0; s < stops; s++)
+            {
+                Color c = _stopC[s];
+                c.a *= alphaMul;
+                vh.AddVert(dir * _stopR[s], c, new Vector2(0f, s));
             }
+        }
 
-            // Border band triangles (slim outer stroke, only the thin outer band)
-            if (hasBorder)
+        private static void Quads(VertexHelper vh, int colA, int colB, int stops)
+        {
+            int baseA = colA * stops;
+            int baseB = colB * stops;
+            for (int s = 0; s < stops - 1; s++)
             {
-                for (int i = 0; i < segments; i++)
-                {
-                    int b1 = i * 3 + 1;   // fill outer i
-                    int b2 = i * 3 + 2;   // border outer i
-                    int n1 = (i + 1) * 3 + 1;
-                    int n2 = (i + 1) * 3 + 2;
-
-                    vh.AddTriangle(b1, b2, n2);
-                    vh.AddTriangle(b1, n2, n1);
-                }
+                vh.AddTriangle(baseA + s, baseA + s + 1, baseB + s + 1);
+                vh.AddTriangle(baseA + s, baseB + s + 1, baseB + s);
             }
         }
 

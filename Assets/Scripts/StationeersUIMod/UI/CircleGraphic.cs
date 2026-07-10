@@ -27,40 +27,49 @@ namespace StationeersUIMod.UI
 
         public void Refresh() => SetVerticesDirty();
 
+        private const float Feather = 1.25f;   // px alpha fade on the outermost edge
+
         protected override void OnPopulateMesh(VertexHelper vh)
         {
             vh.Clear();
             if (_radius <= 0f) return;
 
-            int segments = Mathf.Clamp(Mathf.CeilToInt(_radius * 0.6f), 24, 128);
+            int segments = Mathf.Clamp(Mathf.CeilToInt(_radius * 1.2f), 48, 256);
 
-            // Fan: centre vertex + rim ring.
+            float bw = BorderWidth;
+            bool hasBorder = bw > 0.1f && BorderColor.a > 0.01f;
+
+            // Radial stops. The last one is a transparent fringe: overlay canvases get no MSAA,
+            // so a hard mesh edge stair-steps. A 1px alpha ramp is free anti-aliasing.
+            Color edge = hasBorder ? BorderColor : color;
+            Color fade = edge; fade.a = 0f;
+
+            // Fan for the fill (centre vertex 0), then concentric rings.
             vh.AddVert(Vector2.zero, color, Vector2.zero);
             for (int i = 0; i <= segments; i++)
             {
                 float t = i / (float)segments * Mathf.PI * 2f;
-                vh.AddVert(new Vector2(Mathf.Cos(t), Mathf.Sin(t)) * _radius, color, Vector2.one);
-            }
-            for (int i = 1; i <= segments; i++)
-                vh.AddTriangle(0, i, i + 1);
-
-            // Optional rim band drawn just outside the fill.
-            float bw = BorderWidth;
-            if (bw <= 0.1f || BorderColor.a <= 0.01f) return;
-
-            int ringStart = vh.currentVertCount;
-            for (int i = 0; i <= segments; i++)
-            {
-                float t = i / (float)segments * Mathf.PI * 2f;
                 var dir = new Vector2(Mathf.Cos(t), Mathf.Sin(t));
-                vh.AddVert(dir * _radius, BorderColor, Vector2.zero);
-                vh.AddVert(dir * (_radius + bw), BorderColor, Vector2.one);
+                vh.AddVert(dir * _radius, color, Vector2.one);                       // ring A: fill edge
+                if (hasBorder)
+                {
+                    vh.AddVert(dir * _radius, BorderColor, Vector2.one);             // ring B: border inner
+                    vh.AddVert(dir * (_radius + bw), BorderColor, Vector2.one);      // ring C: border outer
+                }
+                vh.AddVert(dir * (_radius + (hasBorder ? bw : 0f) + Feather), fade, Vector2.one); // fringe
             }
+
+            int stride = hasBorder ? 4 : 2;
             for (int i = 0; i < segments; i++)
             {
-                int b = ringStart + i * 2;
-                vh.AddTriangle(b, b + 1, b + 3);
-                vh.AddTriangle(b, b + 3, b + 2);
+                int a = 1 + i * stride;
+                int b = 1 + (i + 1) * stride;
+                vh.AddTriangle(0, a, b);                       // fill fan
+                for (int s = 0; s < stride - 1; s++)           // bands out to the fringe
+                {
+                    vh.AddTriangle(a + s, a + s + 1, b + s + 1);
+                    vh.AddTriangle(a + s, b + s + 1, b + s);
+                }
             }
         }
     }

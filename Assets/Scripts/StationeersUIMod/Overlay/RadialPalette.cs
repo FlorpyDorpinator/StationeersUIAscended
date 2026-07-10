@@ -21,10 +21,10 @@ namespace StationeersUIMod.Overlay
             private Color _cached;
             private string _cachedFrom;
 
-            public Entry(ConfigFile cfg, string name, Color fallback, string description)
+            public Entry(ConfigFile cfg, string name, string defaultHex, string description)
             {
                 Name = name;
-                Config = cfg.Bind("9. Radial Colours", name, ToHex(fallback), description);
+                Config = cfg.Bind("9. Radial Colours", name, defaultHex, description);
                 _cachedFrom = null;
             }
 
@@ -70,41 +70,42 @@ namespace StationeersUIMod.Overlay
         {
             All.Clear();
 
-            // Stationeers-ish palette: cool blue glass, orange only for what is SELECTED.
-            WedgeBg = Add(cfg, "WedgeBackground", new Color(0.055f, 0.13f, 0.20f, 0.45f),
-                "Unselected wedge fill. Darker blue, high transparency.");
-            WedgeHover = Add(cfg, "WedgeSelected", new Color(0.30f, 0.62f, 0.80f, 0.72f),
+            // Defaults are FlorpyDorp's hand-tuned palette (picked in-game 2026-07-09):
+            // deep navy glass, orange reserved for borders and whatever is selected.
+            WedgeBg = Add(cfg, "WedgeBackground", "0E213373",
+                "Unselected wedge fill. Deep navy, translucent.");
+            WedgeHover = Add(cfg, "WedgeSelected", "0F296867",
                 "Selected/hovered wedge fill. Lighter blue.");
-            WedgeDisabled = Add(cfg, "WedgeDisabled", new Color(0.10f, 0.12f, 0.14f, 0.40f),
+            WedgeDisabled = Add(cfg, "WedgeDisabled", "10305366",
                 "Wedge that cannot be chosen.");
-            WedgeStow = Add(cfg, "WedgeStowTarget", new Color(0.85f, 0.45f, 0.10f, 0.42f),
+            WedgeStow = Add(cfg, "WedgeStowTarget", "D9731A6B",
                 "Wedge meaning 'put the held item here'.");
-            WedgeStowHover = Add(cfg, "WedgeStowTargetSelected", new Color(1.00f, 0.55f, 0.16f, 0.80f),
+            WedgeStowHover = Add(cfg, "WedgeStowTargetSelected", "FF8C29AF",
                 "Selected stow-target wedge.");
 
-            WedgeBorder = Add(cfg, "WedgeBorder", new Color(0.35f, 0.72f, 0.85f, 0.28f),
+            WedgeBorder = Add(cfg, "WedgeBorder", "FF6900C9",
                 "Thin border on every wedge.");
-            WedgeBorderHover = Add(cfg, "WedgeBorderSelected", new Color(1.00f, 0.55f, 0.16f, 1.00f),
-                "Border around the SELECTED wedge (orange).");
-            RimShine = Add(cfg, "RimShine", new Color(1f, 1f, 1f, 0.10f),
+            WedgeBorderHover = Add(cfg, "WedgeBorderSelected", "FF8C299C",
+                "Border around the SELECTED wedge.");
+            RimShine = Add(cfg, "RimShine", "FFFFFF1A",
                 "Subtle gloss blended into the outer rim.");
 
-            HubFill = Add(cfg, "HubFill", new Color(0.85f, 0.42f, 0.10f, 0.55f),
-                "Centre circle background (orange).");
-            HubBorder = Add(cfg, "HubBorder", new Color(1.00f, 0.55f, 0.16f, 0.85f),
+            HubFill = Add(cfg, "HubFill", "D91A3400",
+                "Centre circle background (alpha 0 = invisible by default).");
+            HubBorder = Add(cfg, "HubBorder", "FF8C29AE",
                 "Centre circle rim.");
 
-            TextPrimary = Add(cfg, "TextPrimary", new Color(0.82f, 0.96f, 1.00f, 1.00f),
+            TextPrimary = Add(cfg, "TextPrimary", "FFFFFFFF",
                 "Main readout text.");
-            TextDim = Add(cfg, "TextDim", new Color(0.58f, 0.86f, 0.94f, 1.00f),
+            TextDim = Add(cfg, "TextDim", "FFFFFFFF",
                 "Secondary readout text.");
-            TextAccent = Add(cfg, "TextAccent", new Color(1.00f, 0.60f, 0.20f, 1.00f),
+            TextAccent = Add(cfg, "TextAccent", "FFFFFFFF",
                 "The action verb in the hub.");
         }
 
-        private static Entry Add(ConfigFile cfg, string name, Color fallback, string desc)
+        private static Entry Add(ConfigFile cfg, string name, string defaultHex, string desc)
         {
-            var e = new Entry(cfg, name, fallback, desc);
+            var e = new Entry(cfg, name, defaultHex, desc);
             All.Add(e);
             return e;
         }
