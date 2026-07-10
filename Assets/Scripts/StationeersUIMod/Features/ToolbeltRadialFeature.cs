@@ -53,9 +53,11 @@ namespace StationeersUIMod.Features
                         Label = occ.DisplayName,
                         ActionText = handEmpty ? "Equip" : "Swap into hand",
                         Sublabel = DescribeState(occ),
+                        StateText = StateText.For(occ),
                         Icon = occ.GetThumbnail(),
                         Enabled = canEquip,
                         DisabledReason = canEquip ? null : "Can't equip",
+                        DragSource = source,
                         OnSelect = () => ItemActions.EquipToActiveHand(source),
                         SlideOutProvider = () => ItemMenuBuilder.BuildManageEntries(thing, slot, includeTakeEntry: false),
                         SlideOutLabel = "Open",
@@ -63,6 +65,14 @@ namespace StationeersUIMod.Features
                 }
                 else if (UIAConfig.ToolbeltShowStowEntries.Value)
                 {
+                    if (UIAConfig.IsA)
+                    {
+                        // Option A STOW wedge: blank slot + "STOW"; the held item previews
+                        // on hover with the orange fill.
+                        entries.Add(ItemMenuBuilder.BuildStowEntry(slot,
+                            string.IsNullOrEmpty(slot.DisplayName) ? "Belt" : slot.DisplayName, held));
+                        continue;
+                    }
                     Slot target = slot;
                     bool canStow = held != null && Slot.AllowMove(held, slot);
                     entries.Add(new RadialEntry

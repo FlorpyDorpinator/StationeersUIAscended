@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using Assets.Scripts.Objects;
 using ImGuiNET;
 using StationeersUIMod.Core;
 using UnityEngine;
@@ -24,8 +25,34 @@ namespace StationeersUIMod.Overlay
         public string SlideOutLabel;                   // hint: "Open", "Swap with…"
         public object Tag;
 
+        // --- Option A additions ---
+        public string StateText;            // live state under the icon: "87%", "5,301 kPa", "x25"
+        public Sprite HoverIcon;            // swapped in while hovered (STOW wedges preview the held item)
+        public bool StowStyle;              // schema A stow wedge: neutral fill, orange only on hover
+        public Action<int> OnScroll;        // scroll-wheel value adjust (+1 / -1 per notch)
+        public Func<string> ValueText;      // live value between the scroll triangles
+        public Core.ScannedSlot DragSource; // parking: where this item physically lives
+        public Slot DropSlot;               // parking: dropping a dragged item goes to this slot
+        public Func<DynamicThing, Slot> DropResolver; // parking: pick a slot for the dragged item (bags)
+
         public bool IsBranch => ChildProvider != null && OnSelect == null;
         public bool HasSlideOut => SlideOutProvider != null;
+        public bool IsScrollAdjust => OnScroll != null;
+        public bool CanDrag => DragSource != null;
+        public bool AcceptsDrop => DropSlot != null || DropResolver != null;
+
+        /// <summary>Resolve where a dragged thing would land on this wedge (null = doesn't fit).</summary>
+        public Slot ResolveDrop(DynamicThing dragged)
+        {
+            if (dragged == null) return null;
+            try
+            {
+                if (DropSlot != null)
+                    return DropSlot.Get() == null && Slot.AllowMove(dragged, DropSlot) ? DropSlot : null;
+                return DropResolver?.Invoke(dragged);
+            }
+            catch { return null; }
+        }
     }
 
     /// <summary>
@@ -79,14 +106,39 @@ namespace StationeersUIMod.Overlay
         private int _satHovered = -1;       // index on the satellite ring
         private float _mainDist;
         private float _satDist;
+        private float _lastOuterR;          // main ring outer radius as of the last Draw
         private int _slideOutCandidate = -1;      // wedge the cursor is dwelling past the rim on
         private float _slideOutCandidateSince;
         private float _satOpenedAt;
         private const float SlideOutDwellSec = 0.18f;   // dwell before a satellite opens
         private const float SatGraceSec = 0.25f;        // fresh satellites don't steal hold-releases
 
+        // --- Option A: click-on-release, drag-out parking, search mode ---
+        private readonly ParkingState _parking = new ParkingState();
+        private RadialEntry _press;         // wedge pressed but not yet released
+        private bool _pressFromSat;
+        private float _pressAt;
+        private Vector2 _pressPos;
+        private bool _searchOpen;
+        private static bool _searchRequested;
+        private const float DragHoldSec = 0.25f;  // hold this long on an item wedge to start a drag
+        private const float DragMovePx = 14f;     // ...or move this far while pressed
+
         public bool IsOpen => _stack.Count > 0;
         public bool IsSticky => _sticky;
+        public bool IsParking => _parking.Active;
+        /// <summary>The search panel owns ALL input while open — the controller must not act
+        /// on raw key presses (radial-key re-press, MMB dismiss) that are really typing.</summary>
+        public bool IsSearchOpen => _searchOpen;
+
+        /// <summary>Entries call this from OnSelect to flip the radial into search mode.</summary>
+        public static void RequestSearch() => _searchRequested = true;
+        private static bool ConsumeSearchRequest()
+        {
+            bool r = _searchRequested;
+            _searchRequested = false;
+            return r;
+        }
 
         public void Open(string title, Func<List<RadialEntry>> provider, bool sticky = false)
         {
@@ -98,8 +150,15 @@ namespace StationeersUIMod.Overlay
             _sticky = sticky;
             _hovered = -1;
             _satHovered = -1;
+            _parking.Clear();
+            _press = null;
+            _searchOpen = false;
+            _searchRequested = false;
         }
 
+        /// <summary>Close WITHOUT dropping parked items — Escape, guards and re-taps cancel
+        /// parking silently (the items never left their slots). Only the deliberate
+        /// RMB-out-of-everything path dumps chips to the ground first.</summary>
         public void Close()
         {
             _stack.Clear();
@@ -107,6 +166,10 @@ namespace StationeersUIMod.Overlay
             _sticky = false;
             _hovered = -1;
             _satHovered = -1;
+            _parking.Clear();
+            _press = null;
+            _searchOpen = false;
+            UI.SearchPanelView.Hide();
         }
 
         /// <summary>Hold-mode release. Returns true if the menu should stay open (went sticky).</summary>
@@ -135,6 +198,13 @@ namespace StationeersUIMod.Overlay
                 return true;
             }
             Execute(entry);
+            if (ConsumeSearchRequest())
+            {
+                _sticky = true;
+                _searchOpen = true;
+                UI.SearchPanelView.Begin();
+                return true;
+            }
             Close();
             return false;
         }
@@ -143,13 +213,40 @@ namespace StationeersUIMod.Overlay
         public void UpdateSticky()
         {
             if (!IsOpen || !_sticky) return;
+
+            // Search mode owns all input until it exits (Escape/RMB) or takes an item.
+            if (_searchOpen)
+            {
+                var result = UI.SearchPanelView.UpdateInput();
+                if (result == UI.SearchPanelView.Result.Exit)
+                {
+                    _searchOpen = false;
+                    UI.SearchPanelView.Hide();
+                    Top().Refresh();
+                }
+                else if (result == UI.SearchPanelView.Result.Took)
+                {
+                    _searchOpen = false;
+                    UI.SearchPanelView.Hide();
+                    // Parked chips must never be silently discarded by an auto-close:
+                    // with chips on screen the radial stays locked open, like any action.
+                    if (_parking.Active) Top().Refresh();
+                    else Close();
+                }
+                return;
+            }
+
+            _parking.Prune();
+
             if (Input.GetKeyDown(KeyCode.Escape))
             {
-                Close();
+                Close(); // cancel path: parked items stay in their slots, nothing drops
                 return;
             }
             if (Input.GetMouseButtonDown(1))
             {
+                _press = null; // whatever was pressed no longer means what it meant
+                if (_parking.Dragging != null) { _parking.Dragging = null; return; } // cancel the drag
                 if (_satellite != null) { _satellite = null; return; }
                 if (_stack.Count > 1)
                 {
@@ -158,9 +255,17 @@ namespace StationeersUIMod.Overlay
                     _hovered = -1;
                     return;
                 }
+                DumpChipsToGround(); // the deliberate RMB-out-of-everything: parked items drop
                 Close();
                 return;
             }
+
+            if (UIAConfig.IsA)
+            {
+                UpdateStickyOptionA();
+                return;
+            }
+
             if (Input.GetMouseButtonDown(0))
             {
                 try { if (ImGui.GetIO().WantCaptureMouse) return; } catch { }
@@ -190,6 +295,199 @@ namespace StationeersUIMod.Overlay
                 Top().Refresh();
                 _hovered = -1;
             }
+        }
+
+        /// <summary>
+        /// Option A click model: actions run on mouse-UP so that press-and-hold (or
+        /// press-and-move) on an item wedge can become a DRAG instead. A successful
+        /// action closes the radial — unless parking is in progress, which locks it open.
+        /// </summary>
+        private void UpdateStickyOptionA()
+        {
+            var mouse = DrawUtil.MousePos();
+
+            if (Input.GetMouseButtonDown(0))
+            {
+                try { if (ImGui.GetIO().WantCaptureMouse) return; } catch { }
+
+                // Parked chips sit outside the rings; picking one up beats wedge presses.
+                var chip = _parking.ChipAt(mouse);
+                if (chip != null)
+                {
+                    _parking.Chips.Remove(chip);
+                    _parking.Dragging = chip;
+                    UIAudioManager.Play(UIAudioManager.ObjectIntoHandHash);
+                    return;
+                }
+
+                RadialEntry entry = null;
+                bool fromSat = false;
+                if (_satellite != null && _satHovered >= 0)
+                {
+                    entry = SatEntry(_satHovered);
+                    fromSat = true;
+                }
+                else if (_hovered >= 0 && _mainDist <= _lastOuterR * 1.2f)
+                {
+                    entry = MainEntry(_hovered);
+                }
+                if (entry == null || !entry.Enabled) return;
+                _press = entry;
+                _pressFromSat = fromSat;
+                _pressAt = Time.unscaledTime;
+                _pressPos = mouse;
+                return;
+            }
+
+            if (_press != null && Input.GetMouseButton(0))
+            {
+                bool heldLong = Time.unscaledTime - _pressAt >= DragHoldSec;
+                bool movedFar = (mouse - _pressPos).magnitude >= DragMovePx;
+                if (_press.CanDrag && (heldLong || movedFar))
+                {
+                    // One slot = one chip: re-dragging an already-parked item's wedge
+                    // replaces its chip instead of minting a duplicate mutation source.
+                    _parking.RemoveBySlot(_press.DragSource?.Slot);
+                    _parking.Dragging = new ParkingState.Chip
+                    {
+                        Source = _press.DragSource,
+                        Icon = _press.Icon,
+                        Name = _press.Label,
+                    };
+                    _press = null;
+                    UIAudioManager.Play(UIAudioManager.ObjectIntoHandHash);
+                }
+                return;
+            }
+
+            if (Input.GetMouseButtonUp(0))
+            {
+                if (_parking.Dragging != null)
+                {
+                    ResolveDragRelease(mouse);
+                    return;
+                }
+                var entry = _press;
+                bool fromSat = _pressFromSat;
+                _press = null;
+                if (entry == null) return;
+
+                // The press is only valid if the SAME entry object is still under the
+                // cursor: RMB-back, satellite auto-close and level refreshes all replace
+                // the entry lists, and a cancel gesture must never fire the old action.
+                RadialEntry underCursor = _satellite != null && _satHovered >= 0 ? SatEntry(_satHovered)
+                                        : _hovered >= 0 && _mainDist <= _lastOuterR * 1.2f ? MainEntry(_hovered)
+                                        : null;
+                if (!ReferenceEquals(entry, underCursor)) return;
+
+                if (entry.IsBranch)
+                {
+                    if (fromSat) PromoteSatellite();
+                    PushBranch(entry);
+                    return;
+                }
+                Execute(entry);
+                if (ConsumeSearchRequest())
+                {
+                    _searchOpen = true;
+                    UI.SearchPanelView.Begin();
+                    return;
+                }
+                if (!_parking.Active)
+                {
+                    Close(); // Option A: one action, radial goes away
+                    return;
+                }
+                // Parking locks the radial open: keep shopping.
+                _satellite = null;
+                Top().Refresh();
+                _hovered = -1;
+            }
+        }
+
+        /// <summary>Mouse released while dragging an item: drop it into the wedge under the
+        /// cursor when that wedge can take it, park it when released on open screen, and
+        /// silently cancel otherwise (the item never left its slot).</summary>
+        private void ResolveDragRelease(Vector2 mouse)
+        {
+            var chip = _parking.Dragging;
+            _parking.Dragging = null;
+            var item = chip?.Source?.Occupant;
+            if (item == null || (chip.Source.Expected != null && item != chip.Source.Expected))
+            {
+                UIAudioManager.Play(UIAudioManager.ActionFailHash);
+                return;
+            }
+
+            // A wedge only counts as the drop target while the cursor is actually ON the
+            // rings: _hovered is directional and stays set arbitrarily far out, and a
+            // release at the screen edge must PARK, not insert into whatever wedge the
+            // cursor happens to point at.
+            RadialEntry target = _satellite != null && _satHovered >= 0 ? SatEntry(_satHovered)
+                               : _hovered >= 0 && _mainDist <= _lastOuterR * 1.2f ? MainEntry(_hovered)
+                               : null;
+            if (target != null && target.AcceptsDrop)
+            {
+                Slot dest = target.ResolveDrop(item);
+                if (dest != null && ItemActions.SwapIntoSlot(chip.Source, dest))
+                {
+                    _satellite = null;
+                    Top().Refresh();
+                    _hovered = -1;
+                    return;
+                }
+                UIAudioManager.Play(UIAudioManager.ActionFailHash);
+                return;
+            }
+
+            bool outsideRings = _mainDist > _lastOuterR + 30f
+                && (_satellite == null || _satDist > _satellite.OuterR + 30f);
+            if (outsideRings && _parking.Chips.Count < ParkingState.MaxChips)
+            {
+                _parking.RemoveBySlot(chip.Source.Slot); // one slot = one chip, always
+                chip.Pos = mouse;
+                _parking.Chips.Add(chip);
+                UIAudioManager.Play(UIAudioManager.ObjectPutHash);
+            }
+            // else: released over dead space inside the rings, or the screen is full — cancel.
+        }
+
+        /// <summary>The deliberate exit-drop: one drop message per parked chip, each verified
+        /// against its pinned occupant. This is the single sanctioned multi-message action in
+        /// the mod (explicit design decision — see the Option A schema doc).</summary>
+        private void DumpChipsToGround()
+        {
+            if (_parking.Chips.Count == 0) return;
+            int dropped = 0;
+            foreach (var chip in _parking.Chips)
+                if (ItemActions.DropToWorld(chip.Source)) dropped++;
+            _parking.Chips.Clear();
+            if (dropped > 0) UIAudioManager.Play(UIAudioManager.ObjectPutHash);
+        }
+
+        /// <summary>Scroll-wheel value adjust on the hovered wedge (Option A device controls).
+        /// Called every frame the radial is open, in both hold and sticky modes.</summary>
+        public void UpdateScroll()
+        {
+            if (!IsOpen || _searchOpen) return;
+            float s = Input.mouseScrollDelta.y;
+            if (Mathf.Abs(s) < 0.01f) return;
+            // Same on-the-rings bound as clicks/drops: _hovered alone is directional and
+            // would let a scroll from anywhere on screen adjust a device.
+            RadialEntry entry = _satellite != null && _satHovered >= 0 ? SatEntry(_satHovered)
+                              : _hovered >= 0 && _mainDist <= _lastOuterR * 1.2f ? MainEntry(_hovered)
+                              : null;
+            if (entry?.OnScroll == null) return;
+            try { entry.OnScroll(s > 0f ? 1 : -1); }
+            catch (Exception e) { UIALog.Warn("Scroll adjust failed: " + e.Message); }
+            if (_satellite != null) RefreshSatellite();
+        }
+
+        private void RefreshSatellite()
+        {
+            if (_satellite?.Provider == null) return;
+            try { _satellite.Entries = _satellite.Provider() ?? _satellite.Entries; }
+            catch { }
         }
 
         // ---------- internals ----------
@@ -247,7 +545,8 @@ namespace StationeersUIMod.Overlay
             float sector = Mathf.PI * 2f / Mathf.Max(1, mainCount);
             float aMid = -Mathf.PI * 0.5f + sector * sourceIndex;
             // Roomier satellites: scale up with entry count so wedge labels stay readable.
-            float outer = Mathf.Clamp(mainOuterR * 0.55f + Mathf.Max(0, entries.Count - 4) * 8f, 130f, 220f);
+            float outer = Mathf.Clamp(mainOuterR * 0.55f + Mathf.Max(0, entries.Count - 4) * 8f, 130f, 220f)
+                * (UIAConfig.RadialSatelliteScale != null ? UIAConfig.RadialSatelliteScale.Value : 1f);
             var dir = new Vector2(Mathf.Cos(aMid), Mathf.Sin(aMid));
             _satellite = new SatelliteRing
             {
@@ -277,9 +576,21 @@ namespace StationeersUIMod.Overlay
         public void Draw()
         {
             if (!IsOpen) return;
+
+            // Search mode replaces the rings entirely (parked chips stay visible).
+            if (_searchOpen)
+            {
+                UI.UnityRadialView.Hide();
+                UI.SearchPanelView.Render();
+                UI.ParkedItemsView.Render(_parking, DrawUtil.MousePos());
+                return;
+            }
+            UI.SearchPanelView.Hide();
+
             var dl = ImGui.GetForegroundDrawList();
             var center = DrawUtil.ScreenCenter;
             float outerR = UIAConfig.RadialOuterRadius.Value;
+            _lastOuterR = outerR;
             // Hub floor of 104px: the six-line center readout needs that much vertical room.
             float innerR = Mathf.Clamp(UIAConfig.RadialInnerRadius.Value, 104f, Mathf.Max(104f, outerR - 30f));
             var level = Top();
@@ -356,10 +667,13 @@ namespace StationeersUIMod.Overlay
                     _satellite == null ? _hovered : -1, level.Title,
                     _satellite?.Center, _satellite?.InnerR ?? 0f, _satellite?.OuterR ?? 0f,
                     _satellite?.Entries, _satHovered, _satellite?.Title,
-                    readout, null, _sticky);
+                    readout, null, _sticky,
+                    _parking.Dragging?.Source?.Occupant);
+                UI.ParkedItemsView.Render(_parking, mouse);
                 return;
             }
             UI.UnityRadialView.Hide();
+            UI.ParkedItemsView.Render(_parking, mouse);
 
             // Legacy ImGui draw-list path (kept for A/B and as reference)
             DrawRing(dl, center, innerR, outerR, level.Entries,
@@ -449,6 +763,20 @@ namespace StationeersUIMod.Overlay
                 else
                 {
                     DrawUtil.TextFittedCentered(dl, slotCenter, availW, ringWidth * 0.72f, labelColor, entry.Label, 3);
+                }
+
+                // State/value line (the Unity renderer's under-icon text). Without it the
+                // ImGui fallback is blind while scroll-adjusting a device value.
+                string state = null;
+                try { state = entry.ValueText != null ? entry.ValueText() : entry.StateText; }
+                catch { }
+                if (!string.IsNullOrEmpty(state))
+                {
+                    state = Core.StateText.Strip(state);
+                    if (entry.IsScrollAdjust) state = "^ " + state + " v"; // ASCII-only font atlas
+                    DrawUtil.TextShadowCentered(dl,
+                        slotCenter + new Vector2(0f, ringWidth * 0.30f),
+                        entry.IsScrollAdjust ? Theme.Accent : Theme.TextDim, state);
                 }
 
                 // ASCII only: the game's ImGui font atlas has no glyphs for fancy arrows.

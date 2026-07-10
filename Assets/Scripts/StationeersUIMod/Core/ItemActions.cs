@@ -13,6 +13,22 @@ namespace StationeersUIMod.Core
     /// </summary>
     public static class ItemActions
     {
+        /// <summary>
+        /// One-item move with the vanilla niceties (multi-constructor cancel, slot sound) but
+        /// WITHOUT Slot.PlayerMoveToSlot's MoveAll/MoveAllOfType tail: that tail triggers on
+        /// raw LeftShift/LeftCtrl (KeyManager.GetButton is plain Input.GetKey — it ignores the
+        /// Typing input state our modal sets, Slot.cs:623-640 + KeyManager.cs:913), so typing a
+        /// capital letter in the search panel or holding jetpack-descend would turn one click
+        /// into a bulk container dump. One user action = ONE message, always.
+        /// (PlayerSwapToSlot has no such tail — Slot.cs:766-776 — and stays in use.)
+        /// </summary>
+        private static void MoveOneToSlot(DynamicThing item, Slot destination)
+        {
+            try { InventoryManager.Instance?.CheckCancelMultiConstructor(); } catch { }
+            OnServer.MoveToSlot(item, destination);
+            try { destination.PlaySlotEnterUiSound(); } catch { }
+        }
+
         /// <summary>Equip a thing into the active hand: move when empty, vanilla-style swap when
         /// occupied. When the item sits INSIDE the thing the active hand is holding (welder in
         /// hand → its battery), a swap with that hand is a parent-child paradox the game rejects,
@@ -32,7 +48,7 @@ namespace StationeersUIMod.Core
                     : hand == human.LeftHandSlot ? human.RightHandSlot : human.LeftHandSlot;
                 if (other != null && other.Get() == null && Slot.AllowMove(item, other))
                 {
-                    other.PlayerMoveToSlot(item);
+                    MoveOneToSlot(item, other);
                     return true;
                 }
                 return Fail(); // both hands busy: taking a part out of the held tool needs a free hand
@@ -41,7 +57,7 @@ namespace StationeersUIMod.Core
             if (handOcc == null)
             {
                 if (!Slot.AllowMove(item, hand)) return Fail();
-                hand.PlayerMoveToSlot(item);
+                MoveOneToSlot(item, hand);
                 return true;
             }
             if (!Slot.AllowSwap(source.Slot, hand)) return Fail();
@@ -101,6 +117,45 @@ namespace StationeersUIMod.Core
             return true;
         }
 
+        /// <summary>Search-panel take: into whichever hand is free (active hand preferred), or
+        /// drop at the player's feet when both hands are full (Option A search semantics).</summary>
+        public static bool TakeOrDrop(ScannedSlot source)
+        {
+            DynamicThing item = source?.Occupant;
+            var human = InventoryManager.ParentHuman;
+            if (item == null || human == null) return Fail();
+            if (source.Expected != null && item != source.Expected) return Fail(); // menu is stale
+
+            Slot active = InventoryManager.ActiveHandSlot;
+            Slot other = active == null ? null
+                : active == human.LeftHandSlot ? human.RightHandSlot : human.LeftHandSlot;
+            if (active != null && active.Get() == null && Slot.AllowMove(item, active))
+            {
+                MoveOneToSlot(item, active);
+            }
+            else if (other != null && other.Get() == null && Slot.AllowMove(item, other))
+            {
+                MoveOneToSlot(item, other);
+            }
+            else
+            {
+                OnServer.MoveToSlotOrWorld(item, null); // both hands full -> the ground
+            }
+            UIAudioManager.Play(UIAudioManager.ObjectIntoHandHash);
+            return true;
+        }
+
+        /// <summary>Drop a parked item at the player's feet (Option A parking dump). Verified
+        /// against the pinned occupant so a stale chip can never drop someone else's item.</summary>
+        public static bool DropToWorld(ScannedSlot source)
+        {
+            DynamicThing item = source?.Occupant;
+            if (item == null) return false; // silent: dump loops report their own result
+            if (source.Expected != null && item != source.Expected) return false;
+            OnServer.MoveToSlotOrWorld(item, null);
+            return true;
+        }
+
         /// <summary>Eject a slot's occupant to the free hand, or the world if both hands are full.</summary>
         public static bool Eject(Slot slot)
         {
@@ -119,10 +174,34 @@ namespace StationeersUIMod.Core
             return true;
         }
 
+        /// <summary>
+        /// Execute-time possession gate for interact paths — the interactable counterpart of
+        /// the ScannedSlot.Expected pin on move paths. Radial entries capture Thing/Interactable
+        /// references at build time; by the time the user clicks or scrolls, a teammate may
+        /// have taken the item (sticky radials only refresh after our OWN actions), or it may
+        /// have despawned. Vanilla's server side does NOT possession-check InteractionMessages
+        /// (Thing.PreventInteraction is only IsBroken/AllowInteraction/IsAuthorized), so the
+        /// client must refuse to send: never adjust a device sitting in someone else's bag.
+        /// </summary>
+        private static bool IsCarriedByLocalPlayer(Thing thing)
+        {
+            var human = InventoryManager.ParentHuman;
+            if (human == null || thing == null) return false;
+            Thing node = thing;
+            int depth = 0;
+            while (node != null && depth++ < 10)
+            {
+                if (node == human) return true;
+                node = (node as DynamicThing)?.ParentSlot?.Parent;
+            }
+            return false;
+        }
+
         /// <summary>Toggle a tool on/off through the same gate the vanilla hand-power key uses.</summary>
         public static bool ToggleOnOff(Thing thing)
         {
             if (thing == null || thing.InteractOnOff == null) return Fail();
+            if (!IsCarriedByLocalPlayer(thing)) return Fail(); // moved/taken since menu build
             if (thing is DynamicThing dyn && (!dyn.CheckTogglePower() || !dyn.ShouldToggleOn()))
                 return Fail();
             thing.Interact(InteractableType.OnOff, thing.OnOff ? 0 : 1);
@@ -133,6 +212,7 @@ namespace StationeersUIMod.Core
         public static bool CycleMode(Thing thing)
         {
             if (thing == null || thing.InteractMode == null) return Fail();
+            if (!IsCarriedByLocalPlayer(thing)) return Fail();
             int count = thing.ModeStrings != null ? thing.ModeStrings.Length : 0;
             int next = count > 0 ? (thing.Mode + 1) % count : (thing.Mode == 0 ? 1 : 0);
             Thing.Interact(thing.InteractMode, next);
@@ -143,7 +223,29 @@ namespace StationeersUIMod.Core
         public static bool ToggleInteractable(Interactable interactable)
         {
             if (interactable == null) return Fail();
+            if (!IsCarriedByLocalPlayer(interactable.Parent)) return Fail();
             Thing.Interact(interactable, interactable.State == 1 ? 0 : 1);
+            return true;
+        }
+
+        /// <summary>
+        /// One vanilla "button press" on an interactable — the canonical funnel for the
+        /// Option A device controls (scroll steps, filtration/air-release toggles).
+        /// PlayerInteractWith() builds the Interaction and routes host -> OnServer.InteractWith
+        /// / client -> ONE InteractionMessage; the item's own InteractWith override then
+        /// validates, clamps and mutates SERVER-SIDE under GameManager.RunSimulation
+        /// (Interactable.cs:418-429, NetworkClient.cs:482-507, InteractionMessage.cs:10-27).
+        /// Never use Thing.Interact(InteractableType,...) for Button4+: the type switch
+        /// doesn't map them (Thing.cs:3791) and the raw state-set path skips clamping.
+        /// <paramref name="owner"/> is the Thing the wedge was built for — re-verified as
+        /// still ours at execute time (a destroyed Thing also fails the Unity null check).
+        /// </summary>
+        public static bool PressInteractable(Thing owner, Interactable interactable)
+        {
+            if (owner == null || interactable == null) return Fail();
+            if (interactable.Parent != owner) return Fail();  // wedge and interactable disagree
+            if (!IsCarriedByLocalPlayer(owner)) return Fail();
+            interactable.PlayerInteractWith();
             return true;
         }
 

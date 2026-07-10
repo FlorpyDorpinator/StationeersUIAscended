@@ -6,6 +6,10 @@ namespace StationeersUIMod.UI
     /// <summary>
     /// A single annular-sector wedge, generated procedurally at runtime via OnPopulateMesh.
     ///
+    /// Geometry is a grid: angular COLUMNS (left to right across the sweep) times radial
+    /// STOPS (inner to outer). Colors live on vertices, so borders and anti-aliasing are
+    /// baked into the mesh — overlay canvases never get MSAA, so a ~1px color/alpha ramp
+    /// on every free edge IS the anti-aliasing.
     /// </summary>
     [RequireComponent(typeof(CanvasRenderer))]
     public sealed class RadialWedgeGraphic : MaskableGraphic, ICanvasRaycastFilter
@@ -19,14 +23,22 @@ namespace StationeersUIMod.UI
         /// <summary>Extra radial thickness added on the outer edge (hover pop-out).</summary>
         public float OuterBulge { get; set; }
 
-
         public float BorderWidth { get; set; } = 0f;
-
 
         public Color BorderColor { get; set; } = Color.clear;
 
-
         public float RimHighlight { get; set; } = 0f;
+
+        /// <summary>Draw the border along the straight side edges too (full wedge outline).</summary>
+        public bool SideBorders { get; set; }
+
+        /// <summary>Anti-alias the side edges. Only valid when wedges do not abut (gap > 0),
+        /// otherwise the fade on both sides of a shared edge paints a visible seam.</summary>
+        public bool FeatherSides { get; set; }
+
+        /// <summary>Cap in px for the OUTWARD side fringe (set to half the wedge gap by the
+        /// view). Without it a feather wider than the gap bleeds into the neighbour wedge.</summary>
+        public float SideFeatherLimit { get; set; } = float.MaxValue;
 
         public void SetGeometry(float innerR, float outerR, float a0, float a1, bool fullRing)
         {
@@ -53,8 +65,7 @@ namespace StationeersUIMod.UI
             float a0 = _a0;
             float a1 = _fullRing ? _a0 + Mathf.PI * 2f : _a1;
             float sweep = Mathf.Abs(a1 - a0);
-            // ~2.5px of arc per segment: curved edges read as curves, not polygons.
-            int segments = Mathf.Clamp(Mathf.CeilToInt(sweep * outer / 2.5f), 4, 256);
+            if (sweep < 0.001f) return;
 
             Color fill = color;
             Color border = BorderColor;
@@ -73,11 +84,9 @@ namespace StationeersUIMod.UI
             }
 
             // ---- radial stops, inner -> outer, each with its colour ----
-            // Screen-space overlay canvases never get MSAA, so a hard mesh edge is a hard
-            // stair-step. Every edge therefore needs a ~1px colour ramp for the rasteriser to
-            // interpolate across. That means BOTH sides of the border band: an alpha-0 fringe
-            // outside, and a ramp from the fill colour on the inside (a zero-width jump from
-            // translucent navy to opaque orange stair-steps just as badly as an alpha edge).
+            // Both sides of the border band ramp: an alpha-0 fringe outside, and a colour
+            // ramp from the fill on the inside (a zero-width jump from translucent navy to
+            // opaque orange stair-steps just as badly as an alpha edge).
             float f = Feather;
             _stopR[0] = inner - f; _stopC[0] = Fade(fill);
             _stopR[1] = inner;     _stopC[1] = fill;
@@ -96,17 +105,66 @@ namespace StationeersUIMod.UI
                 _stopR[stops] = outer + f;  _stopC[stops++] = Fade(outerFill);
             }
 
-            // Angular (side) edges are deliberately NOT feathered: neighbouring wedges abut
-            // along them, so fading both sides would paint a visible seam. Only the inner and
-            // outer radial edges border empty space, and those are the curves that stair-step.
-            for (int i = 0; i <= segments; i++)
+            // ---- angular columns, a0 -> a1 ----
+            // blend 0 = the whole column is border-coloured (side border line);
+            // blend 1 = normal radial stop colours. alpha 0 columns are the side fringe.
+            int cols = 0;
+            bool sideBorder = !_fullRing && SideBorders && hasBorder;
+            bool sideFeather = !_fullRing && FeatherSides;
+            float midR = (inner + outer) * 0.5f;
+            float bAng = sideBorder ? bWidth / midR : 0f;
+            float fAng = sideFeather || sideBorder ? f / midR : 0f;
+            // The OUTWARD fringe extends past a0/a1 into the gap — cap it at the gap's
+            // half-width or it paints into the neighbouring wedge.
+            float fOutAng = Mathf.Min(fAng, Mathf.Max(0f, SideFeatherLimit) / midR);
+
+            // Narrow wedges: shrink the side bands so they never eat the whole sector.
+            float maxSide = sweep * 0.30f;
+            if (bAng + fAng > maxSide)
             {
-                float t = Mathf.Lerp(a0, a1, i / (float)segments);
-                EmitColumn(vh, t, stops, 1f);
+                float k = maxSide / (bAng + fAng);
+                bAng *= k;
+                fAng *= k;
+                fOutAng *= k;
             }
 
-            for (int i = 0; i < segments; i++)
-                Quads(vh, i, i + 1, stops);
+            float aStart = a0 + bAng + (sideBorder ? fAng : 0f);
+            float aEnd = a1 - bAng - (sideBorder ? fAng : 0f);
+            float interiorSweep = Mathf.Max(0.001f, aEnd - aStart);
+            // ~2.5px of arc per segment: curved edges read as curves, not polygons.
+            int segments = Mathf.Clamp(Mathf.CeilToInt(interiorSweep * outer / 2.5f), 2, 256);
+
+            if (sideBorder)
+            {
+                AddCol(ref cols, a0 - fOutAng, 0f, 0f);
+                AddCol(ref cols, a0, 0f, 1f);
+                AddCol(ref cols, a0 + bAng, 0f, 1f);
+                AddCol(ref cols, aStart, 1f, 1f);
+                for (int i = 1; i < segments; i++)
+                    AddCol(ref cols, aStart + interiorSweep * i / segments, 1f, 1f);
+                AddCol(ref cols, aEnd, 1f, 1f);
+                AddCol(ref cols, a1 - bAng, 0f, 1f);
+                AddCol(ref cols, a1, 0f, 1f);
+                AddCol(ref cols, a1 + fOutAng, 0f, 0f);
+            }
+            else if (sideFeather)
+            {
+                AddCol(ref cols, a0 - fOutAng, 1f, 0f);
+                for (int i = 0; i <= segments; i++)
+                    AddCol(ref cols, Mathf.Lerp(a0, a1, i / (float)segments), 1f, 1f);
+                AddCol(ref cols, a1 + fOutAng, 1f, 0f);
+            }
+            else
+            {
+                // Abutting wedges (or a full ring): hard side edges, current classic look.
+                for (int i = 0; i <= segments; i++)
+                    AddCol(ref cols, Mathf.Lerp(a0, a1, i / (float)segments), 1f, 1f);
+            }
+
+            for (int c = 0; c < cols; c++)
+                EmitColumn(vh, _colAng[c], _colBlend[c], _colAlpha[c], stops, border);
+            for (int c = 0; c < cols - 1; c++)
+                Quads(vh, c, c + 1, stops);
         }
 
         /// <summary>Width of the anti-aliasing ramp, in pixels. Live-tunable from F10.</summary>
@@ -115,15 +173,36 @@ namespace StationeersUIMod.UI
 
         private static readonly float[] _stopR = new float[6];
         private static readonly Color[] _stopC = new Color[6];
+        private static readonly float[] _colAng = new float[272];
+        private static readonly float[] _colBlend = new float[272];
+        private static readonly float[] _colAlpha = new float[272];
+
+        private static void AddCol(ref int cols, float angle, float blend, float alphaMul)
+        {
+            if (cols >= _colAng.Length) return;
+            _colAng[cols] = angle;
+            _colBlend[cols] = blend;
+            _colAlpha[cols] = alphaMul;
+            cols++;
+        }
 
         private static Color Fade(Color c) { c.a = 0f; return c; }
 
-        private static void EmitColumn(VertexHelper vh, float angle, int stops, float alphaMul)
+        private static void EmitColumn(VertexHelper vh, float angle, float blend, float alphaMul,
+            int stops, Color border)
         {
             var dir = new Vector2(Mathf.Cos(angle), -Mathf.Sin(angle));
             for (int s = 0; s < stops; s++)
             {
                 Color c = _stopC[s];
+                if (blend < 0.999f)
+                {
+                    // Border-coloured column: keep the stop's alpha SHAPE (0 at the radial
+                    // fringes) but pull the colour toward the border.
+                    Color bc = border;
+                    bc.a = c.a <= 0.001f ? 0f : border.a;
+                    c = Color.Lerp(bc, c, blend);
+                }
                 c.a *= alphaMul;
                 vh.AddVert(dir * _stopR[s], c, new Vector2(0f, s));
             }

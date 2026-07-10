@@ -143,6 +143,9 @@ namespace StationeersUIMod.Features
                 return;
             }
 
+            // Option A: scroll-wheel value adjust works in both hold and sticky modes.
+            if (UIAConfig.IsA) _menu.UpdateScroll();
+
             if (!_menu.IsSticky)
             {
                 if (_active != null && !Input.GetKey(_active.Key))
@@ -160,11 +163,23 @@ namespace StationeersUIMod.Features
             else
             {
                 bool wasOpen = _menu.IsOpen;
-                // Re-pressing the radial key closes a sticky radial.
-                if (_active != null && Input.GetKeyDown(_active.Key))
+                // While the search panel is typing, raw key presses are TEXT — the re-press
+                // and MMB dismiss gestures must not fire (the panel handles its own exits).
+                if (!_menu.IsSearchOpen)
                 {
-                    CloseAll();
-                    return;
+                    // Re-pressing the radial key closes a sticky radial.
+                    if (_active != null && Input.GetKeyDown(_active.Key))
+                    {
+                        CloseAll();
+                        return;
+                    }
+                    // Option A: tapping middle mouse dismisses any sticky radial it doesn't own.
+                    if (UIAConfig.IsA && Input.GetMouseButtonDown(2)
+                        && _active != null && _active.Key != KeyCode.Mouse2)
+                    {
+                        CloseAll();
+                        return;
+                    }
                 }
                 _menu.UpdateSticky();
                 if (wasOpen && !_menu.IsOpen)
@@ -177,8 +192,15 @@ namespace StationeersUIMod.Features
 
         public void Draw()
         {
-            if (_menu.IsOpen) _menu.Draw();
-            else UI.UnityRadialView.Hide(); // UGUI canvas must be explicitly hidden when closed (or every reload stacks)
+            if (_menu.IsOpen)
+            {
+                _menu.Draw();
+                return;
+            }
+            // UGUI canvases must be explicitly hidden when closed (or every reload stacks).
+            UI.UnityRadialView.Hide();
+            UI.ParkedItemsView.Hide();
+            UI.SearchPanelView.Hide();
         }
 
         public void CloseAll()
@@ -196,7 +218,10 @@ namespace StationeersUIMod.Features
         {
             _menu.Close();
             _modal.Close();
-            UI.UnityRadialView.Shutdown(); // destroy the canvas, or every hot reload stacks another
+            UI.UnityRadialView.Shutdown(); // destroy the canvases, or every hot reload stacks another
+            UI.ParkedItemsView.Shutdown();
+            UI.SearchPanelView.Shutdown();
+            Windows.RadialEditorMode.Shutdown();
             _active = null;
             _pending = null;
         }

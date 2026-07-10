@@ -10,6 +10,7 @@ namespace StationeersUIMod.Windows
     /// <summary>
     /// In-game settings window, registered through the game's own ImGuiWindowManager so we
     /// inherit Escape-to-close, cursor unlock and key capture for free (Phase 0 exit test).
+    /// While the radial editor is active, this window IS the editor's control panel.
     /// </summary>
     public sealed class SettingsWindow : GameImGuiWindow
     {
@@ -20,10 +21,23 @@ namespace StationeersUIMod.Windows
 
         public override void DrawContent()
         {
+            if (RadialEditorMode.Active)
+            {
+                DrawEditorPanel();
+                return;
+            }
+
             ImGui.TextDisabled("Radials, radials, radials - hold the key, flick, release.");
             ImGui.Separator();
 
             Toggle(UIAConfig.MasterEnable, "Master enable");
+            SchemaCombo();
+            ImGui.Spacing();
+
+            if (ImGui.Button("Open radial editor"))
+                RadialEditorMode.Enter();
+            ImGui.SameLine();
+            ImGui.TextDisabled("black screen + live example radials");
             ImGui.Spacing();
 
             if (ImGui.CollapsingHeader("Radials", ImGuiTreeNodeFlags.DefaultOpen))
@@ -36,27 +50,12 @@ namespace StationeersUIMod.Windows
                 Toggle(UIAConfig.EquipmentKeyRadialsEnabled, "Equipment key radials  (tap 1-6)");
                 Toggle(UIAConfig.ToolbeltShowStowEntries, "Show empty belt slots in the toolbelt radial");
                 IntSlider(UIAConfig.HoldThresholdMs, "Hold threshold (ms)", 60, 600);
-                FloatSlider(UIAConfig.RadialOuterRadius, "Radial size", 120f, 480f);
-                FloatSlider(UIAConfig.RadialInnerRadius, "Hub (center circle) size", 60f, 260f);
-                FloatSlider(UIAConfig.RadialIconScale, "Icon size", 0.5f, 2.5f);
-                FloatSlider(UIAConfig.RadialBorderWidth, "Border thickness (px)", 0f, 10f);
-                FloatSlider(UIAConfig.RadialEdgeFeather, "Edge softness / anti-aliasing (px)", 0f, 4f);
-                Toggle(UIAConfig.RadialShowWedgeLabels, "Show item name under each icon");
-                Toggle(UIAConfig.UseUnityRadial, "Unity UGUI renderer (procedural wedges, TMP, animations)");
+                DrawVisualControls();
             }
 
             if (ImGui.CollapsingHeader("Radial Colours"))
             {
-                ImGui.TextDisabled("Click a swatch for a colour wheel. The A slider is transparency.");
-                ImGui.TextDisabled("Changes apply live and persist to the config file.");
-                ImGui.Spacing();
-
-                foreach (var entry in Overlay.RadialPalette.All)
-                    ColorWheel(entry);
-
-                ImGui.Spacing();
-                if (ImGui.Button("Reset all colours to defaults"))
-                    Overlay.RadialPalette.ResetToDefaults();
+                DrawColourControls();
             }
 
             if (ImGui.CollapsingHeader("SmartStow+", ImGuiTreeNodeFlags.DefaultOpen))
@@ -102,6 +101,93 @@ namespace StationeersUIMod.Windows
             ImGui.TextDisabled("StationeersLaunchPad's mod config panel as well.");
         }
 
+        /// <summary>The window's contents while the radial editor owns the screen.</summary>
+        private void DrawEditorPanel()
+        {
+            ImGui.TextColored(new Vector4(1f, 0.55f, 0.16f, 1f), "RADIAL EDITOR");
+            ImGui.TextDisabled("Live example radials on the left. Hover wedges to preview");
+            ImGui.TextDisabled("states; scroll over TEMPERATURE to test the wheel.");
+            ImGui.Spacing();
+            if (ImGui.Button("Exit editor  (or press Escape)"))
+                RadialEditorMode.Exit();
+            ImGui.Separator();
+
+            if (ImGui.CollapsingHeader("Layout & sizes", ImGuiTreeNodeFlags.DefaultOpen))
+                DrawVisualControls();
+
+            if (ImGui.CollapsingHeader("Colours", ImGuiTreeNodeFlags.DefaultOpen))
+                DrawColourControls();
+        }
+
+        /// <summary>Every live-tunable visual: shared between the normal Radials section and
+        /// the editor panel so the two can never drift apart.</summary>
+        private static void DrawVisualControls()
+        {
+            FloatSlider(UIAConfig.RadialOuterRadius, "Radial size", 120f, 480f);
+            FloatSlider(UIAConfig.RadialInnerRadius, "Hub (center circle) size", 60f, 260f);
+            FloatSlider(UIAConfig.RadialSatelliteScale, "Child radial size", 0.5f, 1.6f);
+            FloatSlider(UIAConfig.RadialIconScale, "Icon size", 0.5f, 2.5f);
+            FloatSlider(UIAConfig.RadialBorderWidth, "Border thickness (px)", 0f, 10f);
+            Toggle(UIAConfig.RadialSideBorders, "Borders on wedge SIDE edges (full outline)");
+            FloatSlider(UIAConfig.RadialWedgeGapDeg, "Gap between wedges (deg)", 0f, 6f);
+            FloatSlider(UIAConfig.RadialEdgeFeather, "Edge softness / anti-aliasing (px)", 0f, 4f);
+            Toggle(UIAConfig.RadialDimShading, "Dim other wedges while one is highlighted");
+            FloatSlider(UIAConfig.RadialDimStrength, "Dim strength", 0f, 1f);
+            Toggle(UIAConfig.RadialUppercaseLabels, "ALL CAPS wedge labels");
+            Toggle(UIAConfig.RadialShowStateText, "State under icons (battery %, kPa, counts)");
+            Toggle(UIAConfig.RadialShowWedgeLabels, "Show item name under each icon");
+            FontCombo();
+            Toggle(UIAConfig.UseUnityRadial, "Unity UGUI renderer (procedural wedges, TMP, animations)");
+        }
+
+        private static void DrawColourControls()
+        {
+            ImGui.TextDisabled("Click a swatch for a colour wheel. The A slider is transparency.");
+            ImGui.TextDisabled("Changes apply live and persist to the config file.");
+            ImGui.Spacing();
+
+            foreach (var entry in Overlay.RadialPalette.All)
+                ColorWheel(entry);
+
+            ImGui.Spacing();
+            if (ImGui.Button("Reset all colours to defaults"))
+                Overlay.RadialPalette.ResetToDefaults();
+        }
+
+        private static void SchemaCombo()
+        {
+            var schema = UIAConfig.Schema.Value;
+            string current = schema == ControlSchema.OptionA ? "Option A (new)" : "Option D (classic)";
+            if (ImGui.BeginCombo("Control schema", current))
+            {
+                if (ImGui.Selectable("Option A (new)", schema == ControlSchema.OptionA))
+                    UIAConfig.Schema.Value = ControlSchema.OptionA;
+                if (ImGui.Selectable("Option D (classic)", schema == ControlSchema.OptionD))
+                    UIAConfig.Schema.Value = ControlSchema.OptionD;
+                ImGui.EndCombo();
+            }
+            ImGui.TextDisabled(UIAConfig.IsA
+                ? "A: STOW wedges, device satellites, search panel, drag-out parking, auto-close."
+                : "D: the classic pre-overhaul behavior (swap lists, click executes immediately).");
+        }
+
+        private static void FontCombo()
+        {
+            string current = UIAConfig.RadialFontName.Value;
+            if (string.IsNullOrEmpty(current)) current = "(auto)";
+            if (ImGui.BeginCombo("Radial font", current))
+            {
+                if (ImGui.Selectable("(auto: prefer bold)", string.IsNullOrEmpty(UIAConfig.RadialFontName.Value)))
+                    UIAConfig.RadialFontName.Value = "";
+                foreach (var name in UI.UnityRadialView.AllFontNames())
+                {
+                    if (ImGui.Selectable(name, name == UIAConfig.RadialFontName.Value))
+                        UIAConfig.RadialFontName.Value = name;
+                }
+                ImGui.EndCombo();
+            }
+        }
+
         /// <summary>
         /// A swatch that opens ImGui's hue-wheel picker with an alpha bar. Colours round-trip
         /// through the config as hex, so they persist and survive a hot reload.
@@ -136,4 +222,3 @@ namespace StationeersUIMod.Windows
         }
     }
 }
-

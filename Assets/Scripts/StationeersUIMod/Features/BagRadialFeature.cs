@@ -9,12 +9,15 @@ using UnityEngine;
 namespace StationeersUIMod.Features
 {
     /// <summary>
-    /// Tab: your inventory as radials. Root shows worn containers plus two
-    /// nesting-killers: "Find item" (everything you can reach, flattened and grouped by
-    /// type — no digging) and "Grab another: X" (repeats your last retrieval in one
-    /// flick). Inside a bag: click a bag to enter it, click an item to take it, slide out
-    /// on an item to open its controls/slots. By default TAP opens the radial (sticky)
-    /// and HOLD shows the vanilla scoreboard; a config flips the two.
+    /// Tab: your inventory as radials. Root shows worn containers plus the nesting-killers.
+    ///
+    /// Option A: "Search" flips the radial into the search panel (type, click, item lands
+    /// in a free hand or at your feet). Inside a bag: click a bag to enter it, click an
+    /// item to take it; slide out on a nested bag for STOW/TAKE, on a device for its
+    /// controls/slots. Crowded bags group by the mod's own UIA sorting classes (backpacks
+    /// are Storage, not Clothing). Items can be press-dragged out and parked on screen.
+    ///
+    /// Option D keeps the classic "Find item" list radial and vanilla SortingClass groups.
     /// </summary>
     public sealed class BagRadialFeature : IRadialFeature
     {
@@ -49,14 +52,28 @@ namespace StationeersUIMod.Features
                 }
             }
 
-            // "Find item" — the whole reachable inventory, flattened and grouped by type.
-            entries.Add(new RadialEntry
+            if (UIAConfig.IsA)
             {
-                Label = "Find item",
-                Sublabel = "search all bags",
-                ActionText = "Open",
-                ChildProvider = BuildFindLevel,
-            });
+                // Option A: the radial transforms into the search panel.
+                entries.Add(new RadialEntry
+                {
+                    Label = "Search",
+                    Sublabel = "all bags",
+                    ActionText = "Search",
+                    OnSelect = RadialMenu.RequestSearch,
+                });
+            }
+            else
+            {
+                // Option D: the classic flattened list radial.
+                entries.Add(new RadialEntry
+                {
+                    Label = "Find item",
+                    Sublabel = "search all bags",
+                    ActionText = "Open",
+                    ChildProvider = BuildFindLevel,
+                });
+            }
 
             AddContainer(entries, human.BackpackSlot, "Backpack");
             AddContainer(entries, human.ToolbeltSlot, "Toolbelt");
@@ -65,7 +82,7 @@ namespace StationeersUIMod.Features
             return entries;
         }
 
-        // ---------- Find item ----------
+        // ---------- Find item (Option D) ----------
 
         private static List<RadialEntry> BuildFindLevel()
         {
@@ -87,7 +104,9 @@ namespace StationeersUIMod.Features
                     Label = thing.DisplayName,
                     ActionText = "Take nearest",
                     Sublabel = (instances.Count > 1 ? "x" + instances.Count + " - " : "") + first.Location,
+                    StateText = StateText.For(thing),
                     Icon = thing.GetThumbnail(),
+                    DragSource = first,
                     OnSelect = () => TakeAndRemember(first),
                     // Pick a specific one when there are several.
                     SlideOutProvider = instances.Count > 1
@@ -109,7 +128,9 @@ namespace StationeersUIMod.Features
                 ActionText = "Take to hand",
                 Sublabel = scanned.Location,
                 Warning = InventoryScanner.ConsequenceOfRemoving(scanned),
+                StateText = StateText.For(thing),
                 Icon = thing.GetThumbnail(),
+                DragSource = scanned,
                 OnSelect = () => TakeAndRemember(scanned),
             };
         }
@@ -161,23 +182,46 @@ namespace StationeersUIMod.Features
                 else empty.Add(s);
             }
 
-            // Category grouping for crowded bags (proposal §10)
+            // Category grouping for crowded bags (proposal §10). Option A groups by the
+            // mod's own UIA sorting classes — nested backpacks read "Storage", batteries
+            // read "Power Cells" — instead of the game's coarse SortingClass.
             if (occupied.Count > UIAConfig.BagRadialGroupThreshold.Value)
             {
-                foreach (var group in occupied
-                             .GroupBy(s => s.Get().SortingClass)
-                             .OrderBy(g => (int)g.Key))
+                if (UIAConfig.IsA)
                 {
-                    var slots = group.ToList();
-                    var first = slots[0].Get();
-                    entries.Add(new RadialEntry
+                    foreach (var group in occupied
+                                 .GroupBy(s => UIASort.Classify(s.Get()))
+                                 .OrderBy(g => (int)g.Key))
                     {
-                        Label = group.Key.ToString(),
-                        ActionText = "Open",
-                        Sublabel = slots.Count + " item(s)",
-                        Icon = first?.GetThumbnail(),
-                        ChildProvider = () => slots.Select(s => ItemEntry(bag, s)).Where(e => e != null).ToList(),
-                    });
+                        var slots = group.ToList();
+                        var first = slots[0].Get();
+                        entries.Add(new RadialEntry
+                        {
+                            Label = UIASort.DisplayName(group.Key),
+                            ActionText = "Open",
+                            Sublabel = slots.Count + " item(s)",
+                            Icon = first?.GetThumbnail(),
+                            ChildProvider = () => slots.Select(s => ItemEntry(bag, s)).Where(e => e != null).ToList(),
+                        });
+                    }
+                }
+                else
+                {
+                    foreach (var group in occupied
+                                 .GroupBy(s => s.Get().SortingClass)
+                                 .OrderBy(g => (int)g.Key))
+                    {
+                        var slots = group.ToList();
+                        var first = slots[0].Get();
+                        entries.Add(new RadialEntry
+                        {
+                            Label = group.Key.ToString(),
+                            ActionText = "Open",
+                            Sublabel = slots.Count + " item(s)",
+                            Icon = first?.GetThumbnail(),
+                            ChildProvider = () => slots.Select(s => ItemEntry(bag, s)).Where(e => e != null).ToList(),
+                        });
+                    }
                 }
             }
             else
@@ -189,11 +233,29 @@ namespace StationeersUIMod.Features
                 }
             }
 
-            // One stow target when holding something and the bag has room — this is how you
-            // choose WHICH bag an item goes into.
+            // One stow target when the bag has room — this is how you choose WHICH bag an
+            // item goes into. Option A shows it even with empty hands: it doubles as the
+            // drop target for parked chips (which exist precisely when nothing is held).
             var hand = InventoryManager.ActiveHandSlot;
             var held = hand?.Get();
-            if (held != null)
+            if (UIAConfig.IsA)
+            {
+                Slot free = held != null ? empty.FirstOrDefault(s => Slot.AllowMove(held, s)) : null;
+                Slot target = free ?? empty.FirstOrDefault();
+                if (target != null)
+                {
+                    var bagRef = bag;
+                    // STOW wedge: blank slot + STOW, held item previews on hover.
+                    var e = ItemMenuBuilder.BuildStowEntry(target,
+                        string.IsNullOrEmpty(target.DisplayName) ? bag.DisplayName : target.DisplayName, held);
+                    e.Sublabel = "into " + bag.DisplayName;
+                    // Chips pick whichever free slot fits THEM, not the held item's slot.
+                    e.DropSlot = null;
+                    e.DropResolver = dragged => ItemMenuBuilder.FirstFreeSlot(bagRef, dragged);
+                    entries.Add(e);
+                }
+            }
+            else if (held != null)
             {
                 Slot free = empty.FirstOrDefault(s => Slot.AllowMove(held, s));
                 if (free != null)
@@ -218,30 +280,39 @@ namespace StationeersUIMod.Features
             DynamicThing occ = slot.Get();
             if (occ == null) return null;
             var source = new ScannedSlot { Slot = slot, Holder = bag, Location = bag.DisplayName }.Pin();
+            var thing = occ;
 
             // Bags are navigated; everything else is taken (click) or opened (slide-out).
             if (ItemMenuBuilder.LooksLikeContainer(occ))
             {
-                return new RadialEntry
+                var entry = new RadialEntry
                 {
                     Label = occ.DisplayName,
-                    ActionText = "Open bag",
+                    ActionText = UIAConfig.IsA ? "Open" : "Open bag",
                     Sublabel = occ.Slots.Count(s => s?.Get() != null) + "/" + occ.Slots.Count,
                     Icon = occ.GetThumbnail(),
-                    ChildProvider = () => BuildBagLevel(occ),
+                    ChildProvider = () => BuildBagLevel(thing),
                 };
+                if (UIAConfig.IsA)
+                {
+                    // Nested bag slide-out: STOW the held item into it / TAKE the bag itself.
+                    entry.SlideOutProvider = () => ItemMenuBuilder.BuildTakeOrStowEntries(thing, source);
+                    entry.SlideOutLabel = "More";
+                    entry.DragSource = source;
+                    entry.DropResolver = dragged => ItemMenuBuilder.FirstFreeSlot(thing, dragged);
+                }
+                return entry;
             }
 
-            var thing = occ;
-            bool hasInnards = (occ.Slots != null && occ.Slots.Count > 0)
-                || ItemMenuBuilder.IsRealControl(occ.InteractOnOff)
-                || ItemMenuBuilder.IsRealControl(occ.InteractMode);
+            bool hasInnards = ItemMenuBuilder.HasInnards(occ);
             return new RadialEntry
             {
                 Label = occ.DisplayName,
                 ActionText = "Take to hand",
                 Sublabel = ToolbeltRadialFeature.DescribeState(occ),
+                StateText = StateText.For(occ),
                 Icon = occ.GetThumbnail(),
+                DragSource = source,
                 OnSelect = () => TakeAndRemember(source),
                 SlideOutProvider = hasInnards
                     ? () => ItemMenuBuilder.BuildManageEntries(thing, slot, includeTakeEntry: false)
@@ -272,4 +343,3 @@ namespace StationeersUIMod.Features
         public bool OwnsVanillaKey => Enabled && Key == KeyMap.ShowScoreBoard;
     }
 }
-

@@ -4,6 +4,20 @@ using UnityEngine;
 namespace StationeersUIMod
 {
     /// <summary>
+    /// Which interaction model the radials use. Visuals are separate config entries
+    /// (tuned in the radial editor); the schema switches BEHAVIOR:
+    /// OptionA — the 2026-07 overhaul: STOW wedges, device-control satellites with
+    ///   scroll-adjustable values, take/open satellites on nested bags (no giant swap
+    ///   lists), auto-close after actions, search-all-bags panel, drag-out parking.
+    /// OptionD — the classic pre-overhaul behavior, kept for A/B testing.
+    /// </summary>
+    public enum ControlSchema
+    {
+        OptionA,
+        OptionD,
+    }
+
+    /// <summary>
     /// All user-facing configuration. Bound once at plugin init; StationeersLaunchPad
     /// auto-renders the resulting .cfg in its in-game mod config panel.
     /// </summary>
@@ -13,6 +27,10 @@ namespace StationeersUIMod
         public static ConfigEntry<bool> MasterEnable;
         public static ConfigEntry<KeyCode> SettingsWindowKey;
         public static ConfigEntry<int> HoldThresholdMs;
+        public static ConfigEntry<ControlSchema> Schema;
+
+        /// <summary>Shorthand for "the Option A behavior set is active".</summary>
+        public static bool IsA => Schema == null || Schema.Value == ControlSchema.OptionA;
 
         // --- Toolbelt radial ---
         public static ConfigEntry<bool> ToolbeltRadialEnabled;
@@ -32,11 +50,6 @@ namespace StationeersUIMod
 
         // --- Equipment key radials (1-6) ---
         public static ConfigEntry<bool> EquipmentKeyRadialsEnabled;
-
-        // --- Emergency inject (testing aid) ---
-        public static ConfigEntry<bool> EmergencyInjectEnabled;
-        public static ConfigEntry<KeyCode> EmergencyHealKey;
-        public static ConfigEntry<KeyCode> EmergencyStimKey;
 
         // --- Slot finder ---
         public static ConfigEntry<int> ScanDepth;
@@ -72,6 +85,14 @@ namespace StationeersUIMod
         public static ConfigEntry<bool> RadialShowWedgeLabels;
         public static ConfigEntry<float> RadialEdgeFeather;
         public static ConfigEntry<float> RadialBorderWidth;
+        public static ConfigEntry<bool> RadialSideBorders;
+        public static ConfigEntry<float> RadialWedgeGapDeg;
+        public static ConfigEntry<bool> RadialDimShading;
+        public static ConfigEntry<float> RadialDimStrength;
+        public static ConfigEntry<string> RadialFontName;
+        public static ConfigEntry<bool> RadialUppercaseLabels;
+        public static ConfigEntry<bool> RadialShowStateText;
+        public static ConfigEntry<float> RadialSatelliteScale;
 
         public static void Bind(ConfigFile cfg)
         {
@@ -82,6 +103,10 @@ namespace StationeersUIMod
             HoldThresholdMs = cfg.Bind("1. General", "HoldThresholdMs", 180,
                 new ConfigDescription("How long a radial key must be held before the radial opens (ms). Shorter taps fall through to the vanilla action.",
                     new AcceptableValueRange<int>(60, 600)));
+            Schema = cfg.Bind("1. General", "ControlSchema", ControlSchema.OptionA,
+                "Radial interaction model. OptionA: STOW wedges, device-control satellites with scroll " +
+                "values, take/open on nested bags, auto-close after actions, search panel, drag-out " +
+                "parking. OptionD: the classic behavior, kept for A/B comparison.");
 
             ToolbeltRadialEnabled = cfg.Bind("2. Toolbelt Radial", "Enabled", true,
                 "Hold a key to open a radial of everything on your toolbelt; release over a tool to equip it into the active hand.");
@@ -107,15 +132,6 @@ namespace StationeersUIMod
             BagRadialGroupThreshold = cfg.Bind("4. Bag Radial", "GroupThreshold", 10,
                 new ConfigDescription("When a bag holds more than this many items, group them by sorting category first.",
                     new AcceptableValueRange<int>(4, 24)));
-
-            EmergencyInjectEnabled = cfg.Bind("4c. Emergency Inject", "Enabled", true,
-                "Testing aid: a modifier+key that finds a health/stim auto-injector you OWN and uses it on " +
-                "yourself, even while incapacitated. On a multiplayer client the mod cannot heal you directly " +
-                "(health is server-authoritative) - it brings the injector to hand for a one-click vanilla use.");
-            EmergencyHealKey = cfg.Bind("4c. Emergency Inject", "HealKey", KeyCode.Alpha9,
-                "Hold Shift + this key = use a health auto-injector on yourself.");
-            EmergencyStimKey = cfg.Bind("4c. Emergency Inject", "StimKey", KeyCode.Alpha8,
-                "Hold Shift + this key = use a stim (epinephrine) auto-injector on yourself.");
 
             EquipmentKeyRadialsEnabled = cfg.Bind("4b. Equipment Keys", "Enabled", true,
                 "Tap 1-6 to open a management radial for that equipment piece (on/off, slots, swaps); " +
@@ -185,8 +201,35 @@ namespace StationeersUIMod
                     "~1-2 looks right; higher goes soft/glowy.",
                     new AcceptableValueRange<float>(0f, 4f)));
             RadialBorderWidth = cfg.Bind("8. Radial Visuals", "BorderWidth", 3.2f,
-                new ConfigDescription("Thickness in pixels of the ring border around wedges.",
+                new ConfigDescription("Thickness in pixels of the border around wedges (arcs and, when " +
+                    "SideBorders is on, the straight side edges too).",
                     new AcceptableValueRange<float>(0f, 10f)));
+            RadialSideBorders = cfg.Bind("8. Radial Visuals", "SideBorders", true,
+                "Draw the border along the straight SIDE edges of each wedge too, so every wedge " +
+                "wears a complete outline (the always-on orange lines).");
+            RadialWedgeGapDeg = cfg.Bind("8. Radial Visuals", "WedgeGapDegrees", 1.2f,
+                new ConfigDescription("Angular gap between neighbouring wedges, in degrees. The gap is " +
+                    "what lets each wedge's outline read as its own line; side edges are anti-aliased " +
+                    "whenever a gap exists.",
+                    new AcceptableValueRange<float>(0f, 6f)));
+            RadialDimShading = cfg.Bind("8. Radial Visuals", "DimShading", true,
+                "While one wedge is highlighted, shade the other wedges darker so the selection pops.");
+            RadialDimStrength = cfg.Bind("8. Radial Visuals", "DimStrength", 1.0f,
+                new ConfigDescription("How hard the non-highlighted wedges dim (0 = no dimming, 1 = full).",
+                    new AcceptableValueRange<float>(0f, 1f)));
+            RadialFontName = cfg.Bind("8. Radial Visuals", "FontName", "RBNoBold",
+                "TMP font asset name (substring match) used by all radial text. Default RBNoBold is the " +
+                "game's true bold face (RBNo3.1 — the scoreboard/leaderboard title font). Empty = auto: " +
+                "prefer any Bold game font, else the first font the game loaded. The radial editor " +
+                "lists every font the game has.");
+            RadialUppercaseLabels = cfg.Bind("8. Radial Visuals", "UppercaseLabels", true,
+                "Render wedge labels in ALL CAPS (bold-caps look; the hub readout keeps normal case).");
+            RadialShowStateText = cfg.Bind("8. Radial Visuals", "ShowStateText", true,
+                "Show live state under wedge icons: battery %, canister kPa, stack counts, filter wear. " +
+                "Independent of the item-name labels.");
+            RadialSatelliteScale = cfg.Bind("8. Radial Visuals", "SatelliteScale", 1.0f,
+                new ConfigDescription("Size multiplier for child (satellite) radials.",
+                    new AcceptableValueRange<float>(0.5f, 1.6f)));
 
             // Every radial colour, live-editable from the F10 colour wheels.
             Overlay.RadialPalette.Bind(cfg);

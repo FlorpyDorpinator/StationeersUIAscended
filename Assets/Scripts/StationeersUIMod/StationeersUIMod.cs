@@ -18,8 +18,8 @@ namespace StationeersUIMod
     /// </summary>
     public sealed class StationeersUIMod : MonoBehaviour
     {
-        public const string ModVersion = "0.2.0";
-        public const string VersionDisplay = "0.2.0 Alpha";
+        public const string ModVersion = "0.3.0";
+        public const string VersionDisplay = "0.3.0 Alpha";
         public const string ModGuid = "com.stationeersuimod.ui";
 
         public static StationeersUIMod Instance { get; private set; }
@@ -32,7 +32,6 @@ namespace StationeersUIMod
         private ToolRadialFeature _toolRadial;
         private BagRadialFeature _bagRadial;
         private HudOverlayFeature _hud;
-        private EmergencyInjectFeature _emergencyInject;
         private SettingsWindow _settingsWindow;
         private ProfileEditorWindow _profileEditor;
         private readonly List<EquipmentKeyRadialFeature> _equipFeatures
@@ -87,7 +86,6 @@ namespace StationeersUIMod
                     _radials.Register(equipFeature);
                 }
                 _hud = new HudOverlayFeature();
-                _emergencyInject = new EmergencyInjectFeature();
 
                 _harmony = new Harmony(ModGuid);
                 PatchHarness.TryPatchAll(_harmony,
@@ -128,8 +126,27 @@ namespace StationeersUIMod
 
             try
             {
+                // The radial editor lives and dies with the F10 window (Escape closes the
+                // window through the game's own manager; we follow).
+                if (Windows.RadialEditorMode.Active
+                    && (_settingsWindow == null || !_settingsWindow.IsShowing))
+                    Windows.RadialEditorMode.Exit();
+
+                // The ImGui draw hook stops firing over the loading screen / main menu, so
+                // anything the hook would hide must be hidden HERE — Update keeps running.
+                // Without this, DontDestroyOnLoad radial/parking canvases freeze on screen
+                // when the world ends while a radial is open. _radials.Update() still runs
+                // below: it pumps the deferred modal release and is guard-aware itself.
+                if (!Guards.CanDraw())
+                {
+                    if (_radials.IsRadialOpen) _radials.CloseAll();
+                    if (Windows.RadialEditorMode.Active) Windows.RadialEditorMode.Exit();
+                    UI.UnityRadialView.Hide();
+                    UI.ParkedItemsView.Hide();
+                    UI.SearchPanelView.Hide();
+                }
+
                 _radials.Update();
-                _emergencyInject?.Update();
 
                 if (Input.GetKeyDown(UIAConfig.SettingsWindowKey.Value) && Guards.CanDraw()
                     && !_radials.IsRadialOpen)
@@ -155,8 +172,18 @@ namespace StationeersUIMod
                 if (!Guards.CanDraw())
                 {
                     if (_radials.IsRadialOpen) _radials.CloseAll();
+                    if (Windows.RadialEditorMode.Active) Windows.RadialEditorMode.Exit();
                     return;
                 }
+
+                // Editor mode owns the screen: black backdrop + example radials.
+                if (Windows.RadialEditorMode.Active)
+                {
+                    if (_radials.IsRadialOpen) _radials.CloseAll();
+                    Windows.RadialEditorMode.Draw();
+                    return;
+                }
+
                 _hud.Draw();
                 _radials.Draw();
             }
