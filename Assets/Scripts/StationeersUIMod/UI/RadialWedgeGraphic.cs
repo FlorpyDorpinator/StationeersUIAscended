@@ -74,21 +74,26 @@ namespace StationeersUIMod.UI
 
             // ---- radial stops, inner -> outer, each with its colour ----
             // Screen-space overlay canvases never get MSAA, so a hard mesh edge is a hard
-            // stair-step. Fringe rings of the same colour at alpha 0 give the rasteriser a
-            // one-pixel gradient to interpolate across — cheap, shader-free anti-aliasing.
-            _stopR[0] = inner - Feather; _stopC[0] = Fade(fill);
-            _stopR[1] = inner;           _stopC[1] = fill;
-            _stopR[2] = outer;           _stopC[2] = outerFill;
-            int stops = 3;
+            // stair-step. Every edge therefore needs a ~1px colour ramp for the rasteriser to
+            // interpolate across. That means BOTH sides of the border band: an alpha-0 fringe
+            // outside, and a ramp from the fill colour on the inside (a zero-width jump from
+            // translucent navy to opaque orange stair-steps just as badly as an alpha edge).
+            float f = Feather;
+            _stopR[0] = inner - f; _stopC[0] = Fade(fill);
+            _stopR[1] = inner;     _stopC[1] = fill;
+            int stops = 2;
             if (hasBorder)
             {
-                _stopR[stops] = outer;             _stopC[stops++] = border;
-                _stopR[stops] = outer + bWidth;    _stopC[stops++] = border;
-                _stopR[stops] = outer + bWidth + Feather; _stopC[stops++] = Fade(border);
+                float rampStart = Mathf.Max(inner + 0.01f, outer - f);
+                _stopR[stops] = rampStart;             _stopC[stops++] = outerFill;   // fill up to here
+                _stopR[stops] = outer;                 _stopC[stops++] = border;      // ramp -> border
+                _stopR[stops] = outer + bWidth;        _stopC[stops++] = border;      // solid band
+                _stopR[stops] = outer + bWidth + f;    _stopC[stops++] = Fade(border);// fringe out
             }
             else
             {
-                _stopR[stops] = outer + Feather; _stopC[stops++] = Fade(outerFill);
+                _stopR[stops] = outer;      _stopC[stops++] = outerFill;
+                _stopR[stops] = outer + f;  _stopC[stops++] = Fade(outerFill);
             }
 
             // Angular (side) edges are deliberately NOT feathered: neighbouring wedges abut
@@ -104,7 +109,10 @@ namespace StationeersUIMod.UI
                 Quads(vh, i, i + 1, stops);
         }
 
-        private const float Feather = 1.25f;   // px of alpha fade on every free edge
+        /// <summary>Width of the anti-aliasing ramp, in pixels. Live-tunable from F10.</summary>
+        private static float Feather => UIAConfig.RadialEdgeFeather != null
+            ? UIAConfig.RadialEdgeFeather.Value : 1.25f;
+
         private static readonly float[] _stopR = new float[6];
         private static readonly Color[] _stopC = new Color[6];
 

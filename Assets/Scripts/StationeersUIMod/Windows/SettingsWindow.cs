@@ -39,6 +39,8 @@ namespace StationeersUIMod.Windows
                 FloatSlider(UIAConfig.RadialOuterRadius, "Radial size", 120f, 480f);
                 FloatSlider(UIAConfig.RadialInnerRadius, "Hub (center circle) size", 60f, 260f);
                 FloatSlider(UIAConfig.RadialIconScale, "Icon size", 0.5f, 2.5f);
+                FloatSlider(UIAConfig.RadialBorderWidth, "Border thickness (px)", 0f, 10f);
+                FloatSlider(UIAConfig.RadialEdgeFeather, "Edge softness / anti-aliasing (px)", 0f, 4f);
                 Toggle(UIAConfig.RadialShowWedgeLabels, "Show item name under each icon");
                 Toggle(UIAConfig.UseUnityRadial, "Unity UGUI renderer (procedural wedges, TMP, animations)");
             }

@@ -12,7 +12,7 @@ namespace StationeersUIMod.UI
     {
         private const float HoverBulge = 13f;      // px the hovered wedge grows outward
         private const float AnimSpeed = 16f;       // lerp rate (1/s) - snappier modern feel
-        private const float BorderWidth = 3.2f;    // slim but powerful border
+        // Border thickness comes from config (UIAConfig.RadialBorderWidth) so it is tunable live.
         private const float HoverContentPop = 6f;  // extra outward for icon+label on hover
         private const float HoverScale = 1.04f;    // subtle label/icon scale on hover
 
@@ -211,7 +211,8 @@ namespace StationeersUIMod.UI
                     }
 
                     // Border (slim but powerful, derived from the wedge's own bg color + accent)
-                    float borderWTarget = isHovered ? BorderWidth * 1.2f : BorderWidth;
+                    float bw = UIAConfig.RadialBorderWidth.Value;
+                    float borderWTarget = isHovered ? bw * 1.2f : bw;
                     wedge.BorderWidth = Mathf.Lerp(wedge.BorderWidth, borderWTarget, dt * AnimSpeed * 0.7f);
                     wedge.BorderColor = Color.Lerp(wedge.BorderColor, borderTarget, dt * AnimSpeed);
 
@@ -389,7 +390,7 @@ namespace StationeersUIMod.UI
                     _hubBacking.SetRadius(innerR - 6f);
                     _hubBacking.color = RadialPalette.HubFill.Value;
                     _hubBacking.BorderColor = RadialPalette.HubBorder.Value;
-                    _hubBacking.BorderWidth = 2.5f;
+                    _hubBacking.BorderWidth = UIAConfig.RadialBorderWidth.Value * 0.8f;
                     _hubBacking.Refresh();
                 }
 

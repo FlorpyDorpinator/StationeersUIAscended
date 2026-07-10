@@ -70,6 +70,8 @@ namespace StationeersUIMod
         public static ConfigEntry<bool> UseUnityRadial;
         public static ConfigEntry<float> RadialIconScale;
         public static ConfigEntry<bool> RadialShowWedgeLabels;
+        public static ConfigEntry<float> RadialEdgeFeather;
+        public static ConfigEntry<float> RadialBorderWidth;
 
         public static void Bind(ConfigFile cfg)
         {
@@ -177,6 +179,14 @@ namespace StationeersUIMod
             RadialShowWedgeLabels = cfg.Bind("8. Radial Visuals", "ShowWedgeLabels", false,
                 "Draw the item name under each wedge icon. Off by default: the hub already names " +
                 "whatever is selected, and per-wedge names collide on a crowded toolbelt.");
+            RadialEdgeFeather = cfg.Bind("8. Radial Visuals", "EdgeFeather", 1.25f,
+                new ConfigDescription("Anti-aliasing: width in pixels of the colour ramp on every radial edge. " +
+                    "Overlay canvases get no MSAA, so this fringe IS the anti-aliasing. 0 = hard, jagged edges; " +
+                    "~1-2 looks right; higher goes soft/glowy.",
+                    new AcceptableValueRange<float>(0f, 4f)));
+            RadialBorderWidth = cfg.Bind("8. Radial Visuals", "BorderWidth", 3.2f,
+                new ConfigDescription("Thickness in pixels of the ring border around wedges.",
+                    new AcceptableValueRange<float>(0f, 10f)));
 
             // Every radial colour, live-editable from the F10 colour wheels.
             Overlay.RadialPalette.Bind(cfg);
