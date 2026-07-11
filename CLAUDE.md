@@ -54,6 +54,9 @@ Design sources (read these before large changes):
 - **Version**: bump ALL of these together — `UIAscendedPlugin.PluginVersion` (System.Version
   format for BepInEx) + `VersionDisplay` ("x.y.z Alpha"), `About/About.xml` `<Version>` and
   `<ChangeLog>`, `CHANGELOG.md` at repo root, and a git tag `vX.Y.Z-alpha` pushed to GitHub.
+  **NEVER pick the new version number yourself**: unless FlorpyDorp already named it for this
+  change set, ASK him what it should be BEFORE committing/pushing a release — he decides
+  minor vs patch (e.g. 0.6.0 for the Hub was too big a jump from 0.5.0).
 - **Git/GitHub**: repo https://github.com/FlorpyDorpinator/StationeersUIAscended (private).
   Pushes require the FlorpyDorpinator gh account (`gh auth switch --user FlorpyDorpinator`);
   the repo's credential helper is already routed through gh.

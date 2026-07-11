@@ -1,7 +1,7 @@
 ﻿<ModMetadata xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
   <Name>StationeersUIMod</Name>
   <Author>FlorpyDorp + JXSN</Author>
-  <Version>0.6.0</Version>
+  <Version>0.6.1</Version>
   <Description>
 	  [h1]Stationeers UI Mod[/h1]
 	  
@@ -18,6 +18,10 @@ Ported from BepInEx proof-of-concept into Unity mod project. Radials are now dra
 <br>
 ]]></InGameDescription>
   <ChangeLog>
+    [h3]Version 0.6.1:[/h3]
+    [list]
+    [*] Option B hold mode: resting the cursor on ANY branch wedge (Backpack, a category, a nested bag) now dives into it — hold MMB and hover your way from The Hub all the way to an item, release to grab it
+    [/list]
     [h3]Version 0.6.0:[/h3]
     [list]
     [*] Radial Option B — "The Hub": the toolbelt radial (MMB) grows a top-center wedge that branches into everything Tab opens (search + every worn piece)

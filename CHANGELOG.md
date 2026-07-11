@@ -2,6 +2,15 @@
 
 All notable changes to the mod. Detailed engineering write-ups live in `Changes Reports/`.
 
+## 0.6.1 Alpha — 2026-07-11
+
+**Option B hold-mode fix (play-test feedback)**: dwell-to-enter now works on **every**
+branch wedge, not just The Hub. Hold MMB, rest on The Hub (¼ s) → rest on Backpack →
+rest on a category → release on the item: a full no-click journey from belt to any item.
+The 0.3 s release grace after each dive still guards against misfires, and entering a
+level restarts the dwell timer so you can't cascade through two levels in one rest
+without meaning to. Center hint now reads "hover to dive | release to cancel".
+
 ## 0.6.0 Alpha — 2026-07-11
 
 **Radial Option B — "The Hub"** (`ControlSchema: OptionB`, pick it in F10 or the config).

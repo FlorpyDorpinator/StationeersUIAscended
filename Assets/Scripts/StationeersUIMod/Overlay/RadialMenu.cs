@@ -160,14 +160,13 @@ namespace StationeersUIMod.Overlay
         private const float DragMovePx = 14f;     // ...or move this far while pressed
 
         // --- Option B: The Hub + hold-mode navigation ---
-        /// <summary>Tag marking the toolbelt's Hub wedge — the only branch that hold mode
-        /// enters by DWELL (pointing at it), so sweeping across ordinary branches can't
-        /// accidentally navigate.</summary>
+        /// <summary>Tag marking the toolbelt's Hub wedge (identification/styling; since
+        /// 0.6.1 hold mode dwell-enters ANY branch wedge, not just the Hub).</summary>
         public static readonly object HubTag = new object();
         private float _branchEnteredAt = -999f;   // hold mode: guards release right after entering
-        private int _hubDwellIndex = -1;
-        private float _hubDwellSince;
-        private const float HubDwellSec = 0.25f;       // pointing at the Hub this long enters it
+        private int _dwellIndex = -1;
+        private float _dwellSince;
+        private const float BranchDwellSec = 0.25f;    // resting on a branch this long enters it
         private const float BranchGraceSec = 0.30f;    // release inside this window = cancel, not run
 
         public bool IsOpen => _stack.Count > 0;
@@ -230,7 +229,7 @@ namespace StationeersUIMod.Overlay
             _hubDragging = false;
             _closeHovered = false;
             _branchEnteredAt = -999f;
-            _hubDwellIndex = -1;
+            _dwellIndex = -1;
         }
 
         /// <summary>Close WITHOUT dropping parked items — Escape, guards and re-taps cancel
@@ -250,7 +249,7 @@ namespace StationeersUIMod.Overlay
             _hubDragging = false;
             _closeHovered = false;
             _branchEnteredAt = -999f;
-            _hubDwellIndex = -1;
+            _dwellIndex = -1;
             UI.SearchPanelView.Hide();
         }
 
@@ -322,38 +321,41 @@ namespace StationeersUIMod.Overlay
             return false;
         }
 
-        /// <summary>Option B, per-frame while open in HOLD mode (MMB still down): LMB dives
-        /// into branches or runs an action and closes, RMB backs out one level, and pointing
-        /// at The Hub for a beat dwell-enters it. Everything stays transient — the release
-        /// itself is handled by OnHoldReleased. Call from Update (outside the ImGui frame).</summary>
+        /// <summary>Option B, per-frame while open in HOLD mode (MMB still down): resting on
+        /// any branch wedge (The Hub, a bag, a category) for a beat dwell-enters it, LMB
+        /// enters immediately or runs an action and closes, RMB backs out one level.
+        /// Everything stays transient — the release itself is handled by OnHoldReleased.
+        /// Call from Update (outside the ImGui frame).</summary>
         public void UpdateHoldB()
         {
             if (!IsOpen || _sticky || _searchOpen) return;
 
-            // Dwell-entry for THE HUB only: it sits top-center where a flick deliberately
-            // ends. Ordinary branches never dwell-open — sweeping the ring would misfire.
+            // Dwell-entry: resting on ANY branch wedge for a beat enters it, so a held-MMB
+            // journey (Hub -> Backpack -> category -> item) needs no clicks at all. Sweeps
+            // across the ring stay under the dwell; entering a level resets the timer
+            // (PushBranch clears _hovered), and the release grace covers quick lets-go.
             if (_satellite == null && _hovered >= 0)
             {
                 var h = MainEntry(_hovered);
-                if (h != null && h.Enabled && h.IsBranch && ReferenceEquals(h.Tag, HubTag))
+                if (h != null && h.Enabled && h.IsBranch)
                 {
-                    if (_hubDwellIndex != _hovered)
+                    if (_dwellIndex != _hovered)
                     {
-                        _hubDwellIndex = _hovered;
-                        _hubDwellSince = Time.unscaledTime;
+                        _dwellIndex = _hovered;
+                        _dwellSince = Time.unscaledTime;
                     }
-                    else if (Time.unscaledTime - _hubDwellSince >= HubDwellSec)
+                    else if (Time.unscaledTime - _dwellSince >= BranchDwellSec)
                     {
                         PushBranch(h);
                         _branchEnteredAt = Time.unscaledTime;
-                        _hubDwellIndex = -1;
+                        _dwellIndex = -1;
                         UIAudioManager.Play(UIAudioManager.ClickLightHash);
                         return;
                     }
                 }
-                else _hubDwellIndex = -1;
+                else _dwellIndex = -1;
             }
-            else _hubDwellIndex = -1;
+            else _dwellIndex = -1;
 
             if (Input.GetMouseButtonDown(1))
             {
@@ -1269,7 +1271,7 @@ namespace StationeersUIMod.Overlay
             {
                 string hint = _sticky
                     ? (UIAConfig.IsB ? "MMB/LMB select | RMB back" : "LMB select | RMB back")
-                    : (UIAConfig.IsB ? "release to cancel | LMB dive in" : "release to cancel");
+                    : (UIAConfig.IsB ? "hover to dive | release to cancel" : "release to cancel");
                 Line(-12f, Theme.TextDisabled, hint);
                 return;
             }
