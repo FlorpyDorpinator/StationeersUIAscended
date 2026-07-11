@@ -24,15 +24,25 @@ namespace StationeersUIMod.Windows
     {
         public static bool Active { get; private set; }
 
+        /// <summary>Palette entry names painting whatever the cursor is on right now —
+        /// the F10 colour list highlights these so "which colour is that?" answers itself.</summary>
+        public static readonly HashSet<string> HotPalette = new HashSet<string>();
+
+        /// <summary>Changes whenever the hovered element changes; the colour list scrolls
+        /// to the highlighted rows on change.</summary>
+        public static string HotSignature { get; private set; } = "";
+
         private static Canvas _blackCanvas;
         private static Image _black;
         private static float _demoTemp = 21.5f;
         private static List<Sprite> _demoIcons;
+        private static ParkingState _demoParking;
 
         public static void Enter()
         {
             Active = true;
             _demoIcons = null; // re-grab thumbnails from whatever the player carries now
+            _demoParking = null;
         }
 
         public static void Exit()
@@ -40,6 +50,8 @@ namespace StationeersUIMod.Windows
             Active = false;
             if (_blackCanvas != null) _blackCanvas.gameObject.SetActive(false);
             UnityRadialView.Hide();
+            ParkedItemsView.Hide();
+            _demoParking = null;
         }
 
         public static void Shutdown()
@@ -49,6 +61,7 @@ namespace StationeersUIMod.Windows
             _blackCanvas = null;
             _black = null;
             _demoIcons = null;
+            _demoParking = null;
         }
 
         /// <summary>Per-frame while active, called from the ImGui draw hook.</summary>
@@ -90,10 +103,88 @@ namespace StationeersUIMod.Windows
                 if (!imguiOwnsMouse) readout.OnScroll(wheel > 0f ? 1 : -1);
             }
 
+            bool closeHovered = RadialMenu.InCloseButton(mouse - center, innerR);
             UnityRadialView.Render(
                 center, innerR, outerR, entries, hovered, "Radial Editor",
                 satCenter, satInner, satOuter, satEntries, satHovered, "Child radial",
-                readout, "hover wedges to preview states", sticky: true);
+                readout, "hover wedges to preview states", sticky: true,
+                dragging: null, closeHovered: closeHovered);
+
+            // A floating parked-item bubble so the chip size/colour edits are visible live.
+            if (_demoParking == null)
+            {
+                var icons = DemoIcons();
+                _demoParking = new ParkingState();
+                _demoParking.Chips.Add(new ParkingState.Chip
+                {
+                    Icon = icons.Count > 0 ? icons[0] : null,
+                    Name = "Item",
+                    Pos = new Vector2(Screen.width * 0.74f, Screen.height * 0.72f),
+                });
+            }
+            ParkedItemsView.Render(_demoParking, mouse);
+
+            UpdateHotPalette(mouse, center, innerR, readout, closeHovered);
+        }
+
+        /// <summary>Point at an element, learn its colours: fill HotPalette with the entry
+        /// names that paint whatever is under the cursor. Wedges highlight BOTH their rest
+        /// and selected entries (pointing at a wedge is what selects it, so its rest state
+        /// is never hoverable on its own).</summary>
+        private static void UpdateHotPalette(Vector2 mouse, Vector2 center, float innerR,
+            RadialEntry hoveredEntry, bool closeHovered)
+        {
+            HotPalette.Clear();
+
+            if (closeHovered)
+            {
+                HotPalette.Add("HubCloseButton");
+                HotPalette.Add("HubCloseButtonHover");
+                HotPalette.Add("HubCloseText");
+                HotPalette.Add("HubBorder");
+            }
+            else if (_demoParking != null && _demoParking.Chips.Count > 0
+                && (mouse - _demoParking.Chips[0].Pos).magnitude <= ParkingState.ChipRadius + 8f)
+            {
+                // Chips draw with the selected-wedge fill and the wedge border as their rim.
+                HotPalette.Add("WedgeSelected");
+                HotPalette.Add("WedgeBorder");
+            }
+            else if (hoveredEntry != null)
+            {
+                if (!hoveredEntry.Enabled)
+                {
+                    HotPalette.Add("WedgeDisabled");
+                    HotPalette.Add("TextDisabled");
+                    HotPalette.Add("WedgeBorder");
+                }
+                else if (hoveredEntry.StowStyle)
+                {
+                    HotPalette.Add("WedgeStowTarget");
+                    HotPalette.Add("WedgeStowTargetSelected");
+                    HotPalette.Add("WedgeBorder");
+                    HotPalette.Add("WedgeBorderSelected");
+                }
+                else
+                {
+                    HotPalette.Add("WedgeBackground");
+                    HotPalette.Add("WedgeSelected");
+                    HotPalette.Add("WedgeBorder");
+                    HotPalette.Add("WedgeBorderSelected");
+                    HotPalette.Add("RimShine");
+                }
+                if (hoveredEntry.Enabled) HotPalette.Add("TextPrimary");
+            }
+            else if ((mouse - center).magnitude < innerR - 6f)
+            {
+                HotPalette.Add("HubFill");
+                HotPalette.Add("HubBorder");
+                HotPalette.Add("TextPrimary");
+                HotPalette.Add("TextDim");
+                HotPalette.Add("TextAccent");
+            }
+
+            HotSignature = HotPalette.Count == 0 ? "" : string.Join("|", HotPalette);
         }
 
         // ---------- demo data ----------

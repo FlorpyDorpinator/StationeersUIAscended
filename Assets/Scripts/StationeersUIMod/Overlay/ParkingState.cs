@@ -18,14 +18,21 @@ namespace StationeersUIMod.Overlay
     public sealed class ParkingState
     {
         public const int MaxChips = 12;
-        public const float ChipRadius = 26f;
+
+        /// <summary>Bubble radius in px — live-tunable in the radial editor.</summary>
+        public static float ChipRadius => UIAConfig.ParkedChipRadius != null
+            ? UIAConfig.ParkedChipRadius.Value : 39f;
 
         public sealed class Chip
         {
-            public ScannedSlot Source;   // pinned: Expected is verified before any mutation
+            public ScannedSlot Source;      // slot-sourced: Expected verified before any mutation
+            public DynamicThing WorldSource; // world-sourced (Z-grab): must still be free-lying in range
             public Sprite Icon;
             public string Name;
-            public Vector2 Pos;          // ImGui screen coords (y-down)
+            public Vector2 Pos;             // ImGui screen coords (y-down)
+
+            public DynamicThing Item => WorldSource != null ? WorldSource : Source?.Occupant;
+            public bool IsWorld => WorldSource != null;
         }
 
         public readonly List<Chip> Chips = new List<Chip>();
@@ -57,19 +64,32 @@ namespace StationeersUIMod.Overlay
                     Chips.RemoveAt(i);
         }
 
-        /// <summary>Drop chips whose source slot no longer holds the pinned item (someone
-        /// moved it — multiplayer or another of our own actions).</summary>
+        /// <summary>Same rule for world-grabbed chips: one world item = one chip.</summary>
+        public void RemoveByWorldThing(DynamicThing thing)
+        {
+            if (thing == null) return;
+            for (int i = Chips.Count - 1; i >= 0; i--)
+                if (Chips[i].WorldSource == thing)
+                    Chips.RemoveAt(i);
+        }
+
+        /// <summary>Drop chips whose source is gone stale: slot-sourced when the slot no
+        /// longer holds the pinned item; world-sourced when the thing was destroyed or
+        /// someone picked it up (it gained a ParentSlot).</summary>
         public void Prune()
         {
             for (int i = Chips.Count - 1; i >= 0; i--)
-            {
-                var s = Chips[i].Source;
-                if (s?.Slot == null || s.Occupant == null || (s.Expected != null && s.Occupant != s.Expected))
-                    Chips.RemoveAt(i);
-            }
-            var d = Dragging?.Source;
-            if (Dragging != null && (d?.Slot == null || d.Occupant == null || (d.Expected != null && d.Occupant != d.Expected)))
+                if (IsStale(Chips[i])) Chips.RemoveAt(i);
+            if (Dragging != null && IsStale(Dragging))
                 Dragging = null;
+        }
+
+        private static bool IsStale(Chip chip)
+        {
+            if (chip.IsWorld)
+                return chip.WorldSource == null || chip.WorldSource.ParentSlot != null;
+            var s = chip.Source;
+            return s?.Slot == null || s.Occupant == null || (s.Expected != null && s.Occupant != s.Expected);
         }
     }
 }

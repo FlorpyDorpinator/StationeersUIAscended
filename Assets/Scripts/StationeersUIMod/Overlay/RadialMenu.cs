@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using Assets.Scripts;
 using Assets.Scripts.Objects;
 using ImGuiNET;
 using StationeersUIMod.Core;
@@ -71,11 +72,34 @@ namespace StationeersUIMod.Overlay
     /// </summary>
     public sealed class RadialMenu
     {
+        /// <summary>Wedges per page. Crowded rings page with the Q key instead of a MORE
+        /// wedge — pages are windows over the LIVE entry list, so refreshes stay fresh.</summary>
+        private static int MaxPerPage
+            => Mathf.Max(4, UIAConfig.RadialMaxWedges != null ? UIAConfig.RadialMaxWedges.Value : 14);
+
+        private static int PageCountOf(List<RadialEntry> entries)
+            => entries == null || entries.Count == 0 ? 1
+             : Mathf.CeilToInt(entries.Count / (float)MaxPerPage);
+
+        private static List<RadialEntry> PageOf(List<RadialEntry> entries, int page)
+        {
+            if (entries == null) return new List<RadialEntry>();
+            int max = MaxPerPage;
+            if (entries.Count <= max) return entries;
+            int p = Mathf.Clamp(page, 0, PageCountOf(entries) - 1);
+            int start = p * max;
+            return entries.GetRange(start, Mathf.Min(max, entries.Count - start));
+        }
+
         private sealed class Level
         {
             public string Title;
             public Func<List<RadialEntry>> Provider;
-            public List<RadialEntry> Entries;
+            public List<RadialEntry> Entries;   // the FULL list; rendering pages over it
+            public int Page;
+
+            public int PageCount => PageCountOf(Entries);
+            public List<RadialEntry> Visible => PageOf(Entries, Page);
 
             public void Refresh()
             {
@@ -85,6 +109,7 @@ namespace StationeersUIMod.Overlay
                     UIALog.Warn("Radial level refresh failed: " + e.Message);
                     Entries = Entries ?? new List<RadialEntry>();
                 }
+                Page = Mathf.Clamp(Page, 0, PageCount - 1);
             }
         }
 
@@ -92,11 +117,15 @@ namespace StationeersUIMod.Overlay
         {
             public string Title;
             public Func<List<RadialEntry>> Provider;
-            public List<RadialEntry> Entries;
+            public List<RadialEntry> Entries;   // FULL list, paged like levels
+            public int Page;
             public Vector2 Center;
             public float OuterR;
             public float InnerR;
             public int SourceIndex;
+
+            public int PageCount => PageCountOf(Entries);
+            public List<RadialEntry> Visible => PageOf(Entries, Page);
         }
 
         private readonly List<Level> _stack = new List<Level>();
@@ -107,6 +136,11 @@ namespace StationeersUIMod.Overlay
         private float _mainDist;
         private float _satDist;
         private float _lastOuterR;          // main ring outer radius as of the last Draw
+        private float _lastInnerR;          // main ring inner (hub) radius as of the last Draw
+        private bool _closeHovered;         // cursor on the hub CLOSE button
+        private Vector2 _centerOffset;      // hub drag: radial moved away from screen center
+        private bool _hubDragging;
+        private Vector2 _lastDragMouse;
         private int _slideOutCandidate = -1;      // wedge the cursor is dwelling past the rim on
         private float _slideOutCandidateSince;
         private float _satOpenedAt;
@@ -120,6 +154,7 @@ namespace StationeersUIMod.Overlay
         private float _pressAt;
         private Vector2 _pressPos;
         private bool _searchOpen;
+        private float _pendingRefreshAt;   // MP: re-read labels after the server applied an action
         private static bool _searchRequested;
         private const float DragHoldSec = 0.25f;  // hold this long on an item wedge to start a drag
         private const float DragMovePx = 14f;     // ...or move this far while pressed
@@ -140,6 +175,32 @@ namespace StationeersUIMod.Overlay
             return r;
         }
 
+        /// <summary>Held Shift means "keep the radial open after this action" (Option A).</summary>
+        internal static bool ShiftHeld
+            => Input.GetKey(KeyCode.LeftShift) || Input.GetKey(KeyCode.RightShift);
+
+        /// <summary>Q flips to the next page of a crowded ring (satellite first when open).
+        /// Vanilla Q-throw is Game-state-bound, so the radial modal already suppresses it.</summary>
+        public void NextPage()
+        {
+            if (!IsOpen || _searchOpen) return;
+            if (_satellite != null && _satellite.PageCount > 1)
+            {
+                _satellite.Page = (_satellite.Page + 1) % _satellite.PageCount;
+                _satHovered = -1;
+                UIAudioManager.Play(UIAudioManager.ClickLightHash);
+                return;
+            }
+            var lvl = Top();
+            if (lvl.PageCount > 1)
+            {
+                lvl.Page = (lvl.Page + 1) % lvl.PageCount;
+                _hovered = -1;
+                _press = null; // the wedge under the cursor just changed identity
+                UIAudioManager.Play(UIAudioManager.ClickLightHash);
+            }
+        }
+
         public void Open(string title, Func<List<RadialEntry>> provider, bool sticky = false)
         {
             _stack.Clear();
@@ -154,6 +215,9 @@ namespace StationeersUIMod.Overlay
             _press = null;
             _searchOpen = false;
             _searchRequested = false;
+            _centerOffset = Vector2.zero;   // a moved hub snaps back to center on reopen
+            _hubDragging = false;
+            _closeHovered = false;
         }
 
         /// <summary>Close WITHOUT dropping parked items — Escape, guards and re-taps cancel
@@ -169,6 +233,9 @@ namespace StationeersUIMod.Overlay
             _parking.Clear();
             _press = null;
             _searchOpen = false;
+            _centerOffset = Vector2.zero;
+            _hubDragging = false;
+            _closeHovered = false;
             UI.SearchPanelView.Hide();
         }
 
@@ -176,6 +243,12 @@ namespace StationeersUIMod.Overlay
         public bool OnHoldReleased()
         {
             if (!IsOpen) return false;
+            // Releasing over the hub CLOSE button is a cancel, never a select.
+            if (_closeHovered)
+            {
+                Close();
+                return false;
+            }
             // A satellite that just auto-opened must not steal a fast flick-release: unless it
             // has been open long enough to be deliberate, the release means the SOURCE wedge.
             RadialEntry entry;
@@ -205,6 +278,16 @@ namespace StationeersUIMod.Overlay
                 UI.SearchPanelView.Begin();
                 return true;
             }
+            if (ShiftHeld)
+            {
+                // Shift = "keep it open, I'm not done" — the radial goes sticky.
+                _sticky = true;
+                _satellite = null;
+                Top().Refresh();
+                _hovered = -1;
+                _pendingRefreshAt = Time.unscaledTime + 0.6f; // MP: refresh again post-roundtrip
+                return true;
+            }
             Close();
             return false;
         }
@@ -217,7 +300,8 @@ namespace StationeersUIMod.Overlay
             // Search mode owns all input until it exits (Escape/RMB) or takes an item.
             if (_searchOpen)
             {
-                var result = UI.SearchPanelView.UpdateInput();
+                var result = UI.SearchPanelView.UpdateInput(
+                    _parking, DrawUtil.ScreenCenter + _centerOffset, _lastInnerR, _lastOuterR);
                 if (result == UI.SearchPanelView.Result.Exit)
                 {
                     _searchOpen = false;
@@ -237,6 +321,16 @@ namespace StationeersUIMod.Overlay
             }
 
             _parking.Prune();
+
+            // On a multiplayer client, a keep-open action refreshes entries BEFORE the
+            // server has applied it — labels/values would stay one state behind. A second
+            // refresh after the round-trip window fixes that.
+            if (_pendingRefreshAt > 0f && Time.unscaledTime >= _pendingRefreshAt)
+            {
+                _pendingRefreshAt = 0f;
+                Top().Refresh();
+                RefreshSatellite();
+            }
 
             if (Input.GetKeyDown(KeyCode.Escape))
             {
@@ -258,6 +352,46 @@ namespace StationeersUIMod.Overlay
                 DumpChipsToGround(); // the deliberate RMB-out-of-everything: parked items drop
                 Close();
                 return;
+            }
+
+            // --- hub interactions, shared by both schemas ---
+            var hubMouse = DrawUtil.MousePos();
+            if (_hubDragging)
+            {
+                if (!Input.GetMouseButton(0))
+                {
+                    _hubDragging = false;
+                }
+                else
+                {
+                    _centerOffset += hubMouse - _lastDragMouse;
+                    _lastDragMouse = hubMouse;
+                }
+                return; // dragging the radial around owns the mouse
+            }
+            if (Input.GetMouseButtonDown(0) && _parking.Dragging == null)
+            {
+                bool imguiOwns = false;
+                try { imguiOwns = ImGui.GetIO().WantCaptureMouse; } catch { }
+                if (!imguiOwns)
+                {
+                    if (_closeHovered)
+                    {
+                        // The always-works exit. A deliberate close, so parked items drop
+                        // (same contract as RMB-out).
+                        DumpChipsToGround();
+                        Close();
+                        return;
+                    }
+                    // Grabbing the hub (inside the ring, off the CLOSE band) moves the radial.
+                    float hubR = Mathf.Max(0f, _lastInnerR - 6f);
+                    if (_satellite == null && _mainDist < hubR)
+                    {
+                        _hubDragging = true;
+                        _lastDragMouse = hubMouse;
+                        return;
+                    }
+                }
             }
 
             if (UIAConfig.IsA)
@@ -309,6 +443,31 @@ namespace StationeersUIMod.Overlay
             if (Input.GetMouseButtonDown(0))
             {
                 try { if (ImGui.GetIO().WantCaptureMouse) return; } catch { }
+
+                // Z-grab (the vanilla MouseControl key, default Alt): clicking a world item
+                // under the cursor tears it into the drag layer as if dragged off a wedge —
+                // move the radial aside (hub drag), grab things off the floor, drop them
+                // into bags. Range-gated at grab AND at drop (the server doesn't check).
+                bool mouseMod = false;
+                try { mouseMod = KeyManager.GetButton(KeyMap.MouseControl); } catch { }
+                if (mouseMod)
+                {
+                    var worldThing = WorldItemUnderCursor();
+                    if (worldThing != null)
+                    {
+                        Sprite icon = null;
+                        try { icon = worldThing.GetThumbnail(); } catch { }
+                        _parking.RemoveByWorldThing(worldThing); // one item = one chip
+                        _parking.Dragging = new ParkingState.Chip
+                        {
+                            WorldSource = worldThing,
+                            Icon = icon,
+                            Name = worldThing.DisplayName,
+                        };
+                        UIAudioManager.Play(UIAudioManager.ObjectIntoHandHash);
+                        return;
+                    }
+                }
 
                 // Parked chips sit outside the rings; picking one up beats wedge presses.
                 var chip = _parking.ChipAt(mouse);
@@ -393,27 +552,32 @@ namespace StationeersUIMod.Overlay
                     UI.SearchPanelView.Begin();
                     return;
                 }
-                if (!_parking.Active)
+                if (!_parking.Active && !ShiftHeld)
                 {
                     Close(); // Option A: one action, radial goes away
                     return;
                 }
-                // Parking locks the radial open: keep shopping.
+                // Parking locks the radial open; Shift means "I'm not done yet".
                 _satellite = null;
                 Top().Refresh();
                 _hovered = -1;
+                _pendingRefreshAt = Time.unscaledTime + 0.6f; // MP: refresh again post-roundtrip
             }
         }
 
         /// <summary>Mouse released while dragging an item: drop it into the wedge under the
         /// cursor when that wedge can take it, park it when released on open screen, and
-        /// silently cancel otherwise (the item never left its slot).</summary>
+        /// silently cancel otherwise (the item never left its slot / the floor).</summary>
         private void ResolveDragRelease(Vector2 mouse)
         {
             var chip = _parking.Dragging;
             _parking.Dragging = null;
-            var item = chip?.Source?.Occupant;
-            if (item == null || (chip.Source.Expected != null && item != chip.Source.Expected))
+            var item = chip?.Item;
+            bool stale = item == null
+                || (chip.IsWorld
+                    ? chip.WorldSource.ParentSlot != null // someone picked it up meanwhile
+                    : chip.Source.Expected != null && item != chip.Source.Expected);
+            if (stale)
             {
                 UIAudioManager.Play(UIAudioManager.ActionFailHash);
                 return;
@@ -429,7 +593,10 @@ namespace StationeersUIMod.Overlay
             if (target != null && target.AcceptsDrop)
             {
                 Slot dest = target.ResolveDrop(item);
-                if (dest != null && ItemActions.SwapIntoSlot(chip.Source, dest))
+                bool moved = dest != null && (chip.IsWorld
+                    ? ItemActions.MoveWorldItemToSlot(chip.WorldSource, dest)
+                    : ItemActions.SwapIntoSlot(chip.Source, dest));
+                if (moved)
                 {
                     _satellite = null;
                     Top().Refresh();
@@ -444,7 +611,8 @@ namespace StationeersUIMod.Overlay
                 && (_satellite == null || _satDist > _satellite.OuterR + 30f);
             if (outsideRings && _parking.Chips.Count < ParkingState.MaxChips)
             {
-                _parking.RemoveBySlot(chip.Source.Slot); // one slot = one chip, always
+                if (chip.IsWorld) _parking.RemoveByWorldThing(chip.WorldSource);
+                else _parking.RemoveBySlot(chip.Source.Slot); // one source = one chip, always
                 chip.Pos = mouse;
                 _parking.Chips.Add(chip);
                 UIAudioManager.Play(UIAudioManager.ObjectPutHash);
@@ -460,9 +628,38 @@ namespace StationeersUIMod.Overlay
             if (_parking.Chips.Count == 0) return;
             int dropped = 0;
             foreach (var chip in _parking.Chips)
+            {
+                if (chip.IsWorld) continue; // world-grabbed chips never left the world
                 if (ItemActions.DropToWorld(chip.Source)) dropped++;
+            }
             _parking.Chips.Clear();
             if (dropped > 0) UIAudioManager.Play(UIAudioManager.ObjectPutHash);
+        }
+
+        /// <summary>Own per-frame raycast (mirrors InputMouse.Idle's, InputMouse.cs:381-384) —
+        /// InputMouse.CursorThing goes stale on miss and its updater has side effects, and
+        /// BlockCursorRaycast (set while our modal is open) gates the vanilla one anyway.
+        /// Only free-lying DynamicThings count; range = the vanilla 3 m cursor cap.</summary>
+        private static DynamicThing WorldItemUnderCursor()
+        {
+            try
+            {
+                var cam = CameraController.CurrentCamera;
+                if (cam == null) return null;
+                var ray = cam.ScreenPointToRay(Input.mousePosition);
+                float maxDist = 3f;
+                try { maxDist = CursorManager.MaxInteractDistance; } catch { }
+                int mask = CursorManager.Instance != null ? (int)CursorManager.Instance.CursorHitMask : ~0;
+                RaycastHit hit;
+                if (!Physics.Raycast(ray, out hit, maxDist, mask)) return null;
+                // `as Item`, matching vanilla's own pickup filter (InputMouse.cs:384) —
+                // NOT DynamicThing: entities (chickens, players) and non-item dynamics
+                // (lander capsule!) must never mint grab chips.
+                var thing = Thing.Find(hit.collider) as Item;
+                if (thing == null || thing.ParentSlot != null) return null; // free-lying only
+                return thing;
+            }
+            catch { return null; }
         }
 
         /// <summary>Scroll-wheel value adjust on the hovered wedge (Option A device controls).
@@ -481,13 +678,15 @@ namespace StationeersUIMod.Overlay
             try { entry.OnScroll(s > 0f ? 1 : -1); }
             catch (Exception e) { UIALog.Warn("Scroll adjust failed: " + e.Message); }
             if (_satellite != null) RefreshSatellite();
+            _pendingRefreshAt = Time.unscaledTime + 0.6f; // MP: values re-sync after roundtrip
         }
 
         private void RefreshSatellite()
         {
-            if (_satellite?.Provider == null) return;
+            if (_satellite == null || _satellite.Provider == null) return;
             try { _satellite.Entries = _satellite.Provider() ?? _satellite.Entries; }
             catch { }
+            _satellite.Page = Mathf.Clamp(_satellite.Page, 0, _satellite.PageCount - 1);
         }
 
         /// <summary>Rebuild the current level and satellite — for when OUTSIDE state the
@@ -507,14 +706,15 @@ namespace StationeersUIMod.Overlay
 
         private RadialEntry MainEntry(int i)
         {
-            var entries = Top().Entries;
+            var entries = Top().Visible;   // hover indices are page-relative
             return i >= 0 && i < entries.Count ? entries[i] : null;
         }
 
         private RadialEntry SatEntry(int i)
         {
             if (_satellite?.Entries == null) return null;
-            return i >= 0 && i < _satellite.Entries.Count ? _satellite.Entries[i] : null;
+            var entries = _satellite.Visible;
+            return i >= 0 && i < entries.Count ? entries[i] : null;
         }
 
         private void PushBranch(RadialEntry branch)
@@ -582,36 +782,72 @@ namespace StationeersUIMod.Overlay
             return idx >= count ? count - 1 : idx;
         }
 
+        /// <summary>The CLOSE band: the bottom 60° of the hub between half and full hub radius
+        /// (ImGui screen coords are y-down, so "bottom" is angles around +90°).</summary>
+        internal static bool InCloseButton(Vector2 deltaFromCenter, float innerR)
+        {
+            float hubR = innerR - 6f;
+            float dist = deltaFromCenter.magnitude;
+            // Outer bound matches the DRAWN band (0.94 * hubR) — never larger than the
+            // visual, or clicks close from pixels that look like the wedge ring.
+            if (dist < hubR * 0.52f || dist > hubR * 0.94f) return false;
+            float ang = Mathf.Atan2(deltaFromCenter.y, deltaFromCenter.x);
+            return ang > Mathf.PI / 3f && ang < Mathf.PI * 2f / 3f;
+        }
+
         // ---------- drawing ----------
 
         public void Draw()
         {
             if (!IsOpen) return;
 
+            var center = DrawUtil.ScreenCenter + _centerOffset;
+            float outerR = UIAConfig.RadialOuterRadius.Value;
+            _lastOuterR = outerR;
+            // Hub floor of 104px: the six-line center readout needs that much vertical room.
+            float innerR = Mathf.Clamp(UIAConfig.RadialInnerRadius.Value, 104f, Mathf.Max(104f, outerR - 30f));
+            _lastInnerR = innerR;
+            var mouse = DrawUtil.MousePos();
+
             // Search mode replaces the rings entirely (parked chips stay visible).
             if (_searchOpen)
             {
+                _closeHovered = false;
                 UI.UnityRadialView.Hide();
-                UI.SearchPanelView.Render();
-                UI.ParkedItemsView.Render(_parking, DrawUtil.MousePos());
+                UI.SearchPanelView.Render(center, innerR, outerR);
+                UI.ParkedItemsView.Render(_parking, mouse);
                 return;
             }
             UI.SearchPanelView.Hide();
 
             var dl = ImGui.GetForegroundDrawList();
-            var center = DrawUtil.ScreenCenter;
-            float outerR = UIAConfig.RadialOuterRadius.Value;
-            _lastOuterR = outerR;
-            // Hub floor of 104px: the six-line center readout needs that much vertical room.
-            float innerR = Mathf.Clamp(UIAConfig.RadialInnerRadius.Value, 104f, Mathf.Max(104f, outerR - 30f));
             var level = Top();
-            int count = level.Entries.Count;
-            var mouse = DrawUtil.MousePos();
+            var visible = level.Visible;
+            int count = visible.Count;
+
+            // Paging indicator above whichever ring Q currently flips.
+            string pageKeyName = UIAConfig.RadialPageKey != null
+                ? UIAConfig.RadialPageKey.Value.ToString() : "Q";
+            bool satPages = _satellite != null && _satellite.PageCount > 1;
+            string pageText = satPages
+                ? null // Q targets the satellite; the main ring shows no counter
+                : level.PageCount > 1
+                    ? (level.Page + 1) + "/" + level.PageCount + "  -  " + pageKeyName + ": next page"
+                    : null;
+            string satPageText = satPages
+                ? (_satellite.Page + 1) + "/" + _satellite.PageCount + "  -  " + pageKeyName + ": next page"
+                : null;
 
             // --- hover state: main ring ---
+            // The wedge hover boundary and the hub's claim (drag zone + CLOSE band) must be
+            // the SAME line (hubR), or there is an annulus where a wedge highlights while
+            // the click routes to the hub — chip dumps from a click aimed at a wedge.
             var delta = mouse - center;
             _mainDist = delta.magnitude;
-            _hovered = _mainDist >= innerR * 0.9f ? SectorFromMouse(delta, count) : -1;
+            float hubClaim = innerR - 6f;
+            _hovered = _mainDist >= hubClaim ? SectorFromMouse(delta, count) : -1;
+            _closeHovered = InCloseButton(delta, innerR);
+            if (_closeHovered) _hovered = -1; // highlight and input may never disagree
 
             // --- hover state: satellite ring ---
             _satHovered = -1;
@@ -622,7 +858,7 @@ namespace StationeersUIMod.Overlay
                 if (_satDist <= _satellite.OuterR + 24f)
                 {
                     if (_satDist >= _satellite.InnerR * 0.85f)
-                        _satHovered = SectorFromMouse(satDelta, _satellite.Entries.Count);
+                        _satHovered = SectorFromMouse(satDelta, _satellite.Visible.Count);
                 }
                 // Pulling back toward the main ring closes the satellite.
                 else if (_mainDist < outerR * 0.8f)
@@ -674,24 +910,30 @@ namespace StationeersUIMod.Overlay
                                     : _hovered >= 0 ? MainEntry(_hovered)
                                     : null;
                 UI.UnityRadialView.Render(
-                    center, innerR, outerR, level.Entries,
+                    center, innerR, outerR, visible,
                     _satellite == null ? _hovered : -1, level.Title,
                     _satellite?.Center, _satellite?.InnerR ?? 0f, _satellite?.OuterR ?? 0f,
-                    _satellite?.Entries, _satHovered, _satellite?.Title,
+                    _satellite?.Visible, _satHovered, _satellite?.Title,
                     readout, null, _sticky,
-                    _parking.Dragging?.Source?.Occupant);
+                    _parking.Dragging?.Item, _closeHovered,
+                    pageText, satPageText);
                 UI.ParkedItemsView.Render(_parking, mouse);
                 return;
             }
             UI.UnityRadialView.Hide();
             UI.ParkedItemsView.Render(_parking, mouse);
 
+            if (pageText != null)
+                DrawUtil.TextShadowCentered(dl, center - new Vector2(0f, outerR + 22f), Theme.TextDim, pageText);
+            if (satPageText != null && _satellite != null)
+                DrawUtil.TextShadowCentered(dl, _satellite.Center - new Vector2(0f, _satellite.OuterR + 18f), Theme.TextDim, satPageText);
+
             // Legacy ImGui draw-list path (kept for A/B and as reference)
-            DrawRing(dl, center, innerR, outerR, level.Entries,
+            DrawRing(dl, center, innerR, outerR, visible,
                 _satellite == null ? _hovered : (_satellite != null ? _satellite.SourceIndex : -1),
                 _satellite != null, solidHub: true);
             if (_satellite != null)
-                DrawRing(dl, _satellite.Center, _satellite.InnerR, _satellite.OuterR, _satellite.Entries, _satHovered, false, solidHub: false);
+                DrawRing(dl, _satellite.Center, _satellite.InnerR, _satellite.OuterR, _satellite.Visible, _satHovered, false, solidHub: false);
 
             DrawCenterReadout(dl, center, innerR, level);
         }
@@ -839,6 +1081,9 @@ namespace StationeersUIMod.Overlay
                 Line(-58f, Theme.TextDisabled, level.Title);
             Line(-40f, Theme.TextDim, title);
 
+            // ImGui fallback's stand-in for the hub CLOSE button (input works either way).
+            Line(62f, _closeHovered ? Theme.Accent : Theme.TextDisabled, "- CLOSE -");
+
             RadialEntry hovered = _satellite != null && _satHovered >= 0 ? SatEntry(_satHovered)
                                 : _hovered >= 0 ? MainEntry(_hovered)
                                 : null;
@@ -850,7 +1095,9 @@ namespace StationeersUIMod.Overlay
 
             string verb = hovered.ActionText ?? (hovered.IsBranch ? "Open" : "Select");
             Line(-14f, hovered.Enabled ? Theme.Accent : Theme.TextDisabled, verb);
-            Line(6f, hovered.Enabled ? Theme.TextPrimary : Theme.TextDisabled, hovered.Label);
+            // Don't print the same word twice when the wedge IS its verb ("Replace").
+            if (!string.Equals(hovered.Label, verb, StringComparison.OrdinalIgnoreCase))
+                Line(6f, hovered.Enabled ? Theme.TextPrimary : Theme.TextDisabled, hovered.Label);
             Line(26f, Theme.TextDim, hovered.Sublabel);
             if (!hovered.Enabled && !string.IsNullOrEmpty(hovered.DisabledReason))
                 Line(46f, Theme.Critical, hovered.DisabledReason);

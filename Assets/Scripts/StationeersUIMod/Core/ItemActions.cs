@@ -145,6 +145,34 @@ namespace StationeersUIMod.Core
             return true;
         }
 
+        /// <summary>
+        /// Move a free-lying WORLD item into a slot — vanilla's mouse-pickup funnel
+        /// (InputMouse.MoveCurrentItemToHand calls OnServer.MoveToSlot with a world thing).
+        /// Build 27701 has NO server-side range gate on MoveToSlotMessage (verified in the
+        /// decompile), so the 3 m vanilla limit is enforced HERE at execute time — the mod
+        /// must never out-reach the vanilla cursor.
+        /// </summary>
+        public static bool MoveWorldItemToSlot(DynamicThing item, Slot destination)
+        {
+            var human = InventoryManager.ParentHuman;
+            if (item == null || destination == null || human == null) return Fail();
+            // Vanilla's world-pickup funnel is hard-typed to Item (InputMouse.cs:384
+            // `CursorItem = CursorThing as Item`) — without this gate a Z-grab could stuff
+            // any CanPickup DynamicThing (the LANDER CAPSULE) into a backpack, a mutation
+            // no vanilla client can produce. Slot.AllowMove alone does not check this.
+            if (!(item is Item)) return Fail();
+            if (item.ParentSlot != null) return Fail();        // someone took it meanwhile
+            if (destination.Get() != null) return Fail();
+            if (!Slot.AllowMove(item, destination)) return Fail();
+            float maxDist = 3f;
+            try { maxDist = CursorManager.MaxInteractDistance; } catch { }
+            if ((item.ThingTransformPosition - human.ThingTransformPosition).magnitude > maxDist + 0.75f)
+                return Fail();                                  // out of reach = no grab
+            OnServer.MoveToSlot(item, destination);
+            UIAudioManager.Play(UIAudioManager.AddToInventoryHash);
+            return true;
+        }
+
         /// <summary>Drop a parked item at the player's feet (Option A parking dump). Verified
         /// against the pinned occupant so a stale chip can never drop someone else's item.</summary>
         public static bool DropToWorld(ScannedSlot source)
@@ -241,11 +269,23 @@ namespace StationeersUIMod.Core
         /// still ours at execute time (a destroyed Thing also fails the Unity null check).
         /// </summary>
         public static bool PressInteractable(Thing owner, Interactable interactable)
+            => PressInteractable(owner, interactable, 1);
+
+        /// <summary>
+        /// <paramref name="times"/> > 1 is the coarse scroll step (one wheel notch = ±10 on
+        /// suit pressure/temperature, whose vanilla buttons are hardwired to ±1/press).
+        /// This is the mod's SECOND sanctioned multi-message action (after the chip dump):
+        /// explicitly user-designed, hard-capped at 10, each press individually validated
+        /// and clamped server-side (spamming past a bound just returns AlreadyMax/Min).
+        /// </summary>
+        public static bool PressInteractable(Thing owner, Interactable interactable, int times)
         {
             if (owner == null || interactable == null) return Fail();
             if (interactable.Parent != owner) return Fail();  // wedge and interactable disagree
             if (!IsCarriedByLocalPlayer(owner)) return Fail();
-            interactable.PlayerInteractWith();
+            times = UnityEngine.Mathf.Clamp(times, 1, 10);
+            for (int i = 0; i < times; i++)
+                interactable.PlayerInteractWith();
             return true;
         }
 

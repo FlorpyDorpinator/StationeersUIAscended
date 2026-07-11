@@ -2,6 +2,79 @@
 
 All notable changes to the mod. Detailed engineering write-ups live in `Changes Reports/`.
 
+## 0.4.0 Alpha — 2026-07-10
+
+Iteration 2 on the Option A schema, plus the full-UI feasibility report
+(`docs/Visor-UI-Feasibility-Report.md` — verdict: green light).
+
+### Settings, everywhere, complete
+- **Generic device settings**: radials now enumerate controls exactly like vanilla's
+  inventory window (same filter, same live state-baked labels, same dry-run for
+  disabled states). This surfaces everything that was missing — **jetpack stabilizer**,
+  suit **A/C · Air · Filter · Lock**, helmet **visor · light · flush**, portable-tank
+  valve — automatically, for every item, including modded ones.
+- **One settings rule everywhere**: >2 controls (or controls alongside slots) collapse
+  into a SETTINGS wedge; 1–2 controls with no slots stay inline (a canister just says
+  OPEN/CLOSE). Clicking SETTINGS opens all of them as wedges.
+- **Component satellites**: slide over a battery/canister/cartridge in any slot →
+  TAKE / **REPLACE** (the restored full swap list with consequence warnings) / settings.
+- **Vanilla units**: suit pressure in kPa, temperature in °C; jetpack thrust as the
+  HUD's ×100 number (vanilla never displays thrust in kPa — verified in the decompile).
+
+### Parity
+- **Tab shows all six worn pieces** (glasses were missing) and opening any of them is
+  IDENTICAL to tapping its 1–6 key. Empty worn slots are STOW wedges.
+- Bag levels show empty slots the same way everywhere.
+
+### New interactions
+- **Search is a radial**: top wedge = SEARCH + text box (fixed), bottom half fills with
+  result wedges as you type; results drag out like any item; wheel pages; Shift keeps
+  searching after a take.
+- **Z-grab (the vanilla mouse-mod key)**: with a radial open, hold it and click world
+  items to tear them into the drag layer as chips — then drop them into bags. Grab AND
+  drop are 3 m range-gated client-side because build 27701's server never range-checks
+  item moves (verified; the mod must not out-reach vanilla).
+- **The radial is draggable by its hub** (snaps back to center on reopen) and has a
+  **CLOSE button** on the hub's bottom edge (colors editable in the editor).
+- **Shift = keep open**: holding Shift through any action that would close the radial
+  keeps it open for the next action.
+- **E swaps hands** (Q freed for a future gesture) and the vanilla active-hand ring now
+  **stays lit while radials are open** (the cursor-unlock path was hiding it).
+
+### Presentation options (playtest knobs)
+- Bag grouping by sorting class: on/off. Free space: empty-slot wedges / aggregate STOW
+  wedge / both. Max wedges per radial (6–32); **crowded rings page with Q** — a
+  "1/2 · Q: next page" counter floats above the ring (no MORE wedge; vanilla Q-throw
+  never fires while a radial is open).
+- **Coarse/fine value scrolling**: suit pressure & temperature step ±10 per wheel notch,
+  hold **C** for ±1 (thrust and the portable-tank valve stay 1:1 — thrust only has 19
+  steps and the valve steps ±10 natively). Real worn suits (`Suit`, a separate class
+  from `SuitBase`) now pair into triangle scroll wedges properly.
+- **Side line widths**: the wedge outline's side lines are now true pixel widths, set
+  separately at the hub and at the rim (equal = straight parallel lines; the old look
+  was rim-fat/hub-skinny by construction).
+- Icons now scale with their wedge (ratio slider). Shine intensity slider (0 = flat)
+  with the RimShine palette colour actually visible at full strength. Dragged-out item
+  bubbles are 50% bigger by default and size-adjustable; the editor shows a live demo
+  chip. Disabled wedge text has its own palette colour (was welded to the wedge fill).
+- **Both hubs stay dressed**: the child radial takes the detail readout, the main hub
+  keeps its circle, title and colours.
+- **Editor: hover-to-find colours** — point at any element in the preview and the
+  entries painting it light up orange in the colour list (and the list scrolls to
+  them). **Undo/Redo buttons** for colour edits (one drag = one step; reset is one
+  step too). The readout never repeats itself ("Replace / Replace") anymore.
+
+### Review
+- Second adversarial pass on this iteration (15 agents): 10 confirmed findings fixed.
+  The big one: **Z-grab was typed to DynamicThing where vanilla's pickup is hard-typed
+  to Item** — a client could have stuffed the LANDER CAPSULE into a backpack, a
+  mutation no vanilla client can produce; now gated `is Item` at grab AND execute.
+  Also fixed: wedge-hover vs hub CLOSE/drag zone overlap (a click on a highlighted
+  wedge could dump chips), GasMask-family label cache serving one-state-behind labels,
+  stale MORE-wedge snapshots (paging removed the mechanism), search-exit orphaning an
+  in-flight drag, world-drag drop feedback, and multiplayer label refresh after the
+  server round-trip.
+
 ## 0.3.0 Alpha — 2026-07-10
 
 The Option A control schema — a full interaction overhaul, F10-switchable against the

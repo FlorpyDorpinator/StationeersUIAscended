@@ -65,6 +65,13 @@ namespace StationeersUIMod.Core
             KeyManager.SetInputState(_inputStateKey, KeyInputState.Typing);
             MouseModeController.AddModal(_modal);
             TrySetBlockUguiClicks(true);
+            // ImGui is invisible to Unity's EventSystem, so with the cursor unlocked
+            // vanilla's InputMouse click/drag machine would run UNDER our radial (world
+            // pickups through the wedges). BlockCursorRaycast gates both InputMouse.Update
+            // and CursorManager.SetCursorTarget; the mod's own world-grab raycast is
+            // independent of it.
+            try { if (CursorManager.Instance != null) CursorManager.Instance.BlockCursorRaycast = true; }
+            catch { }
         }
 
         public void Close()
@@ -77,6 +84,8 @@ namespace StationeersUIMod.Core
             KeyManager.RemoveInputState(_inputStateKey);
             MouseModeController.RemoveModal(_modal);
             CursorManager instance = CursorManager.Instance;
+            try { if (instance != null) instance.BlockCursorRaycast = false; }
+            catch { }
             if (instance != null)
                 instance.OnApplicationFocus(true);
             if (PanelToolTip.Instance != null)

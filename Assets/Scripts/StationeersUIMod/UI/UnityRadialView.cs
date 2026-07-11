@@ -25,7 +25,13 @@ namespace StationeersUIMod.UI
         private static bool _fontIsBoldAsset;
         private static RingView _main;
         private static RingView _satellite;
-        private static ReadoutView _readout;
+        private static ReadoutView _readout;      // the detail readout (follows the action)
+        private static ReadoutView _readoutHome;  // keeps the MAIN hub dressed while the detail moved
+        private static RectTransform _closeRoot;   // hub CLOSE button (always at the MAIN hub)
+        private static RadialWedgeGraphic _closeBand;
+        private static TextMeshProUGUI _closeLabel;
+        private static TextMeshProUGUI _pageMain;  // "1/2  -  Q: next page" above a paged ring
+        private static TextMeshProUGUI _pageSat;
         private static float _openAnim;
 
         // ---------- public API ----------
@@ -35,11 +41,15 @@ namespace StationeersUIMod.UI
             Vector2? satCenter, float satInnerR, float satOuterR,
             IList<RadialEntry> satEntries, int satHovered, string satTitle,
             RadialEntry readoutEntry, string readoutHint, bool sticky,
-            DynamicThing dragging = null)
+            DynamicThing dragging = null, bool closeHovered = false,
+            string pageText = null, string satPageText = null)
         {
             EnsureCanvas();
             _group.alpha = 1f;
             _canvas.gameObject.SetActive(true);
+            UpdateCloseButton(center, innerR, closeHovered);
+            UpdatePageLabel(_pageMain, pageText, center, outerR + 24f);
+            UpdatePageLabel(_pageSat, satPageText, satCenter ?? center, satOuterR + 18f);
 
             float dt = Mathf.Min(Time.unscaledDeltaTime, 0.05f);
             // Slightly nicer open curve (ease out)
@@ -55,13 +65,20 @@ namespace StationeersUIMod.UI
             else
                 _satellite.Hide();
 
-            // Option A: the readout text MOVES into the middle of the child radial while
-            // one is open (the parent hub goes quiet), instead of narrating from afar.
+            // Option A: the DETAIL readout moves into the middle of the child radial while
+            // one is open, but the main hub keeps its circle, title and colours — both
+            // hubs stay dressed (visible in the editor side by side).
             if (UIAConfig.IsA && satActive)
+            {
                 _readout.Render(satCenter.Value, Mathf.Max(satInnerR - 2f, 46f), satTitle ?? title, null,
                     readoutEntry, readoutHint, sticky);
+                _readoutHome.Render(center, innerR, title, null, null, "RMB: back", sticky);
+            }
             else
+            {
                 _readout.Render(center, innerR, title, satTitle, readoutEntry, readoutHint, sticky);
+                _readoutHome.Hide();
+            }
         }
 
         public static void Hide()
@@ -80,6 +97,12 @@ namespace StationeersUIMod.UI
             _main = null;
             _satellite = null;
             _readout = null;
+            _readoutHome = null;
+            _closeRoot = null;
+            _closeBand = null;
+            _closeLabel = null;
+            _pageMain = null;
+            _pageSat = null;
             _font = null;
             _fontFor = null;
             _openAnim = 0f;
@@ -106,6 +129,91 @@ namespace StationeersUIMod.UI
             _main = new RingView(go.transform, "MainRing");
             _satellite = new RingView(go.transform, "SatelliteRing");
             _readout = new ReadoutView(go.transform, Font());
+            _readoutHome = new ReadoutView(go.transform, Font());
+
+            // Hub CLOSE button — created last so it draws over the hub backing.
+            var cgo = new GameObject("CloseButton", typeof(RectTransform));
+            cgo.transform.SetParent(go.transform, false);
+            _closeRoot = (RectTransform)cgo.transform;
+            _closeRoot.anchorMin = _closeRoot.anchorMax = new Vector2(0.5f, 0.5f);
+            _closeRoot.sizeDelta = Vector2.zero;
+
+            var bandGo = new GameObject("Band", typeof(RectTransform));
+            bandGo.transform.SetParent(_closeRoot, false);
+            _closeBand = bandGo.AddComponent<RadialWedgeGraphic>();
+            _closeBand.raycastTarget = false;
+
+            var clGo = new GameObject("Label", typeof(RectTransform));
+            clGo.transform.SetParent(_closeRoot, false);
+            _closeLabel = clGo.AddComponent<TextMeshProUGUI>();
+            _closeLabel.font = Font();
+            _closeLabel.alignment = TextAlignmentOptions.Center;
+            _closeLabel.enableAutoSizing = true;
+            _closeLabel.fontSizeMin = 8f;
+            _closeLabel.fontSizeMax = 15f;
+            _closeLabel.enableWordWrapping = false;
+            _closeLabel.raycastTarget = false;
+
+            _pageMain = MakePageLabel(go.transform, "PageMain");
+            _pageSat = MakePageLabel(go.transform, "PageSat");
+        }
+
+        private static TextMeshProUGUI MakePageLabel(Transform parent, string name)
+        {
+            var go = new GameObject(name, typeof(RectTransform));
+            go.transform.SetParent(parent, false);
+            var tmp = go.AddComponent<TextMeshProUGUI>();
+            tmp.font = Font();
+            tmp.alignment = TextAlignmentOptions.Center;
+            tmp.enableAutoSizing = true;
+            tmp.fontSizeMin = 9f;
+            tmp.fontSizeMax = 14f;
+            tmp.enableWordWrapping = false;
+            tmp.raycastTarget = false;
+            var rt = tmp.rectTransform;
+            rt.anchorMin = rt.anchorMax = new Vector2(0.5f, 0.5f);
+            rt.sizeDelta = new Vector2(260f, 18f);
+            return tmp;
+        }
+
+        /// <summary>The "1/2 - Q: next page" counter above a paged ring.</summary>
+        private static void UpdatePageLabel(TextMeshProUGUI label, string text, Vector2 imguiCenter, float yAbove)
+        {
+            if (label == null) return;
+            bool show = !string.IsNullOrEmpty(text);
+            label.gameObject.SetActive(show);
+            if (!show) return;
+            SyncFont(label);
+            label.fontStyle = WedgeFontStyle();
+            label.text = WedgeText(text);
+            label.color = RadialPalette.TextDim.Value;
+            label.rectTransform.anchoredPosition = CanvasAnchoredPos(imguiCenter) + new Vector2(0f, yAbove);
+        }
+
+        /// <summary>The always-available exit: a band hugging the bottom of the hub circle.
+        /// Anchored to the MAIN hub even while the readout has moved into a satellite.</summary>
+        private static void UpdateCloseButton(Vector2 center, float innerR, bool hovered)
+        {
+            if (_closeRoot == null) return;
+            _closeRoot.anchoredPosition = CanvasAnchoredPos(center);
+            float hubR = innerR - 6f;
+
+            _closeBand.SetGeometry(hubR * 0.52f, hubR * 0.94f, Mathf.PI / 3f, Mathf.PI * 2f / 3f, fullRing: false);
+            _closeBand.SideBorders = false;
+            _closeBand.FeatherSides = true;
+            _closeBand.SideFeatherLimit = float.MaxValue;
+            _closeBand.BorderWidth = 1.6f;
+            _closeBand.BorderColor = RadialPalette.HubBorder.Value;
+            _closeBand.color = hovered ? RadialPalette.HubCloseHover.Value : RadialPalette.HubCloseFill.Value;
+            _closeBand.RimHighlight = 0f;
+            _closeBand.RefreshGeometry();
+
+            SyncFont(_closeLabel);
+            _closeLabel.fontStyle = WedgeFontStyle();
+            _closeLabel.text = WedgeText("Close");
+            _closeLabel.color = RadialPalette.HubCloseText.Value;
+            _closeLabel.rectTransform.sizeDelta = new Vector2(hubR * 1.1f, 18f);
+            _closeLabel.rectTransform.anchoredPosition = new Vector2(0f, -hubR * 0.73f);
         }
 
         /// <summary>
@@ -275,6 +383,10 @@ namespace StationeersUIMod.UI
                     // the neighbour (gap is angular; convert to px at the band's mid radius).
                     wedge.SideFeatherLimit = lone ? float.MaxValue
                         : gapRad * 0.5f * (innerR + outerR) * 0.5f;
+                    wedge.SideWidthInner = UIAConfig.RadialSideWidthInner != null
+                        ? UIAConfig.RadialSideWidthInner.Value : 3.2f;
+                    wedge.SideWidthOuter = UIAConfig.RadialSideWidthOuter != null
+                        ? UIAConfig.RadialSideWidthOuter.Value : 3.2f;
 
                     bool isHovered = i == hovered && entry.Enabled;
 
@@ -307,7 +419,11 @@ namespace StationeersUIMod.UI
                     wedge.BorderColor = Color.Lerp(wedge.BorderColor, borderTarget, dt * AnimSpeed);
 
                     // Rim gloss: subtle, and only really visible on the selected wedge.
-                    float shineTarget = isHovered ? 0.55f : 0.10f;
+                    // Intensity is the "shader look" knob (0 = flat), colour comes from the
+                    // RimShine palette entry.
+                    float shineIntensity = UIAConfig.RadialShineIntensity != null
+                        ? UIAConfig.RadialShineIntensity.Value : 1f;
+                    float shineTarget = (isHovered ? 0.55f : 0.10f) * shineIntensity;
                     wedge.RimHighlight = Mathf.Lerp(wedge.RimHighlight, shineTarget, dt * AnimSpeed);
 
                     // Any geometry property (bulge/border/rim) changed -> rebuild mesh this frame
@@ -322,7 +438,12 @@ namespace StationeersUIMod.UI
                     var dir = new Vector2(Mathf.Cos(aMid), -Mathf.Sin(aMid));
                     var slot = dir * midR;
 
-                    float iconSize = Mathf.Clamp(ringWidth * 0.46f, 20f, 56f) * UIAConfig.RadialIconScale.Value;
+                    // Icons scale WITH the wedge: bounded by the band's thickness and by the
+                    // wedge's width at mid radius, times the user's ratio.
+                    float halfAngleIc = Mathf.Min(sector * 0.5f, Mathf.PI * 0.5f);
+                    float chordIc = 2f * baseMidR * Mathf.Sin(halfAngleIc);
+                    float iconRatio = UIAConfig.RadialIconRatio != null ? UIAConfig.RadialIconRatio.Value : 0.62f;
+                    float iconSize = Mathf.Min(ringWidth, chordIc) * iconRatio;
                     float contentScale = isHovered ? HoverScale : 1f;
                     bool showLabels = UIAConfig.RadialShowWedgeLabels.Value;
 
@@ -375,7 +496,7 @@ namespace StationeersUIMod.UI
                     SyncFont(label);
                     label.fontStyle = WedgeFontStyle();
                     label.text = WedgeText(entry.Label);
-                    label.color = entry.Enabled ? RadialPalette.TextPrimary.Value : RadialPalette.WedgeDisabled.Value;
+                    label.color = entry.Enabled ? RadialPalette.TextPrimary.Value : RadialPalette.TextDisabled.Value;
                     label.rectTransform.localScale = Vector3.one * contentScale;
 
                     float halfAngle = Mathf.Min(sector * 0.5f, Mathf.PI * 0.5f);
@@ -414,7 +535,7 @@ namespace StationeersUIMod.UI
                 SyncFont(label);
                 label.fontStyle = WedgeFontStyle();
                 label.text = WedgeText(entry.Label);
-                label.color = entry.Enabled ? RadialPalette.TextPrimary.Value : RadialPalette.WedgeDisabled.Value;
+                label.color = entry.Enabled ? RadialPalette.TextPrimary.Value : RadialPalette.TextDisabled.Value;
                 label.alignment = TextAlignmentOptions.Center;
                 label.rectTransform.localScale = Vector3.one;
                 label.rectTransform.sizeDelta = new Vector2(Mathf.Max(72f, ringWidth), 16f);
@@ -594,9 +715,12 @@ namespace StationeersUIMod.UI
                 return tmp;
             }
 
+            public void Hide() => _root.gameObject.SetActive(false);
+
             public void Render(Vector2 center, float innerR, string title, string satTitle,
                 RadialEntry hovered, string hint, bool sticky)
             {
+                _root.gameObject.SetActive(true);
                 _root.anchoredPosition = CanvasAnchoredPos(center);
                 float w = (innerR - 6f) * 1.85f;
                 // The readout also serves small satellite hubs (Option A): squeeze the
@@ -634,7 +758,10 @@ namespace StationeersUIMod.UI
 
                 _verb.text = hovered.ActionText ?? (hovered.IsBranch ? "Open" : "Select");
                 _verb.color = hovered.Enabled ? RadialPalette.TextAccent.Value : RadialPalette.TextDim.Value;
-                _label.text = hovered.Label ?? string.Empty;
+                // Action wedges often ARE their verb ("Replace", "Stabilizer Off") — don't
+                // print the same word twice in the readout.
+                _label.text = string.Equals(hovered.Label, _verb.text, StringComparison.OrdinalIgnoreCase)
+                    ? string.Empty : hovered.Label ?? string.Empty;
                 _label.color = hovered.Enabled ? RadialPalette.TextPrimary.Value : RadialPalette.TextDim.Value;
                 _sub.text = hovered.Sublabel ?? string.Empty;
                 _sub.color = RadialPalette.TextDim.Value;

@@ -17,6 +17,17 @@ namespace StationeersUIMod
         OptionD,
     }
 
+    /// <summary>How a bag radial presents its free space (Option A playtest options).</summary>
+    public enum EmptySlotMode
+    {
+        /// <summary>Every empty slot is its own STOW wedge; no aggregate wedge.</summary>
+        EmptySlots,
+        /// <summary>One aggregate STOW wedge plus every empty slot.</summary>
+        StowAndEmptySlots,
+        /// <summary>Just the aggregate STOW wedge and the items.</summary>
+        StowOnly,
+    }
+
     /// <summary>
     /// All user-facing configuration. Bound once at plugin init; StationeersLaunchPad
     /// auto-renders the resulting .cfg in its in-game mod config panel.
@@ -28,8 +39,9 @@ namespace StationeersUIMod
         public static ConfigEntry<KeyCode> SettingsWindowKey;
         public static ConfigEntry<int> HoldThresholdMs;
         public static ConfigEntry<ControlSchema> Schema;
-        public static ConfigEntry<KeyCode> RadialHandLeftKey;
-        public static ConfigEntry<KeyCode> RadialHandRightKey;
+        public static ConfigEntry<KeyCode> RadialHandSwapKey;
+        public static ConfigEntry<KeyCode> RadialPageKey;
+        public static ConfigEntry<KeyCode> RadialFineAdjustKey;
 
         /// <summary>Shorthand for "the Option A behavior set is active".</summary>
         public static bool IsA => Schema == null || Schema.Value == ControlSchema.OptionA;
@@ -49,6 +61,9 @@ namespace StationeersUIMod
         public static ConfigEntry<KeyCode> BagRadialKey;
         public static ConfigEntry<bool> BagRadialTapOpens;
         public static ConfigEntry<int> BagRadialGroupThreshold;
+        public static ConfigEntry<bool> BagGrouping;
+        public static ConfigEntry<EmptySlotMode> BagEmptySlots;
+        public static ConfigEntry<int> RadialMaxWedges;
 
         // --- Equipment key radials (1-6) ---
         public static ConfigEntry<bool> EquipmentKeyRadialsEnabled;
@@ -84,10 +99,13 @@ namespace StationeersUIMod
         public static ConfigEntry<bool> IconFlipV;
         public static ConfigEntry<bool> UseUnityRadial;
         public static ConfigEntry<float> RadialIconScale;
+        public static ConfigEntry<float> RadialIconRatio;
         public static ConfigEntry<bool> RadialShowWedgeLabels;
         public static ConfigEntry<float> RadialEdgeFeather;
         public static ConfigEntry<float> RadialBorderWidth;
         public static ConfigEntry<bool> RadialSideBorders;
+        public static ConfigEntry<float> RadialSideWidthInner;
+        public static ConfigEntry<float> RadialSideWidthOuter;
         public static ConfigEntry<float> RadialWedgeGapDeg;
         public static ConfigEntry<bool> RadialDimShading;
         public static ConfigEntry<float> RadialDimStrength;
@@ -95,6 +113,8 @@ namespace StationeersUIMod
         public static ConfigEntry<bool> RadialUppercaseLabels;
         public static ConfigEntry<bool> RadialShowStateText;
         public static ConfigEntry<float> RadialSatelliteScale;
+        public static ConfigEntry<float> RadialShineIntensity;
+        public static ConfigEntry<float> ParkedChipRadius;
 
         public static void Bind(ConfigFile cfg)
         {
@@ -109,12 +129,15 @@ namespace StationeersUIMod
                 "Radial interaction model. OptionA: STOW wedges, device-control satellites with scroll " +
                 "values, take/open on nested bags, auto-close after actions, search panel, drag-out " +
                 "parking. OptionD: the classic behavior, kept for A/B comparison.");
-            RadialHandLeftKey = cfg.Bind("1. General", "RadialHandLeftKey", KeyCode.Q,
-                "While a radial is open: make the LEFT hand the active hand (radials aim stows and " +
-                "equips at the active hand). Vanilla Q (drop) is suppressed while a radial is open.");
-            RadialHandRightKey = cfg.Bind("1. General", "RadialHandRightKey", KeyCode.E,
-                "While a radial is open: make the RIGHT hand the active hand. Vanilla E (swap hands) " +
-                "is suppressed while a radial is open; this drives the same vanilla swap underneath.");
+            RadialHandSwapKey = cfg.Bind("1. General", "RadialHandSwapKey", KeyCode.E,
+                "While a radial is open: swap the active hand (radials aim stows and equips at the " +
+                "active hand). Matches vanilla E-to-swap; drives the same vanilla swap underneath.");
+            RadialPageKey = cfg.Bind("1. General", "RadialPageKey", KeyCode.Q,
+                "While a radial is open: flip to the next page of a crowded ring (a 1/2 counter " +
+                "shows above the ring). Vanilla Q-throw never fires while a radial is open.");
+            RadialFineAdjustKey = cfg.Bind("1. General", "RadialFineAdjustKey", KeyCode.C,
+                "Hold while scrolling a value wedge (suit pressure/temperature) for fine ±1 steps " +
+                "instead of the coarse ±10.");
 
             ToolbeltRadialEnabled = cfg.Bind("2. Toolbelt Radial", "Enabled", true,
                 "Hold a key to open a radial of everything on your toolbelt; release over a tool to equip it into the active hand.");
@@ -140,6 +163,17 @@ namespace StationeersUIMod
             BagRadialGroupThreshold = cfg.Bind("4. Bag Radial", "GroupThreshold", 10,
                 new ConfigDescription("When a bag holds more than this many items, group them by sorting category first.",
                     new AcceptableValueRange<int>(4, 24)));
+            BagGrouping = cfg.Bind("4. Bag Radial", "GroupBySortingClass", true,
+                "Option A: group crowded bags into UIA sorting-class wedges (Storage, Power Cells, ...). " +
+                "Off = always show the raw items and slots, never category wedges.");
+            BagEmptySlots = cfg.Bind("4. Bag Radial", "EmptySlotDisplay", EmptySlotMode.StowAndEmptySlots,
+                "How bag radials present free space. EmptySlots: every empty slot is its own STOW wedge. " +
+                "StowAndEmptySlots: one aggregate STOW wedge plus the empty slots. StowOnly: just the " +
+                "aggregate STOW wedge and the items.");
+            RadialMaxWedges = cfg.Bind("4. Bag Radial", "MaxWedges", 14,
+                new ConfigDescription("Maximum wedges a radial shows at once; overflow goes into a MORE " +
+                    "wedge that opens the rest. (Biggest vanilla bag is 28 slots.)",
+                    new AcceptableValueRange<int>(6, 32)));
 
             EquipmentKeyRadialsEnabled = cfg.Bind("4b. Equipment Keys", "Enabled", true,
                 "Tap 1-6 to open a management radial for that equipment piece (on/off, slots, swaps); " +
@@ -198,8 +232,21 @@ namespace StationeersUIMod
                 "TMP auto-sized labels, preserveAspect icons, hover pop animations). This is the primary renderer. " +
                 "Turn off to fall back to the legacy ImGui draw-list painter for comparison.");
             RadialIconScale = cfg.Bind("8. Radial Visuals", "IconScale", 1.30f,
-                new ConfigDescription("Size multiplier for the item icons inside radial wedges.",
+                new ConfigDescription("LEGACY (unused since 0.3.1 — see IconRatio).",
                     new AcceptableValueRange<float>(0.5f, 2.5f)));
+            RadialIconRatio = cfg.Bind("8. Radial Visuals", "IconRatio", 0.62f,
+                new ConfigDescription("Icon size as a fraction of the wedge's available space (the " +
+                    "smaller of the ring band's thickness and the wedge's width at mid radius) — icons " +
+                    "grow and shrink with the wedges.",
+                    new AcceptableValueRange<float>(0.15f, 1.1f)));
+            RadialShineIntensity = cfg.Bind("8. Radial Visuals", "ShineIntensity", 1.0f,
+                new ConfigDescription("Strength of the gloss/shine blended into wedges (0 = flat/no " +
+                    "shader look; colour comes from the RimShine palette entry).",
+                    new AcceptableValueRange<float>(0f, 2f)));
+            ParkedChipRadius = cfg.Bind("8. Radial Visuals", "ParkedChipRadius", 39f,
+                new ConfigDescription("Radius in px of the circles items sit in when dragged out of a " +
+                    "radial onto the screen.",
+                    new AcceptableValueRange<float>(16f, 80f)));
             RadialShowWedgeLabels = cfg.Bind("8. Radial Visuals", "ShowWedgeLabels", false,
                 "Draw the item name under each wedge icon. Off by default: the hub already names " +
                 "whatever is selected, and per-wedge names collide on a crowded toolbelt.");
@@ -215,6 +262,13 @@ namespace StationeersUIMod
             RadialSideBorders = cfg.Bind("8. Radial Visuals", "SideBorders", true,
                 "Draw the border along the straight SIDE edges of each wedge too, so every wedge " +
                 "wears a complete outline (the always-on orange lines).");
+            RadialSideWidthInner = cfg.Bind("8. Radial Visuals", "SideWidthInner", 3.2f,
+                new ConfigDescription("Side line width in px where the wedge meets the HUB. Equal " +
+                    "inner/outer = straight parallel lines; different values taper the lines.",
+                    new AcceptableValueRange<float>(0.5f, 12f)));
+            RadialSideWidthOuter = cfg.Bind("8. Radial Visuals", "SideWidthOuter", 3.2f,
+                new ConfigDescription("Side line width in px at the OUTER rim.",
+                    new AcceptableValueRange<float>(0.5f, 12f)));
             RadialWedgeGapDeg = cfg.Bind("8. Radial Visuals", "WedgeGapDegrees", 1.2f,
                 new ConfigDescription("Angular gap between neighbouring wedges, in degrees. The gap is " +
                     "what lets each wedge's outline read as its own line; side edges are anti-aliased " +

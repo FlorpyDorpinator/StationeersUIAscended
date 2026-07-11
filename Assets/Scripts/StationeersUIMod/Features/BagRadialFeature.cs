@@ -54,7 +54,7 @@ namespace StationeersUIMod.Features
 
             if (UIAConfig.IsA)
             {
-                // Option A: the radial transforms into the search panel.
+                // Option A: the radial transforms into the search radial.
                 entries.Add(new RadialEntry
                 {
                     Label = "Search",
@@ -62,24 +62,68 @@ namespace StationeersUIMod.Features
                     ActionText = "Search",
                     OnSelect = RadialMenu.RequestSearch,
                 });
-            }
-            else
-            {
-                // Option D: the classic flattened list radial.
-                entries.Add(new RadialEntry
-                {
-                    Label = "Find item",
-                    Sublabel = "search all bags",
-                    ActionText = "Open",
-                    ChildProvider = BuildFindLevel,
-                });
+
+                // EVERY worn piece, opening the exact radial the 1-6 keys open (parity is
+                // the rule: Tab->Suit must look identical to tapping 3). Empty worn slots
+                // are STOW wedges.
+                AddWorn(entries, human.HelmetSlot, "Helmet");
+                AddWorn(entries, human.GlassesSlot, "Glasses");
+                AddWorn(entries, human.SuitSlot, "Suit");
+                AddWorn(entries, human.BackpackSlot, "Backpack");
+                AddWorn(entries, human.UniformSlot, "Uniform");
+                AddWorn(entries, human.ToolbeltSlot, "Toolbelt");
+                return entries;
             }
 
+            // Option D: the classic flattened list radial + container-only root.
+            entries.Add(new RadialEntry
+            {
+                Label = "Find item",
+                Sublabel = "search all bags",
+                ActionText = "Open",
+                ChildProvider = BuildFindLevel,
+            });
             AddContainer(entries, human.BackpackSlot, "Backpack");
             AddContainer(entries, human.ToolbeltSlot, "Toolbelt");
             AddContainer(entries, human.SuitSlot, "Suit");
             AddContainer(entries, human.UniformSlot, "Uniform");
             return entries;
+        }
+
+        /// <summary>One worn equipment piece on the Tab root — same radial as its 1-6 key.</summary>
+        private static void AddWorn(List<RadialEntry> entries, Slot slot, string role)
+        {
+            if (slot == null || slot.IsLocked) return;
+            DynamicThing occ = slot.Get();
+            if (occ == null)
+            {
+                var held = InventoryManager.ActiveHandSlot?.Get();
+                var e = ItemMenuBuilder.BuildStowEntry(slot, role, held);
+                e.Sublabel = role + " (empty)";
+                entries.Add(e);
+                return;
+            }
+            var thing = occ;
+            var wornSlot = slot;
+            var source = new ScannedSlot { Slot = slot, Holder = slot.Parent, Location = role }.Pin();
+            var entry = new RadialEntry
+            {
+                Label = occ.DisplayName,
+                ActionText = "Open",
+                Sublabel = role,
+                StateText = StateText.For(occ),
+                Icon = occ.GetThumbnail(),
+                DragSource = source,
+                // Parity: the same manage radial the equipment key builds (take entry too).
+                ChildProvider = () => ItemMenuBuilder.BuildManageEntries(thing, wornSlot, includeTakeEntry: true),
+            };
+            if (occ.Slots != null && occ.Slots.Count > 0)
+            {
+                int used = occ.Slots.Count(s => s?.Get() != null);
+                entry.Sublabel = role + " - " + used + "/" + occ.Slots.Count;
+                entry.DropResolver = dragged => ItemMenuBuilder.FirstFreeSlot(thing, dragged);
+            }
+            entries.Add(entry);
         }
 
         // ---------- Find item (Option D) ----------
@@ -184,8 +228,11 @@ namespace StationeersUIMod.Features
 
             // Category grouping for crowded bags (proposal §10). Option A groups by the
             // mod's own UIA sorting classes — nested backpacks read "Storage", batteries
-            // read "Power Cells" — instead of the game's coarse SortingClass.
-            if (occupied.Count > UIAConfig.BagRadialGroupThreshold.Value)
+            // read "Power Cells" — instead of the game's coarse SortingClass. The
+            // GroupBySortingClass toggle turns hierarchalising off entirely for A.
+            bool mayGroup = occupied.Count > UIAConfig.BagRadialGroupThreshold.Value
+                && (!UIAConfig.IsA || UIAConfig.BagGrouping.Value);
+            if (mayGroup)
             {
                 if (UIAConfig.IsA)
                 {
@@ -233,26 +280,41 @@ namespace StationeersUIMod.Features
                 }
             }
 
-            // One stow target when the bag has room — this is how you choose WHICH bag an
-            // item goes into. Option A shows it even with empty hands: it doubles as the
-            // drop target for parked chips (which exist precisely when nothing is held).
+            // Free space presentation (Option A, playtest dropdown): individual empty-slot
+            // STOW wedges, an aggregate STOW wedge, or both. The aggregate one doubles as
+            // the drop target for parked chips.
             var hand = InventoryManager.ActiveHandSlot;
             var held = hand?.Get();
             if (UIAConfig.IsA)
             {
-                Slot free = held != null ? empty.FirstOrDefault(s => Slot.AllowMove(held, s)) : null;
-                Slot target = free ?? empty.FirstOrDefault();
-                if (target != null)
+                var mode = UIAConfig.BagEmptySlots.Value;
+
+                if (mode != EmptySlotMode.StowOnly)
                 {
-                    var bagRef = bag;
-                    // STOW wedge: blank slot + STOW, held item previews on hover.
-                    var e = ItemMenuBuilder.BuildStowEntry(target,
-                        string.IsNullOrEmpty(target.DisplayName) ? bag.DisplayName : target.DisplayName, held);
-                    e.Sublabel = "into " + bag.DisplayName;
-                    // Chips pick whichever free slot fits THEM, not the held item's slot.
-                    e.DropSlot = null;
-                    e.DropResolver = dragged => ItemMenuBuilder.FirstFreeSlot(bagRef, dragged);
-                    entries.Add(e);
+                    foreach (Slot s in empty)
+                    {
+                        var slotEntry = ItemMenuBuilder.BuildStowEntry(s,
+                            string.IsNullOrEmpty(s.DisplayName) ? "Slot" : s.DisplayName, held);
+                        entries.Add(slotEntry);
+                    }
+                }
+
+                if (mode != EmptySlotMode.EmptySlots)
+                {
+                    Slot free = held != null ? empty.FirstOrDefault(s => Slot.AllowMove(held, s)) : null;
+                    Slot target = free ?? empty.FirstOrDefault();
+                    if (target != null)
+                    {
+                        var bagRef = bag;
+                        // Aggregate STOW wedge: blank slot + STOW, held item previews on hover.
+                        var e = ItemMenuBuilder.BuildStowEntry(target,
+                            string.IsNullOrEmpty(target.DisplayName) ? bag.DisplayName : target.DisplayName, held);
+                        e.Sublabel = "into " + bag.DisplayName;
+                        // Chips pick whichever free slot fits THEM, not the held item's slot.
+                        e.DropSlot = null;
+                        e.DropResolver = dragged => ItemMenuBuilder.FirstFreeSlot(bagRef, dragged);
+                        entries.Add(e);
+                    }
                 }
             }
             else if (held != null)

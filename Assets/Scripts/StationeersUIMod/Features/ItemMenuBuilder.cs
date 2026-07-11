@@ -43,10 +43,7 @@ namespace StationeersUIMod.Features
                 });
             }
 
-            var controls = new List<RadialEntry>();
-            AddControlEntries(controls, thing);
-            if (UIAConfig.IsA) DeviceControls.AddValueControls(controls, thing);
-
+            var controls = BuildControlsList(thing);
             var slotEntries = new List<RadialEntry>();
             if (thing.Slots != null)
             {
@@ -58,39 +55,47 @@ namespace StationeersUIMod.Features
                 }
             }
 
-            // Option A: a hardsuit-sized device would be a 14-wedge soup — branch into
-            // SETTINGS and SLOTS instead ("slide over the hardsuit body: settings | slots").
-            if (UIAConfig.IsA && controls.Count >= 2 && slotEntries.Count >= 2
-                && controls.Count + slotEntries.Count > 6)
+            // Option A rule (parity everywhere): a SETTINGS wedge whenever the item has more
+            // than two controls, or any controls alongside slot wedges (a backpack shows
+            // SETTINGS + its slots, never three settings mixed into the item grid). One or
+            // two controls with no slots stay inline (a canister just says OPEN).
+            if (UIAConfig.IsA && UseSettingsWedge(controls.Count, slotEntries.Count))
             {
-                var t = thing;
-                entries.Add(new RadialEntry
-                {
-                    Label = "Settings",
-                    ActionText = "Open",
-                    Sublabel = controls.Count + " control(s)",
-                    ChildProvider = () =>
-                    {
-                        var l = new List<RadialEntry>();
-                        AddControlEntries(l, t);
-                        DeviceControls.AddValueControls(l, t);
-                        return l;
-                    },
-                });
-                entries.Add(new RadialEntry
-                {
-                    Label = "Slots",
-                    ActionText = "Open",
-                    Sublabel = slotEntries.Count + " slot(s)",
-                    ChildProvider = () => BuildSlotsLevel(t),
-                });
+                entries.Add(BuildSettingsWedge(thing, controls.Count));
             }
             else
             {
                 entries.AddRange(controls);
-                entries.AddRange(slotEntries);
             }
+            entries.AddRange(slotEntries);
             return entries;
+        }
+
+        /// <summary>The controls level: every setting as its own wedge. Option A enumerates
+        /// generically (everything vanilla's inventory window would show, with vanilla's
+        /// live state-baked labels); Option D keeps the classic hand-picked four.</summary>
+        public static List<RadialEntry> BuildControlsList(DynamicThing thing)
+        {
+            if (thing == null) return new List<RadialEntry>();
+            if (UIAConfig.IsA) return DeviceControls.BuildEntries(thing);
+            var controls = new List<RadialEntry>();
+            AddControlEntries(controls, thing);
+            return controls;
+        }
+
+        public static bool UseSettingsWedge(int controlCount, int slotWedgeCount)
+            => controlCount > 2 || (controlCount > 0 && slotWedgeCount > 0);
+
+        public static RadialEntry BuildSettingsWedge(DynamicThing thing, int controlCount)
+        {
+            var t = thing;
+            return new RadialEntry
+            {
+                Label = "Settings",
+                ActionText = "Open",
+                Sublabel = controlCount + " setting(s)",
+                ChildProvider = () => BuildControlsList(t),
+            };
         }
 
         private static List<RadialEntry> BuildSlotsLevel(DynamicThing thing)
@@ -119,6 +124,14 @@ namespace StationeersUIMod.Features
         {
             if (thing == null) return false;
             if (thing.Slots != null && thing.Slots.Count > 0) return true;
+            if (UIAConfig.IsA)
+            {
+                // Match the generic enumeration, or wedges and satellites disagree.
+                if (thing.Interactables != null)
+                    foreach (var i in thing.Interactables)
+                        if (IsRealControl(i)) return true;
+                return false;
+            }
             return IsRealControl(thing.InteractOnOff) || IsRealControl(thing.InteractMode)
                 || IsRealControl(thing.InteractOpen) || IsRealControl(thing.InteractActivate);
         }
@@ -221,12 +234,10 @@ namespace StationeersUIMod.Features
             {
                 entry.ActionText = "Take to hand";
                 entry.OnSelect = () => { if (ItemActions.EquipToActiveHand(source)) RetrievalMemory.Record(thing); };
-                if (HasInnards(occ))
-                {
-                    // "Swipe over an object: take it, or open it if it is openable."
-                    entry.SlideOutProvider = () => BuildTakeOpenEntries(thing, source);
-                    entry.SlideOutLabel = "Open";
-                }
+                // Swipe over a slotted component (battery, canister, cartridge, tool...):
+                // TAKE / REPLACE (+ its settings, per the settings-wedge rule).
+                entry.SlideOutProvider = () => BuildComponentSatellite(thing, source);
+                entry.SlideOutLabel = "Options";
             }
             return entry;
         }
@@ -253,9 +264,15 @@ namespace StationeersUIMod.Features
             };
         }
 
-        /// <summary>Satellite for a non-container item: TAKE, and OPEN as a branch — clicking
-        /// OPEN promotes the item's manage level to the main radial (RMB backtracks).</summary>
-        public static List<RadialEntry> BuildTakeOpenEntries(DynamicThing thing, ScannedSlot source)
+        /// <summary>
+        /// Satellite for a slotted component (battery in a suit, canister in a tank slot,
+        /// cartridge in a tablet...): TAKE / REPLACE / its settings. REPLACE branches into
+        /// the swap list — every compatible item you can reach, with consequence warnings.
+        /// Settings follow the shared rule: 1-2 controls inline (a canister just shows
+        /// OPEN/CLOSE), more (or controls plus own slots) collapse into a SETTINGS wedge.
+        /// Clicking any branch promotes it to the main radial; RMB backtracks.
+        /// </summary>
+        public static List<RadialEntry> BuildComponentSatellite(DynamicThing thing, ScannedSlot source)
         {
             var entries = new List<RadialEntry>
             {
@@ -270,11 +287,29 @@ namespace StationeersUIMod.Features
                 },
                 new RadialEntry
                 {
+                    Label = "Replace",
+                    ActionText = "Replace",
+                    Sublabel = "swap with another",
+                    ChildProvider = () => BuildSlotCandidateEntries(source.Slot),
+                },
+            };
+
+            var controls = BuildControlsList(thing);
+            bool hasOwnSlots = thing.Slots != null && thing.Slots.Count > 0;
+            if (UseSettingsWedge(controls.Count, hasOwnSlots ? 1 : 0))
+                entries.Add(BuildSettingsWedge(thing, controls.Count));
+            else
+                entries.AddRange(controls);
+
+            if (hasOwnSlots)
+            {
+                entries.Add(new RadialEntry
+                {
                     Label = "Open",
                     ActionText = "Open " + thing.DisplayName,
                     ChildProvider = () => BuildManageEntries(thing, source.Slot, includeTakeEntry: false),
-                },
-            };
+                });
+            }
             return entries;
         }
 

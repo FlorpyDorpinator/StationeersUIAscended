@@ -63,6 +63,10 @@
     <Reference Include="UnityEngine.AnimationModule" Private="false">
       <HintPath>$(Managed)\UnityEngine.AnimationModule.dll</HintPath>
     </Reference>
+    <!-- World-grab raycast (Physics.Raycast / RaycastHit / Collider) -->
+    <Reference Include="UnityEngine.PhysicsModule" Private="false">
+      <HintPath>$(Managed)\UnityEngine.PhysicsModule.dll</HintPath>
+    </Reference>
     <!-- Procedural UGUI radial: MaskableGraphic / Image / Canvas + TMP labels -->
     <Reference Include="UnityEngine.UI" Private="false">
       <HintPath>$(Managed)\UnityEngine.UI.dll</HintPath>

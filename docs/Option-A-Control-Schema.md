@@ -61,9 +61,24 @@ preview happens exactly when you're aiming at it.
   to your hand). **Clicking** a nested bag opens it — the bag becomes the main radial
   and right-click backtracks. This works in the Tab radial and the backpack hotkey (4)
   radial alike.
-- **The swap-with-everything satellite is gone** in Option A. Slide out on an item and
-  you get **TAKE / OPEN**; open makes it the main radial, right-click backs out.
-  (Option D still has the old swap lists.)
+- **Component satellites (TAKE / REPLACE / settings)**: slide over a battery, canister,
+  cartridge — anything sitting in a slot — and you get **TAKE**, **REPLACE** (the full
+  swap list of every compatible item you can reach, with consequence warnings), and its
+  settings per the shared rule: one or two controls appear directly (a canister just
+  says **OPEN** or **CLOSE**), more collapse into a **SETTINGS** wedge. Items with
+  their own slots also get **OPEN**. Clicking any branch makes it the main radial;
+  right-click backs out.
+- **Settings are COMPLETE now**: radials enumerate controls exactly like vanilla's
+  inventory window (same filter, same live labels, same disabled logic) — jetpack
+  stabilizer, suit A/C · Air · Filter · Lock, helmet visor · light · flush, all there
+  automatically, including on modded items.
+- **Bag presentation options** (F10, for playtesting): grouping by sorting class
+  on/off; free space as per-slot STOW wedges, one aggregate STOW wedge, or both; and a
+  max-wedge cap (6–32) — **crowded rings page with Q**, with a "1/2 · Q: next page"
+  counter above the ring. Q never throws while a radial is open.
+- **Value scrolling is coarse by default**: suit pressure and temperature move ±10 per
+  wheel notch; **hold C for ±1** fine steps. Thrust and the portable-tank valve stay
+  one press per notch (thrust only has 19 steps; the valve steps ±10 natively).
 
 ## Click model, auto-close, dismissal
 
@@ -73,23 +88,44 @@ preview happens exactly when you're aiming at it.
 - **Middle-mouse tap dismisses** any sticky radial that isn't the toolbelt's own.
 - Tab / MMB / 1–6 all share this model.
 
-## Hand switching (Q / E)
+## Hand switching (E) and the hub
 
-While any radial is open, **Q makes the left hand active and E the right hand**
-(configurable; works in Option D too). Radials aim everything at the active hand —
-stows, equips, insert previews — so you can retarget mid-flick: open the toolbelt,
-tap Q, and the wrench equips into your left hand. The radial rebuilds on switch, so
-STOW previews immediately show the newly-active hand's item. Under the hood this
-drives the vanilla hand-swap (the same thing E does outside radials, with vanilla's
-own gates); vanilla's E/Q meanings are suppressed while a radial is open, and both
-keys type normally inside the search panel.
+- **E swaps the active hand** while any radial is open (configurable; Q is reserved
+  for a future gesture). The radial rebuilds on switch so STOW previews and equip
+  verbs immediately follow the new hand, and the **vanilla active-hand ring stays
+  lit** the whole time (vanilla hides it whenever the cursor unlocks; we re-assert
+  it). E types normally inside the search radial.
+- **The hub is a handle**: click-drag the center circle to move the whole radial
+  around the screen (satellites and readouts follow). It snaps back to center the
+  next time a radial opens. Move it aside when you're world-grabbing (below).
+- **CLOSE button**: the bottom edge of the hub is a click-to-close band that works in
+  every state (its colors are palette entries in the editor). Closing this way drops
+  parked chips, same as RMB-out; Escape remains the cancel-everything path.
+- **Shift = keep open**: hold Shift through any action that would auto-close the
+  radial and it stays open for your next action — release Shift and the next
+  unshifted action closes as usual.
 
-## Search all bags
+## Z-grab: pulling world items into the radial space
 
-The Tab radial's **SEARCH** wedge transforms the radial into a panel: search box on
-top, live-filtered results below (name, icon, count, location, state). Click a result —
-it lands in a free hand, or **drops at your feet** when both hands are full. Enter takes
-the top result. Escape / right-click returns to the radial.
+Hold the vanilla **mouse-mod key** (default Alt; yours is Z) while a radial is open
+and **click items lying in the world** — they tear off into the same drag layer as
+items dragged from wedges. Park them, open a bag, drag them into its STOW wedge:
+that's the full loop for clearing a floor into a backpack. Grabs are limited to
+free-lying items within the vanilla **3 m** cursor range, and the range is re-checked
+when the chip is dropped into a slot — build 27701's server never range-checks item
+moves, so the mod enforces vanilla's reach itself rather than becoming a range hack.
+Chips that came from the world are simply forgotten on RMB-out (they never left the
+floor).
+
+## Search all bags (radial form)
+
+The Tab radial's **SEARCH** wedge transforms the radial: the **top half becomes one
+fixed wedge** — the word SEARCH with a text box under it — and the **bottom half fills
+with result wedges** as you type (icon, name, count, live state). Results behave like
+any other item wedge: click takes (free hand, else drops at your feet), **press-drag
+tears the item out** into a parking chip, Enter takes the top result, the **wheel
+pages** when there are more matches than wedges, and Shift keeps the search open
+after a take. Escape / right-click returns to the radial.
 
 Typing is captured raw (`Input.inputString`) rather than through a focusable text field:
 our modal already holds the game's keys, and raw capture can't lose focus while UGUI

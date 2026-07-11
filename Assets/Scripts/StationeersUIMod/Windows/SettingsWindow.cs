@@ -50,6 +50,12 @@ namespace StationeersUIMod.Windows
                 Toggle(UIAConfig.EquipmentKeyRadialsEnabled, "Equipment key radials  (tap 1-6)");
                 Toggle(UIAConfig.ToolbeltShowStowEntries, "Show empty belt slots in the toolbelt radial");
                 IntSlider(UIAConfig.HoldThresholdMs, "Hold threshold (ms)", 60, 600);
+                ImGui.Separator();
+                ImGui.TextDisabled("Option A bag presentation (playtest options):");
+                Toggle(UIAConfig.BagGrouping, "Group crowded bags by sorting class");
+                EmptySlotCombo();
+                IntSlider(UIAConfig.RadialMaxWedges, "Max wedges per radial (overflow -> MORE)", 6, 32);
+                ImGui.Separator();
                 DrawVisualControls();
             }
 
@@ -126,13 +132,17 @@ namespace StationeersUIMod.Windows
             FloatSlider(UIAConfig.RadialOuterRadius, "Radial size", 120f, 480f);
             FloatSlider(UIAConfig.RadialInnerRadius, "Hub (center circle) size", 60f, 260f);
             FloatSlider(UIAConfig.RadialSatelliteScale, "Child radial size", 0.5f, 1.6f);
-            FloatSlider(UIAConfig.RadialIconScale, "Icon size", 0.5f, 2.5f);
+            FloatSlider(UIAConfig.RadialIconRatio, "Icon size (fraction of wedge)", 0.15f, 1.1f);
             FloatSlider(UIAConfig.RadialBorderWidth, "Border thickness (px)", 0f, 10f);
             Toggle(UIAConfig.RadialSideBorders, "Borders on wedge SIDE edges (full outline)");
+            FloatSlider(UIAConfig.RadialSideWidthInner, "Side line width at hub (px)", 0.5f, 12f);
+            FloatSlider(UIAConfig.RadialSideWidthOuter, "Side line width at rim (px)", 0.5f, 12f);
             FloatSlider(UIAConfig.RadialWedgeGapDeg, "Gap between wedges (deg)", 0f, 6f);
             FloatSlider(UIAConfig.RadialEdgeFeather, "Edge softness / anti-aliasing (px)", 0f, 4f);
+            FloatSlider(UIAConfig.RadialShineIntensity, "Shine intensity (0 = flat)", 0f, 2f);
             Toggle(UIAConfig.RadialDimShading, "Dim other wedges while one is highlighted");
             FloatSlider(UIAConfig.RadialDimStrength, "Dim strength", 0f, 1f);
+            FloatSlider(UIAConfig.ParkedChipRadius, "Dragged-out item bubble size (px)", 16f, 80f);
             Toggle(UIAConfig.RadialUppercaseLabels, "ALL CAPS wedge labels");
             Toggle(UIAConfig.RadialShowStateText, "State under icons (battery %, kPa, counts)");
             Toggle(UIAConfig.RadialShowWedgeLabels, "Show item name under each icon");
@@ -140,18 +150,46 @@ namespace StationeersUIMod.Windows
             Toggle(UIAConfig.UseUnityRadial, "Unity UGUI renderer (procedural wedges, TMP, animations)");
         }
 
+        private static string _lastHotSig = "";
+        private static System.Collections.Generic.Dictionary<string, string> _frameSnapshot;
+        private static System.Collections.Generic.Dictionary<string, string> _pendingUndo;
+
         private static void DrawColourControls()
         {
             ImGui.TextDisabled("Click a swatch for a colour wheel. The A slider is transparency.");
-            ImGui.TextDisabled("Changes apply live and persist to the config file.");
+            if (RadialEditorMode.Active)
+                ImGui.TextDisabled("Hover an element in the preview - its colours light up ORANGE here.");
+
+            if (ImGui.Button("Undo"))
+                Overlay.RadialPalette.History.Undo();
+            ImGui.SameLine();
+            if (ImGui.Button("Redo"))
+                Overlay.RadialPalette.History.Redo();
+            ImGui.SameLine();
+            ImGui.TextDisabled(Overlay.RadialPalette.History.CanUndo ? "" : "(nothing to undo)");
             ImGui.Spacing();
 
+            // Pre-widget state this frame: becomes the undo step if an edit starts below.
+            _frameSnapshot = Overlay.RadialPalette.Snapshot();
+            string hotSig = RadialEditorMode.Active ? RadialEditorMode.HotSignature : "";
+            bool scrollTo = hotSig != _lastHotSig && hotSig.Length > 0;
+            _lastHotSig = hotSig;
+
             foreach (var entry in Overlay.RadialPalette.All)
+            {
+                bool hot = RadialEditorMode.Active && RadialEditorMode.HotPalette.Contains(entry.Name);
+                if (hot)
+                {
+                    if (scrollTo) { ImGui.SetScrollHereY(0.3f); scrollTo = false; }
+                    ImGui.PushStyleColor(ImGuiCol.Text, new Vector4(1f, 0.55f, 0.16f, 1f));
+                }
                 ColorWheel(entry);
+                if (hot) ImGui.PopStyleColor();
+            }
 
             ImGui.Spacing();
             if (ImGui.Button("Reset all colours to defaults"))
-                Overlay.RadialPalette.ResetToDefaults();
+                Overlay.RadialPalette.ResetToDefaults(); // pushes its own undo step
         }
 
         private static void SchemaCombo()
@@ -169,6 +207,24 @@ namespace StationeersUIMod.Windows
             ImGui.TextDisabled(UIAConfig.IsA
                 ? "A: STOW wedges, device satellites, search panel, drag-out parking, auto-close."
                 : "D: the classic pre-overhaul behavior (swap lists, click executes immediately).");
+        }
+
+        private static void EmptySlotCombo()
+        {
+            var mode = UIAConfig.BagEmptySlots.Value;
+            string current = mode == EmptySlotMode.EmptySlots ? "Empty slots (no stow wedge)"
+                : mode == EmptySlotMode.StowAndEmptySlots ? "Stow wedge + empty slots"
+                : "Stow wedge only";
+            if (ImGui.BeginCombo("Free space in bags", current))
+            {
+                if (ImGui.Selectable("Empty slots (no stow wedge)", mode == EmptySlotMode.EmptySlots))
+                    UIAConfig.BagEmptySlots.Value = EmptySlotMode.EmptySlots;
+                if (ImGui.Selectable("Stow wedge + empty slots", mode == EmptySlotMode.StowAndEmptySlots))
+                    UIAConfig.BagEmptySlots.Value = EmptySlotMode.StowAndEmptySlots;
+                if (ImGui.Selectable("Stow wedge only", mode == EmptySlotMode.StowOnly))
+                    UIAConfig.BagEmptySlots.Value = EmptySlotMode.StowOnly;
+                ImGui.EndCombo();
+            }
         }
 
         private static void FontCombo()
@@ -201,6 +257,15 @@ namespace StationeersUIMod.Windows
                                             | ImGuiColorEditFlags.PickerHueWheel;
             if (ImGui.ColorEdit4(entry.Name, ref v, flags))
                 entry.Value = new Color(v.x, v.y, v.z, v.w);
+            // One drag = one undo step: capture the pre-edit state when the widget is
+            // picked up, commit it when the edit finishes.
+            if (ImGui.IsItemActivated())
+                _pendingUndo = _frameSnapshot;
+            if (ImGui.IsItemDeactivatedAfterEdit() && _pendingUndo != null)
+            {
+                Overlay.RadialPalette.History.PushUndo(_pendingUndo);
+                _pendingUndo = null;
+            }
         }
 
         private static void Toggle(ConfigEntry<bool> entry, string label)

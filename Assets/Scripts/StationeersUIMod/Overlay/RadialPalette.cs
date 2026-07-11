@@ -60,11 +60,15 @@ namespace StationeersUIMod.Overlay
         // Hub (the circle in the middle)
         public static Entry HubFill;
         public static Entry HubBorder;
+        public static Entry HubCloseFill;
+        public static Entry HubCloseHover;
+        public static Entry HubCloseText;
 
         // Text
         public static Entry TextPrimary;
         public static Entry TextDim;
         public static Entry TextAccent;
+        public static Entry TextDisabled;
 
         public static void Bind(ConfigFile cfg)
         {
@@ -94,6 +98,12 @@ namespace StationeersUIMod.Overlay
                 "Centre circle background (alpha 0 = invisible by default).");
             HubBorder = Add(cfg, "HubBorder", "FF8C29AE",
                 "Centre circle rim.");
+            HubCloseFill = Add(cfg, "HubCloseButton", "0E213380",
+                "The CLOSE button band at the bottom of the hub.");
+            HubCloseHover = Add(cfg, "HubCloseButtonHover", "FF6900A0",
+                "CLOSE button while the mouse is on it.");
+            HubCloseText = Add(cfg, "HubCloseText", "FFFFFFE6",
+                "The word CLOSE on the hub button.");
 
             TextPrimary = Add(cfg, "TextPrimary", "FFFFFFFF",
                 "Main readout text.");
@@ -101,6 +111,8 @@ namespace StationeersUIMod.Overlay
                 "Secondary readout text.");
             TextAccent = Add(cfg, "TextAccent", "FFFFFFFF",
                 "The action verb in the hub.");
+            TextDisabled = Add(cfg, "TextDisabled", "7FA6BBAA",
+                "Labels on DISABLED wedges (was tied to the wedge fill — now its own colour).");
         }
 
         private static Entry Add(ConfigFile cfg, string name, string defaultHex, string desc)
@@ -112,8 +124,67 @@ namespace StationeersUIMod.Overlay
 
         public static void ResetToDefaults()
         {
+            History.PushUndo(Snapshot());
             foreach (var e in All)
                 e.Config.Value = (string)e.Config.DefaultValue;
+        }
+
+        public static Dictionary<string, string> Snapshot()
+        {
+            var s = new Dictionary<string, string>(All.Count);
+            foreach (var e in All) s[e.Name] = e.Config.Value;
+            return s;
+        }
+
+        public static void Apply(Dictionary<string, string> snapshot)
+        {
+            if (snapshot == null) return;
+            foreach (var e in All)
+            {
+                string hex;
+                if (snapshot.TryGetValue(e.Name, out hex)) e.Config.Value = hex;
+            }
+        }
+
+        /// <summary>
+        /// Undo/redo for the colour editor. The editor captures a snapshot when a colour
+        /// widget is picked up and commits it when the edit ends, so one drag across the
+        /// hue wheel is ONE undo step, not five hundred.
+        /// </summary>
+        public static class History
+        {
+            private const int Cap = 50;
+            private static readonly List<Dictionary<string, string>> _undo = new List<Dictionary<string, string>>();
+            private static readonly List<Dictionary<string, string>> _redo = new List<Dictionary<string, string>>();
+
+            public static bool CanUndo => _undo.Count > 0;
+            public static bool CanRedo => _redo.Count > 0;
+
+            public static void PushUndo(Dictionary<string, string> preEditState)
+            {
+                if (preEditState == null) return;
+                _undo.Add(preEditState);
+                if (_undo.Count > Cap) _undo.RemoveAt(0);
+                _redo.Clear();
+            }
+
+            public static void Undo()
+            {
+                if (_undo.Count == 0) return;
+                var state = _undo[_undo.Count - 1];
+                _undo.RemoveAt(_undo.Count - 1);
+                _redo.Add(Snapshot());
+                Apply(state);
+            }
+
+            public static void Redo()
+            {
+                if (_redo.Count == 0) return;
+                var state = _redo[_redo.Count - 1];
+                _redo.RemoveAt(_redo.Count - 1);
+                _undo.Add(Snapshot());
+                Apply(state);
+            }
         }
 
         // ---------- hex <-> Color ----------
