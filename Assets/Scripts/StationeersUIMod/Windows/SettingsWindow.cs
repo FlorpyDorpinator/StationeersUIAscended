@@ -80,6 +80,13 @@ namespace StationeersUIMod.Windows
 
             if (ImGui.CollapsingHeader("Visor HUD", ImGuiTreeNodeFlags.DefaultOpen))
             {
+                Toggle(UI.Hud.HudConfig.VisorHudEnabled, "Visor HUD (UGUI: curved bar, compass, vitals)");
+                if (ImGui.Button("Open HUD editor  (" + UI.Hud.HudConfig.HudEditorKey.Value + ")"))
+                    StationeersUIMod.Instance?.ToggleHudEditor();
+                ImGui.SameLine();
+                ImGui.TextDisabled("click HUD elements to edit them");
+                ImGui.Separator();
+                ImGui.TextDisabled("Legacy ImGui overlay (0.1.0 fallback):");
                 Toggle(UIAConfig.HudEnabled, "Enable HUD overlay");
                 Toggle(UIAConfig.HudHandBoxes, "Two-hand boxes");
                 Toggle(UIAConfig.HudStatusStrip, "Top status strip");

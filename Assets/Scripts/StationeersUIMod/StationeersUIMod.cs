@@ -18,8 +18,8 @@ namespace StationeersUIMod
     /// </summary>
     public sealed class StationeersUIMod : MonoBehaviour
     {
-        public const string ModVersion = "0.4.0";
-        public const string VersionDisplay = "0.4.0 Alpha";
+        public const string ModVersion = "0.5.0";
+        public const string VersionDisplay = "0.5.0 Alpha";
         public const string ModGuid = "com.stationeersuimod.ui";
 
         public static StationeersUIMod Instance { get; private set; }
@@ -34,6 +34,7 @@ namespace StationeersUIMod
         private HudOverlayFeature _hud;
         private SettingsWindow _settingsWindow;
         private ProfileEditorWindow _profileEditor;
+        private HudEditorWindow _hudEditorWindow;
         private readonly List<EquipmentKeyRadialFeature> _equipFeatures
             = new List<EquipmentKeyRadialFeature>();
         private int _drawExceptions;
@@ -132,6 +133,14 @@ namespace StationeersUIMod
                     && (_settingsWindow == null || !_settingsWindow.IsShowing))
                     Windows.RadialEditorMode.Exit();
 
+                // Same contract for the F9 HUD editor; the two editors never share the
+                // screen (the radial editor's black backdrop would hide the HUD anyway).
+                if (Windows.HudEditorMode.Active
+                    && (_hudEditorWindow == null || !_hudEditorWindow.IsShowing))
+                    Windows.HudEditorMode.Exit();
+                if (Windows.RadialEditorMode.Active && Windows.HudEditorMode.Active)
+                    ToggleHudEditor();
+
                 // The ImGui draw hook stops firing over the loading screen / main menu, so
                 // anything the hook would hide must be hidden HERE — Update keeps running.
                 // Without this, DontDestroyOnLoad radial/parking canvases freeze on screen
@@ -141,6 +150,14 @@ namespace StationeersUIMod
                 {
                     if (_radials.IsRadialOpen) _radials.CloseAll();
                     if (Windows.RadialEditorMode.Active) Windows.RadialEditorMode.Exit();
+                    // The F9 editor's dim backdrop must never survive onto the loading
+                    // screen / main menu; close its window through the game's manager.
+                    if (Windows.HudEditorMode.Active)
+                    {
+                        if (_hudEditorWindow != null && _hudEditorWindow.IsShowing)
+                            ImGuiWindowManager.Close(_hudEditorWindow);
+                        Windows.HudEditorMode.Exit();
+                    }
                     UI.UnityRadialView.Hide();
                     UI.ParkedItemsView.Hide();
                     UI.SearchPanelView.Hide();
@@ -148,9 +165,18 @@ namespace StationeersUIMod
 
                 _radials.Update();
 
-                if (Input.GetKeyDown(UIAConfig.SettingsWindowKey.Value) && Guards.CanDraw()
+                // The visor HUD is pure UGUI — it runs off Update, not the ImGui hook
+                // (which stops over loading screens; Update keeps running and hides it).
+                UI.Hud.HudSystem.Update(Windows.HudEditorMode.Active);
+                if (Windows.HudEditorMode.Active) Windows.HudEditorMode.Update();
+
+                if (Input.GetKeyDown(UIAConfig.SettingsWindowKey.Value) && Guards.CanToggleMenus()
                     && !_radials.IsRadialOpen)
                     ToggleSettingsWindow();
+
+                if (Input.GetKeyDown(UI.Hud.HudConfig.HudEditorKey.Value) && Guards.CanToggleMenus()
+                    && !_radials.IsRadialOpen && !Windows.RadialEditorMode.Active)
+                    ToggleHudEditor();
             }
             catch (Exception e)
             {
@@ -184,7 +210,16 @@ namespace StationeersUIMod
                     return;
                 }
 
-                _hud.Draw();
+                // The click-to-edit popup rides the game's ImGui frame.
+                Windows.HudEditorWindow.DrawPopupOverlay();
+
+                // Legacy ImGui HUD only when the UGUI visor HUD is off (or explicitly
+                // preferred); the visor HUD itself draws from Update, not from here.
+                if (UI.Hud.HudConfig.LegacyImGuiHud.Value
+                    || !UI.Hud.HudConfig.VisorHudEnabled.Value)
+                    _hud.Draw();
+                else
+                    _hud.RestoreVanillaIfNeeded();
                 _radials.Draw();
             }
             finally
@@ -246,6 +281,22 @@ namespace StationeersUIMod
             else ImGuiWindowManager.Open(_profileEditor);
         }
 
+        public void ToggleHudEditor()
+        {
+            if (_hudEditorWindow == null) _hudEditorWindow = new HudEditorWindow();
+            if (_hudEditorWindow.IsShowing)
+            {
+                ImGuiWindowManager.Close(_hudEditorWindow);
+                Windows.HudEditorMode.Exit();
+            }
+            else
+            {
+                if (Windows.RadialEditorMode.Active) Windows.RadialEditorMode.Exit();
+                ImGuiWindowManager.Open(_hudEditorWindow);
+                Windows.HudEditorMode.Enter();
+            }
+        }
+
         private void OnDestroy()
         {
             if (Instance != this) return;
@@ -254,6 +305,9 @@ namespace StationeersUIMod
                 _radials?.ShutdownImmediate();
                 if (_settingsWindow != null && _settingsWindow.IsShowing) ImGuiWindowManager.Close(_settingsWindow);
                 if (_profileEditor != null && _profileEditor.IsShowing) ImGuiWindowManager.Close(_profileEditor);
+                if (_hudEditorWindow != null && _hudEditorWindow.IsShowing) ImGuiWindowManager.Close(_hudEditorWindow);
+                Windows.HudEditorMode.Shutdown();
+                UI.Hud.HudSystem.Shutdown();
                 _hud?.RestoreVanillaIfNeeded();
                 BagProfileStore.SaveAssignments();
                 IconCache.Clear();

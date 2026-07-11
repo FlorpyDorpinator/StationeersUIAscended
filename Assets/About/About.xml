@@ -1,7 +1,7 @@
 ﻿<ModMetadata xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
   <Name>StationeersUIMod</Name>
   <Author>FlorpyDorp + JXSN</Author>
-  <Version>0.4.0</Version>
+  <Version>0.5.0</Version>
   <Description>
 	  [h1]Stationeers UI Mod[/h1]
 	  
@@ -18,6 +18,15 @@ Ported from BepInEx proof-of-concept into Unity mod project. Radials are now dra
 <br>
 ]]></InGameDescription>
   <ChangeLog>
+    [h3]Version 0.5.0:[/h3]
+    [list]
+    [*] The visor HUD: full-screen UGUI replacement built to the concept art — curved top status bar (UTC, pressure, O2, temp, power, water, suit status), compass ribbon with cardinals + degrees, left equipment column (1-6), bottom hand tray, vitals card with the live 3D player as a cyan hologram, visor-edge vignette
+    [*] Diegetic tiers: full readout only with a powered suit; without one you get felt-sense WORDS (WARM, HUNGRY, THIN AIR) that flare on change; the robot always sees everything
+    [*] Suit power death collapses the HUD in a CRT flicker; a powered suit boots it back panel by panel; low battery causes dropout glitches
+    [*] All THREE curvature implementations: A vertex warp, B RenderTexture dome projection (+scanlines), C curved world-space canvas — switchable live
+    [*] F9 HUD editor: click any HUD element on screen to edit its colours/sizes in a popup right there; hover highlights its palette entries; every colour/font/size/behavior knob with Undo/Redo
+    [*] docs/Moodlets-Reference.md: every vanilla status/moodlet with exact triggers
+    [/list]
     [h3]Version 0.4.0:[/h3]
     [list]
     [*] Generic device settings: every setting vanilla's inventory window shows, with vanilla's live labels (jetpack stabilizer, suit A/C / air / filter / pressure / temperature, helmet visor / light / flush) — SETTINGS wedge everywhere by one shared rule

@@ -156,7 +156,7 @@ low-risk (pure rendering). Phase 3's only real work is the data verification abo
 - **The mockup's category-root radial** (Backpack/Tools/Devices/Atmospherics/Clothing) is
   the best version of Tab yet — and our UIA sorting classes are literally that taxonomy.
   When we build the HUD, Tab's root should become these categories with the worn-equipment
-  entries beneath.
+  entries beneath.----DO NOT IMPLEMENT
 - **Suit status word** (the mockup's "NOMINAL") is a great top-level abstraction: derive
   it as worst-of(filters, battery, tank pressure, waste) → NOMINAL / CHECK / WARNING /
   CRITICAL, and let hovering it open the suit radial.

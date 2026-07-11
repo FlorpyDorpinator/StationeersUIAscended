@@ -45,6 +45,17 @@ namespace StationeersUIMod.Core
             return true;
         }
 
+        /// <summary>Gate for the F9/F10 editor toggles: never over the console, a text
+        /// input, or the creative spawn menu (vanilla also binds F9 to SpawnItem there).</summary>
+        public static bool CanToggleMenus()
+        {
+            if (!CanDraw()) return false;
+            if (ConsoleWindow.IsOpen) return false;
+            if (InputWindowBase.IsInputWindow) return false;
+            if (ImguiCreativeSpawnMenu.Show) return false;
+            return true;
+        }
+
         /// <summary>True while an OPEN radial may stay open (cursor is intentionally free).</summary>
         public static bool CanKeepRadialOpen()
         {

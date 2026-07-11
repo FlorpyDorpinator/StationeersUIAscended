@@ -2,6 +2,74 @@
 
 All notable changes to the mod. Detailed engineering write-ups live in `Changes Reports/`.
 
+## 0.5.0 Alpha — 2026-07-10
+
+**The visor HUD** — the full-UI replacement from the feasibility report, built to the
+concept art. User guide: `docs/Visor-HUD.md`. The radials are untouched.
+
+### The interface
+- **Curved top status bar**: UTC date/clock, PRESSURE · O₂ · TEMP · POWER · WATER
+  cells, SUIT STATUS word (worst-of battery/air/filters/waste). Value colors flip at
+  the game's REAL damage/warning thresholds (verified in the decompile).
+- **Compass ribbon** at top-center (~12 % of the screen, adjustable): sliding cardinal
+  letters + ticks past a fixed caret with exact degrees — same numbers as vanilla's
+  Navigation readout, but camera-true in free-look.
+- **Equipment column** (left): six live-thumbnail boxes = keys 1-6; the robot's #5
+  reads BATTERY like its real slot.
+- **Hand tray** (bottom-center): LEFT/RIGHT hand boxes on a trapezoid shelf, active
+  hand in orange. Never a hotbar.
+- **Vitals card** (bottom-right): the game's live 3D player render as a cyan
+  **hologram** (tinted portrait RenderTexture + scanlines) beside HEALTH / O₂ /
+  POWER / TEMP and a DAY + time footer.
+- **Vignette** visor-edge darkening. All procedural UGUI — no assets, no shaders shipped.
+
+### Diegetic tiers + flicker
+- The HUD is the SUIT's HUD: numbers only while a powered suit is worn (the game's own
+  synced `Powered` bit). Without one: felt-sense **words** — WARM, COLD, THIN AIR,
+  HUNGRY, PARCHED, HURT — that flare when a sensation changes; the clock becomes
+  MORNING/DUSK/NIGHT. The robot always gets the full readout.
+- **Power death collapses the HUD**: 0.8 s decaying flicker + CRT vertical squash, then
+  bare senses fade in slowly. A powered suit **boots the panels back one by one**;
+  turning any panel off flickers it out; under 10 % battery the HUD glitches with
+  single-frame dropouts. All under a `FlickerAnimations` switch.
+
+### Curvature — A, B and C, all implemented
+- **A — Vertex warp** (default): per-element mesh bend, crisp SDF text, zero cost.
+- **B — Dome projection**: the HUD renders into a RenderTexture shown on a dome grid
+  (one true projection) with an optional scanline wash. Off-screen disabled camera,
+  manually rendered — the game's own off-screen pattern.
+- **C — Curved world canvas** (experimental): the canvas physically floats ahead of
+  the camera, cylinder-bent, on ZTest-always materials (the game ships TMP's Overlay
+  shader). True perspective curvature.
+
+### The F9 HUD editor
+- **Click any HUD element on screen** → an edit popup opens next to it with exactly
+  that element's colors and sliders. Hovering highlights its palette entries orange in
+  the F9 window (which scrolls to them).
+- Everything is editable: curvature mode/strength, per-panel toggles, every size, any
+  loaded TMP font + per-role font sizes, the tier/flicker behavior, and all 19 HUD
+  colors (own palette — the radials keep theirs) with **Undo/Redo** and reset.
+- **Preview tier** combo (BARE/SUITED/ROBOT) + **Test power-death / Test boot** buttons.
+
+### Docs
+- `docs/Moodlets-Reference.md`: every vanilla moodlet/status with exact trigger
+  conditions and client-safe read paths — the menu for what the HUD surfaces next.
+- Vanilla hands/clothing/status panels hide only via the game's own path (opt-in,
+  reconciled against their ACTUAL state so vanilla's own re-shows — waking from
+  unconsciousness — can't strand them; restored on exit). Legacy 0.1.0 ImGui HUD
+  kept as a fallback toggle.
+
+### Review
+- 7-dimension adversarial pass (~40 raw findings; verified by hand): **28 fixed,
+  5 accepted/refuted** — plus the play-test catch that the curvature bent the wrong
+  way on all three modes (flipped; `CurveInvert` in F9 for either taste). Highlights:
+  stale atmosphere readings could mask a vacuum (fields now reset; missing air reads
+  as 0 kPa); 1.4 px hairlines were silently culled by a 1 px mesh guard; the forced
+  portrait camera wasn't released when only the vitals card hid; F9's test buttons
+  were cancelled one frame later; F9 = vanilla's CREATIVE spawn key (gated +
+  documented — rebind in creative); editor clicks reached the world (BlockCursorRaycast
+  now held); robot with no battery now glitches hardest instead of not at all.
+
 ## 0.4.0 Alpha — 2026-07-10
 
 Iteration 2 on the Option A schema, plus the full-UI feasibility report

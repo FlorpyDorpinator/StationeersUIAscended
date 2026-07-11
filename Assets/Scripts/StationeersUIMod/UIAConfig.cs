@@ -295,6 +295,9 @@ namespace StationeersUIMod
 
             // Every radial colour, live-editable from the F10 colour wheels.
             Overlay.RadialPalette.Bind(cfg);
+
+            // The visor HUD: sizes, curvature, tiers, fonts + its own palette (F9 editor).
+            UI.Hud.HudConfig.Bind(cfg);
         }
     }
 }
