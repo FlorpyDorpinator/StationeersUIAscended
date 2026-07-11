@@ -15,6 +15,9 @@ namespace StationeersUIMod.Features
         /// <summary>When true the radial opens on TAP (sticky) and OnHold() runs on a long press.
         /// When false the radial opens on HOLD and OnTap() re-dispatches the vanilla tap.</summary>
         bool OpenOnTap { get; }
+        /// <summary>When true, BOTH gestures open the radial: tap = sticky, hold = transient
+        /// (Option B's toolbelt). Takes precedence over OpenOnTap; OnTap/OnHold never run.</summary>
+        bool OpensOnBoth { get; }
         /// <summary>Cheap pre-check before anything happens (e.g. "holding a tool").</summary>
         bool CanOpen();
         List<RadialEntry> BuildRoot();
@@ -92,7 +95,12 @@ namespace StationeersUIMod.Features
             if (!Input.GetKey(feature.Key))
             {
                 _pending = null;
-                if (feature.OpenOnTap)
+                if (feature.OpensOnBoth)
+                {
+                    // Option B toolbelt: tap opens the same radial LATCHED (tap a wedge to select).
+                    OpenRadial(feature, sticky: true);
+                }
+                else if (feature.OpenOnTap)
                 {
                     // Tap opens the management radial (sticky — the key is already up).
                     OpenRadial(feature, sticky: true);
@@ -108,7 +116,7 @@ namespace StationeersUIMod.Features
             if (heldMs < UIAConfig.HoldThresholdMs.Value) return;
             _pending = null;
 
-            if (feature.OpenOnTap)
+            if (!feature.OpensOnBoth && feature.OpenOnTap)
             {
                 // Long press = the feature's hold action (e.g. equip to hand).
                 feature.OnHold();
@@ -182,6 +190,17 @@ namespace StationeersUIMod.Features
                     CloseAll();
                     return;
                 }
+                // Option B: while the key is held, LMB dives into branches (The Hub),
+                // RMB backs out, and an executed action closes the menu right here.
+                if (UIAConfig.IsB)
+                {
+                    _menu.UpdateHoldB();
+                    if (!_menu.IsOpen)
+                    {
+                        CloseAll();
+                        return;
+                    }
+                }
             }
             else
             {
@@ -190,14 +209,19 @@ namespace StationeersUIMod.Features
                 // and MMB dismiss gestures must not fire (the panel handles its own exits).
                 if (!_menu.IsSearchOpen)
                 {
-                    // Re-pressing the radial key closes a sticky radial.
-                    if (_active != null && Input.GetKeyDown(_active.Key))
+                    // Re-pressing the radial key closes a sticky radial — except Option B's
+                    // MMB-keyed radial, where that press IS the select gesture (the menu
+                    // handles it in UpdateSticky).
+                    bool repressSelects = UIAConfig.IsB && _active != null
+                        && _active.Key == KeyCode.Mouse2;
+                    if (_active != null && !repressSelects && Input.GetKeyDown(_active.Key))
                     {
                         CloseAll();
                         return;
                     }
-                    // Option A: tapping middle mouse dismisses any sticky radial it doesn't own.
-                    if (UIAConfig.IsA && Input.GetMouseButtonDown(2)
+                    // Option A only: tapping middle mouse dismisses any sticky radial it
+                    // doesn't own. In B the menu owns MMB (select / dismiss-on-empty).
+                    if (UIAConfig.IsA && !UIAConfig.IsB && Input.GetMouseButtonDown(2)
                         && _active != null && _active.Key != KeyCode.Mouse2)
                     {
                         CloseAll();

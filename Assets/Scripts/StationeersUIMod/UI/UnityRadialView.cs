@@ -750,7 +750,9 @@ namespace StationeersUIMod.UI
 
                 if (hovered == null)
                 {
-                    _verb.text = hint ?? (sticky ? "LMB select | RMB back" : "release to cancel");
+                    _verb.text = hint ?? (sticky
+                        ? (UIAConfig.IsB ? "MMB/LMB select | RMB back" : "LMB select | RMB back")
+                        : (UIAConfig.IsB ? "release to cancel | LMB dive in" : "release to cancel"));
                     _verb.color = RadialPalette.TextDim.Value;
                     _label.text = _sub.text = _warn.text = string.Empty;
                     return;

@@ -66,6 +66,7 @@ namespace StationeersUIMod.Features
         }
 
         public bool OpenOnTap => true;
+        public bool OpensOnBoth => false;
 
         public string ButtonName => _buttonName;
 

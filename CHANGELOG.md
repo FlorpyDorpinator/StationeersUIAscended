@@ -2,6 +2,30 @@
 
 All notable changes to the mod. Detailed engineering write-ups live in `Changes Reports/`.
 
+## 0.6.0 Alpha — 2026-07-11
+
+**Radial Option B — "The Hub"** (`ControlSchema: OptionB`, pick it in F10 or the config).
+Option B is Option A plus a new middle-mouse gesture language; A and D are unchanged.
+
+- **The Hub wedge**: the toolbelt radial grows a top-center wedge, *The Hub*, that
+  branches into exactly what Tab opens — Search, every worn equipment piece, grab-another
+  — built by the same code, so the two can never drift apart. With no toolbelt worn the
+  MMB radial still opens (just the Hub).
+- **Hold MMB** (transient, as always): flick and release to equip, and now — point at
+  The Hub for a quarter second (or LMB-click it) to dive in; LMB enters bags/categories,
+  RMB backs out one level; **releasing MMB always closes** and runs whatever enabled
+  action you were hovering. A release right after diving in is treated as gesture
+  momentum and cancels (0.3 s grace), never fires the wedge that happens to be under
+  the cursor. Releasing over a branch just closes (only Option A latches sticky there).
+- **Tap MMB** (new): the same toolbelt radial opens **sticky** — flick around, then
+  **tap MMB again on a wedge to select it** (branches navigate deeper, actions run and
+  close the menu), tap the CLOSE band to close deliberately (drops parked chips), tap
+  empty space to dismiss. MMB is the select button in **every** sticky radial under B
+  (Tab and the 1-6 keys too); LMB keeps working exactly as in A.
+- Everything Option A does — STOW wedges, device satellites, scroll-adjust values, the
+  search panel, drag-out parking, Shift-keep-open, auto-close after one action — is
+  inherited unchanged by B.
+
 ## 0.5.0 Alpha — 2026-07-10
 
 **The visor HUD** — the full-UI replacement from the feasibility report, built to the

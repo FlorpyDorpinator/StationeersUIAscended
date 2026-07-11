@@ -9,11 +9,16 @@ namespace StationeersUIMod
     /// OptionA — the 2026-07 overhaul: STOW wedges, device-control satellites with
     ///   scroll-adjustable values, take/open satellites on nested bags (no giant swap
     ///   lists), auto-close after actions, search-all-bags panel, drag-out parking.
+    /// OptionB — everything OptionA does, plus "The Hub": the toolbelt radial grows a
+    ///   top-center wedge into the Tab inventory root. TAP middle mouse = sticky toolbelt
+    ///   (tap MMB again on a wedge to select), HOLD = transient (LMB dives into branches,
+    ///   release runs the hovered action and closes).
     /// OptionD — the classic pre-overhaul behavior, kept for A/B testing.
     /// </summary>
     public enum ControlSchema
     {
         OptionA,
+        OptionB,
         OptionD,
     }
 
@@ -43,8 +48,15 @@ namespace StationeersUIMod
         public static ConfigEntry<KeyCode> RadialPageKey;
         public static ConfigEntry<KeyCode> RadialFineAdjustKey;
 
-        /// <summary>Shorthand for "the Option A behavior set is active".</summary>
-        public static bool IsA => Schema == null || Schema.Value == ControlSchema.OptionA;
+        /// <summary>Shorthand for "the Option A behavior SET is active" — B is A plus the
+        /// Hub gestures, so every A-gated behavior (STOW wedges, satellites, search,
+        /// parking, scroll values, auto-close) applies to both. Only interaction deltas
+        /// check IsB on top.</summary>
+        public static bool IsA => Schema == null || Schema.Value != ControlSchema.OptionD;
+
+        /// <summary>Option B's interaction deltas: The Hub wedge, MMB tap-opens-sticky,
+        /// MMB-tap-selects in sticky radials, LMB branch-diving in hold mode.</summary>
+        public static bool IsB => Schema != null && Schema.Value == ControlSchema.OptionB;
 
         // --- Toolbelt radial ---
         public static ConfigEntry<bool> ToolbeltRadialEnabled;
@@ -128,7 +140,10 @@ namespace StationeersUIMod
             Schema = cfg.Bind("1. General", "ControlSchema", ControlSchema.OptionA,
                 "Radial interaction model. OptionA: STOW wedges, device-control satellites with scroll " +
                 "values, take/open on nested bags, auto-close after actions, search panel, drag-out " +
-                "parking. OptionD: the classic behavior, kept for A/B comparison.");
+                "parking. OptionB: OptionA plus The Hub - a top-center wedge on the toolbelt radial " +
+                "into the Tab inventory root; TAP middle mouse opens the toolbelt sticky (tap MMB " +
+                "again to select), HOLD stays transient (LMB enters branches, release runs the " +
+                "hovered action). OptionD: the classic behavior, kept for A/B comparison.");
             RadialHandSwapKey = cfg.Bind("1. General", "RadialHandSwapKey", KeyCode.E,
                 "While a radial is open: swap the active hand (radials aim stows and equips at the " +
                 "active hand). Matches vanilla E-to-swap; drives the same vanilla swap underneath.");

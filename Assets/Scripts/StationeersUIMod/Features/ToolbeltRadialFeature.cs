@@ -20,17 +20,38 @@ namespace StationeersUIMod.Features
         public bool Enabled => UIAConfig.ToolbeltRadialEnabled.Value;
         public KeyCode Key => UIAConfig.ToolbeltRadialKey.Value;
         public bool OpenOnTap => false;
+        /// <summary>Option B: TAP opens this radial sticky, HOLD opens it transient.</summary>
+        public bool OpensOnBoth => UIAConfig.IsB;
 
         public bool CanOpen()
         {
             var human = Guards.LocalHuman;
-            return human?.ToolbeltSlot?.Get() != null;
+            if (human == null) return false;
+            // Option B: The Hub makes the radial useful even with no toolbelt worn.
+            return UIAConfig.IsB || human.ToolbeltSlot?.Get() != null;
         }
 
         public List<RadialEntry> BuildRoot()
         {
             var entries = new List<RadialEntry>();
             var human = Guards.LocalHuman;
+
+            // Option B: THE HUB — wedge 0 sits top-center; it branches into everything the
+            // Tab radial opens (search + every worn piece). Hold mode enters it by dwell
+            // or LMB; sticky mode by tap. Text-only wedge, accent rim.
+            if (UIAConfig.IsB)
+            {
+                entries.Add(new RadialEntry
+                {
+                    Label = "The Hub",
+                    ActionText = "Enter",
+                    Sublabel = "inventory + search",
+                    AccentOverride = Theme.Accent,
+                    ChildProvider = BagRadialFeature.BuildHubRoot,
+                    Tag = RadialMenu.HubTag,
+                });
+            }
+
             DynamicThing belt = human?.ToolbeltSlot?.Get();
             if (belt == null || belt.Slots == null) return entries;
 

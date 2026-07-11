@@ -27,53 +27,18 @@ namespace StationeersUIMod.Features
         public bool OpenOnTap => UIAConfig.BagRadialTapOpens.Value;
 
         public bool CanOpen() => Guards.LocalHuman != null;
+        public bool OpensOnBoth => false;
 
         public List<RadialEntry> BuildRoot()
         {
+            // A-family (A and B) shares one root; Option B's Hub wedge branches into the
+            // SAME builder, so Tab and MMB->Hub can never drift apart.
+            if (UIAConfig.IsA) return BuildHubRoot();
+
             var entries = new List<RadialEntry>();
             var human = Guards.LocalHuman;
             if (human == null) return entries;
-
-            // "Grab another: X" — one flick to repeat the last retrieval.
-            if (RetrievalMemory.LastName != null)
-            {
-                var again = FindByPrefab(RetrievalMemory.LastPrefabHash);
-                if (again != null)
-                {
-                    entries.Add(new RadialEntry
-                    {
-                        Label = RetrievalMemory.LastName,
-                        ActionText = "Grab another",
-                        Sublabel = again.Location,
-                        Icon = RetrievalMemory.LastIcon,
-                        AccentOverride = Theme.Accent,
-                        OnSelect = () => TakeAndRemember(again),
-                    });
-                }
-            }
-
-            if (UIAConfig.IsA)
-            {
-                // Option A: the radial transforms into the search radial.
-                entries.Add(new RadialEntry
-                {
-                    Label = "Search",
-                    Sublabel = "all bags",
-                    ActionText = "Search",
-                    OnSelect = RadialMenu.RequestSearch,
-                });
-
-                // EVERY worn piece, opening the exact radial the 1-6 keys open (parity is
-                // the rule: Tab->Suit must look identical to tapping 3). Empty worn slots
-                // are STOW wedges.
-                AddWorn(entries, human.HelmetSlot, "Helmet");
-                AddWorn(entries, human.GlassesSlot, "Glasses");
-                AddWorn(entries, human.SuitSlot, "Suit");
-                AddWorn(entries, human.BackpackSlot, "Backpack");
-                AddWorn(entries, human.UniformSlot, "Uniform");
-                AddWorn(entries, human.ToolbeltSlot, "Toolbelt");
-                return entries;
-            }
+            AddGrabAnother(entries);
 
             // Option D: the classic flattened list radial + container-only root.
             entries.Add(new RadialEntry
@@ -88,6 +53,54 @@ namespace StationeersUIMod.Features
             AddContainer(entries, human.SuitSlot, "Suit");
             AddContainer(entries, human.UniformSlot, "Uniform");
             return entries;
+        }
+
+        /// <summary>The Option A inventory root — what Tab opens, and what Option B's Hub
+        /// wedge on the toolbelt radial branches into: search + every worn piece.</summary>
+        internal static List<RadialEntry> BuildHubRoot()
+        {
+            var entries = new List<RadialEntry>();
+            var human = Guards.LocalHuman;
+            if (human == null) return entries;
+
+            AddGrabAnother(entries);
+
+            // The radial transforms into the search radial.
+            entries.Add(new RadialEntry
+            {
+                Label = "Search",
+                Sublabel = "all bags",
+                ActionText = "Search",
+                OnSelect = RadialMenu.RequestSearch,
+            });
+
+            // EVERY worn piece, opening the exact radial the 1-6 keys open (parity is
+            // the rule: Tab->Suit must look identical to tapping 3). Empty worn slots
+            // are STOW wedges.
+            AddWorn(entries, human.HelmetSlot, "Helmet");
+            AddWorn(entries, human.GlassesSlot, "Glasses");
+            AddWorn(entries, human.SuitSlot, "Suit");
+            AddWorn(entries, human.BackpackSlot, "Backpack");
+            AddWorn(entries, human.UniformSlot, "Uniform");
+            AddWorn(entries, human.ToolbeltSlot, "Toolbelt");
+            return entries;
+        }
+
+        /// <summary>"Grab another: X" — one flick to repeat the last retrieval.</summary>
+        private static void AddGrabAnother(List<RadialEntry> entries)
+        {
+            if (RetrievalMemory.LastName == null) return;
+            var again = FindByPrefab(RetrievalMemory.LastPrefabHash);
+            if (again == null) return;
+            entries.Add(new RadialEntry
+            {
+                Label = RetrievalMemory.LastName,
+                ActionText = "Grab another",
+                Sublabel = again.Location,
+                Icon = RetrievalMemory.LastIcon,
+                AccentOverride = Theme.Accent,
+                OnSelect = () => TakeAndRemember(again),
+            });
         }
 
         /// <summary>One worn equipment piece on the Tab root — same radial as its 1-6 key.</summary>

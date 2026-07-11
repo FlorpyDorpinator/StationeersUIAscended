@@ -159,6 +159,17 @@ namespace StationeersUIMod.Overlay
         private const float DragHoldSec = 0.25f;  // hold this long on an item wedge to start a drag
         private const float DragMovePx = 14f;     // ...or move this far while pressed
 
+        // --- Option B: The Hub + hold-mode navigation ---
+        /// <summary>Tag marking the toolbelt's Hub wedge — the only branch that hold mode
+        /// enters by DWELL (pointing at it), so sweeping across ordinary branches can't
+        /// accidentally navigate.</summary>
+        public static readonly object HubTag = new object();
+        private float _branchEnteredAt = -999f;   // hold mode: guards release right after entering
+        private int _hubDwellIndex = -1;
+        private float _hubDwellSince;
+        private const float HubDwellSec = 0.25f;       // pointing at the Hub this long enters it
+        private const float BranchGraceSec = 0.30f;    // release inside this window = cancel, not run
+
         public bool IsOpen => _stack.Count > 0;
         public bool IsSticky => _sticky;
         public bool IsParking => _parking.Active;
@@ -218,6 +229,8 @@ namespace StationeersUIMod.Overlay
             _centerOffset = Vector2.zero;   // a moved hub snaps back to center on reopen
             _hubDragging = false;
             _closeHovered = false;
+            _branchEnteredAt = -999f;
+            _hubDwellIndex = -1;
         }
 
         /// <summary>Close WITHOUT dropping parked items — Escape, guards and re-taps cancel
@@ -236,6 +249,8 @@ namespace StationeersUIMod.Overlay
             _centerOffset = Vector2.zero;
             _hubDragging = false;
             _closeHovered = false;
+            _branchEnteredAt = -999f;
+            _hubDwellIndex = -1;
             UI.SearchPanelView.Hide();
         }
 
@@ -245,6 +260,14 @@ namespace StationeersUIMod.Overlay
             if (!IsOpen) return false;
             // Releasing over the hub CLOSE button is a cancel, never a select.
             if (_closeHovered)
+            {
+                Close();
+                return false;
+            }
+            // Option B: releasing right after diving into a branch (Hub dwell / LMB) is
+            // gesture momentum — the cursor is parked over whatever wedge happens to sit
+            // where the branch wedge was, and that must never run as a selection.
+            if (UIAConfig.IsB && Time.unscaledTime - _branchEnteredAt < BranchGraceSec)
             {
                 Close();
                 return false;
@@ -265,6 +288,13 @@ namespace StationeersUIMod.Overlay
             }
             if (entry.IsBranch)
             {
+                // Option B: hold mode is strictly transient — "closes when you let go".
+                // Branch diving is LMB / Hub dwell WHILE held; tap MMB for the sticky mode.
+                if (UIAConfig.IsB)
+                {
+                    Close();
+                    return false;
+                }
                 if (_satellite != null && _satHovered >= 0) PromoteSatellite();
                 PushBranch(entry);
                 _sticky = true;
@@ -290,6 +320,103 @@ namespace StationeersUIMod.Overlay
             }
             Close();
             return false;
+        }
+
+        /// <summary>Option B, per-frame while open in HOLD mode (MMB still down): LMB dives
+        /// into branches or runs an action and closes, RMB backs out one level, and pointing
+        /// at The Hub for a beat dwell-enters it. Everything stays transient — the release
+        /// itself is handled by OnHoldReleased. Call from Update (outside the ImGui frame).</summary>
+        public void UpdateHoldB()
+        {
+            if (!IsOpen || _sticky || _searchOpen) return;
+
+            // Dwell-entry for THE HUB only: it sits top-center where a flick deliberately
+            // ends. Ordinary branches never dwell-open — sweeping the ring would misfire.
+            if (_satellite == null && _hovered >= 0)
+            {
+                var h = MainEntry(_hovered);
+                if (h != null && h.Enabled && h.IsBranch && ReferenceEquals(h.Tag, HubTag))
+                {
+                    if (_hubDwellIndex != _hovered)
+                    {
+                        _hubDwellIndex = _hovered;
+                        _hubDwellSince = Time.unscaledTime;
+                    }
+                    else if (Time.unscaledTime - _hubDwellSince >= HubDwellSec)
+                    {
+                        PushBranch(h);
+                        _branchEnteredAt = Time.unscaledTime;
+                        _hubDwellIndex = -1;
+                        UIAudioManager.Play(UIAudioManager.ClickLightHash);
+                        return;
+                    }
+                }
+                else _hubDwellIndex = -1;
+            }
+            else _hubDwellIndex = -1;
+
+            if (Input.GetMouseButtonDown(1))
+            {
+                // Back out one step, mirroring sticky's RMB. At the root RMB does nothing:
+                // releasing MMB is the exit, and parking never runs in hold mode.
+                if (_satellite != null) { _satellite = null; return; }
+                if (_stack.Count > 1)
+                {
+                    _stack.RemoveAt(_stack.Count - 1);
+                    Top().Refresh(); // the re-exposed level may be stale (items moved since)
+                    _hovered = -1;
+                }
+                return;
+            }
+
+            if (!Input.GetMouseButtonDown(0)) return;
+            try { if (ImGui.GetIO().WantCaptureMouse) return; } catch { }
+
+            if (_closeHovered)
+            {
+                Close();
+                return;
+            }
+
+            RadialEntry entry = null;
+            bool fromSat = false;
+            if (_satellite != null && _satHovered >= 0)
+            {
+                entry = SatEntry(_satHovered);
+                fromSat = true;
+            }
+            else if (_hovered >= 0 && _mainDist <= _lastOuterR * 1.2f)
+            {
+                entry = MainEntry(_hovered);
+            }
+            if (entry == null || !entry.Enabled) return;
+
+            if (entry.IsBranch)
+            {
+                if (fromSat) PromoteSatellite();
+                PushBranch(entry);
+                _branchEnteredAt = Time.unscaledTime;
+                UIAudioManager.Play(UIAudioManager.ClickLightHash);
+                return;
+            }
+            Execute(entry);
+            if (ConsumeSearchRequest())
+            {
+                _sticky = true;         // the search panel needs the menu latched open
+                _searchOpen = true;
+                UI.SearchPanelView.Begin();
+                return;
+            }
+            if (ShiftHeld)
+            {
+                // Shift = "keep it open, I'm not done" — stay transient, just refreshed.
+                _satellite = null;
+                Top().Refresh();
+                _hovered = -1;
+                _pendingRefreshAt = Time.unscaledTime + 0.6f;
+                return;
+            }
+            Close(); // one action per open, same contract as A's click model
         }
 
         /// <summary>Per-frame input while sticky. Call from Update (outside the ImGui frame).</summary>
@@ -440,6 +567,49 @@ namespace StationeersUIMod.Overlay
         {
             var mouse = DrawUtil.MousePos();
 
+            // Option B: MMB is the SELECT button in sticky radials — the whole gesture is
+            // "tap to open, flick, tap to pick". Wedge = select (branches navigate, actions
+            // run + close), CLOSE band = deliberate close, empty space = dismiss (parked
+            // items stay in their slots). LMB keeps working exactly as in A.
+            if (UIAConfig.IsB && Input.GetMouseButtonDown(2)
+                && _parking.Dragging == null && _press == null)
+            {
+                bool imguiOwnsM = false;
+                try { imguiOwnsM = ImGui.GetIO().WantCaptureMouse; } catch { }
+                if (!imguiOwnsM)
+                {
+                    if (_closeHovered)
+                    {
+                        DumpChipsToGround(); // same contract as clicking CLOSE
+                        Close();
+                        return;
+                    }
+                    RadialEntry mmb = null;
+                    bool mmbFromSat = false;
+                    if (_satellite != null && _satHovered >= 0)
+                    {
+                        mmb = SatEntry(_satHovered);
+                        mmbFromSat = true;
+                    }
+                    else if (_hovered >= 0 && _mainDist <= _lastOuterR * 1.2f)
+                    {
+                        mmb = MainEntry(_hovered);
+                    }
+                    if (mmb == null)
+                    {
+                        Close(); // tap on nothing = dismiss
+                        return;
+                    }
+                    if (!mmb.Enabled)
+                    {
+                        UIAudioManager.Play(UIAudioManager.ActionFailHash);
+                        return;
+                    }
+                    SelectSticky(mmb, mmbFromSat);
+                    return;
+                }
+            }
+
             if (Input.GetMouseButtonDown(0))
             {
                 try { if (ImGui.GetIO().WantCaptureMouse) return; } catch { }
@@ -539,30 +709,38 @@ namespace StationeersUIMod.Overlay
                                         : null;
                 if (!ReferenceEquals(entry, underCursor)) return;
 
-                if (entry.IsBranch)
-                {
-                    if (fromSat) PromoteSatellite();
-                    PushBranch(entry);
-                    return;
-                }
-                Execute(entry);
-                if (ConsumeSearchRequest())
-                {
-                    _searchOpen = true;
-                    UI.SearchPanelView.Begin();
-                    return;
-                }
-                if (!_parking.Active && !ShiftHeld)
-                {
-                    Close(); // Option A: one action, radial goes away
-                    return;
-                }
-                // Parking locks the radial open; Shift means "I'm not done yet".
-                _satellite = null;
-                Top().Refresh();
-                _hovered = -1;
-                _pendingRefreshAt = Time.unscaledTime + 0.6f; // MP: refresh again post-roundtrip
+                SelectSticky(entry, fromSat);
             }
+        }
+
+        /// <summary>Sticky-mode selection of a resolved, enabled entry — shared by the LMB
+        /// click model and Option B's MMB tap-select. Branches navigate; actions run and
+        /// close unless search/parking/Shift keeps the radial open.</summary>
+        private void SelectSticky(RadialEntry entry, bool fromSat)
+        {
+            if (entry.IsBranch)
+            {
+                if (fromSat) PromoteSatellite();
+                PushBranch(entry);
+                return;
+            }
+            Execute(entry);
+            if (ConsumeSearchRequest())
+            {
+                _searchOpen = true;
+                UI.SearchPanelView.Begin();
+                return;
+            }
+            if (!_parking.Active && !ShiftHeld)
+            {
+                Close(); // one action, radial goes away
+                return;
+            }
+            // Parking locks the radial open; Shift means "I'm not done yet".
+            _satellite = null;
+            Top().Refresh();
+            _hovered = -1;
+            _pendingRefreshAt = Time.unscaledTime + 0.6f; // MP: refresh again post-roundtrip
         }
 
         /// <summary>Mouse released while dragging an item: drop it into the wedge under the
@@ -1089,7 +1267,10 @@ namespace StationeersUIMod.Overlay
                                 : null;
             if (hovered == null)
             {
-                Line(-12f, Theme.TextDisabled, _sticky ? "LMB select | RMB back" : "release to cancel");
+                string hint = _sticky
+                    ? (UIAConfig.IsB ? "MMB/LMB select | RMB back" : "LMB select | RMB back")
+                    : (UIAConfig.IsB ? "release to cancel | LMB dive in" : "release to cancel");
+                Line(-12f, Theme.TextDisabled, hint);
                 return;
             }
 

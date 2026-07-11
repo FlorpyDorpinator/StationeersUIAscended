@@ -27,6 +27,7 @@ namespace StationeersUIMod.Features
         public bool Enabled => UIAConfig.ToolRadialEnabled.Value;
         public KeyCode Key => UIAConfig.ToolRadialKey.Value;
         public bool OpenOnTap => false;
+        public bool OpensOnBoth => false;
 
         public bool CanOpen() => InventoryManager.ActiveHandSlot?.Get() != null;
 

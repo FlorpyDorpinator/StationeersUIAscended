@@ -202,16 +202,23 @@ namespace StationeersUIMod.Windows
         private static void SchemaCombo()
         {
             var schema = UIAConfig.Schema.Value;
-            string current = schema == ControlSchema.OptionA ? "Option A (new)" : "Option D (classic)";
+            string current = schema == ControlSchema.OptionA ? "Option A (new)"
+                : schema == ControlSchema.OptionB ? "Option B (The Hub)"
+                : "Option D (classic)";
             if (ImGui.BeginCombo("Control schema", current))
             {
                 if (ImGui.Selectable("Option A (new)", schema == ControlSchema.OptionA))
                     UIAConfig.Schema.Value = ControlSchema.OptionA;
+                if (ImGui.Selectable("Option B (The Hub)", schema == ControlSchema.OptionB))
+                    UIAConfig.Schema.Value = ControlSchema.OptionB;
                 if (ImGui.Selectable("Option D (classic)", schema == ControlSchema.OptionD))
                     UIAConfig.Schema.Value = ControlSchema.OptionD;
                 ImGui.EndCombo();
             }
-            ImGui.TextDisabled(UIAConfig.IsA
+            ImGui.TextDisabled(UIAConfig.IsB
+                ? "B: everything A does + The Hub on the toolbelt radial. Tap MMB = sticky\n" +
+                  "(tap a wedge to select), hold MMB = transient (LMB dives, release runs)."
+                : UIAConfig.IsA
                 ? "A: STOW wedges, device satellites, search panel, drag-out parking, auto-close."
                 : "D: the classic pre-overhaul behavior (swap lists, click executes immediately).");
         }
