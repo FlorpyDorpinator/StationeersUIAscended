@@ -136,5 +136,30 @@ namespace StationeersUIMod.UI.Hud
                 CanvasRect = new Rect(-trayW * 0.5f, baseY - h * 0.5f - 17f, trayW, h + 30f),
             });
         }
+
+        /// <summary>Dragged radial chips can be dropped straight onto either hand box
+        /// (0.6.2). Same box geometry as Layout().</summary>
+        public override void CollectDropZones(List<HudDropZone> into, HudSnapshot s, float scale)
+        {
+            var human = s?.Human;
+            if (human == null) return;
+            float w = HudConfig.HandBoxWidth.Value * scale;
+            float h = HudConfig.HandBoxHeight.Value * scale;
+            float gap = 22f * scale;
+            float baseY = -Screen.height * 0.5f + h * 0.5f + 16f;
+            for (int i = 0; i < 2; i++)
+            {
+                Slot slot = null;
+                try { slot = i == 0 ? human.LeftHandSlot : human.RightHandSlot; } catch { }
+                if (slot == null) continue;
+                float x = (i == 0 ? -1f : 1f) * (gap * 0.5f + w * 0.5f);
+                into.Add(new HudDropZone
+                {
+                    CanvasRect = new Rect(x - w * 0.5f, baseY - h * 0.5f, w, h),
+                    Slot = slot,
+                    Label = i == 0 ? "Left hand" : "Right hand",
+                });
+            }
+        }
     }
 }

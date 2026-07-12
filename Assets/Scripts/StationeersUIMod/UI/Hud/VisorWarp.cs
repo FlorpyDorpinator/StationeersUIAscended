@@ -33,6 +33,24 @@ namespace StationeersUIMod.UI.Hud
             return p;
         }
 
+        /// <summary>Inverse of the CONFIGURED screen warp (VertexWarp and DomeProjection
+        /// modes) by fixed-point iteration — one negative pass drifts 15-25px at the
+        /// corners at full strength; three iterations land sub-pixel. Canvas coords
+        /// (centre origin, y up). Shared by the F9 editor hit-testing and the radial
+        /// chip-drop zones so mouse points always land where the warped HUD draws.</summary>
+        public static Vector2 Unwarp(Vector2 p)
+        {
+            var mode = HudConfig.Curvature != null ? HudConfig.Curvature.Value : HudCurvature.Flat;
+            if (mode != HudCurvature.VertexWarp && mode != HudCurvature.DomeProjection) return p;
+            float k = HudConfig.CurveStrength.Value * (HudConfig.CurveInvert.Value ? -1f : 1f);
+            if (Mathf.Abs(k) <= 0.001f) return p;
+            float hw = Screen.width * 0.5f, hh = Screen.height * 0.5f;
+            var q = p;
+            for (int i = 0; i < 3; i++)
+                q += p - Barrel(q, k, hw, hh);
+            return q;
+        }
+
         public static Vector3 Warp(Vector3 p)
         {
             float k = Strength * Direction;

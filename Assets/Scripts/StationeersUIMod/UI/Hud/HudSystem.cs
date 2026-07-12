@@ -607,6 +607,32 @@ namespace StationeersUIMod.UI.Hud
             });
         }
 
+        /// <summary>Chip drop targets currently on screen (0.6.2): the hand boxes and the
+        /// six equipment boxes, canvas coords. Empty when the visor HUD is off, hidden, or
+        /// a panel is faded out (its zones must not be invisible-but-active).</summary>
+        public static void CollectDropZones(List<HudDropZone> into)
+        {
+            if (_canvas == null || !_canvas.gameObject.activeSelf) return;
+            // CurvedWorldCanvas draws with real 3D perspective — flat canvas rects can
+            // shift 60-150px from where boxes render (review finding), which would send
+            // drops to the WRONG slot. No zones there; drops park as before.
+            if (HudConfig.Curvature != null
+                && HudConfig.Curvature.Value == HudCurvature.CurvedWorldCanvas) return;
+            var snap = LastSnapshot;
+            if (snap == null || !snap.Valid) return;
+            float scale = HudConfig.HudScale.Value;
+            foreach (var p in _panels)
+            {
+                try
+                {
+                    if (p.Group == null || p.Group.alpha < 0.5f || !p.Root.gameObject.activeSelf)
+                        continue;
+                    p.CollectDropZones(into, snap, scale);
+                }
+                catch { }
+            }
+        }
+
         // ---------- vanilla panel visibility (hide, never destroy) ----------
         // Reconciles against the panels' ACTUAL active state every frame:
         // - Hide* on + panel visible  -> hide it (also re-hides after vanilla's

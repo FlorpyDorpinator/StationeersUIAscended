@@ -49,6 +49,7 @@ namespace StationeersUIMod.Windows
                 Toggle(UIAConfig.BagRadialTapOpens, "Tap opens bag radial / hold shows scoreboard");
                 Toggle(UIAConfig.EquipmentKeyRadialsEnabled, "Equipment key radials  (tap 1-6)");
                 Toggle(UIAConfig.ToolbeltShowStowEntries, "Show empty belt slots in the toolbelt radial");
+                Toggle(UIAConfig.RadialMovementEnabled, "Keep moving (WASD + Space) while a radial is open");
                 IntSlider(UIAConfig.HoldThresholdMs, "Hold threshold (ms)", 60, 600);
                 ImGui.Separator();
                 ImGui.TextDisabled("Option A bag presentation (playtest options):");

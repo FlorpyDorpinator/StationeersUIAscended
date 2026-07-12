@@ -135,20 +135,8 @@ namespace StationeersUIMod.Windows
             }
         }
 
-        /// <summary>Invert the barrel by fixed-point iteration — one negative pass drifts
-        /// 15-25px at the corners at full strength; three iterations land sub-pixel.</summary>
-        private static Vector2 Unwarp(Vector2 p)
-        {
-            var mode = HudConfig.Curvature != null ? HudConfig.Curvature.Value : HudCurvature.Flat;
-            if (mode != HudCurvature.VertexWarp && mode != HudCurvature.DomeProjection) return p;
-            float k = HudConfig.CurveStrength.Value * (HudConfig.CurveInvert.Value ? -1f : 1f);
-            if (Mathf.Abs(k) <= 0.001f) return p;
-            float hw = Screen.width * 0.5f, hh = Screen.height * 0.5f;
-            var q = p;
-            for (int i = 0; i < 3; i++)
-                q += p - HudWarp.Barrel(q, k, hw, hh);
-            return q;
-        }
+        /// <summary>Inverse of the screen warp — shared with the radial drop zones.</summary>
+        private static Vector2 Unwarp(Vector2 p) => HudWarp.Unwarp(p);
 
         private static void EnsureBackdrop()
         {

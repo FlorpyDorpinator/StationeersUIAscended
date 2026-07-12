@@ -19,6 +19,16 @@ namespace StationeersUIMod.UI.Hud
         public Rect CanvasRect;
     }
 
+    /// <summary>A screen region of the HUD that accepts a dragged radial chip (0.6.2):
+    /// the hand boxes and the six equipment boxes. Rect in CANVAS coords (centre origin,
+    /// y up) — hit-test with the inverse-warped mouse, exactly like HudEditTarget.</summary>
+    public sealed class HudDropZone
+    {
+        public Rect CanvasRect;
+        public Assets.Scripts.Objects.Slot Slot;
+        public string Label;
+    }
+
     /// <summary>
     /// Base of every visor HUD panel: owns a subtree under the HUD canvas, a CanvasGroup
     /// the animator drives, and its editor description. Panels read ONLY the HudSnapshot.
@@ -79,6 +89,10 @@ namespace StationeersUIMod.UI.Hud
 
         /// <summary>Editor click targets (canvas coords).</summary>
         public abstract void CollectEditTargets(List<HudEditTarget> into, float scale);
+
+        /// <summary>Chip drop targets this panel offers (hand boxes, equipment boxes).
+        /// Default: none. Called only while the panel is actually visible.</summary>
+        public virtual void CollectDropZones(List<HudDropZone> into, HudSnapshot s, float scale) { }
 
         // ---------- shared helpers ----------
 

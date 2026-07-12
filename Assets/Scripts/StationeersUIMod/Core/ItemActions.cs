@@ -101,6 +101,10 @@ namespace StationeersUIMod.Core
             if (item == null || targetSlot == null) return Fail();
             if (candidate.Expected != null && item != candidate.Expected) return Fail(); // menu is stale
 
+            // Dropping something back onto its own slot (chip released on the box it came
+            // from = "changed my mind") is a clean no-op — never OnServer.SwapSlots(s, s).
+            if (candidate.Slot == targetSlot) return true;
+
             if (targetSlot.Get() == null)
             {
                 if (!Slot.AllowMove(item, targetSlot)) return Fail();

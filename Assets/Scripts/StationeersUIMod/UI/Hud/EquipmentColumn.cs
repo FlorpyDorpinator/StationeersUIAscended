@@ -136,5 +136,43 @@ namespace StationeersUIMod.UI.Hud
                 CanvasRect = new Rect(x - size * 0.5f, -total * 0.5f, size, total),
             });
         }
+
+        /// <summary>Each equipment box takes chip drops for ITS worn slot (0.6.2): drop a
+        /// helmet on box 1 to don it, a backpack on box 4, etc. Same geometry as Layout().</summary>
+        public override void CollectDropZones(List<HudDropZone> into, HudSnapshot s, float scale)
+        {
+            var human = s?.Human;
+            if (human == null) return;
+            float size = HudConfig.EquipBoxSize.Value * scale;
+            float gap = HudConfig.EquipSpacing.Value * scale;
+            float x = -Screen.width * 0.5f + 24f + size * 0.5f;
+            float total = size * 6f + gap * 5f;
+            float top = total * 0.5f - size * 0.5f;
+            for (int i = 0; i < 6; i++)
+            {
+                Slot slot = null;
+                try
+                {
+                    switch (i)
+                    {
+                        case 0: slot = human.HelmetSlot; break;
+                        case 1: slot = human.GlassesSlot; break;
+                        case 2: slot = human.SuitSlot; break;
+                        case 3: slot = human.BackpackSlot; break;
+                        case 4: slot = human.UniformSlot; break;
+                        case 5: slot = human.ToolbeltSlot; break;
+                    }
+                }
+                catch { }
+                if (slot == null) continue;
+                float y = top - i * (size + gap);
+                into.Add(new HudDropZone
+                {
+                    CanvasRect = new Rect(x - size * 0.5f, y - size * 0.5f, size, size),
+                    Slot = slot,
+                    Label = Labels[i],
+                });
+            }
+        }
     }
 }

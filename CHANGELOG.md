@@ -2,6 +2,27 @@
 
 All notable changes to the mod. Detailed engineering write-ups live in `Changes Reports/`.
 
+## 0.6.2 Alpha — 2026-07-11
+
+Three radial quality-of-life additions (FlorpyDorp's spec):
+
+- **Drop chips on your body**: a dragged item chip released over a visor-HUD **hand box**
+  or **1-6 equipment box** moves into that slot — swap when occupied, straight move when
+  free, all through the same execute-time-gated `ItemActions` funnel (one action = one
+  message). The drop zones hit-test through the curvature inverse, so curved HUDs drop
+  where they draw. A release on a box is always consumed — it never falls through to
+  screen-parking.
+- **No child radials mid-drag**: slide-out satellites can't open while you're holding a
+  chip, and any open one closes the moment a drag starts.
+- **Move while the radial is open** (option, default ON, F10 → Radials): WASD keeps
+  walking and Space jumps with a radial up. Implementation note: walking was never
+  blocked by key capture — it dies because the unlocked cursor flips vanilla's
+  `AllowMouseControl`; we force that one getter back to its normal-gameplay value while
+  the radial is open (never touching the key-capture state, so no other vanilla binding
+  can fire), and bridge jump's two extra gates only for the duration of the jump check.
+  Typing in the search panel never moves you; seated players are excluded (vehicles read
+  the same gate); camera look stays on the cursor.
+
 ## 0.6.1 Alpha — 2026-07-11
 
 **F9 creative-spawn crash fixed** (post-release addition, same version): vanilla binds

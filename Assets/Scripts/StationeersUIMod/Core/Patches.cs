@@ -99,6 +99,105 @@ namespace StationeersUIMod.Core
     }
 
     /// <summary>
+    /// 0.6.2: optional WASD/Space while a radial is open. Set per-frame by
+    /// RadialController (radial open + config on + not typing in search + not seated).
+    ///
+    /// Decompile facts (27701): walking is NOT gated by KeyManager's input state at all —
+    /// it dies because the unlocked cursor flips InventoryManager.AllowMouseControl
+    /// (InventoryManager.cs:130, "!Cursor.visible &amp;&amp; ..."), read by
+    /// MovementController.GetDesiredGroundVelocity (:625) / SetMovementMode (:188) /
+    /// step-up (:812). Jump alone has two extra gates inside HandleJump (:590
+    /// InputState != Game, :594 Cursor.visible). Forcing AllowMouseControl true merely
+    /// recreates the normal hidden-cursor gameplay value, so anything that behaves in
+    /// normal play behaves identically here; the ONLY other callers are Shuttle (:457)
+    /// and Rover (:361) pilot input, which is why Active requires not-seated.
+    /// We never flip KeyManager's input state map — that would re-arm every Game-bound
+    /// KeyWrap binding (drop, swap hands, spawn item...). Jump instead swaps the two
+    /// gate INPUTS only for the synchronous duration of HandleJump.
+    /// </summary>
+    public static class RadialMovement
+    {
+        public static bool Active;
+
+        private static System.Reflection.MethodInfo _setInputState;
+        private static bool _searched;
+        private static readonly object[] _arg = new object[1];
+
+        /// <summary>KeyManager.InputState has a private setter; swap it via reflection.
+        /// Single-threaded and only ever held across HandleJump's body.</summary>
+        internal static bool TrySetInputState(KeyInputState value)
+        {
+            try
+            {
+                if (!_searched)
+                {
+                    _searched = true;
+                    var prop = typeof(KeyManager).GetProperty("InputState",
+                        System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static);
+                    _setInputState = prop != null ? prop.GetSetMethod(true) : null;
+                    if (_setInputState == null)
+                        UIALog.Warn("KeyManager.InputState setter not found - Space-jump in radials degraded (WASD unaffected).");
+                }
+                if (_setInputState == null) return false;
+                _arg[0] = value;
+                _setInputState.Invoke(null, _arg);
+                return true;
+            }
+            catch { return false; }
+        }
+    }
+
+    /// <summary>WASD half of the radial movement pass-through: while Active, the getter
+    /// reports the normal hidden-cursor gameplay value. (Body is 4 static reads — well
+    /// past Mono's inline budget, so the detour reliably applies.)</summary>
+    [HarmonyPatch(typeof(InventoryManager), "AllowMouseControl", MethodType.Getter)]
+    internal static class Patch_InventoryManager_AllowMouseControl
+    {
+        private static void Postfix(ref bool __result)
+        {
+            if (!__result && RadialMovement.Active) __result = true;
+        }
+    }
+
+    /// <summary>Jump half: HandleJump early-returns on InputState != Game (:590) and
+    /// Cursor.visible (:594). For exactly the synchronous duration of the original body
+    /// we swap both inputs to their hidden-cursor values and restore in a Finalizer
+    /// (exception-safe). Nothing else reads either value mid-call — vanilla's KeyWrap
+    /// polling happens in KeyManager.ManagerUpdate, not inside physics.</summary>
+    [HarmonyPatch(typeof(Assets.Scripts.MovementController), "HandleJump")]
+    internal static class Patch_MovementController_HandleJump
+    {
+        internal struct Scope
+        {
+            public bool RestoreCursor;
+            public bool RestoreInput;
+            public KeyInputState Previous;
+        }
+
+        private static void Prefix(out Scope __state)
+        {
+            __state = default(Scope);
+            if (!RadialMovement.Active) return;
+            if (UnityEngine.Cursor.visible)
+            {
+                UnityEngine.Cursor.visible = false;
+                __state.RestoreCursor = true;
+            }
+            if (KeyManager.InputState != KeyInputState.Game)
+            {
+                __state.Previous = KeyManager.InputState;
+                __state.RestoreInput = RadialMovement.TrySetInputState(KeyInputState.Game);
+            }
+        }
+
+        private static void Finalizer(Scope __state)
+        {
+            if (__state.RestoreInput) RadialMovement.TrySetInputState(__state.Previous);
+            if (__state.RestoreCursor) UnityEngine.Cursor.visible = true;
+        }
+    }
+
+    /// <summary>
     /// Vanilla NRE guard: Human.SpawnDynamicThing (Human.cs:4430 in 27701) checks
     /// GameMode == Creative but NOT whether a spawnable is selected — with
     /// InventoryManager.SpawnPrefab null it dereferences spawnPrefab.SpawnId and throws

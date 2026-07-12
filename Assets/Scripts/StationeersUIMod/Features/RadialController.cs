@@ -47,6 +47,33 @@ namespace StationeersUIMod.Features
 
         public void Update()
         {
+            // 0.6.2: WASD/Space pass-through while a radial is open. Recomputed every
+            // frame so it self-clears on close/search/seat; the patches read this flag.
+            // Seat detection is an ALLOWLIST of on-foot control modes — review finding:
+            // Human.LockedToSeat is a dead vanilla field (never assigned, always false),
+            // while ControlMode is the live signal. Anything not walking/flying (Seated,
+            // LyingDown, Ladder, Grab, cryo...) keeps the pass-through OFF, because
+            // rover/shuttle pilot input reads the very AllowMouseControl gate we force.
+            bool move = false;
+            if (_menu.IsOpen && !_menu.IsSearchOpen
+                && UIAConfig.RadialMovementEnabled != null && UIAConfig.RadialMovementEnabled.Value)
+            {
+                try
+                {
+                    var human = Guards.LocalHuman;
+                    var mc = human != null ? human.MovementController : null;
+                    if (mc != null)
+                    {
+                        var mode = mc.ControlMode;
+                        move = mode == Assets.Scripts.MovementController.Mode.Animation
+                            || mode == Assets.Scripts.MovementController.Mode.Jetpack
+                            || mode == Assets.Scripts.MovementController.Mode.JetpackGravity;
+                    }
+                }
+                catch { move = false; }
+            }
+            RadialMovement.Active = move;
+
             if (_menu.IsOpen)
             {
                 UpdateOpen();
@@ -296,6 +323,7 @@ namespace StationeersUIMod.Features
         /// <summary>Immediate teardown (plugin OnDestroy / hot reload) — no deferred release.</summary>
         public void ShutdownImmediate()
         {
+            RadialMovement.Active = false; // hot-reload safety: never strand the pass-through
             _menu.Close();
             _modal.Close();
             UI.UnityRadialView.Shutdown(); // destroy the canvases, or every hot reload stacks another

@@ -636,6 +636,7 @@ namespace StationeersUIMod.Overlay
                             Icon = icon,
                             Name = worldThing.DisplayName,
                         };
+                        _satellite = null; // hands are busy: no child radials while dragging
                         UIAudioManager.Play(UIAudioManager.ObjectIntoHandHash);
                         return;
                     }
@@ -647,6 +648,7 @@ namespace StationeersUIMod.Overlay
                 {
                     _parking.Chips.Remove(chip);
                     _parking.Dragging = chip;
+                    _satellite = null; // hands are busy: no child radials while dragging
                     UIAudioManager.Play(UIAudioManager.ObjectIntoHandHash);
                     return;
                 }
@@ -686,6 +688,7 @@ namespace StationeersUIMod.Overlay
                         Name = _press.Label,
                     };
                     _press = null;
+                    _satellite = null; // hands are busy: no child radials while dragging
                     UIAudioManager.Play(UIAudioManager.ObjectIntoHandHash);
                 }
                 return;
@@ -787,6 +790,12 @@ namespace StationeersUIMod.Overlay
                 return;
             }
 
+            // 0.6.2: releasing over a visor HUD hand box or equipment box drops the chip
+            // INTO that slot (swap when occupied — the ItemActions funnel gates it all).
+            // A release on a box is always consumed: it must never fall through to parking.
+            if (TryDropOnHudZone(chip, item))
+                return;
+
             bool outsideRings = _mainDist > _lastOuterR + 30f
                 && (_satellite == null || _satDist > _satellite.OuterR + 30f);
             if (outsideRings && _parking.Chips.Count < ParkingState.MaxChips)
@@ -798,6 +807,48 @@ namespace StationeersUIMod.Overlay
                 UIAudioManager.Play(UIAudioManager.ObjectPutHash);
             }
             // else: released over dead space inside the rings, or the screen is full — cancel.
+        }
+
+        private static readonly List<UI.Hud.HudDropZone> _dropZones = new List<UI.Hud.HudDropZone>();
+
+        /// <summary>0.6.2: drop a dragged chip onto a visor HUD hand/equipment box. Returns
+        /// true when the release landed ON a box (whether or not the move succeeded — a
+        /// failed move plays the fail sound and eats the release; it never parks).</summary>
+        private bool TryDropOnHudZone(ParkingState.Chip chip, DynamicThing item)
+        {
+            try
+            {
+                _dropZones.Clear();
+                UI.Hud.HudSystem.CollectDropZones(_dropZones);
+                if (_dropZones.Count == 0) return false;
+
+                // Same mouse->canvas transform as the F9 editor: centre origin, y up,
+                // inverse-warped so curved-HUD boxes hit-test where they DRAW.
+                var m = (Vector2)Input.mousePosition;
+                var p = new Vector2(m.x - Screen.width * 0.5f, m.y - Screen.height * 0.5f);
+                p = UI.Hud.HudWarp.Unwarp(p);
+
+                foreach (var zone in _dropZones)
+                {
+                    if (zone.Slot == null || !zone.CanvasRect.Contains(p)) continue;
+                    bool moved = chip.IsWorld
+                        ? ItemActions.MoveWorldItemToSlot(chip.WorldSource, zone.Slot)
+                        : ItemActions.SwapIntoSlot(chip.Source, zone.Slot);
+                    if (moved)
+                    {
+                        _satellite = null;
+                        Top().Refresh();
+                        _hovered = -1;
+                    }
+                    // failure already played the fail sound inside ItemActions.Fail()
+                    return true;
+                }
+            }
+            catch (Exception e)
+            {
+                UIALog.Warn("HUD drop zone failed: " + e.Message);
+            }
+            return false;
         }
 
         /// <summary>The deliberate exit-drop: one drop message per parked chip, each verified
@@ -1056,7 +1107,10 @@ namespace StationeersUIMod.Overlay
             }
 
             // --- slide-out trigger (dwell-gated so fast flick-releases aren't hijacked) ---
-            if (_satellite == null && _hovered >= 0 && _mainDist > outerR + 14f)
+            // Never while dragging a chip: the hand is busy — a child radial popping up
+            // mid-drag both steals the drop target and reads as noise (0.6.2 request).
+            if (_satellite == null && _hovered >= 0 && _mainDist > outerR + 14f
+                && _parking.Dragging == null)
             {
                 var hoveredEntry = MainEntry(_hovered);
                 if (hoveredEntry != null && hoveredEntry.HasSlideOut)

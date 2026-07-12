@@ -47,6 +47,7 @@ namespace StationeersUIMod
         public static ConfigEntry<KeyCode> RadialHandSwapKey;
         public static ConfigEntry<KeyCode> RadialPageKey;
         public static ConfigEntry<KeyCode> RadialFineAdjustKey;
+        public static ConfigEntry<bool> RadialMovementEnabled;
 
         /// <summary>Shorthand for "the Option A behavior SET is active" — B is A plus the
         /// Hub gestures, so every A-gated behavior (STOW wedges, satellites, search,
@@ -153,6 +154,11 @@ namespace StationeersUIMod
             RadialFineAdjustKey = cfg.Bind("1. General", "RadialFineAdjustKey", KeyCode.C,
                 "Hold while scrolling a value wedge (suit pressure/temperature) for fine ±1 steps " +
                 "instead of the coarse ±10.");
+            RadialMovementEnabled = cfg.Bind("1. General", "MoveWhileRadialOpen", true,
+                "Keep walking with WASD (and jumping with Space) while a radial menu is open. " +
+                "Camera look stays on the cursor; typing in the search panel never moves you; " +
+                "disabled while seated (vehicle controls share the same gate). " +
+                "Off = the classic stop-and-pick behavior.");
 
             ToolbeltRadialEnabled = cfg.Bind("2. Toolbelt Radial", "Enabled", true,
                 "Hold a key to open a radial of everything on your toolbelt; release over a tool to equip it into the active hand.");
