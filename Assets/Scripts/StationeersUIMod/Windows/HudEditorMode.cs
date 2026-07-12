@@ -440,7 +440,48 @@ namespace StationeersUIMod.Windows
             };
             if (type == UI.Hud.HudElementType.Label) e.Text = "NEW LABEL";
             if (type == UI.Hud.HudElementType.Icon) e.Icon = "Gauge";
-            if (type == UI.Hud.HudElementType.Readout) e.Set("src", "ExternalPressure");
+            if (type == UI.Hud.HudElementType.Readout)
+            {
+                // A friendly instrument out of the box: compact row, boxed, no bar.
+                e.Set("src", "Speed");
+                e.Set("label", "SPEED");
+                e.Icon = "speed";
+                e.SetB("box", true);
+                e.SetB("bar", false);
+                e.SetB("target", false);
+            }
+
+            // On a Glassy-family profile, a fresh element arrives in the profile's own
+            // glass dress (literal colours + sheen/spec) instead of raw palette defaults,
+            // so a re-created box matches its siblings without hand-restyling.
+            string prof = Features.HudProfileStore.Active != null ? Features.HudProfileStore.Active.Name : null;
+            bool glassy = prof != null && prof.IndexOf("Glassy", System.StringComparison.OrdinalIgnoreCase) >= 0;
+            if (glassy)
+            {
+                switch (type)
+                {
+                    case UI.Hud.HudElementType.Box:
+                    case UI.Hud.HudElementType.Readout:
+                    case UI.Hud.HudElementType.Compass:
+                    case UI.Hud.HudElementType.EquipmentColumn:
+                    case UI.Hud.HudElementType.HandBoxes:
+                    case UI.Hud.HudElementType.KeybindChips:
+                    case UI.Hud.HudElementType.SuitChips:
+                    case UI.Hud.HudElementType.Clock:
+                    case UI.Hud.HudElementType.WorldName:
+                    case UI.Hud.HudElementType.DayCounter:
+                    case UI.Hud.HudElementType.ActiveHandBadge:
+                    case UI.Hud.HudElementType.VitalsPanel:
+                    case UI.Hud.HudElementType.DamageDoll:
+                    case UI.Hud.HudElementType.JetpackBox:
+                    case UI.Hud.HudElementType.StateChips:
+                        e.Fill = "#05080DA6";
+                        e.Border = "#B9BEC259";
+                        e.SetF("sheen", 0.5f);
+                        e.SetF("spec", 0.8f);
+                        break;
+                }
+            }
             doc.Elements.Add(e);
             _pendingSelectId = e.Id;
             Features.HudProfileStore.MarkChanged();
@@ -456,6 +497,10 @@ namespace StationeersUIMod.Windows
                 case UI.Hud.HudElementType.Compass: return 240f;
                 case UI.Hud.HudElementType.EquipmentColumn: return 84f;
                 case UI.Hud.HudElementType.Portrait: return 150f;
+                case UI.Hud.HudElementType.VitalsPanel: return 168f;
+                case UI.Hud.HudElementType.DamageDoll: return 120f;
+                case UI.Hud.HudElementType.JetpackBox: return 168f;
+                case UI.Hud.HudElementType.StateChips: return 168f;
                 default: return 180f;
             }
         }
@@ -469,6 +514,10 @@ namespace StationeersUIMod.Windows
                 case UI.Hud.HudElementType.Compass: return 46f;
                 case UI.Hud.HudElementType.EquipmentColumn: return 520f;
                 case UI.Hud.HudElementType.Portrait: return 150f;
+                case UI.Hud.HudElementType.VitalsPanel: return 140f;
+                case UI.Hud.HudElementType.DamageDoll: return 150f;
+                case UI.Hud.HudElementType.JetpackBox: return 128f;
+                case UI.Hud.HudElementType.StateChips: return 40f;
                 default: return 60f;
             }
         }

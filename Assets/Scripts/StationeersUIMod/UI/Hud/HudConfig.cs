@@ -129,7 +129,8 @@ namespace StationeersUIMod.UI.Hud
                 "centre (the play-tested visor look). On: the original pinch-inward bend.");
             WorldCanvasDistance = cfg.Bind(S, "WorldCanvasDistance", 0.6f,
                 new ConfigDescription("CurvedWorldCanvas mode: how far in front of the camera " +
-                    "the visor floats (metres).", new AcceptableValueRange<float>(0.25f, 2f)));
+                    "the visor floats (metres). 0.6 fills the view; higher recedes it.",
+                    new AcceptableValueRange<float>(0.25f, 4f)));
             BareFlattens = cfg.Bind(S, "BareFlattens", true,
                 "When the suit is off or powered down (BARE), drop all visor curvature so the " +
                 "remaining HUD reads flat. The top bar hides itself by tier regardless.");

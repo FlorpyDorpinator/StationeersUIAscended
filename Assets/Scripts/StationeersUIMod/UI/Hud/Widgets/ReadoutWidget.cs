@@ -666,6 +666,9 @@ namespace StationeersUIMod.UI.Hud.Widgets
             into.Add(HudProp.Color("Bar track", () => d.GetS("barTrack", ""), v => d.Set("barTrack", Empty(v))));
             into.Add(HudProp.Color("Bar target", () => d.GetS("barTarget", ""), v => d.Set("barTarget", Empty(v))));
             into.Add(HudProp.Text("Label override", () => d.GetS("label", ""), v => d.Set("label", Empty(v))));
+            // The icon slot is created at build time, so an icon change rebuilds the view.
+            into.Add(HudProp.Text("Icon (game key/glyph/PNG)", () => d.Icon ?? "",
+                v => { d.Icon = Empty(v); HudSystem.RequestViewRebuild(); }));
             into.Add(HudProp.F("Text scale (× box-auto)", () => d.GetF("textScale", 1f), v => d.SetF("textScale", Mathf.Clamp(v, 0.3f, 3f)), 0.3f, 3f));
         }
 

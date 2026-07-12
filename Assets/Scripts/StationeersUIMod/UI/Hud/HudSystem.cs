@@ -1061,6 +1061,17 @@ namespace StationeersUIMod.UI.Hud
             float worldH = 2f * refDist * Mathf.Tan(cam.fieldOfView * 0.5f * Mathf.Deg2Rad);
             float s = worldH / Mathf.Max(1f, Screen.height);
             rt.localScale = new Vector3(s, s, s);
+
+            // INVERTED curve bulges the canvas TOWARD the camera (negative cylinder Z at
+            // the edges) — the bulging edges projected huge and left the screen entirely.
+            // Push the whole plane back by the worst-case bulge so its nearest point still
+            // sits at the configured distance.
+            float k = HudWarp.Strength * HudWarp.Direction;
+            if (HudWarp.Active == HudWarp.Kind.Cylinder && k < 0f)
+            {
+                float bulgePx = -k * (HudWarp.HalfW * 0.25f + HudWarp.HalfH * 0.08f);
+                rt.position += t.rotation * new Vector3(0f, 0f, bulgePx * s);
+            }
             _canvas.worldCamera = cam;
         }
 

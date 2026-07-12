@@ -140,6 +140,9 @@ namespace StationeersUIMod.Windows
             "DayCounter", "ActiveHandBadge", "Compass", "MoodletDashboard",
             "EquipmentColumn", "HandBoxes", "KeybindChips", "Portrait", "BodyDoll",
             "SuitChips", "BareSenses",
+            // Glassy 2.0 widgets (the play-test found these missing — a deleted
+            // speed/jetpack/vitals box couldn't be re-created):
+            "VitalsPanel", "DamageDoll", "JetpackBox", "StateChips",
         };
 
         /// <summary>The HUD Designer controls: grid, add/draw, undo, selection actions,
