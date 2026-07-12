@@ -22,7 +22,7 @@ namespace StationeersUIMod.Core
             "hunger", "food", "thirst", "water", "toilet", "power", "battery",
             "o2", "oxygen", "health", "temp", "temperature", "cold", "pressure",
             "helmet", "jetpack", "light", "toxins", "leak", "waste", "filter",
-            "airtank", "air",
+            "airtank", "air", "speed", "velocity", "canister", "propellant",
         };
 
         /// <summary>Whether this name addresses a game icon (regardless of whether it can
@@ -150,25 +150,38 @@ namespace StationeersUIMod.Core
             catch { return null; }
         }
 
-        /// <summary>The green propellant canister icon from vanilla's jetpack box
-        /// (icon-jetpackpressure, the child of the named InfoJetpackPressureDeltaPanel).
-        /// Static art, so we walk the panel for its Image once and cache it.</summary>
-        private static Sprite _canister;
-        public static Sprite JetpackCanister()
+        /// <summary>The live sprite on a NAMED child GameObject anywhere under the
+        /// PlayerStateWindow subtree — the reliable way to borrow vanilla's static HUD art
+        /// (the vitals row icons, the velocity running-man, the jetpack canister) which are
+        /// prefab Images, not code fields. Includes inactive children (rows toggle off). The
+        /// live Image.sprite is returned, so any ColorBlindImage swap is already reflected.</summary>
+        public static Sprite SpriteByName(string goName)
         {
-            if (_canister != null) return _canister;
+            if (string.IsNullOrEmpty(goName)) return null;
             try
             {
                 var psw = Assets.Scripts.UI.PlayerStateWindow.Instance;
-                var panel = psw != null ? psw.InfoJetpackPressureDeltaPanel : null;
-                if (panel == null) return null;
-                var imgs = panel.GetComponentsInChildren<UnityEngine.UI.Image>(true);
+                if (psw == null) return null;
+                var imgs = psw.GetComponentsInChildren<UnityEngine.UI.Image>(true);
                 for (int i = 0; i < imgs.Length; i++)
-                    if (imgs[i] != null && imgs[i].sprite != null) { _canister = imgs[i].sprite; break; }
+                {
+                    var img = imgs[i];
+                    if (img != null && img.sprite != null
+                        && string.Equals(img.gameObject.name, goName, StringComparison.Ordinal))
+                        return img.sprite;
+                }
             }
             catch { }
-            return _canister;
+            return null;
         }
+
+        /// <summary>The green propellant canister icon from vanilla's jetpack box — the
+        /// Image on the child named "SymbolPressureDelta" (icon-jetpackpressure). Grabbing
+        /// the FIRST sprite child of the panel instead was wrong: it hit a divider line
+        /// (the "glitch line" in the play-test). Cached once resolved.</summary>
+        private static Sprite _canister;
+        public static Sprite JetpackCanister()
+            => _canister != null ? _canister : (_canister = SpriteByName("SymbolPressureDelta"));
 
         /// <summary>The food-quality star sprite for a 0..1 quality, matching vanilla's
         /// GetFoodQualityIndex bands (&lt;0.45→1★, &lt;0.7→2★, &lt;0.9→3★, else 4★) read off
@@ -215,15 +228,20 @@ namespace StationeersUIMod.Core
                 var psw = Assets.Scripts.UI.PlayerStateWindow.Instance;
                 switch (key.ToLowerInvariant())
                 {
-                    case "hunger": case "food": return Icon(su != null ? su.NutritionWarning : null);
-                    case "thirst": case "water": return Icon(su != null ? su.HydrationWarning : null);
-                    case "toilet": return Icon(su != null ? su.SanitationWarning : null);
+                    // Vitals ROW icons — the game's own static symbols (heart / burger /
+                    // droplet / running-man), NOT the moodlet WARNING icons. Grabbed by the
+                    // named child GameObject so the vitals list matches vanilla exactly.
+                    case "hunger": case "food": return SpriteByName("SymbolHunger");
+                    case "thirst": case "water": return SpriteByName("SymbolHydration");
+                    case "health": return SpriteByName("SymbolHealth");
+                    case "toxins": return SpriteByName("SymbolToxins");
+                    case "speed": case "velocity": return SpriteByName("SymbolVelocity");
+                    case "canister": case "propellant": return SpriteByName("SymbolPressureDelta");
+                    // Alerts without a dedicated vitals symbol still use the moodlet art.
+                    case "toilet": case "waste": return Icon(su != null ? su.WasteCritical : null);
                     case "power": case "battery": return Icon(su != null ? su.PowerStateWarning : null);
                     case "o2": case "oxygen": return Icon(su != null ? su.OxygenWarning : null);
-                    case "health": return Icon(su != null ? su.HealthWarning : null);
-                    case "toxins": return Icon(su != null ? su.ToxinsWarning : null);
                     case "leak": return Icon(su != null ? su.LeakWarning : null);
-                    case "waste": return Icon(su != null ? su.WasteCritical : null);
                     case "filter": return Icon(su != null ? su.FilterWarning : null);
                     case "airtank": case "air": return Icon(su != null ? su.AirTankWarning : null);
                     case "temp": case "temperature": return Toggle(psw != null ? psw.InternalTemperatureToggle : null, 0);

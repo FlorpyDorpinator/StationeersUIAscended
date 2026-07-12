@@ -121,8 +121,9 @@ namespace StationeersUIMod.UI.Hud
                 "texture shown on a dome grid — one true projection, scanline option. " +
                 "CurvedWorldCanvas (C): the canvas physically curves in world space in " +
                 "front of the camera — true perspective, experimental.");
-            CurveStrength = cfg.Bind(S, "CurveStrength", 0.35f,
-                new ConfigDescription("0 = flat, 1 = fishbowl.", new AcceptableValueRange<float>(0f, 1f)));
+            CurveStrength = cfg.Bind(S, "CurveStrength", 0.25f,
+                new ConfigDescription("How much the visor bows. 0 = flat; the curve is a gentle " +
+                    "bow now (the old values funnelled the top bar).", new AcceptableValueRange<float>(0f, 1f)));
             CurveInvert = cfg.Bind(S, "CurveInvert", false,
                 "Flip the bend direction. Default (off): edges flare AWAY from the screen " +
                 "centre (the play-tested visor look). On: the original pinch-inward bend.");

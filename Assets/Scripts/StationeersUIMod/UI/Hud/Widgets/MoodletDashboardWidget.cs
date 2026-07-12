@@ -331,11 +331,11 @@ namespace StationeersUIMod.UI.Hud.Widgets
             float elemW = Mathf.Max(8f, size.x);
             float elemTop = center.y + size.y * 0.5f;
 
-            float chipHref = Def.GetF("chipH", 30f);
+            float chipHref = Def.GetF("chipH", 60f);
             float chipH = Mathf.Max(8f, chipHref * scale);
-            float chipW = Mathf.Max(8f, Def.GetF("chipWidth", 72f) * scale);
-            float iconScale = Mathf.Clamp(Def.GetF("iconScale", 0.9f), 0.3f, 1.3f);
-            float textScale = Mathf.Clamp(Def.GetF("textScale", 0.28f), 0.1f, 0.6f);
+            float chipW = Mathf.Max(8f, Def.GetF("chipWidth", 120f) * scale);
+            float iconScale = Mathf.Clamp(Def.GetF("iconScale", 0.95f), 0.3f, 1.6f);
+            float textScale = Mathf.Clamp(Def.GetF("textScale", 0.24f), 0.08f, 0.6f);
             float colGap = Mathf.Max(0f, Def.GetF("colGap", 8f)) * scale;
             float rowGap = Mathf.Max(0f, Def.GetF("rowGap", 6f)) * scale;
             bool labels = Def.GetB("labels", true);
@@ -450,10 +450,10 @@ namespace StationeersUIMod.UI.Hud.Widgets
         {
             base.DescribeProps(into);
             var d = Def;
-            into.Add(HudProp.F("Chip width", () => d.GetF("chipWidth", 72f), v => d.SetF("chipWidth", Mathf.Clamp(v, 24f, 200f)), 24f, 200f));
-            into.Add(HudProp.F("Chip height", () => d.GetF("chipH", 30f), v => d.SetF("chipH", Mathf.Clamp(v, 10f, 80f)), 10f, 80f));
-            into.Add(HudProp.F("Icon scale (× chip height)", () => d.GetF("iconScale", 0.9f), v => d.SetF("iconScale", Mathf.Clamp(v, 0.3f, 1.3f)), 0.3f, 1.3f));
-            into.Add(HudProp.F("Text scale (× chip height)", () => d.GetF("textScale", 0.28f), v => d.SetF("textScale", Mathf.Clamp(v, 0.1f, 0.6f)), 0.1f, 0.6f));
+            into.Add(HudProp.F("Chip width", () => d.GetF("chipWidth", 120f), v => d.SetF("chipWidth", Mathf.Clamp(v, 24f, 480f)), 24f, 480f));
+            into.Add(HudProp.F("Chip height", () => d.GetF("chipH", 60f), v => d.SetF("chipH", Mathf.Clamp(v, 10f, 240f)), 10f, 240f));
+            into.Add(HudProp.F("Icon scale (× chip height)", () => d.GetF("iconScale", 0.95f), v => d.SetF("iconScale", Mathf.Clamp(v, 0.3f, 1.6f)), 0.3f, 1.6f));
+            into.Add(HudProp.F("Text scale (× chip height)", () => d.GetF("textScale", 0.24f), v => d.SetF("textScale", Mathf.Clamp(v, 0.08f, 0.6f)), 0.08f, 0.6f));
             into.Add(HudProp.F("Column gap", () => d.GetF("colGap", 8f), v => d.SetF("colGap", Mathf.Clamp(v, 0f, 40f)), 0f, 40f));
             into.Add(HudProp.F("Row gap", () => d.GetF("rowGap", 6f), v => d.SetF("rowGap", Mathf.Clamp(v, 0f, 40f)), 0f, 40f));
             into.Add(HudProp.Bool("Stack two-word names", () => d.GetB("stackWords", true), v => d.SetB("stackWords", v)));

@@ -41,6 +41,7 @@ namespace StationeersUIMod.UI.Hud.Widgets
         private Vector2 _origSizeDelta;
         private Vector2 _origAnchorMin;
         private Vector2 _origAnchorMax;
+        private Vector2 _origPivot;
         private Vector3 _origScale;
         private Image _bgImage;         // the 'healthbodybg' silhouette on the doll root
         private bool _bgWasEnabled;
@@ -77,16 +78,6 @@ namespace StationeersUIMod.UI.Hud.Widgets
 
         public override void UpdatePanel(HudSnapshot s, float scale)
         {
-            bool showBox = Def.GetB("box", true);
-            _box.enabled = showBox;
-            if (showBox)
-            {
-                _box.color = FillColor();
-                _box.BorderColor = BorderColor();
-                _box.BorderWidth = BorderWidthFor();
-                ApplyGlass(_box);
-            }
-
             // Retry the borrow every frame until the singleton and its doll exist (both are
             // null until in-world, and the doll may be freshly created after a reload).
             try
@@ -95,6 +86,22 @@ namespace StationeersUIMod.UI.Hud.Widgets
                 if (_borrowed) FitDoll(scale);
             }
             catch { }
+
+            // Vanilla toggles the doll's activeSelf by injury (only shown when damaged). Our
+            // box follows: when the player is healthy the doll is inactive → hide the whole
+            // box so an empty frame never sits there (FlorpyDorp: "hidden if not needed").
+            bool dollActive = false;
+            try { dollActive = _borrowed && _dollRt != null && _dollRt.gameObject.activeSelf; } catch { }
+
+            bool showBox = Def.GetB("box", true) && dollActive;
+            _box.enabled = showBox;
+            if (showBox)
+            {
+                _box.color = FillColor();
+                _box.BorderColor = BorderColor();
+                _box.BorderWidth = BorderWidthFor();
+                ApplyGlass(_box);
+            }
         }
 
         private void TryBorrow()
@@ -116,6 +123,7 @@ namespace StationeersUIMod.UI.Hud.Widgets
             _origSizeDelta = rt.sizeDelta;
             _origAnchorMin = rt.anchorMin;
             _origAnchorMax = rt.anchorMax;
+            _origPivot = rt.pivot;
             _origScale = rt.localScale;
 
             // Native size for fitting: the rect it occupied in vanilla (fall back to sizeDelta).
@@ -133,10 +141,12 @@ namespace StationeersUIMod.UI.Hud.Widgets
                 _bgImage.enabled = false;
             }
 
-            // Reparent into our box. Center anchors so the borrowed rect's size is its own
-            // sizeDelta (independent of the holder), giving deterministic fitting.
+            // Reparent into our box. Centre anchors AND centre pivot so the borrowed rect
+            // sits perfectly centred in the holder (the vanilla pivot was a corner, which
+            // pushed the doll off-centre).
             rt.SetParent(_holder, false);
             rt.anchorMin = rt.anchorMax = new Vector2(0.5f, 0.5f);
+            rt.pivot = new Vector2(0.5f, 0.5f);
             rt.anchoredPosition = Vector2.zero;
 
             _borrowed = true;
@@ -187,6 +197,7 @@ namespace StationeersUIMod.UI.Hud.Widgets
                     if (_origParent != null) _dollRt.SetParent(_origParent, false);
                     _dollRt.anchorMin = _origAnchorMin;
                     _dollRt.anchorMax = _origAnchorMax;
+                    _dollRt.pivot = _origPivot;
                     _dollRt.sizeDelta = _origSizeDelta;
                     _dollRt.anchoredPosition = _origAnchoredPos;
                     _dollRt.localPosition = _origLocalPos;

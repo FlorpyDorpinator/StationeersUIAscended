@@ -47,6 +47,9 @@ namespace StationeersUIMod.UI.Hud.Widgets
         private Vector2 _barCenter, _barSize;   // the bar strip Layout() reserved
         private bool _barIsVertical;
         private float _lastFill = -1f;
+        // Auto value-font size in REFERENCE px, derived from the box each Layout so text
+        // shrinks/grows with the box (FlorpyDorp: "text should update when I resize").
+        private float _autoValueRef = 17f;
 
         private static readonly string[] SourceNames = System.Enum.GetNames(typeof(HudReadoutSource));
         private static readonly string[] BarStyleNames = { "Procedural", "Game art" };
@@ -171,10 +174,12 @@ namespace StationeersUIMod.UI.Hud.Widgets
                 _targetRt.sizeDelta = new Vector2(cw, 12f * scale);
                 _valueRt.anchoredPosition = new Vector2(cx, valY);
                 _valueRt.sizeDelta = new Vector2(cw, 22f * scale);
+                _autoValueRef = (cTop - cBot) / Mathf.Max(0.01f, scale) * 0.19f;
                 if (_iconRt != null)
                 {
-                    // Conditional hot/cold glyph sits just left of the value row.
-                    float isz = Mathf.Clamp((cTop - cBot) * 0.22f, 10f * scale, 22f * scale);
+                    // Conditional hot/cold glyph sits just left of the value row (item 7:
+                    // vanilla's hot/cold icon reads ~1.5× the old size).
+                    float isz = Mathf.Clamp((cTop - cBot) * 0.34f, 14f * scale, 40f * scale);
                     _iconRt.anchoredPosition = new Vector2(cLeft + isz * 0.5f, valY);
                     _iconRt.sizeDelta = new Vector2(isz, isz);
                 }
@@ -193,9 +198,10 @@ namespace StationeersUIMod.UI.Hud.Widgets
                 _valueRt.sizeDelta = new Vector2(cw, 24f * scale);
                 _targetRt.anchoredPosition = new Vector2(cx, tgtY);
                 _targetRt.sizeDelta = new Vector2(cw, 12f * scale);
+                _autoValueRef = cw / Mathf.Max(0.01f, scale) * 0.22f;
                 if (_iconRt != null)
                 {
-                    float isz = Mathf.Clamp(cw * 0.4f, 10f * scale, 30f * scale);
+                    float isz = Mathf.Clamp(cw * 0.5f, 14f * scale, 44f * scale);
                     _iconRt.anchoredPosition = new Vector2(cx, cBot + isz * 0.5f + 2f * scale);
                     _iconRt.sizeDelta = new Vector2(isz, isz);
                 }
@@ -204,8 +210,9 @@ namespace StationeersUIMod.UI.Hud.Widgets
             {
                 // Compact row (the mockup's cluster rows): icon left, label top beside it,
                 // value right-of-label, thin bar already reserved along the bottom.
+                _autoValueRef = (cTop - cBot) / Mathf.Max(0.01f, scale) * 0.42f;
                 float isz = _iconRt != null
-                    ? Mathf.Clamp((cTop - cBot) * 0.62f, 10f * scale, 26f * scale) : 0f;
+                    ? Mathf.Clamp((cTop - cBot) * 0.82f, 14f * scale, 44f * scale) : 0f;
                 float textLeft = cLeft + (isz > 0f ? isz + 6f * scale : 0f);
                 float tw = Mathf.Max(20f, cRight - textLeft);
                 float midY = (cTop + cBot) * 0.5f;
@@ -308,7 +315,9 @@ namespace StationeersUIMod.UI.Hud.Widgets
             }
             string tgtText = _tgtText;
 
-            float vs = Def.GetF("valueSize", 17f) * Def.FontScale;
+            // Font tracks the box size (from Layout's _autoValueRef) times an optional F9
+            // multiplier, so shrinking the box shrinks the text. "textScale" default 1.
+            float vs = _autoValueRef * Def.GetF("textScale", 1f) * Def.FontScale;
             HudText.Sync(_label); HudText.Sync(_value); HudText.Sync(_target);
             _value.fontSize = HudText.Size(vs) * scale;
             _label.fontSize = HudText.Size(vs * 0.62f) * scale;
@@ -657,7 +666,7 @@ namespace StationeersUIMod.UI.Hud.Widgets
             into.Add(HudProp.Color("Bar track", () => d.GetS("barTrack", ""), v => d.Set("barTrack", Empty(v))));
             into.Add(HudProp.Color("Bar target", () => d.GetS("barTarget", ""), v => d.Set("barTarget", Empty(v))));
             into.Add(HudProp.Text("Label override", () => d.GetS("label", ""), v => d.Set("label", Empty(v))));
-            into.Add(HudProp.F("Value size", () => d.GetF("valueSize", 17f), v => d.SetF("valueSize", v), 8f, 48f));
+            into.Add(HudProp.F("Text scale (× box-auto)", () => d.GetF("textScale", 1f), v => d.SetF("textScale", Mathf.Clamp(v, 0.3f, 3f)), 0.3f, 3f));
         }
 
         /// <summary>Blank in the editor means "revert to the palette/auto default": stored as a

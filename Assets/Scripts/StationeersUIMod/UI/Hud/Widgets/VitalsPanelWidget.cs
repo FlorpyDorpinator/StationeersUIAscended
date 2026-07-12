@@ -53,11 +53,19 @@ namespace StationeersUIMod.UI.Hud.Widgets
         private readonly Image[] _stars = new Image[StarCount];
 
         private PanelGraphic _box;
+        // Thin grey separators drawn BETWEEN visible rows (RowCount-1 max).
+        private readonly PanelGraphic[] _seps = new PanelGraphic[RowCount - 1];
         private int _sig = -1;
 
         protected override void BuildContent(RectTransform root)
         {
             _box = MakePanel(root, "Box");
+
+            for (int i = 0; i < _seps.Length; i++)
+            {
+                _seps[i] = MakeBar(root, "Sep" + i); // borderless thin line
+                _seps[i].enabled = false;
+            }
 
             for (int i = 0; i < RowCount; i++)
             {
@@ -340,9 +348,9 @@ namespace StationeersUIMod.UI.Hud.Widgets
             _lastScale = scale;
             var c = CenterFor(scale);
             var s = SizeFor(scale);
-            float rowH = Def.GetF("rowHeight", 30f) * scale;
+            float rowH = Def.GetF("rowHeight", 42f) * scale;
             float pad = 5f * scale;
-            float iconScale = Def.GetF("iconScale", 0.7f);
+            float iconScale = Def.GetF("iconScale", 0.92f);
 
             // Build the visible-order list.
             var order = new List<int>(RowCount);
@@ -368,7 +376,22 @@ namespace StationeersUIMod.UI.Hud.Widgets
 
             float left = c.x - s.x * 0.5f + pad;
             float right = c.x + s.x * 0.5f - pad;
-            float iconSz = Mathf.Clamp(rowH * iconScale, 6f, rowH);
+            float iconSz = Mathf.Clamp(rowH * iconScale, 6f, rowH * 1.15f);
+
+            // Thin grey separators between adjacent visible rows.
+            var sepCol = HudPalette.TextDim.Value; sepCol.a *= 0.4f;
+            float sepW = s.x - pad * 2f;
+            for (int i = 0; i < _seps.Length; i++)
+            {
+                bool on = i < n - 1;
+                _seps[i].enabled = on;
+                if (!on) continue;
+                float sy = top - rowH * (i + 1);
+                ((RectTransform)_seps[i].transform).anchoredPosition = new Vector2(c.x, sy);
+                _seps[i].SetShape(sepW, Mathf.Max(1f, 1.4f * scale), 0.5f);
+                _seps[i].color = sepCol;
+                _seps[i].BorderWidth = 0f;
+            }
 
             // Star strip reserved on the right of the HUNGER row only.
             float starSz = Mathf.Clamp(rowH * 0.42f, 4f, rowH);
@@ -411,10 +434,10 @@ namespace StationeersUIMod.UI.Hud.Widgets
             into.Add(HudProp.Bool("Words mode (bare)", () => d.GetB("words", false), v => d.SetB("words", v)));
             into.Add(HudProp.Bool("Pressure row (words)", () => d.GetB("rowPressure", false), v => d.SetB("rowPressure", v)));
             into.Add(HudProp.Bool("Temp row (words)", () => d.GetB("rowTemp", false), v => d.SetB("rowTemp", v)));
-            into.Add(HudProp.F("Row height", () => d.GetF("rowHeight", 30f),
-                v => d.SetF("rowHeight", Mathf.Clamp(v, 16f, 60f)), 16f, 60f));
-            into.Add(HudProp.F("Icon size (rel)", () => d.GetF("iconScale", 0.7f),
-                v => d.SetF("iconScale", Mathf.Clamp(v, 0.2f, 1f)), 0.2f, 1f));
+            into.Add(HudProp.F("Row height", () => d.GetF("rowHeight", 42f),
+                v => d.SetF("rowHeight", Mathf.Clamp(v, 16f, 96f)), 16f, 96f));
+            into.Add(HudProp.F("Icon size (rel)", () => d.GetF("iconScale", 0.92f),
+                v => d.SetF("iconScale", Mathf.Clamp(v, 0.2f, 1.15f)), 0.2f, 1.15f));
         }
     }
 }

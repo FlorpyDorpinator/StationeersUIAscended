@@ -27,22 +27,22 @@ namespace StationeersUIMod.UI.Hud
 
         public static bool Enabled => Active != Kind.None && Strength > 0.001f && !BareFlat;
 
-        /// <summary>The shared barrel term: +1 pushes rows AWAY from the horizontal
-        /// axis at the screen edges (corners flare outward), −1 pinches them inward.
-        /// A strength-tied inward fit-scale keeps the flared corners ON-SCREEN — without
-        /// it, k=1 threw edge vertices 30% past the screen half-extent and the overlay
-        /// canvas clipped them ("everything gets cut off"). The scale lives here so the
-        /// Unwarp fixed-point inverse (and the editor hit-test that rides it) track it
-        /// automatically.</summary>
+        /// <summary>The shared barrel term — a GENTLE visor bow. The old 0.30/0.12
+        /// coefficients turned a full-width top bar into a grotesque funnel (the play-test
+        /// "very broken" curve), and the aggressive fit-scale then sucked its contents down
+        /// toward screen centre ("everything is too close to the screen"). Now: much smaller
+        /// coefficients, the normalised coords CLAMPED so the flare saturates instead of
+        /// running away at the edges, and only a MILD matching fit-scale (kept here so the
+        /// Unwarp inverse and the editor hit-test track it automatically).</summary>
         public static Vector2 Barrel(Vector2 p, float k, float halfW, float halfH)
         {
-            float nx = p.x / halfW;
-            float ny = p.y / halfH;
-            p.y += p.y * k * 0.30f * nx * nx;
-            p.x += p.x * k * 0.12f * ny * ny;
-            // Pull the whole field inward so the worst-case vertical flare (0.30·|k|)
-            // lands back on the edge instead of beyond it.
-            float fit = 1f / (1f + Mathf.Abs(k) * 0.30f);
+            float nx = Mathf.Clamp(p.x / halfW, -1f, 1f);
+            float ny = Mathf.Clamp(p.y / halfH, -1f, 1f);
+            p.y += p.y * k * 0.12f * nx * nx;
+            p.x += p.x * k * 0.06f * ny * ny;
+            // A light inward nudge so the worst-case flare stays on-screen without pulling
+            // the whole HUD toward the middle.
+            float fit = 1f / (1f + Mathf.Abs(k) * 0.10f);
             p.x *= fit;
             p.y *= fit;
             return p;

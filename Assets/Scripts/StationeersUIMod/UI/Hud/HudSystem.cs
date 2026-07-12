@@ -209,7 +209,7 @@ namespace StationeersUIMod.UI.Hud
                     Features.HudProfileStore.SetActive(fresh, name);
                     Features.HudProfileStore.MarkChanged(); // persist the upgrade
                 }
-                else if (active != null && active.Schema < 7
+                else if (active != null && active.Schema < 8
                     && string.Equals(name, "Glassy 2.0", System.StringComparison.OrdinalIgnoreCase))
                 {
                     var fresh = BuildGlassy2Document();
@@ -507,7 +507,7 @@ namespace StationeersUIMod.UI.Hud
         /// gets a words-mode vitals panel and everything flattens (BareFlattens).</summary>
         private static HudDocument BuildGlassy2Document()
         {
-            var doc = new HudDocument { Name = "Glassy 2.0", Schema = 7 };
+            var doc = new HudDocument { Name = "Glassy 2.0", Schema = 8 };
             var els = doc.Elements;
 
             // ===== 1. TOP BAR (full-width trapezoid, top edge wider than bottom) =====
@@ -521,7 +521,7 @@ namespace StationeersUIMod.UI.Hud
 
             // External pressure: value with the vanilla ramp bar UNDER the text.
             var extP = El("g2-extpress", HudElementType.Readout, HudAnchor.TopLeft, 470f, -38f, 250f, 50f, SuitOnly, 2);
-            extP.Set("src", "ExternalPressure"); extP.Set("label", "EXT PRESSURE");
+            extP.Set("src", "ExternalPressure"); extP.Set("label", "EXTERNAL PRESSURE");
             extP.SetB("box", false); extP.SetB("bar", true); extP.Set("barStyle", "game");
             extP.SetB("barVertical", false); extP.SetB("target", false);
             els.Add(extP);
@@ -533,7 +533,7 @@ namespace StationeersUIMod.UI.Hud
 
             // External temp: label + conditional hot/cold icon + value.
             var extT = El("g2-exttemp", HudElementType.Readout, HudAnchor.TopRight, -360f, -38f, 240f, 50f, SuitOnly, 2);
-            extT.Set("src", "ExternalTemp"); extT.Set("label", "EXT TEMP");
+            extT.Set("src", "ExternalTemp"); extT.Set("label", "EXTERNAL TEMP");
             extT.SetB("box", false); extT.SetB("bar", false); extT.SetB("target", false);
             extT.SetB("tempIcon", true); extT.Icon = "Temp";
             els.Add(extT);
@@ -541,9 +541,11 @@ namespace StationeersUIMod.UI.Hud
             els.Add(El("g2-day", HudElementType.DayCounter, HudAnchor.TopRight, -120f, -38f, 130f, 40f, SuitOnly, 2));
 
             // ===== 2. MOODLET STRIP (subtle, wrapping, game icons) =====
-            var mood = El("g2-moodlets", HudElementType.MoodletDashboard, HudAnchor.TopCenter, 0f, -98f, 900f, 60f, HudTierMask.All, 1);
+            var mood = El("g2-moodlets", HudElementType.MoodletDashboard, HudAnchor.TopCenter, 0f, -110f, 1100f, 100f, HudTierMask.All, 1);
             mood.SetB("box", false);
             mood.SetB("stackWords", true);
+            mood.SetF("chipH", 64f);       // large icons by default (play-test wanted ~4×)
+            mood.SetF("chipWidth", 128f);
             els.Add(mood);
 
             // ===== 3. BOTTOM: 1 2 3 | hands | 4 5 6, with the visor-rim arc =====
@@ -601,12 +603,12 @@ namespace StationeersUIMod.UI.Hud
             els.Add(G2Glass(vit));
 
             // Borrowed damage doll (left of vitals) + speed readout.
-            els.Add(El("g2-doll", HudElementType.DamageDoll, HudAnchor.BottomRight, -640f, 118f, 110f, 190f, HudTierMask.All, 3));
-            var spd = El("g2-speed", HudElementType.Readout, HudAnchor.BottomRight, -640f, 24f, 110f, 44f, SuitOnly, 3);
+            els.Add(G2Glass(El("g2-doll", HudElementType.DamageDoll, HudAnchor.BottomRight, -648f, 130f, 120f, 150f, HudTierMask.All, 3)));
+            var spd = El("g2-speed", HudElementType.Readout, HudAnchor.BottomRight, -648f, 32f, 120f, 52f, SuitOnly, 3);
             spd.Set("src", "Speed"); spd.Set("label", "SPEED");
-            spd.SetB("box", false); spd.SetB("bar", false); spd.SetB("target", false);
-            spd.Icon = "jetpack"; // stand-in; play-test may swap for a velocity glyph
-            els.Add(spd);
+            spd.SetB("box", true); spd.SetB("bar", false); spd.SetB("target", false);
+            spd.Icon = "speed"; // vanilla running-man (SymbolVelocity)
+            els.Add(G2Glass(spd));
 
             // ===== 5. BARE TIER: words-mode vitals + pressure/temp words =====
             var bare = El("g2-bare-vitals", HudElementType.VitalsPanel, HudAnchor.BottomRight, -300f, 90f, 300f, 220f, HudTierMask.Bare, 3);
@@ -684,6 +686,9 @@ namespace StationeersUIMod.UI.Hud
             HudText.Shutdown();
             HudWarp.Active = HudWarp.Kind.None;
             HudWarp.BareFlat = false; // reset alongside Active so a reload starts un-flattened
+            if (_moodletGroup != null) { try { _moodletGroup.alpha = 1f; } catch { } }
+            _moodletGroup = null;
+            _moodletHidden = false;
             _hasPrev = false;
             _appliedMode = HudCurvature.Flat;
             ForceTier = null;
@@ -1267,7 +1272,38 @@ namespace StationeersUIMod.UI.Hud
                 UIALog.Warn("SetUIPanelVisibility failed: " + e.Message);
             }
 
+            SyncVanillaMoodlets();
             SyncPlayerStateCluster();
+        }
+
+        // The vanilla moodlet strip lives under StatusUpdates.StatusTransform — a DIFFERENT
+        // object from InventoryManager.StatusPanel, so the panel-visibility path above never
+        // touched it (the "vanilla moodlets still show" report). We hide it with a CanvasGroup
+        // alpha: vanilla's ManagerUpdate keeps SetActive-ing the transform, but never touches
+        // a CanvasGroup, so alpha 0 sticks — and each child's activeSelf stays readable, which
+        // our MoodletDashboard mirror depends on. Gated on the same HideVanillaStatus toggle.
+        private static UnityEngine.CanvasGroup _moodletGroup;
+        private static bool _moodletHidden;
+        private static void SyncVanillaMoodlets()
+        {
+            try
+            {
+                bool hide = UIAConfig.HideVanillaStatus != null && UIAConfig.HideVanillaStatus.Value;
+                if (hide == _moodletHidden && _moodletGroup != null) return;
+
+                var su = Assets.Scripts.UI.StatusUpdates.Instance;
+                var t = su != null ? su.StatusTransform : null;
+                if (t == null) return;
+                if (_moodletGroup == null)
+                {
+                    var go = t.gameObject;
+                    _moodletGroup = go.GetComponent<UnityEngine.CanvasGroup>()
+                        ?? go.AddComponent<UnityEngine.CanvasGroup>();
+                }
+                _moodletGroup.alpha = hide ? 0f : 1f;
+                _moodletHidden = hide;
+            }
+            catch (Exception e) { UIALog.Warn("Vanilla moodlet hide failed: " + e.Message); }
         }
 
         private static bool _restorePlayerState;
@@ -1337,6 +1373,10 @@ namespace StationeersUIMod.UI.Hud
 
         public static void RestoreVanillaIfNeeded()
         {
+            // Hand the vanilla moodlet strip back (alpha restored).
+            if (_moodletGroup != null) { try { _moodletGroup.alpha = 1f; } catch { } }
+            _moodletHidden = false;
+
             // The instrument cluster restores independently of the three big panels.
             PlayerStateClusterHidden = false;
             if (_restorePlayerState)
