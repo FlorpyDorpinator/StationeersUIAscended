@@ -188,7 +188,7 @@ namespace StationeersUIMod.UI.Hud
                 // current starter — but ONLY the literal "Default" profile; anything the
                 // user named themselves is theirs, whatever its age.
                 var active = Features.HudProfileStore.Active;
-                if (active != null && active.Schema < 2
+                if (active != null && active.Schema < 3
                     && string.Equals(name, "Default", System.StringComparison.OrdinalIgnoreCase))
                 {
                     var fresh = BuildStarterDocument();
@@ -241,6 +241,9 @@ namespace StationeersUIMod.UI.Hud
             switch (def.Type)
             {
                 case HudElementType.Compass: return new Widgets.CompassWidget();
+                case HudElementType.MoodletDashboard: return new Widgets.MoodletDashboardWidget();
+                case HudElementType.BodyDoll: return new Widgets.BodyDollWidget();
+                case HudElementType.SuitChips: return new Widgets.SuitChipsWidget();
                 case HudElementType.EquipmentColumn: return new Widgets.EquipmentColumnWidget();
                 case HudElementType.HandBoxes: return new Widgets.HandBoxesWidget();
                 case HudElementType.KeybindChips: return new Widgets.KeybindChipsWidget();
@@ -311,9 +314,9 @@ namespace StationeersUIMod.UI.Hud
         /// first run (and whenever the file goes missing).</summary>
         private static HudDocument BuildStarterDocument()
         {
-            // Schema 2 = the widget-parity layout (schema 1 was the primitive demo doc;
-            // EnsureActiveDocument silently upgrades a stale schema-1 "Default").
-            var doc = new HudDocument { Name = "Default", Schema = 2 };
+            // Schema 3 = the concept-art layout (1 was the primitive demo, 2 the plain
+            // parity port; EnsureActiveDocument silently upgrades a stale shipped Default).
+            var doc = new HudDocument { Name = "Default", Schema = 3 };
             var els = doc.Elements;
 
             // --- top bar: backdrop + badge, clock, external cells, compass, day, world ---
@@ -347,25 +350,62 @@ namespace StationeersUIMod.UI.Hud
             els.Add(chips);
 
             // --- bottom-right vitals: four readout rows + the round hologram portrait ---
-            // TEMP is the FELT temperature (any atmosphere), not InternalTemp (needs
-            // internals running) — the legacy vitals card's semantics, incl. robots.
-            string[] rowSrc = { "Health", "O2Quality", "SuitPower", "FeltTemp" };
-            string[] rowLbl = { "HEALTH", "O2", "POWER", "TEMP" };
-            for (int i = 0; i < 4; i++)
-            {
-                var row = El("vital-" + rowLbl[i].ToLowerInvariant(), HudElementType.Readout,
-                    HudAnchor.BottomRight, -300f, 178f - i * 44f, 180f, 42f, SuitOnly);
-                row.Set("src", rowSrc[i]); row.Set("label", rowLbl[i]);
-                row.SetB("box", false);
-                row.SetF("valueSize", 13f);
-                els.Add(row);
-            }
-            els.Add(El("portrait", HudElementType.Portrait, HudAnchor.BottomRight, -105f, 120f, 150f, 150f, SuitOnly));
+            // --- moodlet dashboard: chips center-out under the top bar, like a car ---
+            els.Add(El("moodlets", HudElementType.MoodletDashboard, HudAnchor.TopCenter, 0f, -104f, 760f, 36f));
+
+            // --- vertical instrument cards (the concept's gauge columns) ---
+            // Bottom-left pair: the outside world.
+            AddGaugeCard(els, "card-ext-pressure", "ExternalPressure", "EXT PRESS", "Gauge", -1, 62f, 200f);
+            AddGaugeCard(els, "card-ext-temp", "ExternalTemp", "EXT TEMP", "Thermometer", -1, 158f, 200f);
+            // Bottom-right trio: the suit's own instruments.
+            AddGaugeCard(els, "card-int-pressure", "InternalPressure", "INTERNAL\nPRESSURE", "Gauge", 1, -560f, 175f);
+            AddGaugeCard(els, "card-int-temp", "InternalTemp", "INTERNAL\nTEMP", "Thermometer", 1, -455f, 175f);
+            AddGaugeCard(els, "card-jetpack", "JetpackPropellant", "JETPACK", "Jetpack", 1, -350f, 175f);
+
+            // --- needs pills + suit chips + the round hologram + the damage doll ---
+            var hyd = El("pill-hydration", HudElementType.Readout, HudAnchor.BottomRight, -430f, 40f, 120f, 40f, SuitOnly);
+            hyd.Set("src", "Hydration"); hyd.Set("label", ""); hyd.SetB("bar", false);
+            hyd.Icon = "Droplet"; hyd.SetF("valueSize", 15f);
+            els.Add(hyd);
+            var san = El("pill-sanitation", HudElementType.Readout, HudAnchor.BottomRight, -300f, 40f, 120f, 40f, SuitOnly);
+            san.Set("src", "Sanitation"); san.Set("label", ""); san.SetB("bar", false);
+            san.Icon = "Toilet"; san.SetF("valueSize", 15f);
+            els.Add(san);
+
+            els.Add(El("suit-chips", HudElementType.SuitChips, HudAnchor.BottomRight, -560f, 40f, 170f, 44f, SuitOnly));
+            els.Add(El("portrait", HudElementType.Portrait, HudAnchor.BottomRight, -105f, 110f, 160f, 160f, SuitOnly));
+            els.Add(El("body-doll", HudElementType.BodyDoll, HudAnchor.BottomRight, -205f, 110f, 74f, 165f));
+
+            // A compact power+health pair rides over the portrait's shoulder — the doll
+            // and moodlets carry the story, these carry the numbers.
+            var pow = El("pill-power", HudElementType.Readout, HudAnchor.BottomRight, -105f, 215f, 150f, 36f, SuitOnly);
+            pow.Set("src", "SuitPower"); pow.Set("label", ""); pow.SetB("bar", true); pow.SetB("box", false);
+            pow.Icon = "Bolt"; pow.SetF("valueSize", 14f);
+            els.Add(pow);
 
             // --- bare tier: the felt-sense words own the middle of the view ---
             els.Add(El("bare-senses", HudElementType.BareSenses, HudAnchor.Center, 0f, -40f, 420f, 320f, HudTierMask.Bare));
 
             return doc;
+        }
+
+        /// <summary>One of the concept art's VERTICAL instrument cards: boxed, icon at the
+        /// bottom, big value + target line, upright threshold bar. side −1 anchors
+        /// bottom-left, +1 bottom-right (x is the offset from that corner).</summary>
+        private static void AddGaugeCard(List<HudElementDef> els, string id, string src,
+            string label, string icon, int side, float x, float h)
+        {
+            var e = El(id, HudElementType.Readout,
+                side < 0 ? HudAnchor.BottomLeft : HudAnchor.BottomRight,
+                x, 30f + h * 0.5f, 92f, h, SuitOnly);
+            e.Set("src", src);
+            e.Set("label", label);
+            e.SetB("box", true);
+            e.SetB("bar", true);
+            e.SetB("barVertical", true);
+            e.Icon = icon;
+            e.SetF("valueSize", 15f);
+            els.Add(e);
         }
 
         public static void Shutdown()
@@ -928,10 +968,81 @@ namespace StationeersUIMod.UI.Hud
             {
                 UIALog.Warn("SetUIPanelVisibility failed: " + e.Message);
             }
+
+            SyncPlayerStateCluster();
+        }
+
+        private static bool _restorePlayerState;
+        private static int _playerStateWarns;
+
+        /// <summary>The vanilla bottom-right instrument cluster (internal/external/jetpack/
+        /// health boxes on PlayerStateWindow) — hidden through the game's OWN alpha path
+        /// (UserInterfaceBase.SetVisible), reconciled against actual state every frame
+        /// because vanilla re-asserts the jetpack panel itself on gear changes. Restored
+        /// once when the toggle clears; vanilla's own update re-settles the right states.</summary>
+        private static void SyncPlayerStateCluster()
+        {
+            try
+            {
+                var psw = Assets.Scripts.UI.PlayerStateWindow.Instance;
+                if (psw == null) return;
+                bool hide = UIAConfig.HideVanillaPlayerState != null
+                    && UIAConfig.HideVanillaPlayerState.Value;
+                if (hide)
+                {
+                    HideCluster(psw.InfoInternal);
+                    HideCluster(psw.InfoExternal);
+                    HideCluster(psw.InfoJetpack);
+                    HideCluster(psw.InfoHealth);
+                    _restorePlayerState = true;
+                }
+                else if (_restorePlayerState)
+                {
+                    _restorePlayerState = false;
+                    ShowCluster(psw.InfoInternal);
+                    ShowCluster(psw.InfoExternal);
+                    ShowCluster(psw.InfoJetpack);
+                    ShowCluster(psw.InfoHealth);
+                }
+            }
+            catch (Exception e)
+            {
+                if (++_playerStateWarns <= 3)
+                    UIALog.Warn("PlayerState cluster visibility failed: " + e.Message
+                        + (_playerStateWarns == 3 ? " (further errors suppressed)" : ""));
+            }
+        }
+
+        private static void HideCluster(Assets.Scripts.UI.UserInterfaceBase p)
+        {
+            try { if (p != null && p.IsVisible) p.SetVisible(false); } catch { }
+        }
+
+        private static void ShowCluster(Assets.Scripts.UI.UserInterfaceBase p)
+        {
+            try { if (p != null && !p.IsVisible) p.SetVisible(true); } catch { }
         }
 
         public static void RestoreVanillaIfNeeded()
         {
+            // The instrument cluster restores independently of the three big panels.
+            if (_restorePlayerState)
+            {
+                _restorePlayerState = false;
+                try
+                {
+                    var psw = Assets.Scripts.UI.PlayerStateWindow.Instance;
+                    if (psw != null)
+                    {
+                        ShowCluster(psw.InfoInternal);
+                        ShowCluster(psw.InfoExternal);
+                        ShowCluster(psw.InfoJetpack);
+                        ShowCluster(psw.InfoHealth);
+                    }
+                }
+                catch { }
+            }
+
             if (!_restoreHands && !_restoreClothing && !_restoreStatus) return;
             bool hands = _restoreHands, clothing = _restoreClothing, status = _restoreStatus;
             _restoreHands = _restoreClothing = _restoreStatus = false;

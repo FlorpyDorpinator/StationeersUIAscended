@@ -104,6 +104,7 @@ namespace StationeersUIMod
         public static ConfigEntry<bool> HideVanillaHands;
         public static ConfigEntry<bool> HideVanillaClothing;
         public static ConfigEntry<bool> HideVanillaStatus;
+        public static ConfigEntry<bool> HideVanillaPlayerState;
         public static ConfigEntry<bool> HardcoreGating;
 
         // --- Radial visuals ---
@@ -233,12 +234,19 @@ namespace StationeersUIMod
                 "Decorative curved visor edge lines (flat approximation of the curved-visor concept).");
             HudScale = cfg.Bind("7. HUD", "Scale", 1.0f,
                 new ConfigDescription("Overall HUD scale.", new AcceptableValueRange<float>(0.6f, 1.6f)));
-            HideVanillaHands = cfg.Bind("7. HUD", "HideVanillaHands", false,
-                "Hide the vanilla hand slots panel while the UI Ascended hand boxes are shown (objects stay alive; restored on toggle/exit).");
-            HideVanillaClothing = cfg.Bind("7. HUD", "HideVanillaClothing", false,
-                "Hide the vanilla clothing/equipment panel.");
-            HideVanillaStatus = cfg.Bind("7. HUD", "HideVanillaStatus", false,
-                "Hide the vanilla status panel (right-side player state window).");
+            HideVanillaHands = cfg.Bind("7. HUD", "HideVanillaHands", true,
+                "Hide the vanilla hand slots panel while the UI Ascended hand boxes are shown " +
+                "(objects stay alive; restored on toggle/exit). Default ON since the HUD " +
+                "Designer replaced the whole vanilla HUD surface.");
+            HideVanillaClothing = cfg.Bind("7. HUD", "HideVanillaClothing", true,
+                "Hide the vanilla clothing/equipment panel (ours replaces it).");
+            HideVanillaStatus = cfg.Bind("7. HUD", "HideVanillaStatus", true,
+                "Hide the vanilla status panel (right-side player state window incl. the " +
+                "moodlet strip — the HUD's own dashboard replaces it).");
+            HideVanillaPlayerState = cfg.Bind("7. HUD", "HideVanillaPlayerState", true,
+                "Hide vanilla's bottom-right instrument cluster (internal/external/jetpack/" +
+                "health boxes) through the game's own visibility path — the HUD's readout " +
+                "cards replace them. Restored the moment this is turned off.");
             HardcoreGating = cfg.Bind("7. HUD", "HardcoreGating", false,
                 "Diegetic mode: status strip & vitals need a worn helmet; the context panel needs powered sensor lenses.");
 
