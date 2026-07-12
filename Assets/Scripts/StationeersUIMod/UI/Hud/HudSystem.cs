@@ -209,7 +209,7 @@ namespace StationeersUIMod.UI.Hud
                     Features.HudProfileStore.SetActive(fresh, name);
                     Features.HudProfileStore.MarkChanged(); // persist the upgrade
                 }
-                else if (active != null && active.Schema < 8
+                else if (active != null && active.Schema < 9
                     && string.Equals(name, "Glassy 2.0", System.StringComparison.OrdinalIgnoreCase))
                 {
                     var fresh = BuildGlassy2Document();
@@ -283,7 +283,10 @@ namespace StationeersUIMod.UI.Hud
             switch (def.Type)
             {
                 case HudElementType.Compass: return new Widgets.CompassWidget();
-                case HudElementType.MoodletDashboard: return new Widgets.MoodletDashboardWidget();
+                // Borrow vanilla's own moodlet strip into our bar (FlorpyDorp: "just the
+                // vanilla moodlet behavior, but in the moodlet bar"). MoodletDashboardWidget
+                // (our re-implementation) is retired in favour of the real thing.
+                case HudElementType.MoodletDashboard: return new Widgets.MoodletBorrowWidget();
                 case HudElementType.BodyDoll: return new Widgets.BodyDollWidget();
                 case HudElementType.SuitChips: return new Widgets.SuitChipsWidget();
                 case HudElementType.EquipmentColumn: return new Widgets.EquipmentColumnWidget();
@@ -317,7 +320,10 @@ namespace StationeersUIMod.UI.Hud
                 if (pw != null) { try { pw.RestorePortrait(); } catch { } continue; }
                 // Borrowed vanilla body doll: hand it back to PlayerStateWindow too.
                 var dw = p as Widgets.DamageDollBorrowWidget;
-                if (dw != null) { try { dw.RestoreDoll(); } catch { } }
+                if (dw != null) { try { dw.RestoreDoll(); } catch { } continue; }
+                // Borrowed vanilla moodlet strip: hand it back too.
+                var mw = p as Widgets.MoodletBorrowWidget;
+                if (mw != null) { try { mw.RestoreMoodlets(); } catch { } }
             }
         }
 
@@ -507,7 +513,7 @@ namespace StationeersUIMod.UI.Hud
         /// gets a words-mode vitals panel and everything flattens (BareFlattens).</summary>
         private static HudDocument BuildGlassy2Document()
         {
-            var doc = new HudDocument { Name = "Glassy 2.0", Schema = 8 };
+            var doc = new HudDocument { Name = "Glassy 2.0", Schema = 9 };
             var els = doc.Elements;
 
             // ===== 1. TOP BAR (full-width trapezoid, top edge wider than bottom) =====
@@ -541,11 +547,9 @@ namespace StationeersUIMod.UI.Hud
             els.Add(El("g2-day", HudElementType.DayCounter, HudAnchor.TopRight, -120f, -38f, 130f, 40f, SuitOnly, 2));
 
             // ===== 2. MOODLET STRIP (subtle, wrapping, game icons) =====
+            // The vanilla moodlet strip, relocated here (MoodletBorrowWidget) and scaled up.
             var mood = El("g2-moodlets", HudElementType.MoodletDashboard, HudAnchor.TopCenter, 0f, -110f, 1100f, 100f, HudTierMask.All, 1);
-            mood.SetB("box", false);
-            mood.SetB("stackWords", true);
-            mood.SetF("chipH", 64f);       // large icons by default (play-test wanted ~4×)
-            mood.SetF("chipWidth", 128f);
+            mood.SetF("moodletScale", 1.6f);
             els.Add(mood);
 
             // ===== 3. BOTTOM: 1 2 3 | hands | 4 5 6, with the visor-rim arc =====
@@ -686,9 +690,6 @@ namespace StationeersUIMod.UI.Hud
             HudText.Shutdown();
             HudWarp.Active = HudWarp.Kind.None;
             HudWarp.BareFlat = false; // reset alongside Active so a reload starts un-flattened
-            if (_moodletGroup != null) { try { _moodletGroup.alpha = 1f; } catch { } }
-            _moodletGroup = null;
-            _moodletHidden = false;
             _hasPrev = false;
             _appliedMode = HudCurvature.Flat;
             ForceTier = null;
@@ -810,6 +811,8 @@ namespace StationeersUIMod.UI.Hud
                     else if (!want && p is Widgets.PortraitWidget pw) pw.RestorePortrait();
                     // The borrowed vanilla damage doll goes back the instant it's unwanted.
                     else if (!want && p is Widgets.DamageDollBorrowWidget dw) dw.RestoreDoll();
+                    // Same for the borrowed vanilla moodlet strip.
+                    else if (!want && p is Widgets.MoodletBorrowWidget mw) mw.RestoreMoodlets();
                 }
                 bool vignetteWant = HudConfig.ShowVignette.Value;
                 _animator.SetVisible(_vignetteFader, vignetteWant, instant: !_hasPrev);
@@ -1272,39 +1275,10 @@ namespace StationeersUIMod.UI.Hud
                 UIALog.Warn("SetUIPanelVisibility failed: " + e.Message);
             }
 
-            SyncVanillaMoodlets();
             SyncPlayerStateCluster();
         }
-
-        // The vanilla moodlet strip lives under StatusUpdates.StatusTransform — a DIFFERENT
-        // object from InventoryManager.StatusPanel, so the panel-visibility path above never
-        // touched it (the "vanilla moodlets still show" report). We hide it with a CanvasGroup
-        // alpha: vanilla's ManagerUpdate keeps SetActive-ing the transform, but never touches
-        // a CanvasGroup, so alpha 0 sticks — and each child's activeSelf stays readable, which
-        // our MoodletDashboard mirror depends on. Gated on the same HideVanillaStatus toggle.
-        private static UnityEngine.CanvasGroup _moodletGroup;
-        private static bool _moodletHidden;
-        private static void SyncVanillaMoodlets()
-        {
-            try
-            {
-                bool hide = UIAConfig.HideVanillaStatus != null && UIAConfig.HideVanillaStatus.Value;
-                if (hide == _moodletHidden && _moodletGroup != null) return;
-
-                var su = Assets.Scripts.UI.StatusUpdates.Instance;
-                var t = su != null ? su.StatusTransform : null;
-                if (t == null) return;
-                if (_moodletGroup == null)
-                {
-                    var go = t.gameObject;
-                    _moodletGroup = go.GetComponent<UnityEngine.CanvasGroup>()
-                        ?? go.AddComponent<UnityEngine.CanvasGroup>();
-                }
-                _moodletGroup.alpha = hide ? 0f : 1f;
-                _moodletHidden = hide;
-            }
-            catch (Exception e) { UIALog.Warn("Vanilla moodlet hide failed: " + e.Message); }
-        }
+        // (The vanilla moodlet strip is now RELOCATED into our bar by MoodletBorrowWidget —
+        // reparenting moves it off vanilla's spot, so no separate alpha-hide is needed.)
 
         private static bool _restorePlayerState;
         private static int _playerStateWarns;
@@ -1373,9 +1347,8 @@ namespace StationeersUIMod.UI.Hud
 
         public static void RestoreVanillaIfNeeded()
         {
-            // Hand the vanilla moodlet strip back (alpha restored).
-            if (_moodletGroup != null) { try { _moodletGroup.alpha = 1f; } catch { } }
-            _moodletHidden = false;
+            // The borrowed moodlet strip is handed back by RestoreAnyPortraits (called first
+            // on every teardown), so nothing to undo here.
 
             // The instrument cluster restores independently of the three big panels.
             PlayerStateClusterHidden = false;
