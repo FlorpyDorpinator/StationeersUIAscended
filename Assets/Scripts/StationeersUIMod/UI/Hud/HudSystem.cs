@@ -193,7 +193,7 @@ namespace StationeersUIMod.UI.Hud
                 // current starter — but ONLY the literal "Default" profile; anything the
                 // user named themselves is theirs, whatever its age.
                 var active = Features.HudProfileStore.Active;
-                if (active != null && active.Schema < 5
+                if (active != null && active.Schema < 6
                     && string.Equals(name, "Default", System.StringComparison.OrdinalIgnoreCase))
                 {
                     var fresh = BuildStarterDocument();
@@ -325,9 +325,9 @@ namespace StationeersUIMod.UI.Hud
         /// (and whenever the file goes missing).</summary>
         private static HudDocument BuildStarterDocument()
         {
-            // Schema 5 = the sketch layout (1 demo, 2 parity, 3 vertical-card draft,
-            // 4 cluster mockup; EnsureActiveDocument upgrades stale shipped Defaults).
-            var doc = new HudDocument { Name = "Default", Schema = 5 };
+            // Schema 6 = the sketch layout with the game's own ramp-bar art on the
+            // pressure/temp gauges (EnsureActiveDocument upgrades stale shipped Defaults).
+            var doc = new HudDocument { Name = "Default", Schema = 6 };
             var els = doc.Elements;
 
             // --- top bar: time left, compass dead center, day + world right ---
@@ -386,7 +386,7 @@ namespace StationeersUIMod.UI.Hud
         }
 
         /// <summary>A vertical instrument gauge (the sketch's columns): boxed, two-line
-        /// label, value, upright bar, game icon at the foot.</summary>
+        /// label, value, the GAME'S own ramp-bar art, game icon at the foot.</summary>
         private static void AddGauge(List<HudElementDef> els, string id, string src,
             string label, string icon, HudAnchor anchor, float x, float y)
         {
@@ -397,6 +397,7 @@ namespace StationeersUIMod.UI.Hud
             e.SetB("bar", true);
             e.SetB("barVertical", true);
             e.SetB("target", false);
+            e.Set("barStyle", "game");
             e.Icon = icon;
             e.SetF("valueSize", 14f);
             els.Add(e);

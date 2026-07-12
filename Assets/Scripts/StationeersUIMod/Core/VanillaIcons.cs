@@ -39,7 +39,53 @@ namespace StationeersUIMod.Core
             return s;
         }
 
-        public static void Clear() => _cache.Clear();
+        public static void Clear()
+        {
+            _cache.Clear();
+            _rampBack = null;
+            _rampFront = null;
+        }
+
+        // ---- the game's own pressure-ramp bar art (PlayerStateWindow.cs:42-52,469-481) ----
+
+        private static Sprite _rampBack, _rampFront;
+
+        /// <summary>The track sprite of vanilla's pressure ramp bar. Null until the
+        /// PlayerStateWindow exists (world only) — callers retry.</summary>
+        public static Sprite PressureRampBack()
+            => _rampBack != null ? _rampBack : (_rampBack = RampSprite(false));
+
+        /// <summary>The fill sprite of vanilla's pressure ramp bar.</summary>
+        public static Sprite PressureRampFront()
+            => _rampFront != null ? _rampFront : (_rampFront = RampSprite(true));
+
+        /// <summary>Vanilla's EXACT kPa→fill mapping (PressureCurve, clamped to its last
+        /// key like the external readout does). NaN when the window isn't up yet.</summary>
+        public static float PressureFill(float kPa)
+        {
+            try
+            {
+                var psw = Assets.Scripts.UI.PlayerStateWindow.Instance;
+                var curve = psw != null ? psw.PressureCurve : null;
+                if (curve == null || curve.length == 0) return float.NaN;
+                float max = curve.keys[curve.length - 1].time;
+                return Mathf.Clamp01(curve.Evaluate(Mathf.Clamp(kPa, 0f, max)));
+            }
+            catch { return float.NaN; }
+        }
+
+        private static Sprite RampSprite(bool front)
+        {
+            try
+            {
+                var psw = Assets.Scripts.UI.PlayerStateWindow.Instance;
+                if (psw == null) return null;
+                var rt = front ? psw.InfoExternalPressureRampFront : psw.InfoExternalPressureRampBack;
+                var img = rt != null ? rt.GetComponent<UnityEngine.UI.Image>() : null;
+                return img != null ? img.sprite : null;
+            }
+            catch { return null; }
+        }
 
         private static Sprite Resolve(string key)
         {

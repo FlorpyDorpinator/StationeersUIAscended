@@ -40,7 +40,16 @@ namespace StationeersUIMod.UI.Hud.Widgets
         private string _tgtText = "";
         private bool _iconIsVanilla; // game art keeps its own colours + late-resolves
 
+        // "Game art" bar style: vanilla's own pressure-ramp sprites instead of the
+        // procedural threshold bar. Built lazily; late-resolves like the icons.
+        private Image _rampBack, _rampFront;
+        private RectTransform _rampBackRt, _rampFrontRt;
+        private Vector2 _barCenter, _barSize;   // the bar strip Layout() reserved
+        private bool _barIsVertical;
+        private float _lastFill = -1f;
+
         private static readonly string[] SourceNames = System.Enum.GetNames(typeof(HudReadoutSource));
+        private static readonly string[] BarStyleNames = { "Procedural", "Game art" };
 
         protected override void BuildContent(RectTransform root)
         {
@@ -114,24 +123,30 @@ namespace StationeersUIMod.UI.Hud.Widgets
             float botEdge = c.y - s.y * 0.5f + pad;
             float gap = 4f * scale;
 
-            // Content region shrinks by the strip the bar reserves.
+            // Content region shrinks by the strip the bar reserves. The strip geometry is
+            // remembered so the game-art ramp (when chosen) can occupy the same pixels.
             float cLeft = left, cRight = right, cTop = topEdge, cBot = botEdge;
+            _barIsVertical = vertical;
             if (showBar)
             {
                 if (vertical)
                 {
                     float thick = Mathf.Clamp(s.x * 0.12f, 4f * scale, 14f * scale);
-                    _barRt.anchoredPosition = new Vector2(right - thick * 0.5f, c.y);
-                    _barRt.sizeDelta = new Vector2(thick, cTop - cBot);
+                    _barCenter = new Vector2(right - thick * 0.5f, c.y);
+                    _barSize = new Vector2(thick, cTop - cBot);
                     cRight = right - thick - gap;
                 }
                 else
                 {
                     float thick = Mathf.Clamp(s.y * 0.14f, 4f * scale, 14f * scale);
-                    _barRt.anchoredPosition = new Vector2(c.x, botEdge + thick * 0.5f);
-                    _barRt.sizeDelta = new Vector2(cRight - cLeft, thick);
+                    _barCenter = new Vector2(c.x, botEdge + thick * 0.5f);
+                    _barSize = new Vector2(cRight - cLeft, thick);
                     cBot = botEdge + thick + gap;
                 }
+                _barRt.anchoredPosition = _barCenter;
+                _barRt.sizeDelta = _barSize;
+                LayoutRamp();
+                _lastFill = -1f; // geometry moved: re-place the fill next update
             }
 
             float cx = (cLeft + cRight) * 0.5f;
@@ -268,8 +283,19 @@ namespace StationeersUIMod.UI.Hud.Widgets
 
             // --- gauge ---
             bool showBar = Def.GetB("bar", true);
-            _bar.enabled = showBar;
-            if (showBar)
+            bool gameBar = showBar && UseGameBar();
+            if (gameBar)
+            {
+                EnsureRamp();
+                gameBar = UpdateRamp(r); // false until vanilla's sprites exist
+            }
+            else if (_rampBack != null)
+            {
+                _rampBack.enabled = false;
+                _rampFront.enabled = false;
+            }
+            _bar.enabled = showBar && !gameBar;
+            if (showBar && !gameBar)
             {
                 _bar.Vertical = Def.GetB("barVertical", false);
                 _bar.SetRange(r.Min, r.Max);
@@ -284,6 +310,95 @@ namespace StationeersUIMod.UI.Hud.Widgets
                 _bar.CornerRadius = 3f * scale;
                 _bar.TargetWidth = 2f * scale;
             }
+        }
+
+        // ---- the game-art ramp bar ----
+
+        /// <summary>"Game" bar style: vanilla's own pressure-ramp sprites in the strip the
+        /// procedural bar would occupy.</summary>
+        private bool UseGameBar()
+            => string.Equals(Def.GetS("barStyle", ""), "game", System.StringComparison.OrdinalIgnoreCase);
+
+        private void EnsureRamp()
+        {
+            if (_rampBack != null) return;
+            _rampBack = MakeRampImage("RampBack");
+            _rampFront = MakeRampImage("RampFront");
+            _rampBackRt = _rampBack.rectTransform;
+            _rampFrontRt = _rampFront.rectTransform;
+            LayoutRamp();
+        }
+
+        private Image MakeRampImage(string name)
+        {
+            var go = new GameObject(name, typeof(RectTransform));
+            go.transform.SetParent(Root, false);
+            var img = go.AddComponent<Image>();
+            img.raycastTarget = false;
+            img.preserveAspect = false;   // vanilla scales the fill sprite directly
+            go.AddComponent<VisorWarp>();
+            var rt = img.rectTransform;
+            rt.anchorMin = rt.anchorMax = new Vector2(0.5f, 0.5f);
+            return img;
+        }
+
+        /// <summary>Static ramp geometry: the track fills the reserved bar strip; a
+        /// vertical gauge rotates the horizontal art 90°.</summary>
+        private void LayoutRamp()
+        {
+            if (_rampBackRt == null) return;
+            float len = _barIsVertical ? _barSize.y : _barSize.x;
+            float thick = _barIsVertical ? _barSize.x : _barSize.y;
+            var rot = _barIsVertical ? new Vector3(0f, 0f, 90f) : Vector3.zero;
+            _rampBackRt.localEulerAngles = rot;
+            _rampFrontRt.localEulerAngles = rot;
+            _rampBackRt.anchoredPosition = _barCenter;
+            _rampBackRt.sizeDelta = new Vector2(len, thick);
+        }
+
+        /// <summary>Per-frame fill. Pressure sources use vanilla's EXACT curve; everything
+        /// else maps linearly over the gauge span. Only a real fill change moves pixels.</summary>
+        private bool UpdateRamp(Reading r)
+        {
+            var back = Core.VanillaIcons.PressureRampBack();
+            var front = Core.VanillaIcons.PressureRampFront();
+            if (back == null || front == null) return false; // world not up yet — retry
+
+            if (_rampBack.sprite == null) _rampBack.sprite = back;
+            if (_rampFront.sprite == null) _rampFront.sprite = front;
+            _rampBack.enabled = true;
+            _rampBack.color = Color.white;
+            _rampFront.color = Color.white;
+
+            float fill;
+            var src = ParseSource(Def);
+            if (src == HudReadoutSource.InternalPressure || src == HudReadoutSource.ExternalPressure
+                || src == HudReadoutSource.SuitTargetPressure || src == HudReadoutSource.JetpackPropellant)
+            {
+                fill = Core.VanillaIcons.PressureFill(r.Valid ? r.Raw : 0f);
+                if (float.IsNaN(fill)) fill = 0f;
+            }
+            else
+            {
+                fill = r.Max > r.Min
+                    ? Mathf.Clamp01(((r.Valid ? r.Raw : r.Min) - r.Min) / (r.Max - r.Min))
+                    : 0f;
+            }
+            fill = Mathf.Round(fill * 256f) / 256f; // quantize: no per-frame mesh churn
+            if (Mathf.Approximately(fill, _lastFill) && _rampFront.enabled == (fill > 0f))
+                return true;
+            _lastFill = fill;
+
+            _rampFront.enabled = fill > 0f;
+            float len = _barIsVertical ? _barSize.y : _barSize.x;
+            float thick = _barIsVertical ? _barSize.x : _barSize.y;
+            float fillLen = len * fill;
+            // Grow from the START edge (left / bottom), exactly like vanilla's ramp.
+            _rampFrontRt.sizeDelta = new Vector2(fillLen, thick);
+            _rampFrontRt.anchoredPosition = _barIsVertical
+                ? new Vector2(_barCenter.x, _barCenter.y - len * 0.5f + fillLen * 0.5f)
+                : new Vector2(_barCenter.x - len * 0.5f + fillLen * 0.5f, _barCenter.y);
+            return true;
         }
 
         // ---- source resolution ----
@@ -474,6 +589,8 @@ namespace StationeersUIMod.UI.Hud.Widgets
                 v => d.SetB("target", v)));
             into.Add(HudProp.Bool("Threshold bar", () => d.GetB("bar", true), v => d.SetB("bar", v)));
             into.Add(HudProp.Bool("Vertical bar", () => d.GetB("barVertical", false), v => d.SetB("barVertical", v)));
+            into.Add(HudProp.Enum("Bar style", () => UseGameBar() ? 1 : 0,
+                v => d.Set("barStyle", v == 1 ? "game" : null), BarStyleNames));
             into.Add(HudProp.Color("Bar fill", () => d.GetS("barFill", ""), v => d.Set("barFill", Empty(v))));
             into.Add(HudProp.Color("Bar warn", () => d.GetS("barWarn", ""), v => d.Set("barWarn", Empty(v))));
             into.Add(HudProp.Color("Bar crit", () => d.GetS("barCrit", ""), v => d.Set("barCrit", Empty(v))));
