@@ -33,6 +33,18 @@ namespace StationeersUIMod.UI.Hud
             return p;
         }
 
+        /// <summary>FORWARD of the configured screen warp — where a canvas point actually
+        /// lands on screen in VertexWarp/DomeProjection (identity otherwise). The designer
+        /// places selection handles with this so they hug curved elements.</summary>
+        public static Vector2 WarpPoint(Vector2 p)
+        {
+            var mode = HudConfig.Curvature != null ? HudConfig.Curvature.Value : HudCurvature.Flat;
+            if (mode != HudCurvature.VertexWarp && mode != HudCurvature.DomeProjection) return p;
+            float k = HudConfig.CurveStrength.Value * (HudConfig.CurveInvert.Value ? -1f : 1f);
+            if (Mathf.Abs(k) <= 0.001f) return p;
+            return Barrel(p, k, Screen.width * 0.5f, Screen.height * 0.5f);
+        }
+
         /// <summary>Inverse of the CONFIGURED screen warp (VertexWarp and DomeProjection
         /// modes) by fixed-point iteration — one negative pass drifts 15-25px at the
         /// corners at full strength; three iterations land sub-pixel. Canvas coords

@@ -45,6 +45,9 @@ namespace StationeersUIMod.Windows
                 HudSystem.TestBoot();
             ImGui.Spacing();
 
+            if (HudSystem.DocumentMode)
+                DrawDesignerSection();
+
             if (ImGui.CollapsingHeader("Curvature (A / B / C)", ImGuiTreeNodeFlags.DefaultOpen))
             {
                 CurvatureCombo();
@@ -57,12 +60,16 @@ namespace StationeersUIMod.Windows
             if (ImGui.CollapsingHeader("Panels & behavior"))
             {
                 Toggle(HudConfig.VisorHudEnabled, "Visor HUD enabled");
-                Toggle(HudConfig.ShowTopBar, "Top status bar");
-                Toggle(HudConfig.ShowCompass, "Compass ribbon");
-                Toggle(HudConfig.ShowEquipment, "Equipment column (1-6)");
-                Toggle(HudConfig.ShowHands, "Hand boxes");
-                Toggle(HudConfig.ShowVitals, "Vitals card / felt senses");
-                Toggle(HudConfig.ShowHologram, "Player hologram in vitals card");
+                Toggle(HudConfig.UseDocumentHud, "Document HUD (the designer; off = legacy 0.5.0 panels)");
+                if (!HudSystem.DocumentMode)
+                {
+                    Toggle(HudConfig.ShowTopBar, "Top status bar");
+                    Toggle(HudConfig.ShowCompass, "Compass ribbon");
+                    Toggle(HudConfig.ShowEquipment, "Equipment column (1-6)");
+                    Toggle(HudConfig.ShowHands, "Hand boxes");
+                    Toggle(HudConfig.ShowVitals, "Vitals card / felt senses");
+                    Toggle(HudConfig.ShowHologram, "Player hologram in vitals card");
+                }
                 Toggle(HudConfig.ShowVignette, "Visor-edge vignette");
                 ImGui.Separator();
                 Toggle(HudConfig.DiegeticTiers, "Diegetic tiers (no suit power = words only)");
@@ -74,10 +81,21 @@ namespace StationeersUIMod.Windows
                 Toggle(UIAConfig.HideVanillaHands, "Hide vanilla hands panel");
                 Toggle(UIAConfig.HideVanillaClothing, "Hide vanilla clothing panel");
                 Toggle(UIAConfig.HideVanillaStatus, "Hide vanilla status panel");
+                Toggle(UIAConfig.HideVanillaPlayerState, "Hide vanilla instrument cluster (bottom-right)");
                 Toggle(HudConfig.LegacyImGuiHud, "Use the legacy ImGui HUD instead");
             }
 
-            if (ImGui.CollapsingHeader("Layout & sizes"))
+            if (HudSystem.DocumentMode)
+            {
+                if (ImGui.CollapsingHeader("Global style"))
+                {
+                    FloatSlider(HudConfig.HudScale, "Overall HUD scale", 0.6f, 1.6f);
+                    FloatSlider(HudConfig.CornerRadius, "Default corner rounding (px)", 0f, 28f);
+                    FloatSlider(HudConfig.BorderWidth, "Default line thickness (px)", 0f, 6f);
+                    FloatSlider(HudConfig.EdgeFeather, "Edge softness / AA (px)", 0f, 4f);
+                }
+            }
+            else if (ImGui.CollapsingHeader("Layout & sizes"))
             {
                 FloatSlider(HudConfig.HudScale, "Overall HUD scale", 0.6f, 1.6f);
                 FloatSlider(HudConfig.TopBarHeight, "Top bar height (px)", 36f, 120f);
@@ -112,15 +130,246 @@ namespace StationeersUIMod.Windows
                 DrawColourControls();
         }
 
+        // ------------------------------------------------------------------ designer
+
+        private static int _addTypeIndex;
+        private static string _saveAsName = "";
+        private static readonly string[] AddableTypes =
+        {
+            "Box", "Label", "Polyline", "Icon", "Readout", "Clock", "WorldName",
+            "DayCounter", "ActiveHandBadge", "Compass", "MoodletDashboard",
+            "EquipmentColumn", "HandBoxes", "KeybindChips", "Portrait", "BodyDoll",
+            "SuitChips", "BareSenses",
+        };
+
+        /// <summary>The HUD Designer controls: grid, add/draw, undo, selection actions,
+        /// and the layout-profile manager. Only shown in document mode.</summary>
+        private void DrawDesignerSection()
+        {
+            if (!ImGui.CollapsingHeader("Designer", ImGuiTreeNodeFlags.DefaultOpen)) return;
+
+            ImGui.TextDisabled("Click an element to select - drag to move, corners resize.");
+            ImGui.TextDisabled("Del removes - Ctrl+D duplicates - Ctrl+Z / Ctrl+Y undo/redo.");
+            ImGui.Spacing();
+
+            Toggle(HudConfig.GridSnapEnabled, "Snap to grid (hold Alt to bypass)");
+            FloatSlider(HudConfig.GridSnapSize, "Grid size (px)", 2f, 64f);
+            ImGui.Spacing();
+
+            ImGui.SetNextItemWidth(200f);
+            if (ImGui.BeginCombo("##addtype", AddableTypes[_addTypeIndex]))
+            {
+                for (int i = 0; i < AddableTypes.Length; i++)
+                    if (ImGui.Selectable(AddableTypes[i], i == _addTypeIndex))
+                        _addTypeIndex = i;
+                ImGui.EndCombo();
+            }
+            ImGui.SameLine();
+            if (ImGui.Button("Add element"))
+            {
+                UI.Hud.HudElementType t;
+                if (System.Enum.TryParse(AddableTypes[_addTypeIndex], out t))
+                    HudEditorMode.AddElement(t);
+            }
+            if (HudEditorMode.DrawingLine)
+            {
+                ImGui.TextColored(new Vector4(1f, 0.62f, 0.15f, 1f),
+                    "DRAWING: click points - Enter/RMB finish - Esc cancel");
+                if (ImGui.Button("Cancel line")) HudEditorMode.CancelDrawLine();
+            }
+            else if (ImGui.Button("Draw a line (click points on screen)"))
+            {
+                HudEditorMode.BeginDrawLine();
+            }
+            ImGui.Spacing();
+
+            // (No BeginDisabled in the game's ImGui binding — dead buttons just no-op.)
+            if (ImGui.Button("Undo##doc") && UI.Hud.HudDocumentHistory.CanUndo)
+                HudEditorMode.DoUndo();
+            ImGui.SameLine();
+            if (ImGui.Button("Redo##doc") && UI.Hud.HudDocumentHistory.CanRedo)
+                HudEditorMode.DoRedo();
+
+            var sel = HudEditorMode.SelectedElement;
+            if (sel != null)
+            {
+                ImGui.SameLine();
+                if (ImGui.Button("Duplicate")) HudEditorMode.DuplicateSelected();
+                ImGui.SameLine();
+                if (ImGui.Button("Delete")) HudEditorMode.DeleteSelected();
+            }
+            ImGui.Spacing();
+            DrawProfilesSection();
+            ImGui.Separator();
+        }
+
+        private void DrawProfilesSection()
+        {
+            ImGui.TextDisabled("Layout profiles (shareable XML):");
+            string active = HudEditorMode.ActiveProfileName();
+            var names = Features.HudProfileStore.ListProfiles();
+            ImGui.SetNextItemWidth(200f);
+            if (ImGui.BeginCombo("##profile", active))
+            {
+                foreach (var n in names)
+                {
+                    if (ImGui.Selectable(n, string.Equals(n, active, System.StringComparison.OrdinalIgnoreCase))
+                        && !string.Equals(n, active, System.StringComparison.OrdinalIgnoreCase))
+                    {
+                        if (HudConfig.HudActiveProfile != null) HudConfig.HudActiveProfile.Value = n;
+                        // Fallback factory guards a corrupt file: keep what we have.
+                        var keep = Features.HudProfileStore.Active;
+                        Features.HudProfileStore.LoadActive(n,
+                            () => keep != null ? keep.Clone() : new UI.Hud.HudDocument { Name = n });
+                        UI.Hud.HudDocumentHistory.Clear();
+                    }
+                }
+                ImGui.EndCombo();
+            }
+            ImGui.SameLine();
+            if (ImGui.Button("Open folder"))
+            {
+                try { System.Diagnostics.Process.Start("explorer.exe", Features.HudProfileStore.Dir); }
+                catch { }
+            }
+
+            ImGui.SetNextItemWidth(200f);
+            ImGui.InputText("##saveas", ref _saveAsName, 48);
+            ImGui.SameLine();
+            if (ImGui.Button("Save as") && !string.IsNullOrEmpty(_saveAsName))
+            {
+                var doc = Features.HudProfileStore.Active;
+                if (doc != null && Features.HudProfileStore.Save(doc, _saveAsName))
+                {
+                    if (HudConfig.HudActiveProfile != null) HudConfig.HudActiveProfile.Value = _saveAsName;
+                    Features.HudProfileStore.SetActive(doc, _saveAsName);
+                    _saveAsName = "";
+                }
+            }
+        }
+
+        // ------------------------------------------------------------------ gizmos
+
+        /// <summary>Selection outline + handles + hover ghost + line-draw preview, drawn
+        /// on the foreground list so they ride ABOVE the HUD. Corners are forward-warped
+        /// (8 samples per edge) so the box hugs curved elements.</summary>
+        private static void DrawGizmos()
+        {
+            if (!HudSystem.DocumentMode) return;
+            var dl = ImGui.GetForegroundDrawList();
+            float scale = HudConfig.HudScale.Value;
+            uint selCol = ImGui.GetColorU32(new Vector4(1f, 0.62f, 0.15f, 0.95f));
+            uint hovCol = ImGui.GetColorU32(new Vector4(0.25f, 0.85f, 0.93f, 0.55f));
+            uint handleCol = ImGui.GetColorU32(new Vector4(1f, 0.62f, 0.15f, 1f));
+
+            var hov = HudEditorMode.HoverElement;
+            var sel = HudEditorMode.SelectedElement;
+            if (hov != null && !ReferenceEquals(hov, sel))
+                OutlineRect(dl, hov.CanvasRect(scale), hovCol, 1.2f);
+            if (sel != null)
+            {
+                var r = sel.CanvasRect(scale);
+                OutlineRect(dl, r, selCol, 1.8f);
+                for (int i = 0; i < 8; i++)
+                {
+                    var s = ToImGui(HudEditorMode.HandlePoint(r, i));
+                    dl.AddRectFilled(new Vector2(s.x - 4f, s.y - 4f), new Vector2(s.x + 4f, s.y + 4f), handleCol);
+                }
+            }
+
+            if (HudEditorMode.DrawingLine)
+            {
+                var pts = HudEditorMode.DrawPoints;
+                for (int i = 0; i < pts.Count; i++)
+                {
+                    var s = ToImGui(pts[i]);
+                    dl.AddCircleFilled(s, 3.5f, selCol, 12);
+                    if (i > 0) dl.AddLine(ToImGui(pts[i - 1]), s, selCol, 2f);
+                }
+            }
+        }
+
+        /// <summary>Canvas point -> ImGui screen coords (y down), through the forward warp.</summary>
+        private static Vector2 ToImGui(Vector2 canvas)
+        {
+            var s = HudEditorMode.CanvasToScreen(canvas);
+            return new Vector2(s.x, Screen.height - s.y);
+        }
+
+        private static void OutlineRect(ImGuiNET.ImDrawListPtr dl, Rect r, uint col, float thick)
+        {
+            // 8 samples per edge: under curvature a straight screen line would cut the
+            // corner of a warped element.
+            SampledEdge(dl, new Vector2(r.xMin, r.yMin), new Vector2(r.xMax, r.yMin), col, thick);
+            SampledEdge(dl, new Vector2(r.xMax, r.yMin), new Vector2(r.xMax, r.yMax), col, thick);
+            SampledEdge(dl, new Vector2(r.xMax, r.yMax), new Vector2(r.xMin, r.yMax), col, thick);
+            SampledEdge(dl, new Vector2(r.xMin, r.yMax), new Vector2(r.xMin, r.yMin), col, thick);
+        }
+
+        private static void SampledEdge(ImGuiNET.ImDrawListPtr dl, Vector2 a, Vector2 b, uint col, float thick)
+        {
+            const int Steps = 8;
+            var prev = ToImGui(a);
+            for (int i = 1; i <= Steps; i++)
+            {
+                var cur = ToImGui(Vector2.Lerp(a, b, i / (float)Steps));
+                dl.AddLine(prev, cur, col, thick);
+                prev = cur;
+            }
+        }
+
         // ------------------------------------------------------------------ popup
 
         /// <summary>The click-to-edit popup, drawn inside the game's ImGui frame near
         /// wherever the user clicked. Static: called from the plugin draw hook.</summary>
         private static int _popupStamp = -1;
 
+        private static int _elementPopupStamp = -1;
+        private static readonly List<UI.Hud.HudProp> _propScratch = new List<UI.Hud.HudProp>();
+
         public static void DrawPopupOverlay()
         {
             if (!HudEditorMode.Active) return;
+
+            DrawGizmos();
+
+            // Document mode: the selected ELEMENT gets the generic property popup.
+            if (HudSystem.DocumentMode)
+            {
+                var el = HudEditorMode.SelectedElement;
+                if (el == null || el.Def == null) return;
+                bool elMoved = _elementPopupStamp != HudEditorMode.ElementStamp;
+                _elementPopupStamp = HudEditorMode.ElementStamp;
+                ImGui.SetNextWindowPos(new Vector2(HudEditorMode.PopupPos.x, HudEditorMode.PopupPos.y),
+                    elMoved ? ImGuiCond.Always : ImGuiCond.Appearing);
+                ImGui.SetNextWindowSizeConstraints(new Vector2(320f, 0f), new Vector2(400f, 560f));
+                bool elOpen = true;
+                if (ImGui.Begin("Edit: " + el.Def.Type + "###UIAHudElementPopup",
+                    ref elOpen, ImGuiWindowFlags.NoCollapse))
+                {
+                    _propScratch.Clear();
+                    try { el.DescribeProps(_propScratch); }
+                    catch { }
+                    HudPropDrawer.DrawAll(_propScratch,
+                        onBeginEdit: () =>
+                        {
+                            var doc = Features.HudProfileStore.Active;
+                            if (doc != null) UI.Hud.HudDocumentHistory.Push(doc.Clone());
+                        },
+                        onCommitted: () => Features.HudProfileStore.MarkChanged());
+                    // Live feedback while a slider is mid-drag: geometry edits apply to
+                    // THIS element immediately; the commit's version bump does the full pass.
+                    HudSystem.RelayoutElement(el);
+                    ImGui.Separator();
+                    if (ImGui.Button("Duplicate##pop")) HudEditorMode.DuplicateSelected();
+                    ImGui.SameLine();
+                    if (ImGui.Button("Delete##pop")) HudEditorMode.DeleteSelected();
+                }
+                ImGui.End();
+                if (!elOpen) HudEditorMode.ClearElementSelection();
+                return;
+            }
+
             var target = HudEditorMode.Selected;
             if (target == null) return;
 

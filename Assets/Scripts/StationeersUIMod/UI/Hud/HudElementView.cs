@@ -58,6 +58,14 @@ namespace StationeersUIMod.UI.Hud
             return new Vector2(w, h);
         }
 
+        /// <summary>The element's rect in canvas coords — the designer's hit/handle box.</summary>
+        internal Rect CanvasRect(float scale)
+        {
+            var c = CenterFor(scale);
+            var s = SizeFor(scale);
+            return new Rect(c.x - s.x * 0.5f, c.y - s.y * 0.5f, s.x, s.y);
+        }
+
         /// <summary>Per-corner radius with the −1 = "global CornerRadius" convention.</summary>
         protected static float Radius(float perCorner)
             => perCorner >= 0f ? perCorner

@@ -201,6 +201,10 @@ namespace StationeersUIMod.UI.Hud
 
         private static void OnActiveDocReplaced() => _docRebuildNeeded = true;
 
+        /// <summary>The designer mutated the document STRUCTURE (add/delete/duplicate) —
+        /// views must rebuild next frame. Geometry-only edits never need this.</summary>
+        internal static void RequestViewRebuild() => _docRebuildNeeded = true;
+
         /// <summary>One view per document element, Z-sorted into sibling order. The
         /// animator seed derives from the element Id so flicker desync survives both
         /// rebuilds and hot reloads.</summary>
@@ -891,6 +895,38 @@ namespace StationeersUIMod.UI.Hud
                     HudConfig.WorldCanvasDistance, HudConfig.HudScale },
                 CanvasRect = new Rect(-HudWarp.HalfW, -HudWarp.HalfH, 60f, HudWarp.HalfH * 2f),
             });
+        }
+
+        /// <summary>The live document views, for the designer's hit-testing/selection.
+        /// Empty when document mode is off or nothing is built.</summary>
+        internal static void CollectElementViews(List<HudElementView> into)
+        {
+            if (_canvas == null) return;
+            foreach (var p in _panels)
+            {
+                var v = p as HudElementView;
+                if (v != null && v.Def != null) into.Add(v);
+            }
+        }
+
+        /// <summary>Targeted relayout for a live drag: reposition ONE element and re-warp
+        /// only its own meshes — a full RelayoutAll+DirtyAllMeshes per dragged frame would
+        /// rebuild the whole canvas. The drag's single MarkChanged on release does the
+        /// full pass (store version feeds the layout hash).</summary>
+        internal static void RelayoutElement(HudElementView view)
+        {
+            if (view == null || view.Root == null) return;
+            try
+            {
+                view.Layout(HudConfig.HudScale.Value);
+                foreach (var g in view.Root.GetComponentsInChildren<UnityEngine.UI.Graphic>(true))
+                {
+                    var tmp = g as TMPro.TextMeshProUGUI;
+                    if (tmp != null) tmp.SetAllDirty();
+                    else g.SetVerticesDirty();
+                }
+            }
+            catch { }
         }
 
         /// <summary>Chip drop targets currently on screen (0.6.2): the hand boxes and the
