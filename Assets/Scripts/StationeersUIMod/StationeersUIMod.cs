@@ -315,6 +315,7 @@ namespace StationeersUIMod
                 _hud?.RestoreVanillaIfNeeded();
                 BagProfileStore.SaveAssignments();
                 IconCache.Clear();
+                HudIconStore.Shutdown();
                 _harmony?.UnpatchSelf();
                 UIALog.Info("Cleaned up (hot reload safe).");
                 try

@@ -73,6 +73,50 @@ namespace StationeersUIMod.UI.Hud
         // Hands + equipment come straight from slots at draw time (thumbnails), but the
         // active hand is sampled here so every panel agrees within the frame.
         public bool RightHandActive;
+
+        // Suit setpoints (the dials the wearer set, not the felt reading). Only meaningful
+        // on a powered, readable suit — a dead or absent suit reports the sentinels.
+        public float SuitTargetPressureKPa = -1f;  // kPa; -1 = no powered readable suit
+        public float SuitTargetTempC = float.NaN;  // NaN = absent (no readable setpoint)
+
+        // Internal (sealed-suit) instrument readout — gated exactly like vanilla InfoInternal
+        // (HasInternals && InternalsOn && a valid breathing atmosphere this frame).
+        public float InternalPressureKPa;
+        public float InternalTempC;
+        public bool InternalValid;
+
+        // Jetpack (BackpackSlot occupant). Gas rigs report a propellant DELTA; electric rigs
+        // report a battery %. The two are mutually exclusive by JetpackIsGas.
+        public bool JetpackPresent;
+        public bool JetpackIsGas;
+        public float JetpackThrustPct;              // OutputSetting * 100
+        public float JetpackPropellantDeltaKPa = -1f; // canister interior minus world gas; -1 = no canister
+        public bool JetpackLow;                     // gas delta under 500 kPa
+        public bool JetpackCrit;                    // gas delta under 100 kPa
+        public float JetpackBatteryPct = -1f;       // electric only; -1 = n/a
+
+        // Needs. Sanitation (bowel) is simulated server-side only — SanitationValid says
+        // whether this client's SanitationRatio can be trusted at all.
+        public float Hydration01;
+        public float Hygiene01;
+        public float Sanitation01;
+        public bool SanitationValid;
+
+        // Suit / helmet chips (client-synced Thing bits).
+        public bool HelmetPresent;
+        public bool HelmetClosed;   // visor down (!GasMask.IsOpen)
+        public bool HelmetLightOn;  // helmet lamp (GasMask.OnOff)
+        public bool SuitAcOn;       // suit conditioner toggle (Suit.OnOff)
+        public bool InternalsOn;
+        public bool HasInternals;
+
+        // Body doll: worst-of whole-body-and-organ damage per region, 0 pristine .. 1 gone.
+        public float DamageHead01;
+        public float DamageChest01;
+        public float DamageBody01;
+
+        // World name — constant for a whole world, cached so the HUD never churns strings.
+        public string WorldName = "";
     }
 
     /// <summary>
@@ -84,12 +128,20 @@ namespace StationeersUIMod.UI.Hud
     {
         private static readonly HudSnapshot _snap = new HudSnapshot();
 
+        // World name is invariant for a whole world; we read it lazily and reuse the cached
+        // string to avoid a per-frame managed read/alloc. Reset on Clear() so the next world
+        // re-reads immediately instead of showing the old one for up to the throttle window.
+        private static string _cachedWorldName = "";
+        private static float _worldNameNextCheck;
+
         /// <summary>Drop object references when the HUD stands down — the static
         /// snapshot must never pin a dead world's Human across unloads/hot reloads.</summary>
         public static void Clear()
         {
             _snap.Valid = false;
             _snap.Human = null;
+            _cachedWorldName = "";
+            _worldNameNextCheck = 0f;
         }
 
         public static HudSnapshot Sample()
@@ -264,6 +316,53 @@ namespace StationeersUIMod.UI.Hud
             s.HealthRatio = Mathf.Clamp01(1f - damage);
             s.WaterRatio = Mathf.Clamp01(hydration / 5f);
 
+            // ---- suit / helmet chips + the suit's own setpoints. Reset first (reused
+            // snapshot). PlayerStateWindow reads OutputSetting/OutputTemperature only when
+            // Suit.AsThing exists; we additionally require power so a dead suit reports the
+            // "no readable setpoint" sentinels instead of a frozen last-known dial. ----
+            s.HelmetPresent = false;
+            s.HelmetClosed = false;
+            s.HelmetLightOn = false;
+            s.SuitAcOn = false;
+            s.InternalsOn = false;
+            s.HasInternals = false;
+            s.SuitTargetPressureKPa = -1f;
+            s.SuitTargetTempC = float.NaN;
+            try { s.HasInternals = human.HasInternals; } catch { }
+            try { s.InternalsOn = human.InternalsOn; } catch { }
+            try
+            {
+                var helmet = human.HeadAsSpaceHelmet;   // GasMask worn in the head slot
+                if (helmet != null)
+                {
+                    s.HelmetPresent = true;
+                    s.HelmetClosed = !helmet.IsOpen;     // Thing.IsOpen = visor open
+                    s.HelmetLightOn = helmet.OnOff;      // Thing.OnOff = helmet lamp
+                }
+            }
+            catch { }
+            try
+            {
+                var suit = human.Suit;
+                if (suit != null && suit.AsThing != null)
+                {
+                    s.SuitAcOn = suit.AsThing.OnOff;     // conditioner toggle
+                    if (suit.AsThing.Powered)
+                    {
+                        // ISuit.OutputSetting is the pressure dial in kPa; OutputTemperature
+                        // is a TemperatureKelvin (Suit.cs:330/349, SuitBase.cs:761/780).
+                        s.SuitTargetPressureKPa = suit.OutputSetting;
+                        s.SuitTargetTempC = suit.OutputTemperature.ToFloat() - 273.15f;
+                    }
+                }
+            }
+            catch { }
+
+            // Reset internal readout before the shared breathing read below fills it.
+            s.InternalPressureKPa = 0f;
+            s.InternalTempC = 0f;
+            s.InternalValid = false;
+
             // Felt temperature: what you BREATHE (helmet internals when closed, else world).
             // No valid atmosphere anywhere = vacuum for pressure purposes (0 kPa, so the
             // VACUUM/CHOKING words fire in a true void) but UNKNOWN for temperature (no
@@ -282,6 +381,15 @@ namespace StationeersUIMod.UI.Hud
                     feltC = breathing.Temperature.ToFloat() - 273.15f;
                     breathKPa = breathing.PressureGassesAndLiquids.ToFloat();
                     try { toxins = breathing.PartialPressureHumanToxins.ToFloat(); } catch { }
+                    // Sealed-suit instrument readout: vanilla lights InfoInternal only when
+                    // HasInternals && InternalsOn (PlayerStateWindow.Update). Reuse the
+                    // breathing atmosphere already read here — never sample it twice.
+                    if (s.HasInternals && s.InternalsOn)
+                    {
+                        s.InternalPressureKPa = breathKPa;
+                        s.InternalTempC = feltC;
+                        s.InternalValid = true;
+                    }
                 }
             }
             catch { }
@@ -330,6 +438,107 @@ namespace StationeersUIMod.UI.Hud
                     : breathKPa > 607.95f ? "CRUSHING"
                     : "";
             }
+
+            // ---- jetpack (BackpackSlot occupant). Gas rigs report a propellant DELTA —
+            // canister interior minus the world's GAS pressure (Jetpack.PropellantDelta uses
+            // PressureGasses, not …AndLiquids); electric rigs report a battery %. A gas rig
+            // with no canister is empty by definition, so it flags low AND critical. ----
+            s.JetpackPresent = false;
+            s.JetpackIsGas = false;
+            s.JetpackThrustPct = 0f;
+            s.JetpackPropellantDeltaKPa = -1f;
+            s.JetpackLow = false;
+            s.JetpackCrit = false;
+            s.JetpackBatteryPct = -1f;
+            try
+            {
+                var jetpack = human.BackpackSlot != null ? human.BackpackSlot.Get<Jetpack>() : null;
+                if (jetpack != null)
+                {
+                    s.JetpackPresent = true;
+                    s.JetpackIsGas = jetpack.IsGasPowered;
+                    s.JetpackThrustPct = jetpack.OutputSetting * 100f;
+                    if (jetpack.IsGasPowered)
+                    {
+                        GasCanister canister;
+                        if (jetpack.PropellentSlot != null
+                            && jetpack.PropellentSlot.Contains<GasCanister>(out canister)
+                            && canister.InternalAtmosphere != null)
+                        {
+                            float world = 0f;
+                            var wa = human.WorldAtmosphere;
+                            if (wa != null && wa.IsValid()) world = wa.PressureGasses.ToFloat();
+                            float delta = canister.InternalAtmosphere.PressureGassesAndLiquids.ToFloat() - world;
+                            s.JetpackPropellantDeltaKPa = delta;
+                            s.JetpackLow = delta < 500f;
+                            s.JetpackCrit = delta < 100f;
+                        }
+                        else
+                        {
+                            s.JetpackLow = true;
+                            s.JetpackCrit = true;
+                        }
+                    }
+                    else
+                    {
+                        var electric = jetpack as JetpackElectric;
+                        if (electric != null && electric.Battery != null)
+                            s.JetpackBatteryPct = electric.Battery.CurrentPowerPercentage;
+                    }
+                }
+            }
+            catch { }
+
+            // ---- needs. Hydration/Hygiene are replicated ratios. Sanitation (bowel) is only
+            // simulated where the stomach tick runs (GameManager.RunSimulation) — a pure
+            // client has no trustworthy value, so it ships a validity flag, not a fake 0. ----
+            s.Hydration01 = 0f;
+            s.Hygiene01 = 0f;
+            s.Sanitation01 = 0f;
+            s.SanitationValid = false;
+            try { s.Hydration01 = Mathf.Clamp01(human.HydrationRatio); } catch { }
+            try { s.Hygiene01 = Mathf.Clamp01(human.HygieneRatio); } catch { }
+            try { s.Sanitation01 = Mathf.Clamp01(human.SanitationRatio); } catch { }
+            try { s.SanitationValid = GameManager.RunSimulation; } catch { }
+
+            // ---- body doll (vanilla StatusUpdates.HandleDamageIndicators): each region is
+            // the worst of the whole-body TotalRatio and its signature organ; robot chest is
+            // the power cell, not lungs. Any read failure = 0 (pristine), never a false alarm. ----
+            s.DamageHead01 = 0f;
+            s.DamageChest01 = 0f;
+            s.DamageBody01 = 0f;
+            try
+            {
+                float body = human.DamageState.TotalRatio;
+                float head = body;
+                try { if (human.OrganBrain != null) head = Mathf.Max(head, human.OrganBrain.DamageState.TotalRatio); } catch { }
+                float chest = body;
+                if (isRobot)
+                {
+                    try { if (human.RobotBattery != null) chest = Mathf.Max(chest, human.RobotBattery.DamageState.TotalRatio); } catch { }
+                }
+                else
+                {
+                    try { if (human.OrganLungs != null) chest = Mathf.Max(chest, human.OrganLungs.DamageState.TotalRatio); } catch { }
+                }
+                s.DamageBody01 = Mathf.Clamp01(body);
+                s.DamageHead01 = Mathf.Clamp01(head);
+                s.DamageChest01 = Mathf.Clamp01(chest);
+            }
+            catch { }
+
+            // ---- world name. Invariant per world; refresh only when nothing is cached or on
+            // a lazy ~5 s timer (also catches a world reload) to avoid per-frame string churn. ----
+            try
+            {
+                if (string.IsNullOrEmpty(_cachedWorldName) || Time.unscaledTime >= _worldNameNextCheck)
+                {
+                    _cachedWorldName = WorldManager.CurrentWorldName ?? "";
+                    _worldNameNextCheck = Time.unscaledTime + 5f;
+                }
+            }
+            catch { }
+            s.WorldName = _cachedWorldName;
 
             try { s.RightHandActive = InventoryManager.ActiveHandSlot == human.RightHandSlot; }
             catch { }

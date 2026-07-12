@@ -67,6 +67,10 @@
     <Reference Include="UnityEngine.PhysicsModule" Private="false">
       <HintPath>$(Managed)\UnityEngine.PhysicsModule.dll</HintPath>
     </Reference>
+    <!-- HudIconStore PNG overrides (Texture2D.LoadImage extension) -->
+    <Reference Include="UnityEngine.ImageConversionModule" Private="false">
+      <HintPath>$(Managed)\UnityEngine.ImageConversionModule.dll</HintPath>
+    </Reference>
     <!-- Procedural UGUI radial: MaskableGraphic / Image / Canvas + TMP labels -->
     <Reference Include="UnityEngine.UI" Private="false">
       <HintPath>$(Managed)\UnityEngine.UI.dll</HintPath>
