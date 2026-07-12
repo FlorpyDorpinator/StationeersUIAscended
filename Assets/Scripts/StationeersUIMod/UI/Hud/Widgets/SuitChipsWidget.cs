@@ -165,6 +165,7 @@ namespace StationeersUIMod.UI.Hud.Widgets
             chip.Panel.color = fill;
             chip.Panel.BorderColor = border;
             chip.Panel.BorderWidth = bw;
+            ApplyGlass(chip.Panel);
             chip.Glyph.color = accent;
             chip.Dot.color = dot;
         }

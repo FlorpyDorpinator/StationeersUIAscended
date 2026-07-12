@@ -138,6 +138,7 @@ namespace StationeersUIMod.UI.Hud
                 _box.color = fill;
                 _box.BorderColor = border;
                 _box.BorderWidth = BorderWidthFor();
+                ApplyGlass(_box);
             }
             if (_text != null)
             {

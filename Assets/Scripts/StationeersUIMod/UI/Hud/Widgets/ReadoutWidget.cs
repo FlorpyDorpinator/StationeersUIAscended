@@ -211,6 +211,7 @@ namespace StationeersUIMod.UI.Hud.Widgets
                 _box.color = FillColor();
                 _box.BorderColor = BorderColor();
                 _box.BorderWidth = BorderWidthFor();
+                ApplyGlass(_box);
             }
 
             var accent = TextColor();

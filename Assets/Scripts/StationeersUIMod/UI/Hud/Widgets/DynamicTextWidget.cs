@@ -79,6 +79,7 @@ namespace StationeersUIMod.UI.Hud.Widgets
                 // This box IS the active-hand marker, so its border always carries the accent.
                 _box.BorderColor = HudPalette.ActiveHandAccent.Value;
                 _box.BorderWidth = BorderWidthFor();
+                ApplyGlass(_box);
             }
 
             HudText.Sync(_primary);

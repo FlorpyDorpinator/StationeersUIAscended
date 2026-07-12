@@ -79,6 +79,16 @@ namespace StationeersUIMod.UI.Hud
         protected Color BorderColor() => HudPalette.Resolve(Def.Border, HudPalette.PanelBorder.Value);
         protected Color TextColor() => HudPalette.Resolve(Def.TextColor, HudPalette.TextValue.Value);
 
+        /// <summary>Push the element's glass params ("sheen"/"spec", both default 0 = the
+        /// flat pre-glass look) onto a panel. Views call this wherever they style a box —
+        /// the setters are dirty-guarded, so the per-frame cost is two param reads.</summary>
+        protected void ApplyGlass(PanelGraphic g)
+        {
+            if (g == null) return;
+            g.Sheen = Def.GetF("sheen", 0f);
+            g.Spec = Def.GetF("spec", 0f);
+        }
+
         /// <summary>The universal editable surface; widget views append their own props.
         /// Rendered generically by the F9 designer (Phase 4) — same contract as the
         /// config popup's DrawConfigWidget, but for document fields.</summary>
@@ -98,6 +108,8 @@ namespace StationeersUIMod.UI.Hud
             into.Add(HudProp.Color("Border", () => d.Border, v => d.Border = v));
             into.Add(HudProp.Color("Text / accent", () => d.TextColor, v => d.TextColor = v));
             into.Add(HudProp.F("Border width (-1 = global)", () => d.BorderWidth, v => d.BorderWidth = v, -1f, 8f));
+            into.Add(HudProp.F("Glass sheen", () => d.GetF("sheen", 0f), v => d.SetF("sheen", Mathf.Clamp01(v)), 0f, 1f));
+            into.Add(HudProp.F("Glass edge light", () => d.GetF("spec", 0f), v => d.SetF("spec", Mathf.Clamp01(v)), 0f, 1f));
             into.Add(HudProp.F("Corner TL (-1 = global)", () => d.RTL, v => d.RTL = v, -1f, 64f));
             into.Add(HudProp.F("Corner TR (-1 = global)", () => d.RTR, v => d.RTR = v, -1f, 64f));
             into.Add(HudProp.F("Corner BR (-1 = global)", () => d.RBR, v => d.RBR = v, -1f, 64f));

@@ -104,6 +104,7 @@ namespace StationeersUIMod.UI.Hud.Widgets
             _back.color = FillColor();
             _back.BorderColor = BorderColor();
             _back.BorderWidth = BorderWidthFor();
+            ApplyGlass(_back);
 
             _caret.Configure(pointsUp: false, size: 9f);
             _caret.color = HudPalette.CompassNeedle.Value;

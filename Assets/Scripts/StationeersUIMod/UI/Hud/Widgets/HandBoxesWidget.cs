@@ -99,6 +99,7 @@ namespace StationeersUIMod.UI.Hud.Widgets
                 var trayBorder = BorderColor(); trayBorder.a *= 0.55f;
                 _tray.BorderColor = trayBorder;
                 _tray.BorderWidth = BorderWidthFor();
+                ApplyGlass(_tray);
             }
 
             float labelSize = HudConfig.LabelFontSize != null ? HudConfig.LabelFontSize.Value : 11f;
@@ -116,6 +117,12 @@ namespace StationeersUIMod.UI.Hud.Widgets
                 _box[i].color = FillColor();
                 _box[i].BorderColor = active ? HudPalette.ActiveHandAccent.Value : BorderColor();
                 _box[i].BorderWidth = BorderWidthFor() * (active ? 1.4f : 1f);
+                // The active border IS the which-hand cue — specular whitening at a lit
+                // corner would wash the accent out, so the active box never catches
+                // light. Set once (not ApplyGlass-then-override: a per-frame value
+                // flip-flop would defeat the dirty-guard and rebuild the mesh).
+                _box[i].Sheen = Def.GetF("sheen", 0f);
+                _box[i].Spec = active ? 0f : Def.GetF("spec", 0f);
 
                 var ac = HudPalette.ActiveHandAccent.Value;
                 if (!active) ac.a = 0f;

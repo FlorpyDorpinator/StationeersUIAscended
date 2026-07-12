@@ -114,6 +114,11 @@ namespace StationeersUIMod.UI.Hud.Widgets
                 b.Panel.color = fill;
                 b.Panel.BorderColor = border;
                 b.Panel.BorderWidth = BorderWidthFor();
+                // Empty slots read as dim — spec's alpha lift would erase that cue, so
+                // only occupied boxes catch the edge light. Set once (not ApplyGlass-
+                // then-override: a per-frame flip-flop would defeat the dirty-guard).
+                b.Panel.Sheen = Def.GetF("sheen", 0f);
+                b.Panel.Spec = filled ? Def.GetF("spec", 0f) : 0f;
 
                 HudText.Sync(b.Number);
                 b.Number.fontSize = HudText.Size(11f * Def.FontScale) * scale;

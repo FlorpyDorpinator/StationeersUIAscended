@@ -119,6 +119,7 @@ namespace StationeersUIMod.UI.Hud.Widgets
                 ch.Pill.color = pillFill;
                 ch.Pill.BorderColor = pillBorder;
                 ch.Pill.BorderWidth = bw;
+                ApplyGlass(ch.Pill);
 
                 Color tint = _items[i].Level >= 2 ? crit : _items[i].Level == 1 ? warn : normalIcon;
                 if (ch.Glyph.enabled) ch.Glyph.color = tint;

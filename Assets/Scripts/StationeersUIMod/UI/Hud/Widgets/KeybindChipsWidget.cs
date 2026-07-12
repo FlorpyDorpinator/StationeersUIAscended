@@ -83,6 +83,7 @@ namespace StationeersUIMod.UI.Hud.Widgets
                 _chip[i].color = FillColor();
                 _chip[i].BorderColor = BorderColor();
                 _chip[i].BorderWidth = BorderWidthFor();
+                ApplyGlass(_chip[i]);
 
                 string keyStr, labelStr;
                 ResolveChip(i, out keyStr, out labelStr);

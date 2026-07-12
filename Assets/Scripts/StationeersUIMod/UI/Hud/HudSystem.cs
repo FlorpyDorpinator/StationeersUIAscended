@@ -187,7 +187,14 @@ namespace StationeersUIMod.UI.Hud
             {
                 string name = HudConfig.HudActiveProfile != null
                     ? HudConfig.HudActiveProfile.Value : "Default";
-                Features.HudProfileStore.LoadActive(name, BuildStarterDocument);
+                // Self-heal with the factory that MATCHES the profile name: a missing/
+                // corrupt Glassy must respawn as the glass design, not get the flat
+                // starter silently written under its name (review find, 2026-07-12).
+                System.Func<HudDocument> factory =
+                    string.Equals(name, "Glassy", System.StringComparison.OrdinalIgnoreCase)
+                        ? (System.Func<HudDocument>)BuildGlassyDocument
+                        : BuildStarterDocument;
+                Features.HudProfileStore.LoadActive(name, factory);
 
                 // A stale shipped-default (the schema-1 primitive demo) upgrades to the
                 // current starter — but ONLY the literal "Default" profile; anything the
@@ -201,6 +208,16 @@ namespace StationeersUIMod.UI.Hud
                     Features.HudProfileStore.MarkChanged(); // persist the upgrade
                 }
                 _docRebuildNeeded = false; // SetActive fired the event; we build right after
+
+                // Ship the alternate "Glassy" look alongside Default. Seeded only when
+                // the file is ABSENT, so a user's edits to it are never overwritten;
+                // deleting it respawns a fresh copy next session (Default's contract).
+                bool haveGlassy = false;
+                foreach (var n in Features.HudProfileStore.ListProfiles())
+                    if (string.Equals(n, "Glassy", System.StringComparison.OrdinalIgnoreCase))
+                    { haveGlassy = true; break; }
+                if (!haveGlassy)
+                    Features.HudProfileStore.Save(BuildGlassyDocument(), "Glassy");
             }
         }
 
@@ -381,6 +398,65 @@ namespace StationeersUIMod.UI.Hud
 
             // --- bare tier: the felt-sense words own the middle of the view ---
             els.Add(El("bare-senses", HudElementType.BareSenses, HudAnchor.Center, 0f, -40f, 420f, 320f, HudTierMask.Bare));
+
+            return doc;
+        }
+
+        /// <summary>The shipped "Glassy" profile: the sketch layout restyled after the
+        /// vanilla visor — smoked-glass panels with a top-lit sheen, pale hairline
+        /// borders that catch light (bright→dim runs along each edge), and a faint
+        /// full-screen visor frame. Colours are LITERALS on purpose: switching to this
+        /// profile must not touch the shared palette or the Default profile.</summary>
+        private static HudDocument BuildGlassyDocument()
+        {
+            var doc = BuildStarterDocument();
+            doc.Name = "Glassy";
+
+            const string glassFill = "#05080D96";    // smoked near-black, ~59% present
+            const string glassBorder = "#D9E6EE59";  // pale steel hairline; spec adds the hot spots
+
+            foreach (var el in doc.Elements)
+            {
+                switch (el.Type)
+                {
+                    case HudElementType.Box:
+                    case HudElementType.Readout:
+                    case HudElementType.Compass:
+                    case HudElementType.HandBoxes:
+                    case HudElementType.EquipmentColumn:
+                    case HudElementType.KeybindChips:
+                    case HudElementType.SuitChips:
+                    case HudElementType.MoodletDashboard:
+                    case HudElementType.Clock:
+                    case HudElementType.WorldName:
+                    case HudElementType.DayCounter:
+                    case HudElementType.ActiveHandBadge:
+                        el.Fill = glassFill;
+                        el.Border = glassBorder;
+                        el.SetF("sheen", 0.55f);
+                        el.SetF("spec", 0.85f);
+                        break;
+                    case HudElementType.Portrait:
+                        // The ring is a CircleGraphic (no glass mesh) — colours only.
+                        el.Border = glassBorder;
+                        break;
+                        // BodyDoll/BareSenses/Label/Polyline/Icon keep their own colours —
+                        // fill drives doll parts and line/text art, not a glass pane.
+                }
+            }
+
+            // The visor frame from the vanilla screenshot: a huge, fill-less rounded
+            // rect hugging the screen, its border catching light at the top corners.
+            var frame = El("visor-frame", HudElementType.Box, HudAnchor.Center, 0f, 8f,
+                1830f, 990f, SuitOnly, 0);
+            frame.WPct = 0.965f;
+            frame.HPct = 0.93f;
+            frame.Fill = "#FFFFFF00";
+            frame.Border = "#DFEDF542";
+            frame.BorderWidth = 1.6f;
+            frame.RTL = 48f; frame.RTR = 48f; frame.RBR = 48f; frame.RBL = 48f;
+            frame.SetF("spec", 1f);
+            doc.Elements.Insert(0, frame);
 
             return doc;
         }
