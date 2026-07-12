@@ -97,5 +97,50 @@ namespace StationeersUIMod.Core
             return true;
         }
     }
+
+    /// <summary>
+    /// Vanilla NRE guard: Human.SpawnDynamicThing (Human.cs:4430 in 27701) checks
+    /// GameMode == Creative but NOT whether a spawnable is selected — with
+    /// InventoryManager.SpawnPrefab null it dereferences spawnPrefab.SpawnId and throws
+    /// on every F9 press. Vanilla would only ever crash in this state, so skipping is
+    /// strictly safe, creative or not.
+    /// </summary>
+    [HarmonyPatch(typeof(Assets.Scripts.Objects.Entities.Human), "SpawnDynamicThing")]
+    internal static class Patch_Human_SpawnDynamicThing
+    {
+        private static bool Prefix()
+        {
+            return InventoryManager.SpawnPrefab != null;
+        }
+    }
+
+    /// <summary>
+    /// Suppresses the vanilla creative SpawnItem key while the F9 HUD editor owns the
+    /// same key (KeyMap.SpawnItem is F9 by default, KeyManager.cs:427): one press must
+    /// toggle the editor OR spawn an item, never both. Rebinding HudEditorKey away from
+    /// the collision restores vanilla spawning untouched.
+    /// </summary>
+    [HarmonyPatch(typeof(KeyManager), "SpawnDynamicThing")]
+    internal static class Patch_KeyManager_SpawnDynamicThing
+    {
+        private static bool Prefix()
+        {
+            try
+            {
+                if (StationeersUIMod.Instance == null) return true;
+                if (UIAConfig.MasterEnable == null || !UIAConfig.MasterEnable.Value) return true;
+                var editorKey = UI.Hud.HudConfig.HudEditorKey;
+                if (editorKey == null || editorKey.Value != KeyMap.SpawnItem) return true;
+                // Same context gate the editor toggle uses: if the press could reach our
+                // editor, vanilla stays quiet (even when a sibling menu blocks the toggle —
+                // better a dead key than a surprise spawn).
+                return !Guards.CanToggleMenus();
+            }
+            catch
+            {
+                return true; // never let the guard itself take vanilla down
+            }
+        }
+    }
 }
 

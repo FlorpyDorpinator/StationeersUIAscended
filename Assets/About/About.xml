@@ -21,6 +21,7 @@ Ported from BepInEx proof-of-concept into Unity mod project. Radials are now dra
     [h3]Version 0.6.1:[/h3]
     [list]
     [*] Option B hold mode: resting the cursor on ANY branch wedge (Backpack, a category, a nested bag) now dives into it — hold MMB and hover your way from The Hub all the way to an item, release to grab it
+    [*] Fixed: pressing F9 in a Creative world threw a vanilla NullReferenceException (F9 is also vanilla's spawn-item key and its handler crashes with nothing selected) — the vanilla spawn is now guarded and auto-suppressed while the HUD editor owns F9; with the creative spawn menu open F9 spawns as vanilla intends
     [/list]
     [h3]Version 0.6.0:[/h3]
     [list]

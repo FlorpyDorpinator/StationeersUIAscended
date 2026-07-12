@@ -93,7 +93,9 @@ namespace StationeersUIMod
                     typeof(Patch_ImGuiWindowManager_Draw),
                     typeof(Patch_InventoryManager_SmartStow),
                     typeof(Patch_InventoryManager_CheckDisplaySlot),
-                    typeof(Patch_KeyManager_ToggleScoreboard));
+                    typeof(Patch_KeyManager_ToggleScoreboard),
+                    typeof(Patch_Human_SpawnDynamicThing),
+                    typeof(Patch_KeyManager_SpawnDynamicThing));
 
                 // The static `new Mod(...)` above registers us with LaunchPadBooster for the optional client-side mod list.
                 // (Proper direct reference - no reflection hack.)

@@ -92,9 +92,10 @@ namespace StationeersUIMod.UI.Hud
                 "Draw the old 0.1.0 ImGui HUD instead (kept as a fallback during the port).");
             HudEditorKey = cfg.Bind(S, "HudEditorKey", KeyCode.F9,
                 "Key that opens the HUD editor: click any HUD element to edit its colours, " +
-                "fonts and sizes in place. NOTE: vanilla binds F9 to the CREATIVE spawn-item " +
-                "menu — in creative mode rebind one of the two (the editor stands down while " +
-                "the spawn menu is open).");
+                "fonts and sizes in place. NOTE: vanilla binds F9 to CREATIVE spawn-item; " +
+                "while the keys collide the vanilla spawn is auto-suppressed (F9 = editor). " +
+                "With the creative spawn menu OPEN, F9 spawns as vanilla intends and the " +
+                "editor stands down; rebind this key to get both at once.");
 
             Curvature = cfg.Bind(S, "Curvature", HudCurvature.VertexWarp,
                 "How the HUD curves like a visor. Flat: none. VertexWarp (A): per-element " +

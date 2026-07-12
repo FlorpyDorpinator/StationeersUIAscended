@@ -4,6 +4,14 @@ All notable changes to the mod. Detailed engineering write-ups live in `Changes 
 
 ## 0.6.1 Alpha — 2026-07-11
 
+**F9 creative-spawn crash fixed** (post-release addition, same version): vanilla binds
+F9 to creative SpawnItem, and its handler NREs when no spawnable is selected — every F9
+press in a Creative world threw. Two fail-soft Harmony prefixes: a null-guard on
+`Human.SpawnDynamicThing` (vanilla would only ever crash in that state), and suppression
+of the vanilla spawn while our HUD editor owns the same key — one press toggles the
+editor OR spawns, never both. With the creative spawn menu open, F9 spawns as vanilla
+intends; rebind `HudEditorKey` to get both keys at once.
+
 **Option B hold-mode fix (play-test feedback)**: dwell-to-enter now works on **every**
 branch wedge, not just The Hub. Hold MMB, rest on The Hub (¼ s) → rest on Backpack →
 rest on a category → release on the item: a full no-click journey from belt to any item.
