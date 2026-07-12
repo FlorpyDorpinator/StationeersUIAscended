@@ -38,6 +38,7 @@ namespace StationeersUIMod.UI.Hud.Widgets
         private bool _shownTgtOn;
         private float _shownTgt;
         private string _tgtText = "";
+        private bool _iconIsVanilla; // game art keeps its own colours + late-resolves
 
         private static readonly string[] SourceNames = System.Enum.GetNames(typeof(HudReadoutSource));
 
@@ -45,15 +46,22 @@ namespace StationeersUIMod.UI.Hud.Widgets
         {
             _box = MakePanel(root, "Box");
 
-            // Optional icon, decided from the element's Icon field (PNG override beats the
-            // built-in glyph, same as the primitive icon). Nothing is built when it's empty.
+            // Optional icon, decided from the element's Icon field. Resolution order:
+            // user PNG override -> the GAME'S own icon (keys like "Hunger"/"Temp"/
+            // "Pressure" — the art players already know) -> built-in glyph. Vanilla
+            // sprites can resolve late (their singletons exist only in-world), so that
+            // channel keeps retrying in UpdatePanel until the sprite lands.
             if (!string.IsNullOrEmpty(Def.Icon))
             {
                 var sprite = Core.HudIconStore.TryGet(Def.Icon);
-                if (sprite != null)
+                _iconIsVanilla = sprite == null && Core.VanillaIcons.IsKey(Def.Icon);
+                if (_iconIsVanilla) sprite = Core.VanillaIcons.TryGet(Def.Icon);
+
+                if (sprite != null || _iconIsVanilla)
                 {
-                    _iconSprite = MakeIcon(root, "IconPng");
+                    _iconSprite = MakeIcon(root, "IconSprite");
                     _iconSprite.sprite = sprite;
+                    _iconSprite.enabled = sprite != null;
                     _iconRt = _iconSprite.rectTransform;
                 }
                 else
@@ -192,7 +200,24 @@ namespace StationeersUIMod.UI.Hud.Widgets
 
             var accent = TextColor();
             if (_glyph != null) _glyph.color = accent;
-            if (_iconSprite != null) _iconSprite.color = accent;
+            if (_iconSprite != null)
+            {
+                if (_iconIsVanilla)
+                {
+                    // Game art keeps its native colours; retry until the singleton exists.
+                    if (_iconSprite.sprite == null)
+                    {
+                        var late = Core.VanillaIcons.TryGet(Def.Icon);
+                        _iconSprite.sprite = late;
+                        _iconSprite.enabled = late != null;
+                    }
+                    _iconSprite.color = Color.white;
+                }
+                else
+                {
+                    _iconSprite.color = accent; // PNG overrides are white-on-transparent
+                }
+            }
 
             // --- text ---
             string lbl = Def.GetS("label", "");

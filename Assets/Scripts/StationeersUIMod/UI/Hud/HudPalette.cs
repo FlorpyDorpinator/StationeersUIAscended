@@ -138,44 +138,53 @@ namespace StationeersUIMod.UI.Hud
             return true;
         }
 
+        private static ConfigEntry<int> _paletteVersion;
+
+        /// <summary>Bump when the DEFAULTS change look. Saved configs keep old hexes
+        /// forever, so a version below current applies the new defaults ONCE (the F9
+        /// wheels then own them again). 2 = the 0.7.0 restyle: near-black glass, WHITE
+        /// values, cyan demoted to accents only (play-test: "everything has a blue hue").</summary>
+        private const int CurrentPaletteVersion = 2;
+
         public static void Bind(ConfigFile cfg)
         {
             All.Clear();
 
-            PanelFill = Add(cfg, "HudPanelFill", "060E1299",
-                "HUD panel background — the dark visor glass.");
-            PanelBorder = Add(cfg, "HudPanelBorder", "3FD9EC66",
-                "The thin cyan outline on every HUD panel.");
-            LineAccent = Add(cfg, "HudLineAccent", "3FD9ECCC",
+            PanelFill = Add(cfg, "HudPanelFill", "05090ECC",
+                "HUD panel background — near-black visor glass.");
+            PanelBorder = Add(cfg, "HudPanelBorder", "2E7A94AA",
+                "The thin steel-blue outline on every HUD panel.");
+            LineAccent = Add(cfg, "HudLineAccent", "35C8E8CC",
                 "Bright line-work: separators, underlines, the top bar's edge line.");
 
-            TextLabel = Add(cfg, "HudTextLabel", "9FD3DFC8",
+            TextLabel = Add(cfg, "HudTextLabel", "8FB4C2D0",
                 "Small caps labels (PRESSURE, LEFT HAND, HELMET...).");
-            TextValue = Add(cfg, "HudTextValue", "E9FBFFF2",
-                "The big value text (101 kPa, 20.9 %...).");
-            TextDim = Add(cfg, "HudTextDim", "7BA9B4A0",
+            TextValue = Add(cfg, "HudTextValue", "FFFFFFF5",
+                "The big value text (101 kPa, 20.9 %...) — white; colour belongs to accents.");
+            TextDim = Add(cfg, "HudTextDim", "6A8E9BA8",
                 "Tertiary text: units, hints, the UTC prefix.");
 
-            Good = Add(cfg, "HudGood", "58E8A8E6",
-                "Healthy/OK readings.");
-            Warn = Add(cfg, "HudWarn", "FFC257E6",
+            Good = Add(cfg, "HudGood", "4CE07AE6",
+                "Healthy/OK readings and gauge fills.");
+            Warn = Add(cfg, "HudWarn", "FFB13DE6",
                 "Readings drifting out of the safe band.");
-            Critical = Add(cfg, "HudCritical", "FF5F5FF0",
+            Critical = Add(cfg, "HudCritical", "FF4A3DF0",
                 "Dangerous readings; also the DYING/CHOKING words.");
 
-            CompassTick = Add(cfg, "HudCompassTick", "3FD9EC80",
+            CompassTick = Add(cfg, "HudCompassTick", "35C8E870",
                 "Compass ribbon tick marks.");
-            CompassCardinal = Add(cfg, "HudCompassCardinal", "CFF6FFE6",
+            CompassCardinal = Add(cfg, "HudCompassCardinal", "D8F0F8EE",
                 "The N / NE / E ... letters on the compass.");
             CompassNeedle = Add(cfg, "HudCompassNeedle", "FF8C29D9",
                 "The centre caret marking your exact heading.");
 
-            HologramTint = Add(cfg, "HudHologramTint", "41E0F0A0",
-                "Tint over the 3D character hologram in the vitals card.");
+            HologramTint = Add(cfg, "HudHologramTint", "8FE0F0B0",
+                "Tint over the 3D character portrait WHEN its hologram look is enabled " +
+                "(off by default — the portrait shows natural colours).");
             BareWord = Add(cfg, "HudBareWord", "D8F4FAE0",
                 "The felt-sense words (WARM, HUNGRY...) shown without a powered suit.");
 
-            SlotNumber = Add(cfg, "HudSlotNumber", "3FD9ECD9",
+            SlotNumber = Add(cfg, "HudSlotNumber", "FFFFFFE6",
                 "The 1-6 key numbers on the equipment column.");
             ActiveHandAccent = Add(cfg, "HudActiveHand", "FF8C29E6",
                 "Border/edge accent marking the ACTIVE hand box.");
@@ -184,6 +193,17 @@ namespace StationeersUIMod.UI.Hud
                 "Darkening around the screen edges — the visor rim shadow.");
             Scanline = Add(cfg, "HudScanline", "0A20281C",
                 "Scanline shading in Dome projection mode (alpha 0 = off).");
+
+            // One-time restyle: configs saved before the current default set keep the old
+            // look forever otherwise. Runs once, then the user's wheels rule again.
+            _paletteVersion = cfg.Bind("11. HUD Colours", "PaletteVersion", 0,
+                "Internal: which default palette this config was last synced to. " +
+                "Do not edit — set it to 0 to re-apply the shipped defaults once.");
+            if (_paletteVersion.Value < CurrentPaletteVersion)
+            {
+                ResetToDefaults();
+                _paletteVersion.Value = CurrentPaletteVersion;
+            }
         }
 
         private static Entry Add(ConfigFile cfg, string name, string defaultHex, string desc)

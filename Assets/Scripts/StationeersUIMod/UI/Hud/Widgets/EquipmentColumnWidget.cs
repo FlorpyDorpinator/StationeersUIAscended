@@ -54,12 +54,20 @@ namespace StationeersUIMod.UI.Hud.Widgets
             float gap = Def.GetF("gap", 8f) * scale;
             bool horizontal = Def.GetB("horizontal", false);
             bool labels = Def.GetB("labels", true);
-            float box = BoxSize(s, gap, horizontal);
+            int first, count;
+            Slice(out first, out count);
+            float box = BoxSize(s, gap, horizontal, count);
 
             for (int i = 0; i < 6; i++)
             {
                 var b = _boxes[i];
-                var center = BoxCenter(i, c, box, gap, horizontal);
+                bool inSlice = i >= first && i < first + count;
+                b.Panel.gameObject.SetActive(inSlice);
+                b.Number.gameObject.SetActive(inSlice);
+                b.Icon.gameObject.SetActive(inSlice);
+                b.Label.gameObject.SetActive(inSlice && labels);
+                if (!inSlice) continue;
+                var center = BoxCenter(i - first, c, box, gap, horizontal, count);
 
                 var prt = (RectTransform)b.Panel.transform;
                 prt.anchoredPosition = center;
@@ -83,10 +91,13 @@ namespace StationeersUIMod.UI.Hud.Widgets
         public override void UpdatePanel(HudSnapshot s, float scale)
         {
             var human = s.Human;
-            var box = BoxSize(SizeFor(scale), Def.GetF("gap", 8f) * scale, Def.GetB("horizontal", false));
+            int first, count;
+            Slice(out first, out count);
+            var box = BoxSize(SizeFor(scale), Def.GetF("gap", 8f) * scale,
+                Def.GetB("horizontal", false), count);
             bool labels = Def.GetB("labels", true);
 
-            for (int i = 0; i < 6; i++)
+            for (int i = first; i < first + count; i++)
             {
                 var b = _boxes[i];
                 Slot slot = SlotFor(human, i);
@@ -132,6 +143,8 @@ namespace StationeersUIMod.UI.Hud.Widgets
             into.Add(HudProp.F("Box gap", () => d.GetF("gap", 8f), v => d.SetF("gap", Mathf.Clamp(v, 0f, 40f)), 0f, 40f));
             into.Add(HudProp.Bool("Horizontal row", () => d.GetB("horizontal", false), v => d.SetB("horizontal", v)));
             into.Add(HudProp.Bool("Show labels", () => d.GetB("labels", true), v => d.SetB("labels", v)));
+            into.Add(HudProp.I("First slot (0=helmet)", () => d.GetI("first", 0), v => d.SetI("first", Mathf.Clamp(v, 0, 5)), 0, 5));
+            into.Add(HudProp.I("Slot count", () => d.GetI("count", 6), v => d.SetI("count", Mathf.Clamp(v, 1, 6)), 1, 6));
         }
 
         /// <summary>Each equipment box takes chip drops for ITS worn slot (0.6.2): drop a
@@ -145,13 +158,15 @@ namespace StationeersUIMod.UI.Hud.Widgets
             var size = SizeFor(scale);
             float gap = Def.GetF("gap", 8f) * scale;
             bool horizontal = Def.GetB("horizontal", false);
-            float box = BoxSize(size, gap, horizontal);
+            int first, count;
+            Slice(out first, out count);
+            float box = BoxSize(size, gap, horizontal, count);
 
-            for (int i = 0; i < 6; i++)
+            for (int i = first; i < first + count; i++)
             {
                 Slot slot = SlotFor(human, i);
                 if (slot == null) continue;
-                var center = BoxCenter(i, c, box, gap, horizontal);
+                var center = BoxCenter(i - first, c, box, gap, horizontal, count);
                 into.Add(new HudDropZone
                 {
                     CanvasRect = new Rect(center.x - box * 0.5f, center.y - box * 0.5f, box, box),
@@ -165,21 +180,30 @@ namespace StationeersUIMod.UI.Hud.Widgets
         // The stacking axis carries the six boxes; the cross axis bounds their size. Both
         // Layout and the drop zones read these so the hit-rects match the pixels exactly.
 
-        private static float BoxSize(Vector2 rect, float gap, bool horizontal)
+        /// <summary>Which contiguous run of the six slots this element renders — two
+        /// sliced elements make the "1 2 3 [hands] 4 5 6" bottom row possible.</summary>
+        private void Slice(out int first, out int count)
+        {
+            first = Mathf.Clamp(Def.GetI("first", 0), 0, 5);
+            count = Mathf.Clamp(Def.GetI("count", 6), 1, 6 - first);
+        }
+
+        private static float BoxSize(Vector2 rect, float gap, bool horizontal, int count)
         {
             float along = horizontal ? rect.x : rect.y;
             float across = horizontal ? rect.y : rect.x;
-            return Mathf.Max(2f, Mathf.Min(across, (along - 5f * gap) / 6f));
+            return Mathf.Max(2f, Mathf.Min(across, (along - (count - 1) * gap) / count));
         }
 
-        private static Vector2 BoxCenter(int i, Vector2 center, float box, float gap, bool horizontal)
+        private static Vector2 BoxCenter(int orderIdx, Vector2 center, float box, float gap,
+            bool horizontal, int count)
         {
-            float total = box * 6f + gap * 5f;
+            float total = box * count + gap * (count - 1);
             float start = total * 0.5f - box * 0.5f;
-            // Box 0 (helmet) leads: leftmost when horizontal, topmost when vertical.
+            // The first sliced box leads: leftmost when horizontal, topmost when vertical.
             return horizontal
-                ? new Vector2(center.x - start + i * (box + gap), center.y)
-                : new Vector2(center.x, center.y + start - i * (box + gap));
+                ? new Vector2(center.x - start + orderIdx * (box + gap), center.y)
+                : new Vector2(center.x, center.y + start - orderIdx * (box + gap));
         }
 
         private static Slot SlotFor(Human human, int i)

@@ -193,7 +193,7 @@ namespace StationeersUIMod.UI.Hud
                 // current starter — but ONLY the literal "Default" profile; anything the
                 // user named themselves is theirs, whatever its age.
                 var active = Features.HudProfileStore.Active;
-                if (active != null && active.Schema < 4
+                if (active != null && active.Schema < 5
                     && string.Equals(name, "Default", System.StringComparison.OrdinalIgnoreCase))
                 {
                     var fresh = BuildStarterDocument();
@@ -317,75 +317,89 @@ namespace StationeersUIMod.UI.Hud
             };
         }
 
-        /// <summary>The shipped default layout: the 0.5.0 visor arrangement rebuilt from
-        /// widgets — the parity baseline every element of which can now be moved, resized,
-        /// restyled or deleted in the designer. Written to HudProfiles/Default.xml on
-        /// first run (and whenever the file goes missing).</summary>
+        /// <summary>The shipped default layout — built to FlorpyDorp's sketch: minimal
+        /// top bar (time + compass), vertical gauge pairs mid-left (external) and
+        /// mid-right (internal + jetpack) with suit chips beneath, needs list + damage
+        /// doll + round portrait bottom-right, and the equipment keys SPLIT 1-2-3 /
+        /// 4-5-6 around the hand boxes. Written to HudProfiles/Default.xml on first run
+        /// (and whenever the file goes missing).</summary>
         private static HudDocument BuildStarterDocument()
         {
-            // Schema 4 = the final mockup layout: horizontal mini-bar rows in ONE bottom-
-            // right cluster, game moodlet icons, no hand tray. (1 demo, 2 parity, 3 the
-            // vertical-card draft; EnsureActiveDocument upgrades stale shipped Defaults.)
-            var doc = new HudDocument { Name = "Default", Schema = 4 };
+            // Schema 5 = the sketch layout (1 demo, 2 parity, 3 vertical-card draft,
+            // 4 cluster mockup; EnsureActiveDocument upgrades stale shipped Defaults).
+            var doc = new HudDocument { Name = "Default", Schema = 5 };
             var els = doc.Elements;
 
-            // --- top bar: backdrop + badge, clock, external cells, compass, day, world ---
-            var bar = El("top-bar", HudElementType.Box, HudAnchor.TopCenter, 0f, -44f, 1840f, 66f, SuitOnly, 0);
-            bar.WPct = 0.96f; // span ~the screen at ANY resolution, not just 1920
-            bar.RTL = 4f; bar.RTR = 4f; bar.RBR = 16f; bar.RBL = 16f;
+            // --- top bar: time left, compass dead center, day + world right ---
+            var bar = El("top-bar", HudElementType.Box, HudAnchor.TopCenter, 0f, -44f, 1840f, 60f, SuitOnly, 0);
+            bar.WPct = 0.94f;
+            bar.RTL = 4f; bar.RTR = 4f; bar.RBR = 14f; bar.RBL = 14f;
             els.Add(bar);
-            var badge = El("hand-badge", HudElementType.ActiveHandBadge, HudAnchor.TopLeft, 70f, -44f, 44f, 36f);
-            badge.SetB("number", true); // the mockup's "1" slot badge, not L/R
-            els.Add(badge);
-            els.Add(El("clock", HudElementType.Clock, HudAnchor.TopLeft, 185f, -44f, 190f, 40f, SuitOnly));
+            els.Add(El("clock", HudElementType.Clock, HudAnchor.TopLeft, 190f, -44f, 200f, 40f, SuitOnly));
+            els.Add(El("compass", HudElementType.Compass, HudAnchor.TopCenter, 0f, -44f, 260f, 44f, SuitOnly));
+            els.Add(El("day", HudElementType.DayCounter, HudAnchor.TopRight, -300f, -44f, 130f, 40f, SuitOnly));
+            els.Add(El("world", HudElementType.WorldName, HudAnchor.TopRight, -120f, -44f, 190f, 40f, SuitOnly));
 
-            var extP = El("ext-pressure", HudElementType.Readout, HudAnchor.TopCenter, -330f, -44f, 200f, 56f, SuitOnly);
-            extP.Set("src", "ExternalPressure"); extP.Set("label", "EXTERNAL");
-            extP.SetB("box", false); extP.SetB("bar", false);
-            els.Add(extP);
+            // --- moodlets: the game's own icons, center-out under the bar, no boxes ---
+            els.Add(El("moodlets", HudElementType.MoodletDashboard, HudAnchor.TopCenter, 0f, -102f, 820f, 40f));
 
-            els.Add(El("compass", HudElementType.Compass, HudAnchor.TopCenter, 0f, -44f, 240f, 46f, SuitOnly));
+            // --- mid-left: the outside world as two vertical gauges ---
+            AddGauge(els, "ext-pressure", "ExternalPressure", "EXT\nPRESS", "Pressure", HudAnchor.MiddleLeft, 70f, 0f);
+            AddGauge(els, "ext-temp", "ExternalTemp", "EXT\nTEMP", "Temp", HudAnchor.MiddleLeft, 165f, 0f);
 
-            var extT = El("ext-temp", HudElementType.Readout, HudAnchor.TopCenter, 330f, -44f, 200f, 56f, SuitOnly);
-            extT.Set("src", "ExternalTemp"); extT.Set("label", "EXTERNAL");
-            extT.SetB("box", false); extT.SetB("bar", false);
-            els.Add(extT);
-
-            els.Add(El("day", HudElementType.DayCounter, HudAnchor.TopRight, -270f, -44f, 140f, 40f, SuitOnly));
-            els.Add(El("world", HudElementType.WorldName, HudAnchor.TopRight, -95f, -44f, 150f, 40f, SuitOnly));
-
-            // --- left equipment column, bottom hand tray + key chips ---
-            els.Add(El("equipment", HudElementType.EquipmentColumn, HudAnchor.MiddleLeft, 70f, 0f, 84f, 520f));
-            var hands = El("hands", HudElementType.HandBoxes, HudAnchor.BottomCenter, 0f, 78f, 380f, 110f);
-            hands.SetB("tray", false); // just the two boxes — no trapezoid shelf
-            els.Add(hands);
-            var chips = El("key-chips", HudElementType.KeybindChips, HudAnchor.BottomCenter, -300f, 66f, 110f, 96f);
-            chips.SetB("vertical", true);
+            // --- mid-right: the suit's instruments + jetpack, chips underneath ---
+            AddGauge(els, "int-temp", "FeltTemp", "INT\nTEMP", "Temp", HudAnchor.MiddleRight, -260f, 30f);
+            AddGauge(els, "int-pressure", "InternalPressure", "INT\nPRESS", "Pressure", HudAnchor.MiddleRight, -165f, 30f);
+            AddGauge(els, "jetpack", "JetpackPropellant", "JET\nPACK", "Jetpack", HudAnchor.MiddleRight, -70f, 30f);
+            var chips = El("suit-chips", HudElementType.SuitChips, HudAnchor.MiddleRight, -165f, -150f, 220f, 44f, SuitOnly);
+            chips.SetB("internals", true);
             els.Add(chips);
 
-            // --- bottom-right vitals: four readout rows + the round hologram portrait ---
-            // --- moodlet dashboard: the game's own moodlet icons as centered chips ---
-            els.Add(El("moodlets", HudElementType.MoodletDashboard, HudAnchor.TopCenter, 0f, -104f, 760f, 36f));
+            // --- bottom-right: needs list + damage doll + the round portrait ---
+            var needsBox = El("needs-panel", HudElementType.Box, HudAnchor.BottomRight, -330f, 110f, 240f, 160f, SuitOnly, 0);
+            needsBox.RTL = 12f; needsBox.RTR = 12f; needsBox.RBR = 12f; needsBox.RBL = 12f;
+            els.Add(needsBox);
+            AddRow(els, "row-hunger", "Nutrition", "HGR", "Hunger", -330f, 158f, 216f, 44f);
+            AddRow(els, "row-water", "Hydration", "WTR", "Water", -330f, 110f, 216f, 44f);
+            AddRow(els, "row-toilet", "Sanitation", "TLT", "Toilet", -330f, 62f, 216f, 44f);
 
-            // --- bottom-right cluster (the mockup's single panel): needs rows | internal
-            // rows | round portrait, suit chips floating above it ---
-            var panel = El("cluster-panel", HudElementType.Box, HudAnchor.BottomRight, -330f, 115f, 640f, 170f, SuitOnly, 0);
-            panel.RTL = 14f; panel.RTR = 14f; panel.RBR = 14f; panel.RBL = 14f;
-            els.Add(panel);
+            els.Add(El("body-doll", HudElementType.BodyDoll, HudAnchor.BottomRight, -480f, 110f, 70f, 160f));
+            els.Add(El("portrait", HudElementType.Portrait, HudAnchor.BottomRight, -110f, 110f, 170f, 170f, SuitOnly));
 
-            AddRow(els, "row-hunger", "Nutrition", "HUNGER", "Burger", -540f, 165f, 210f, 46f);
-            AddRow(els, "row-toilet", "Sanitation", "TOILET", "Toilet", -540f, 115f, 210f, 46f);
-            AddRow(els, "row-water", "Hydration", "WATER", "Droplet", -540f, 65f, 210f, 46f);
-            AddRow(els, "row-int-temp", "FeltTemp", "INTERNAL TEMP", "Thermometer", -310f, 150f, 230f, 62f);
-            AddRow(els, "row-int-pressure", "InternalPressure", "INTERNAL PRESSURE", "Gauge", -310f, 75f, 230f, 62f);
-
-            els.Add(El("portrait", HudElementType.Portrait, HudAnchor.BottomRight, -90f, 115f, 150f, 150f, SuitOnly));
-            els.Add(El("suit-chips", HudElementType.SuitChips, HudAnchor.BottomRight, -120f, 235f, 170f, 44f, SuitOnly));
+            // --- bottom center: 1 2 3 | LEFT HAND | RIGHT HAND | 4 5 6 ---
+            var eqLeft = El("equipment-left", HudElementType.EquipmentColumn, HudAnchor.BottomCenter, -350f, 60f, 260f, 78f);
+            eqLeft.SetB("horizontal", true);
+            eqLeft.SetI("first", 0); eqLeft.SetI("count", 3);
+            els.Add(eqLeft);
+            var hands = El("hands", HudElementType.HandBoxes, HudAnchor.BottomCenter, 0f, 70f, 380f, 110f);
+            hands.SetB("tray", false); // just the two boxes — no trapezoid shelf
+            els.Add(hands);
+            var eqRight = El("equipment-right", HudElementType.EquipmentColumn, HudAnchor.BottomCenter, 350f, 60f, 260f, 78f);
+            eqRight.SetB("horizontal", true);
+            eqRight.SetI("first", 3); eqRight.SetI("count", 3);
+            els.Add(eqRight);
 
             // --- bare tier: the felt-sense words own the middle of the view ---
             els.Add(El("bare-senses", HudElementType.BareSenses, HudAnchor.Center, 0f, -40f, 420f, 320f, HudTierMask.Bare));
 
             return doc;
+        }
+
+        /// <summary>A vertical instrument gauge (the sketch's columns): boxed, two-line
+        /// label, value, upright bar, game icon at the foot.</summary>
+        private static void AddGauge(List<HudElementDef> els, string id, string src,
+            string label, string icon, HudAnchor anchor, float x, float y)
+        {
+            var e = El(id, HudElementType.Readout, anchor, x, y, 86f, 230f, SuitOnly);
+            e.Set("src", src);
+            e.Set("label", label);
+            e.SetB("box", true);
+            e.SetB("bar", true);
+            e.SetB("barVertical", true);
+            e.SetB("target", false);
+            e.Icon = icon;
+            e.SetF("valueSize", 14f);
+            els.Add(e);
         }
 
         /// <summary>One of the mockup's compact readout rows: icon + label + value with a

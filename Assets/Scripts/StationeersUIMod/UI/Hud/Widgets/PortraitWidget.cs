@@ -136,11 +136,21 @@ namespace StationeersUIMod.UI.Hud.Widgets
             }
             catch { }
 
-            bool holo = Def.GetB("holo", true);
-            bool scanlines = Def.GetB("scanlines", true);
+            // Natural-colour portrait by default; the cyan hologram look is opt-in.
+            bool holo = Def.GetB("holo", false);
+            bool scanlines = Def.GetB("scanlines", holo);
 
             _holo.texture = rt;
             _holo.enabled = rt != null;
+            // The vanilla portrait RT is NOT square — stretching it into the round frame
+            // distorts the character. Center-crop the wider axis via UVs instead.
+            if (rt != null && rt.width > 0 && rt.height > 0)
+            {
+                float aspect = rt.width / (float)rt.height;
+                _holo.uvRect = aspect >= 1f
+                    ? new Rect(0.5f - 0.5f / aspect, 0f, 1f / aspect, 1f)
+                    : new Rect(0f, 0.5f - 0.5f * aspect, 1f, aspect);
+            }
             _holo.color = holo ? HudPalette.HologramTint.Value : Color.white;
             _holoScan.color = (_holo.enabled && scanlines) ? HudPalette.Scanline.Value : Color.clear;
 

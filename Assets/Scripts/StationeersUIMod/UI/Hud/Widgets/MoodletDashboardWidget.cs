@@ -107,16 +107,24 @@ namespace StationeersUIMod.UI.Hud.Widgets
             var warn = HudPalette.Warn.Value;
             var crit = HudPalette.Critical.Value;
 
+            // The pill box is OPT-IN (default: bare icons over the world, per play-test).
+            bool boxed = Def.GetB("box", false);
+
             for (int i = 0; i < _active; i++)
             {
                 var ch = _chips[i];
-                ch.Pill.color = fill;
-                ch.Pill.BorderColor = border;
+                var pillFill = fill;
+                var pillBorder = border;
+                if (!boxed) { pillFill.a = 0f; pillBorder.a = 0f; }
+                ch.Pill.color = pillFill;
+                ch.Pill.BorderColor = pillBorder;
                 ch.Pill.BorderWidth = bw;
 
                 Color tint = _items[i].Level >= 2 ? crit : _items[i].Level == 1 ? warn : normalIcon;
                 if (ch.Glyph.enabled) ch.Glyph.color = tint;
-                if (ch.Sprite.enabled) ch.Sprite.color = tint;
+                // The GAME's moodlet art keeps its own colours — the state colour lives
+                // in the label; only a critical flash tints the art itself.
+                if (ch.Sprite.enabled) ch.Sprite.color = _items[i].Level >= 2 ? crit : Color.white;
                 if (ch.Label.enabled)
                 {
                     HudText.Sync(ch.Label);
@@ -234,10 +242,12 @@ namespace StationeersUIMod.UI.Hud.Widgets
             float gap = Mathf.Max(0f, Def.GetF("gap", 10f)) * scale;
             bool labels = Def.GetB("labels", true);
 
-            float pad = chipH * 0.30f;
-            float iconSz = chipH * 0.62f;
-            float iconGap = chipH * 0.18f;
-            float charW = chipH * 0.26f;   // rough label em; slight over-estimate avoids clipping
+            // Dashboard-light proportions (play-test): the ICON is the signal — nearly
+            // the whole chip height — and the word is a small caption beside it.
+            float pad = chipH * 0.14f;
+            float iconSz = chipH * 0.92f;
+            float iconGap = chipH * 0.16f;
+            float charW = chipH * 0.17f;   // rough label em; slight over-estimate avoids clipping
             float radius = Mathf.Min(chipH * 0.5f,
                 Mathf.Min(Mathf.Min(Radius(Def.RTL), Radius(Def.RTR)),
                           Mathf.Min(Radius(Def.RBR), Radius(Def.RBL))));
@@ -255,7 +265,7 @@ namespace StationeersUIMod.UI.Hud.Widgets
             }
 
             float cursor = c.x - total * 0.5f;
-            var lblFont = HudText.Size(chipHref * 0.4f * Def.FontScale) * scale;
+            var lblFont = HudText.Size(chipHref * 0.27f * Def.FontScale) * scale;
 
             for (int i = 0; i < _active; i++)
             {
