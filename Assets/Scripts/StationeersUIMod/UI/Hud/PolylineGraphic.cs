@@ -36,6 +36,21 @@ namespace StationeersUIMod.UI.Hud
             }
         }
 
+        private float _fadeEnds;
+
+        /// <summary>Fraction of the line's arc length (0..0.49) over which each OPEN end
+        /// fades from nothing to full alpha — the visor-rim "line that dissolves at its
+        /// ends". 0 (default) keeps the classic hard caps; closed loops ignore this.</summary>
+        public float FadeEnds
+        {
+            get => _fadeEnds;
+            set
+            {
+                float v = float.IsNaN(value) ? 0f : Mathf.Clamp(value, 0f, 0.49f);
+                if (!Mathf.Approximately(_fadeEnds, v)) { _fadeEnds = v; SetVerticesDirty(); }
+            }
+        }
+
         /// <summary>Replace the polyline. Copies <paramref name="pts"/> into the internal list and
         /// only dirties the mesh when the point count, any point, or the closed flag actually
         /// changed — the editor may push this every frame while dragging.</summary>
@@ -67,6 +82,7 @@ namespace StationeersUIMod.UI.Hud
         private static readonly List<Vector2> _clean = new List<Vector2>(64);
         private static readonly List<Vector2> _dir = new List<Vector2>(64);
         private static readonly List<Vector2> _nrm = new List<Vector2>(64);
+        private static readonly List<float> _arc = new List<float>(64); // cumulative arc length
 
         protected override void OnPopulateMesh(VertexHelper vh)
         {
@@ -113,15 +129,43 @@ namespace StationeersUIMod.UI.Hud
                 nrm.Add(new Vector2(-d.y, d.x));
             }
 
+            // End-fade: per-point alpha weight from the arc-length fraction. Open lines
+            // only — a loop has no ends. Weight 1 everywhere keeps the classic output.
+            bool fading = !closed && _fadeEnds > 0.001f;
+            var arc = _arc;
+            arc.Clear();
+            if (fading)
+            {
+                float total = 0f;
+                arc.Add(0f);
+                for (int i = 1; i < n; i++)
+                {
+                    total += (pts[i] - pts[i - 1]).magnitude;
+                    arc.Add(total);
+                }
+                if (total < 1e-3f) fading = false;
+                else for (int i = 0; i < n; i++) arc[i] = arc[i] / total;
+            }
+            Color SolidAt(int i)
+            {
+                if (!fading) return solid;
+                float t = arc[i];
+                float w = Mathf.Clamp01(Mathf.Min(t, 1f - t) / _fadeEnds);
+                Color c = solid; c.a *= w;
+                return c;
+            }
+
             // Segment ribbons: fringe | core | fringe strips across the width.
             for (int s = 0; s < segCount; s++)
             {
-                Vector2 a = pts[s];
-                Vector2 b = pts[(s + 1) % n];
+                int ia = s, ib = (s + 1) % n;
+                Vector2 a = pts[ia];
+                Vector2 b = pts[ib];
                 Vector2 nn = nrm[s];
+                Color sa = SolidAt(ia), sb = SolidAt(ib);
                 int bi = vh.currentVertCount;
-                AddCross(vh, a, nn, hw, f, solid, fade); // bi+0..3
-                AddCross(vh, b, nn, hw, f, solid, fade); // bi+4..7
+                AddCross(vh, a, nn, hw, f, sa, Fade(sa)); // bi+0..3
+                AddCross(vh, b, nn, hw, f, sb, Fade(sb)); // bi+4..7
                 Strip(vh, bi + 0, bi + 1, bi + 4, bi + 5); // left fringe
                 Strip(vh, bi + 1, bi + 2, bi + 5, bi + 6); // core
                 Strip(vh, bi + 2, bi + 3, bi + 6, bi + 7); // right fringe
@@ -134,16 +178,20 @@ namespace StationeersUIMod.UI.Hud
             {
                 int s0 = (j - 1 + segCount) % segCount; // incoming segment
                 int s1 = j % segCount;                  // outgoing segment
-                Bevel(vh, pts[j], dir[s0], dir[s1], nrm[s0], nrm[s1], hw, f, solid, fade);
+                Color sj = SolidAt(j % n);
+                Bevel(vh, pts[j], dir[s0], dir[s1], nrm[s0], nrm[s1], hw, f, sj, Fade(sj));
             }
 
-            // Flat caps on the open ends, pushed out by the feather so the line fades to nothing.
-            if (!closed)
+            // Flat caps on the open ends, pushed out by the feather so the line fades to
+            // nothing. With end-fade active the end alpha is already 0 — skip the caps.
+            if (!closed && !fading)
             {
                 Cap(vh, pts[0], -dir[0], nrm[0], hw, f, solid, fade);
                 Cap(vh, pts[n - 1], dir[segCount - 1], nrm[segCount - 1], hw, f, solid, fade);
             }
         }
+
+        private static Color Fade(Color c) { c.a = 0f; return c; }
 
         /// <summary>Four verts across the stroke at <paramref name="p"/>: outer fringe (fade),
         /// inner edge (solid), inner edge (solid), outer fringe (fade) — the +n side first.</summary>

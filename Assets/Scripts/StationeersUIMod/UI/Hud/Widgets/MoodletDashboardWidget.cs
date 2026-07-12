@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using StationeersUIMod.Core;
 using TMPro;
@@ -5,24 +6,35 @@ using UnityEngine;
 using UnityEngine.UI;
 using GameStatus = Assets.Scripts.UI.StatusUpdates;
 using GameStatusItem = Assets.Scripts.UI.StatusUpdate;
+using GameStatusType = Assets.Scripts.UI.StatusUpdateType;
 
 namespace StationeersUIMod.UI.Hud.Widgets
 {
     /// <summary>
-    /// The car-dashboard moodlet strip: a horizontal run of small icon+label pills that
-    /// mirrors the state icons the vanilla game is currently showing. The strip is centred
-    /// in the element rect — one active moodlet sits dead centre, two split around it, and
-    /// N spread evenly — so it reads like an instrument cluster rather than a fixed grid.
+    /// The car-dashboard moodlet strip: a run of icon-forward chips that mirrors the state
+    /// icons the vanilla game is currently showing. The ICON is the signal (nearly the whole
+    /// chip), the word a small caption below it — two-word names ("POWER CRITICAL") stack on
+    /// two lines to stay narrow. Chips flow center-out in rows and WRAP downward into new rows
+    /// when a burst would overflow the element width, so a wide alert cluster forms a tidy grid
+    /// instead of running off-screen.
     ///
-    /// The mirror is read-only and fail-soft: every touch of the game's icon list is wrapped
-    /// so a game update that breaks the mirror degrades to an empty strip instead of throwing
-    /// once a frame. Pills are pooled and only re-flowed when the visible SET changes (a cheap
-    /// integer signature guards the rebuild), so an always-on-screen strip never allocates or
-    /// re-lays-out in steady state.
+    /// DEDUPE: vanilla stores several logical StatusUpdates that share ONE physical Image
+    /// GameObject (the PowerLow/PowerCritical pair, the Waste pair, the 4-way Pressure group).
+    /// When that shared image is active EVERY member reports "showing", which naively yields a
+    /// duplicate chip (e.g. POWER LOW next to POWER CRITICAL). We group the visible updates by
+    /// their shared Image.gameObject identity and emit ONE chip per group, choosing the
+    /// highest-priority member (Critical &gt; Warning &gt; Notice, tie-broken by the critical
+    /// flash) — reproducing vanilla's single flashing chip.
+    ///
+    /// The mirror is read-only and fail-soft: every touch of the game's icon list is wrapped so
+    /// a game update that breaks the mirror degrades to an empty strip instead of throwing once
+    /// a frame. Chips are pooled and only re-flowed when the visible SET changes (a cheap integer
+    /// signature guards the rebuild), so an always-on-screen strip never allocates in steady state.
     /// </summary>
     internal sealed class MoodletDashboardWidget : HudElementView
     {
         private const int Pool = 10;
+        private const int GroupCap = 24;   // dedupe scratch depth (visible updates before grouping)
 
         private sealed class Chip
         {
@@ -39,14 +51,21 @@ namespace StationeersUIMod.UI.Hud.Widgets
         {
             public HudIconKind Kind;   // None => draw the vanilla sprite instead
             public Sprite Sprite;
-            public string Label;       // UPPERCASE, cached until the set signature changes
+            public string Label;       // UPPERCASE, may carry a '\n' when the name is stacked
+            public int Lines;          // 1 or 2 caption lines (drives uniform row height)
             public int Level;          // 0 = normal, 1 = caution, 2 = critical
-            public float Width;        // laid-out pill width in scaled px
         }
 
         private readonly Chip[] _chips = new Chip[Pool];
         private readonly Item[] _items = new Item[Pool];
         private int _active;
+
+        // Dedupe scratch (rebuild-only; grouped by shared Image.gameObject instance id).
+        private readonly int[] _grpKey = new int[GroupCap];
+        private readonly GameStatusItem[] _grpWin = new GameStatusItem[GroupCap];
+        private readonly int[] _grpPri = new int[GroupCap];
+        private readonly int[] _grpLvl = new int[GroupCap];
+        private int _grpCount;
 
         // Rebuild guards: a re-flow happens only when the visible set (or the geometry it is
         // laid out against) actually changes.
@@ -71,7 +90,7 @@ namespace StationeersUIMod.UI.Hud.Widgets
                 ch.GlyphRt = (RectTransform)go.transform;
                 ch.GlyphRt.anchorMin = ch.GlyphRt.anchorMax = new Vector2(0.5f, 0.5f);
 
-                ch.Label = HudText.Make(root, "Label" + i, 11f, TextAlignmentOptions.MidlineLeft);
+                ch.Label = HudText.Make(root, "Label" + i, 11f, TextAlignmentOptions.Top);
                 ch.PillRt = (RectTransform)ch.Pill.transform;
                 ch.SpriteRt = ch.Sprite.rectTransform;
                 ch.LabelRt = ch.Label.rectTransform;
@@ -107,7 +126,7 @@ namespace StationeersUIMod.UI.Hud.Widgets
             var warn = HudPalette.Warn.Value;
             var crit = HudPalette.Critical.Value;
 
-            // The pill box is OPT-IN (default: bare icons over the world, per play-test).
+            // The chip backdrop is OPT-IN (default: bare icons over the world, per play-test).
             bool boxed = Def.GetB("box", false);
 
             for (int i = 0; i < _active; i++)
@@ -123,8 +142,8 @@ namespace StationeersUIMod.UI.Hud.Widgets
 
                 Color tint = _items[i].Level >= 2 ? crit : _items[i].Level == 1 ? warn : normalIcon;
                 if (ch.Glyph.enabled) ch.Glyph.color = tint;
-                // The GAME's moodlet art keeps its own colours — the state colour lives
-                // in the label; only a critical flash tints the art itself.
+                // The GAME's moodlet art keeps its own colours — the state colour lives in the
+                // caption; only a critical flash tints the art itself.
                 if (ch.Sprite.enabled) ch.Sprite.color = _items[i].Level >= 2 ? crit : Color.white;
                 if (ch.Label.enabled)
                 {
@@ -154,9 +173,21 @@ namespace StationeersUIMod.UI.Hud.Widgets
             catch { return false; }
         }
 
+        /// <summary>Priority for winner-of-a-shared-image selection: Critical(2) &gt; Warning(1)
+        /// &gt; Notice(0), tie-broken by the critical flash so a flashing member wins its peers.</summary>
+        private static int Priority(GameStatusItem su)
+        {
+            int type = 0;
+            bool flash = false;
+            try { type = (int)su.Type; } catch { }
+            try { flash = su._lastFlashState; } catch { }
+            return type * 2 + (flash ? 1 : 0);
+        }
+
         /// <summary>Cheap, allocation-free fingerprint of the visible set — count folds in
-        /// naturally, per-entry identity via the instance hash, and the caution/critical level
-        /// so a moodlet crossing into the red re-flows its tint. No name lookups here.</summary>
+        /// naturally, per-entry identity via the instance hash, plus type/level so a moodlet
+        /// crossing into the red (or a shared image's winner changing) re-flows. No name
+        /// lookups here.</summary>
         private int Signature()
         {
             int sig = 17;
@@ -170,58 +201,113 @@ namespace StationeersUIMod.UI.Hud.Widgets
                     if (!Showing(all[i], out level)) continue;
                     int h;
                     try { h = all[i].GetHashCode(); } catch { h = 0; }
-                    unchecked { sig = sig * 31 + h * 3 + level; }
+                    int type = 0;
+                    try { type = (int)all[i].Type; } catch { }
+                    unchecked { sig = sig * 31 + h * 3 + level * 7 + type; }
                 }
             }
             catch { return 0; }
             return sig;
         }
 
-        /// <summary>Second pass (set-change only): resolve each visible moodlet into a cached
-        /// item — glyph or sprite, UPPERCASE label, level — then flow the pills centred.</summary>
+        /// <summary>Second pass (set-change only): resolve the visible moodlets into cached items.
+        /// First DEDUPE — group by shared Image.gameObject identity and keep the highest-priority
+        /// member per group — then resolve each winner into a glyph/sprite + stacked UPPERCASE
+        /// caption, and flow the chips into centred, wrapping rows.</summary>
         private void Rebuild(float scale)
         {
             _active = 0;
+            _grpCount = 0;
             try
             {
                 var all = GameStatus.AllStatusUpdates;
                 if (all != null)
                 {
+                    // --- pass A: group visible updates by their shared Image.gameObject ---
                     for (int i = 0; i < all.Count; i++)
                     {
                         var su = all[i];
                         int level;
                         if (!Showing(su, out level)) continue;
 
+                        int key;
+                        try { key = su.Image.gameObject.GetInstanceID(); }
+                        catch { continue; }
+                        int pri = Priority(su);
+
+                        int g = -1;
+                        for (int k = 0; k < _grpCount; k++)
+                            if (_grpKey[k] == key) { g = k; break; }
+
+                        if (g < 0)
+                        {
+                            if (_grpCount >= GroupCap) continue; // pathological; drop extras
+                            g = _grpCount++;
+                            _grpKey[g] = key;
+                            _grpWin[g] = su;
+                            _grpPri[g] = pri;
+                            _grpLvl[g] = level;
+                        }
+                        // Winner by ACTUAL DISPLAYED LEVEL first, then static priority.
+                        // A shared-image pair reports BOTH members active, but only one
+                        // carries the live level: during caution-only the Warning peer is
+                        // level 1 ("POWER LOW") while the Critical peer is level 0 — ranking
+                        // by Type alone would wrongly show "POWER CRITICAL" in normal colour.
+                        else if (level > _grpLvl[g] || (level == _grpLvl[g] && pri > _grpPri[g]))
+                        {
+                            _grpWin[g] = su;
+                            _grpPri[g] = pri;
+                            _grpLvl[g] = level;
+                        }
+                    }
+
+                    // --- pass B: resolve one chip per group ---
+                    bool stack = Def.GetB("stackWords", true);
+                    for (int g = 0; g < _grpCount; g++)
+                    {
                         if (_active >= Pool)
                         {
                             if (!_warnedOverflow)
                             {
                                 _warnedOverflow = true;
                                 UIALog.Warn("MoodletDashboard: more than " + Pool +
-                                    " active moodlets; extras are dropped this session.");
+                                    " distinct moodlets; extras are dropped this session.");
                             }
                             break;
                         }
 
+                        var su = _grpWin[g];
                         Sprite sprite = null;
                         try { sprite = su.Icon; } catch { }
-                        // The GAME'S own moodlet art is the default (these icons are what
-                        // players already know); the thin-line glyph set is the opt-in.
+                        // The GAME'S own moodlet art is the default (players already know these
+                        // icons); the thin-line glyph set is the opt-in.
                         HudIconKind kind = Def.GetB("glyphs", false)
                             ? GlyphFor(su, sprite)
                             : (sprite != null ? HudIconKind.None : GlyphFor(su, null));
 
-                        string label = "";
-                        try { label = su.GetDisplayName(); } catch { }
-                        label = string.IsNullOrEmpty(label) ? "" : label.ToUpperInvariant();
+                        string raw = "";
+                        try { raw = su.GetDisplayName(); } catch { }
+                        raw = string.IsNullOrEmpty(raw) ? "" : raw.ToUpperInvariant();
+
+                        string label = raw;
+                        int lines = raw.Length > 0 ? 1 : 0;
+                        if (stack && raw.Length > 0)
+                        {
+                            var parts = raw.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+                            if (parts.Length == 2)
+                            {
+                                label = parts[0] + "\n" + parts[1];
+                                lines = 2;
+                            }
+                        }
 
                         _items[_active] = new Item
                         {
                             Kind = kind,
                             Sprite = sprite,
                             Label = label,
-                            Level = level,
+                            Lines = lines,
+                            Level = _grpLvl[g],
                         };
                         _active++;
                     }
@@ -229,82 +315,98 @@ namespace StationeersUIMod.UI.Hud.Widgets
             }
             catch { _active = 0; }
 
+            // Release the winner references we no longer need (grouping is done).
+            for (int g = 0; g < _grpCount; g++) _grpWin[g] = null;
+
             Reflow(scale);
         }
 
-        /// <summary>Position and size the active pills as one centred row; hide the rest of the
-        /// pool. Pill width adapts to label length via a character-count estimate (no per-frame
-        /// TMP preferred-width query).</summary>
+        /// <summary>Position and size the active chips as centred rows that wrap downward from
+        /// the top of the element rect when a row would overflow the element width. Chips are a
+        /// fixed width; the icon dominates the chip and the caption sits below it.</summary>
         private void Reflow(float scale)
         {
-            var c = CenterFor(scale);
+            var center = CenterFor(scale);
+            var size = SizeFor(scale);
+            float elemW = Mathf.Max(8f, size.x);
+            float elemTop = center.y + size.y * 0.5f;
+
             float chipHref = Def.GetF("chipH", 30f);
             float chipH = Mathf.Max(8f, chipHref * scale);
-            float gap = Mathf.Max(0f, Def.GetF("gap", 10f)) * scale;
+            float chipW = Mathf.Max(8f, Def.GetF("chipWidth", 72f) * scale);
+            float iconScale = Mathf.Clamp(Def.GetF("iconScale", 0.9f), 0.3f, 1.3f);
+            float textScale = Mathf.Clamp(Def.GetF("textScale", 0.28f), 0.1f, 0.6f);
+            float colGap = Mathf.Max(0f, Def.GetF("colGap", 8f)) * scale;
+            float rowGap = Mathf.Max(0f, Def.GetF("rowGap", 6f)) * scale;
             bool labels = Def.GetB("labels", true);
 
-            // Dashboard-light proportions (play-test): the ICON is the signal — nearly
-            // the whole chip height — and the word is a small caption beside it.
-            float pad = chipH * 0.14f;
-            float iconSz = chipH * 0.92f;
-            float iconGap = chipH * 0.16f;
-            float charW = chipH * 0.17f;   // rough label em; slight over-estimate avoids clipping
+            float iconSz = chipH * iconScale;
+            float iconGap = chipH * 0.06f;
+            float captionFont = HudText.Size(chipHref * textScale * Def.FontScale) * scale;
+            float lineH = captionFont * 1.12f;
             float radius = Mathf.Min(chipH * 0.5f,
                 Mathf.Min(Mathf.Min(Radius(Def.RTL), Radius(Def.RTR)),
                           Mathf.Min(Radius(Def.RBR), Radius(Def.RBL))));
 
-            float total = 0f;
-            for (int i = 0; i < _active; i++)
+            // Uniform row height keeps chips aligned even when only some names stack to two
+            // lines: the tallest caption in the set sets the caption band for every chip.
+            int maxLines = 0;
+            if (labels)
+                for (int i = 0; i < _active; i++)
+                    if (_items[i].Label.Length > 0 && _items[i].Lines > maxLines)
+                        maxLines = _items[i].Lines;
+            float captionH = maxLines * lineH;
+            float rowH = iconSz + (captionH > 0f ? iconGap + captionH : 0f);
+
+            // How many fixed-width chips fit across the element width (at least one).
+            int perRow = Mathf.Max(1, Mathf.FloorToInt((elemW + colGap) / (chipW + colGap)));
+
+            int idx = 0;
+            int row = 0;
+            while (idx < _active)
             {
-                float labelW = labels && _items[i].Label.Length > 0
-                    ? iconGap + _items[i].Label.Length * charW
-                    : 0f;
-                float w = pad * 2f + iconSz + labelW;
-                _items[i].Width = w;
-                total += w;
-                if (i > 0) total += gap;
-            }
+                int count = Mathf.Min(perRow, _active - idx);
+                float rowW = count * chipW + (count - 1) * colGap;
+                float startX = center.x - rowW * 0.5f;
+                float rowCenterY = elemTop - rowH * 0.5f - row * (rowH + rowGap);
+                float rowTop = rowCenterY + rowH * 0.5f;
 
-            float cursor = c.x - total * 0.5f;
-            var lblFont = HudText.Size(chipHref * 0.27f * Def.FontScale) * scale;
-
-            for (int i = 0; i < _active; i++)
-            {
-                var ch = _chips[i];
-                float w = _items[i].Width;
-                float cx = cursor + w * 0.5f;
-                cursor += w + gap;
-
-                ch.Pill.enabled = true;
-                ch.PillRt.anchoredPosition = new Vector2(cx, c.y);
-                ch.Pill.SetShape(w, chipH, radius, radius, radius, radius);
-
-                bool showLabel = labels && _items[i].Label.Length > 0;
-                float innerLeft = cx - w * 0.5f + pad;
-                float iconCx = showLabel ? innerLeft + iconSz * 0.5f : cx;
-
-                // Exactly one icon channel draws; the other is parked so a pooled pill never
-                // double-draws a glyph over a sprite.
-                bool useGlyph = _items[i].Kind != HudIconKind.None;
-                ch.Glyph.enabled = useGlyph;
-                ch.Sprite.enabled = !useGlyph && _items[i].Sprite != null;
-
-                var iconRt = useGlyph ? ch.GlyphRt : ch.SpriteRt;
-                iconRt.anchoredPosition = new Vector2(iconCx, c.y);
-                iconRt.sizeDelta = new Vector2(iconSz, iconSz);
-                if (useGlyph) ch.Glyph.Kind = _items[i].Kind;
-                else ch.Sprite.sprite = _items[i].Sprite;
-
-                ch.Label.enabled = showLabel;
-                if (showLabel)
+                for (int k = 0; k < count; k++, idx++)
                 {
-                    float labelStart = innerLeft + iconSz + iconGap;
-                    float labelW = cx + w * 0.5f - pad - labelStart;
-                    ch.LabelRt.sizeDelta = new Vector2(Mathf.Max(2f, labelW), chipH);
-                    ch.LabelRt.anchoredPosition = new Vector2(labelStart + labelW * 0.5f, c.y);
-                    ch.Label.fontSize = lblFont;
-                    HudText.Set(ch.Label, _items[i].Label);
+                    var ch = _chips[idx];
+                    float cx = startX + k * (chipW + colGap) + chipW * 0.5f;
+
+                    ch.Pill.enabled = true;
+                    ch.PillRt.anchoredPosition = new Vector2(cx, rowCenterY);
+                    ch.Pill.SetShape(chipW, rowH, radius, radius, radius, radius);
+
+                    // Exactly one icon channel draws; the other is parked so a pooled chip never
+                    // double-draws a glyph over a sprite.
+                    bool useGlyph = _items[idx].Kind != HudIconKind.None;
+                    ch.Glyph.enabled = useGlyph;
+                    ch.Sprite.enabled = !useGlyph && _items[idx].Sprite != null;
+
+                    float iconCy = rowTop - iconSz * 0.5f;   // icon hugs the top of the chip
+                    var iconRt = useGlyph ? ch.GlyphRt : ch.SpriteRt;
+                    iconRt.anchoredPosition = new Vector2(cx, iconCy);
+                    iconRt.sizeDelta = new Vector2(iconSz, iconSz);
+                    if (useGlyph) ch.Glyph.Kind = _items[idx].Kind;
+                    else ch.Sprite.sprite = _items[idx].Sprite;
+
+                    bool showLabel = labels && _items[idx].Label.Length > 0 && captionH > 0f;
+                    ch.Label.enabled = showLabel;
+                    if (showLabel)
+                    {
+                        float capTop = rowTop - iconSz - iconGap;
+                        ch.LabelRt.sizeDelta = new Vector2(chipW, captionH);
+                        ch.LabelRt.anchoredPosition = new Vector2(cx, capTop - captionH * 0.5f);
+                        ch.Label.alignment = TextAlignmentOptions.Top;
+                        ch.Label.enableWordWrapping = false;
+                        ch.Label.fontSize = captionFont;
+                        HudText.Set(ch.Label, _items[idx].Label);
+                    }
                 }
+                row++;
             }
 
             for (int i = _active; i < Pool; i++) Hide(_chips[i]);
@@ -342,15 +444,21 @@ namespace StationeersUIMod.UI.Hud.Widgets
             return HudIconKind.None;
         }
 
-        private static bool Has(string s, string sub) => s.IndexOf(sub, System.StringComparison.Ordinal) >= 0;
+        private static bool Has(string s, string sub) => s.IndexOf(sub, StringComparison.Ordinal) >= 0;
 
         public override void DescribeProps(List<HudProp> into)
         {
             base.DescribeProps(into);
             var d = Def;
-            into.Add(HudProp.F("Chip gap", () => d.GetF("gap", 10f), v => d.SetF("gap", Mathf.Clamp(v, 0f, 60f)), 0f, 60f));
+            into.Add(HudProp.F("Chip width", () => d.GetF("chipWidth", 72f), v => d.SetF("chipWidth", Mathf.Clamp(v, 24f, 200f)), 24f, 200f));
             into.Add(HudProp.F("Chip height", () => d.GetF("chipH", 30f), v => d.SetF("chipH", Mathf.Clamp(v, 10f, 80f)), 10f, 80f));
+            into.Add(HudProp.F("Icon scale (× chip height)", () => d.GetF("iconScale", 0.9f), v => d.SetF("iconScale", Mathf.Clamp(v, 0.3f, 1.3f)), 0.3f, 1.3f));
+            into.Add(HudProp.F("Text scale (× chip height)", () => d.GetF("textScale", 0.28f), v => d.SetF("textScale", Mathf.Clamp(v, 0.1f, 0.6f)), 0.1f, 0.6f));
+            into.Add(HudProp.F("Column gap", () => d.GetF("colGap", 8f), v => d.SetF("colGap", Mathf.Clamp(v, 0f, 40f)), 0f, 40f));
+            into.Add(HudProp.F("Row gap", () => d.GetF("rowGap", 6f), v => d.SetF("rowGap", Mathf.Clamp(v, 0f, 40f)), 0f, 40f));
+            into.Add(HudProp.Bool("Stack two-word names", () => d.GetB("stackWords", true), v => d.SetB("stackWords", v)));
             into.Add(HudProp.Bool("Show labels", () => d.GetB("labels", true), v => d.SetB("labels", v)));
+            into.Add(HudProp.Bool("Chip backdrop box", () => d.GetB("box", false), v => d.SetB("box", v)));
             into.Add(HudProp.Bool("Thin-line glyphs (off = game icons)", () => d.GetB("glyphs", false), v => d.SetB("glyphs", v)));
         }
     }

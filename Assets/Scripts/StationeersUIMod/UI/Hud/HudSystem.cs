@@ -191,7 +191,9 @@ namespace StationeersUIMod.UI.Hud
                 // corrupt Glassy must respawn as the glass design, not get the flat
                 // starter silently written under its name (review find, 2026-07-12).
                 System.Func<HudDocument> factory =
-                    string.Equals(name, "Glassy", System.StringComparison.OrdinalIgnoreCase)
+                    string.Equals(name, "Glassy 2.0", System.StringComparison.OrdinalIgnoreCase)
+                        ? (System.Func<HudDocument>)BuildGlassy2Document
+                    : string.Equals(name, "Glassy", System.StringComparison.OrdinalIgnoreCase)
                         ? (System.Func<HudDocument>)BuildGlassyDocument
                         : BuildStarterDocument;
                 Features.HudProfileStore.LoadActive(name, factory);
@@ -207,17 +209,31 @@ namespace StationeersUIMod.UI.Hud
                     Features.HudProfileStore.SetActive(fresh, name);
                     Features.HudProfileStore.MarkChanged(); // persist the upgrade
                 }
+                else if (active != null && active.Schema < 7
+                    && string.Equals(name, "Glassy 2.0", System.StringComparison.OrdinalIgnoreCase))
+                {
+                    var fresh = BuildGlassy2Document();
+                    Features.HudProfileStore.SetActive(fresh, name);
+                    Features.HudProfileStore.MarkChanged();
+                }
                 _docRebuildNeeded = false; // SetActive fired the event; we build right after
 
                 // Ship the alternate "Glassy" look alongside Default. Seeded only when
                 // the file is ABSENT, so a user's edits to it are never overwritten;
                 // deleting it respawns a fresh copy next session (Default's contract).
-                bool haveGlassy = false;
+                bool haveGlassy = false, haveGlassy2 = false;
                 foreach (var n in Features.HudProfileStore.ListProfiles())
-                    if (string.Equals(n, "Glassy", System.StringComparison.OrdinalIgnoreCase))
-                    { haveGlassy = true; break; }
+                {
+                    if (string.Equals(n, "Glassy", System.StringComparison.OrdinalIgnoreCase)) haveGlassy = true;
+                    if (string.Equals(n, "Glassy 2.0", System.StringComparison.OrdinalIgnoreCase)) haveGlassy2 = true;
+                }
                 if (!haveGlassy)
                     Features.HudProfileStore.Save(BuildGlassyDocument(), "Glassy");
+                // Glassy 2.0: the full car-dashboard redesign. Seeded only when absent
+                // (user edits survive); switch to it in F9 → Profiles. Auto-upgrades the
+                // shipped copy while its schema is below the current one.
+                if (!haveGlassy2)
+                    Features.HudProfileStore.Save(BuildGlassy2Document(), "Glassy 2.0");
             }
         }
 
@@ -276,6 +292,10 @@ namespace StationeersUIMod.UI.Hud
                 case HudElementType.BareSenses: return new Widgets.BareSensesWidget();
                 case HudElementType.Portrait: return new Widgets.PortraitWidget();
                 case HudElementType.Readout: return new Widgets.ReadoutWidget();
+                case HudElementType.VitalsPanel: return new Widgets.VitalsPanelWidget();
+                case HudElementType.DamageDoll: return new Widgets.DamageDollBorrowWidget();
+                case HudElementType.JetpackBox: return new Widgets.JetpackBoxWidget();
+                case HudElementType.StateChips: return new Widgets.StateChipsWidget();
                 case HudElementType.Clock:
                 case HudElementType.WorldName:
                 case HudElementType.DayCounter:
@@ -294,8 +314,10 @@ namespace StationeersUIMod.UI.Hud
             foreach (var p in _panels)
             {
                 var pw = p as Widgets.PortraitWidget;
-                if (pw == null) continue;
-                try { pw.RestorePortrait(); } catch { }
+                if (pw != null) { try { pw.RestorePortrait(); } catch { } continue; }
+                // Borrowed vanilla body doll: hand it back to PlayerStateWindow too.
+                var dw = p as Widgets.DamageDollBorrowWidget;
+                if (dw != null) { try { dw.RestoreDoll(); } catch { } }
             }
         }
 
@@ -461,6 +483,144 @@ namespace StationeersUIMod.UI.Hud
             return doc;
         }
 
+        // ---- Glassy 2.0: the full car-dashboard redesign (FlorpyDorp's Big Prompt) ----
+
+        private const string G2Fill = "#05080DA6";     // smoked near-black glass
+        private const string G2Border = "#D9E6EE59";   // pale steel hairline
+        private const float G2Sheen = 0.5f;
+        private const float G2Spec = 0.8f;
+
+        /// <summary>Glass-style a boxy element in place (fill/border + sheen/spec).</summary>
+        private static HudElementDef G2Glass(HudElementDef e)
+        {
+            e.Fill = G2Fill; e.Border = G2Border;
+            e.SetF("sheen", G2Sheen); e.SetF("spec", G2Spec);
+            return e;
+        }
+
+        /// <summary>The Glassy 2.0 layout, schema 7 — built element-by-element to the Big
+        /// Prompt: a full-width trapezoid top bar (time / ext-pressure+ramp / boxless compass
+        /// / ext-temp+icon / day), a subtle wrapping moodlet strip under it, the bottom hand+
+        /// equipment row with a visor-rim arc, and the bottom-right instrument cluster
+        /// (portrait with camera zoom, state chips, jetpack box, stacked internal pressure/
+        /// temp with the game ramp, vanilla vitals + borrowed damage doll + speed). Bare tier
+        /// gets a words-mode vitals panel and everything flattens (BareFlattens).</summary>
+        private static HudDocument BuildGlassy2Document()
+        {
+            var doc = new HudDocument { Name = "Glassy 2.0", Schema = 7 };
+            var els = doc.Elements;
+
+            // ===== 1. TOP BAR (full-width trapezoid, top edge wider than bottom) =====
+            var bar = El("g2-topbar", HudElementType.Box, HudAnchor.TopCenter, 0f, -38f, 1860f, 62f, SuitOnly, 0);
+            bar.WPct = 0.99f;
+            bar.RTL = 4f; bar.RTR = 4f; bar.RBR = 20f; bar.RBL = 20f;
+            bar.SetF("insetBottom", 46f); // bottom corners pull in → angled sides, wider top
+            els.Add(G2Glass(bar));
+
+            els.Add(El("g2-clock", HudElementType.Clock, HudAnchor.TopLeft, 150f, -38f, 200f, 40f, SuitOnly, 2));
+
+            // External pressure: value with the vanilla ramp bar UNDER the text.
+            var extP = El("g2-extpress", HudElementType.Readout, HudAnchor.TopLeft, 470f, -38f, 250f, 50f, SuitOnly, 2);
+            extP.Set("src", "ExternalPressure"); extP.Set("label", "EXT PRESSURE");
+            extP.SetB("box", false); extP.SetB("bar", true); extP.Set("barStyle", "game");
+            extP.SetB("barVertical", false); extP.SetB("target", false);
+            els.Add(extP);
+
+            // Compass: boxless, fades into the bar, degrees underneath.
+            var comp = El("g2-compass", HudElementType.Compass, HudAnchor.TopCenter, 0f, -36f, 300f, 46f, SuitOnly, 2);
+            comp.SetB("box", false);
+            els.Add(comp);
+
+            // External temp: label + conditional hot/cold icon + value.
+            var extT = El("g2-exttemp", HudElementType.Readout, HudAnchor.TopRight, -360f, -38f, 240f, 50f, SuitOnly, 2);
+            extT.Set("src", "ExternalTemp"); extT.Set("label", "EXT TEMP");
+            extT.SetB("box", false); extT.SetB("bar", false); extT.SetB("target", false);
+            extT.SetB("tempIcon", true); extT.Icon = "Temp";
+            els.Add(extT);
+
+            els.Add(El("g2-day", HudElementType.DayCounter, HudAnchor.TopRight, -120f, -38f, 130f, 40f, SuitOnly, 2));
+
+            // ===== 2. MOODLET STRIP (subtle, wrapping, game icons) =====
+            var mood = El("g2-moodlets", HudElementType.MoodletDashboard, HudAnchor.TopCenter, 0f, -98f, 900f, 60f, HudTierMask.All, 1);
+            mood.SetB("box", false);
+            mood.SetB("stackWords", true);
+            els.Add(mood);
+
+            // ===== 3. BOTTOM: 1 2 3 | hands | 4 5 6, with the visor-rim arc =====
+            var eqL = El("g2-eqleft", HudElementType.EquipmentColumn, HudAnchor.BottomCenter, -360f, 56f, 264f, 78f, HudTierMask.All, 2);
+            eqL.SetB("horizontal", true); eqL.SetI("first", 0); eqL.SetI("count", 3);
+            els.Add(G2Glass(eqL));
+            var hands = El("g2-hands", HudElementType.HandBoxes, HudAnchor.BottomCenter, 0f, 66f, 390f, 110f, HudTierMask.All, 2);
+            hands.SetB("tray", false);
+            els.Add(G2Glass(hands));
+            var eqR = El("g2-eqright", HudElementType.EquipmentColumn, HudAnchor.BottomCenter, 360f, 56f, 264f, 78f, HudTierMask.All, 2);
+            eqR.SetB("horizontal", true); eqR.SetI("first", 3); eqR.SetI("count", 3);
+            els.Add(G2Glass(eqR));
+
+            // The visor's lower rim: a shallow arc over the hand row that fades at both ends.
+            var arc = El("g2-visor-arc", HudElementType.Polyline, HudAnchor.BottomCenter, 0f, 150f, 900f, 60f, SuitOnly, 1);
+            arc.TextColor = "#CFE6F088";
+            arc.SetF("width", 2.4f); arc.SetF("fadeEnds", 0.32f);
+            arc.SetPoints("pts", new List<Vector2>
+            {
+                new Vector2(-440f, -14f), new Vector2(-220f, 8f), new Vector2(0f, 14f),
+                new Vector2(220f, 8f), new Vector2(440f, -14f),
+            });
+            els.Add(arc);
+
+            // ===== 4. BOTTOM-RIGHT INSTRUMENT CLUSTER =====
+            // Round portrait (rightmost) + state chips above it.
+            var portrait = El("g2-portrait", HudElementType.Portrait, HudAnchor.BottomRight, -120f, 118f, 184f, 184f, SuitOnly, 3);
+            portrait.Border = G2Border;
+            portrait.SetF("camFov", 24f); // pull the too-close vanilla framing back a touch
+            els.Add(portrait);
+            var chips = El("g2-chips", HudElementType.StateChips, HudAnchor.BottomRight, -120f, 226f, 168f, 40f, SuitOnly, 3);
+            els.Add(G2Glass(chips));
+
+            // Internal pressure (stacked: title / TARGET / value / game ramp bar).
+            var intP = El("g2-intpress", HudElementType.Readout, HudAnchor.BottomRight, -300f, 176f, 168f, 128f, SuitOnly, 3);
+            intP.Set("src", "InternalPressure"); intP.Set("label", "INTERNAL PRESSURE");
+            intP.SetB("box", true); intP.SetB("stack", true); intP.SetB("bar", true);
+            intP.Set("barStyle", "game"); intP.SetB("barVertical", false); intP.SetB("target", true);
+            els.Add(G2Glass(intP));
+
+            // Internal temp (stacked: title / TARGET / value, conditional hot/cold icon, no bar).
+            var intT = El("g2-inttemp", HudElementType.Readout, HudAnchor.BottomRight, -300f, 52f, 168f, 108f, SuitOnly, 3);
+            intT.Set("src", "InternalTemp"); intT.Set("label", "INTERNAL TEMP");
+            intT.SetB("box", true); intT.SetB("stack", true); intT.SetB("bar", false);
+            intT.SetB("target", true); intT.SetB("tempIcon", true); intT.Icon = "Temp";
+            els.Add(G2Glass(intT));
+
+            // Jetpack box (title / THRUST / delta kPa + green canister).
+            var jet = El("g2-jetpack", HudElementType.JetpackBox, HudAnchor.BottomRight, -480f, 176f, 168f, 128f, SuitOnly, 3);
+            els.Add(G2Glass(jet));
+
+            // Vitals (vanilla icons + %; dynamic membership). Tall enough for all four
+            // rows (hunger/water/toilet/health) so a damaged+dirty player doesn't clip.
+            var vit = El("g2-vitals", HudElementType.VitalsPanel, HudAnchor.BottomRight, -480f, 60f, 168f, 140f, SuitOnly, 3);
+            els.Add(G2Glass(vit));
+
+            // Borrowed damage doll (left of vitals) + speed readout.
+            els.Add(El("g2-doll", HudElementType.DamageDoll, HudAnchor.BottomRight, -640f, 118f, 110f, 190f, HudTierMask.All, 3));
+            var spd = El("g2-speed", HudElementType.Readout, HudAnchor.BottomRight, -640f, 24f, 110f, 44f, SuitOnly, 3);
+            spd.Set("src", "Speed"); spd.Set("label", "SPEED");
+            spd.SetB("box", false); spd.SetB("bar", false); spd.SetB("target", false);
+            spd.Icon = "jetpack"; // stand-in; play-test may swap for a velocity glyph
+            els.Add(spd);
+
+            // ===== 5. BARE TIER: words-mode vitals + pressure/temp words =====
+            var bare = El("g2-bare-vitals", HudElementType.VitalsPanel, HudAnchor.BottomRight, -300f, 90f, 300f, 220f, HudTierMask.Bare, 3);
+            bare.Fill = "#0A0E14C0"; bare.Border = "#00000000"; // borderless grey panel
+            bare.SetF("sheen", 0.25f); bare.SetF("spec", 0f);
+            bare.SetB("box", true); bare.SetB("words", true);
+            bare.SetB("rowPressure", true); bare.SetB("rowTemp", true);
+            els.Add(bare);
+            // Bare felt-senses keep the center of view.
+            els.Add(El("g2-bare-senses", HudElementType.BareSenses, HudAnchor.Center, 0f, -40f, 420f, 320f, HudTierMask.Bare, 2));
+
+            return doc;
+        }
+
         /// <summary>A vertical instrument gauge (the sketch's columns): boxed, two-line
         /// label, value, the GAME'S own ramp-bar art, game icon at the foot.</summary>
         private static void AddGauge(List<HudElementDef> els, string id, string src,
@@ -523,6 +683,7 @@ namespace StationeersUIMod.UI.Hud
             _tmpOriginalMats.Clear();
             HudText.Shutdown();
             HudWarp.Active = HudWarp.Kind.None;
+            HudWarp.BareFlat = false; // reset alongside Active so a reload starts un-flattened
             _hasPrev = false;
             _appliedMode = HudCurvature.Flat;
             ForceTier = null;
@@ -596,6 +757,12 @@ namespace StationeersUIMod.UI.Hud
 
             HudTier tier = ForceTier ?? snap.Tier;
 
+            // Bare = no visor = FLAT HUD (FlorpyDorp: suit off/dead → everything goes flat,
+            // uncurved). Only honoured when the user opted into flattening; the LayoutHash
+            // below folds it in, so the transition triggers a relayout + re-mesh.
+            HudWarp.BareFlat = (tier == HudTier.Bare)
+                && (HudConfig.BareFlattens == null || HudConfig.BareFlattens.Value);
+
             // Setting/clearing the editor's preview tier must never REPLAY a transition
             // (_prevTier tracked the forced tier while real events were suppressed).
             bool forcedChanged = ForceTier != _prevForceTier;
@@ -636,6 +803,8 @@ namespace StationeersUIMod.UI.Hud
                     // goes back to vanilla.
                     if (!want && ReferenceEquals(p, _vitals)) _vitals.RestorePortrait();
                     else if (!want && p is Widgets.PortraitWidget pw) pw.RestorePortrait();
+                    // The borrowed vanilla damage doll goes back the instant it's unwanted.
+                    else if (!want && p is Widgets.DamageDollBorrowWidget dw) dw.RestoreDoll();
                 }
                 bool vignetteWant = HudConfig.ShowVignette.Value;
                 _animator.SetVisible(_vignetteFader, vignetteWant, instant: !_hasPrev);
@@ -711,6 +880,7 @@ namespace StationeersUIMod.UI.Hud
                                                       // must rebuild when the slider moves
                 + (HudConfig.CurveInvert.Value ? 313f : 0f)
                 + HudConfig.CurveStrength.Value * 631f + (int)HudConfig.Curvature.Value * 977f
+                + (HudWarp.BareFlat ? 1289f : 0f) // bare→flat transition re-lays-out + re-meshes
                 // Document mode: any element edit bumps the store version — geometry
                 // lives in the document, so this replaces the per-panel size entries.
                 + (DocumentMode ? Features.HudProfileStore.Version * 3571f : 0f);

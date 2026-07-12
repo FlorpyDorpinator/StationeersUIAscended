@@ -117,6 +117,9 @@ namespace StationeersUIMod.UI.Hud
 
         // World name — constant for a whole world, cached so the HUD never churns strings.
         public string WorldName = "";
+
+        // Player movement speed (m/s) — Human.VelocityMagnitude, vanilla's velocity readout.
+        public float SpeedMs;
     }
 
     /// <summary>
@@ -315,6 +318,10 @@ namespace StationeersUIMod.UI.Hud
             try { s.O2Quality = isRobot ? 1f : Mathf.Clamp01(human.OxygenQuality); } catch { }
             s.HealthRatio = Mathf.Clamp01(1f - damage);
             s.WaterRatio = Mathf.Clamp01(hydration / 5f);
+            // Speed (m/s): the local Human's own cached rigidbody magnitude — a pure read,
+            // MP-safe (it is our own controlled entity). PlayerStateWindow.cs:215-218.
+            s.SpeedMs = 0f;
+            try { s.SpeedMs = human.VelocityMagnitude; } catch { }
 
             // ---- suit / helmet chips + the suit's own setpoints. Reset first (reused
             // snapshot). PlayerStateWindow reads OutputSetting/OutputTemperature only when

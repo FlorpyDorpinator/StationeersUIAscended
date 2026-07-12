@@ -40,14 +40,23 @@ namespace StationeersUIMod.UI.Hud
             }
         }
 
-        /// <summary>Element centre in canvas coords: its anchor point plus the stored
-        /// offset, scaled. Uses the live screen half-extents (HudWarp is refreshed by
-        /// RelayoutAll before Layout runs).</summary>
-        protected Vector2 CenterFor(float scale)
+        /// <summary>Element centre in UNWARPED canvas coords: anchor point plus the stored
+        /// offset, scaled. This is the element's logical position — the editor hit-rect and
+        /// handle math live here (the mouse is inverse-warped to meet it).</summary>
+        protected Vector2 CenterForLogical(float scale)
         {
             return Def.AnchorPoint(Screen.width * 0.5f, Screen.height * 0.5f)
                 + new Vector2(Def.X, Def.Y) * scale;
         }
+
+        /// <summary>Element centre for placement — the LOGICAL centre. Curvature is applied
+        /// ONCE, by each child graphic's own VisorWarp/TmpWarp mesh modifier (which bends
+        /// vertices by their absolute canvas position). Pre-warping the placement here as
+        /// well would double-warp — Barrel(Barrel(centre)) — and desync the F9 editor, whose
+        /// handles forward-warp the LOGICAL corners a single time (adversarial review,
+        /// 2026-07-12). Small centred elements therefore only micro-bend under the mesh warp;
+        /// the top bar's compass sidesteps that by going boxless.</summary>
+        protected Vector2 CenterFor(float scale) => CenterForLogical(scale);
 
         /// <summary>Fixed reference px × scale, unless the element opted into screen-
         /// relative sizing (WPct/HPct > 0) — full-width bars survive any resolution.</summary>
@@ -58,10 +67,12 @@ namespace StationeersUIMod.UI.Hud
             return new Vector2(w, h);
         }
 
-        /// <summary>The element's rect in canvas coords — the designer's hit/handle box.</summary>
+        /// <summary>The element's rect in canvas coords — the designer's hit/handle box.
+        /// LOGICAL (unwarped) space: the editor inverse-warps the mouse to meet it and
+        /// forward-warps the drawn handles, so both agree with the visually-warped element.</summary>
         internal Rect CanvasRect(float scale)
         {
-            var c = CenterFor(scale);
+            var c = CenterForLogical(scale);
             var s = SizeFor(scale);
             return new Rect(c.x - s.x * 0.5f, c.y - s.y * 0.5f, s.x, s.y);
         }
@@ -121,7 +132,7 @@ namespace StationeersUIMod.UI.Hud
         /// internals may add more.</summary>
         public override void CollectEditTargets(List<HudEditTarget> into, float scale)
         {
-            var c = CenterFor(scale);
+            var c = CenterForLogical(scale);
             var s = SizeFor(scale);
             into.Add(new HudEditTarget
             {

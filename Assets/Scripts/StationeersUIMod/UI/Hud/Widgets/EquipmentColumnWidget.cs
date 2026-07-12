@@ -76,8 +76,10 @@ namespace StationeersUIMod.UI.Hud.Widgets
                     Mathf.Min(Radius(Def.RTL), rr), Mathf.Min(Radius(Def.RTR), rr),
                     Mathf.Min(Radius(Def.RBR), rr), Mathf.Min(Radius(Def.RBL), rr));
 
+                // Nudged down+right off the rounded corner (FlorpyDorp: the digit was
+                // clipping the box edge).
                 b.Number.rectTransform.sizeDelta = new Vector2(box - box * 0.16f, box * 0.18f);
-                b.Number.rectTransform.anchoredPosition = new Vector2(center.x, center.y + box * 0.5f - box * 0.145f);
+                b.Number.rectTransform.anchoredPosition = new Vector2(center.x + box * 0.07f, center.y + box * 0.5f - box * 0.21f);
 
                 b.Icon.rectTransform.sizeDelta = new Vector2(box * 0.58f, box * 0.58f);
                 b.Icon.rectTransform.anchoredPosition = new Vector2(center.x, center.y + box * 0.04f);
@@ -122,7 +124,9 @@ namespace StationeersUIMod.UI.Hud.Widgets
 
                 HudText.Sync(b.Number);
                 b.Number.fontSize = HudText.Size(11f * Def.FontScale) * scale;
-                b.Number.color = HudPalette.SlotNumber.Value;
+                // The dim label grey, not the bright slot-number white (FlorpyDorp:
+                // "make the numbers more grey so it isn't so bright").
+                b.Number.color = HudPalette.TextDim.Value;
                 HudText.Set(b.Number, (i + 1).ToString());
 
                 Sprite icon = null;
@@ -159,7 +163,8 @@ namespace StationeersUIMod.UI.Hud.Widgets
             var human = s?.Human;
             if (human == null) return;
 
-            var c = CenterFor(scale);
+            // Logical (unwarped) centre — drop zones meet the inverse-warped mouse.
+            var c = CenterForLogical(scale);
             var size = SizeFor(scale);
             float gap = Def.GetF("gap", 8f) * scale;
             bool horizontal = Def.GetB("horizontal", false);

@@ -31,6 +31,16 @@ namespace StationeersUIMod.UI.Hud.Widgets
         private bool _forcedPortraitCam;
         private bool _hidVanillaPortrait;
 
+        // Portrait camera zoom: FlorpyDorp's F9 controls. FOV is the robust knob (vanilla
+        // never rewrites it); a distance nudge along the camera's local forward is offered
+        // too but vanilla's SetPortrait re-asserts localPosition on helmet/parent changes,
+        // so we RE-APPLY it every frame from the captured base. Originals captured once so
+        // teardown restores exactly what vanilla had.
+        private bool _camCaptured;
+        private float _origFov;
+        private Vector3 _origLocalPos;
+        private bool _adjustedCam;
+
         protected override void BuildContent(RectTransform root)
         {
             // The mask disc: a filled CircleGraphic whose only job is to write the circular
@@ -124,6 +134,7 @@ namespace StationeersUIMod.UI.Hud.Widgets
                         cam.gameObject.SetActive(true);         // vanilla RT stays wired even when off
                         _forcedPortraitCam = true;
                     }
+                    ApplyCameraZoom(cam);
                     // The vanilla on-screen portrait would double-show; hide it while the
                     // hologram owns the render (restored via RestorePortrait()).
                     var display = cc.PortraitCameraDisplay;
@@ -162,6 +173,44 @@ namespace StationeersUIMod.UI.Hud.Widgets
             _ring.BorderWidth = BorderWidthFor();
         }
 
+        /// <summary>Apply the F9 zoom knobs to the shared portrait camera. FOV is set
+        /// directly (vanilla leaves it alone); a distance nudge pushes the camera along its
+        /// own forward from the base local position, re-applied each frame because vanilla's
+        /// SetPortrait re-writes localPosition on parent/helmet changes. Both no-op at their
+        /// defaults so an untouched portrait keeps vanilla's exact framing.</summary>
+        private void ApplyCameraZoom(Camera cam)
+        {
+            try
+            {
+                float fov = Def.GetF("camFov", 0f);       // 0 = leave vanilla's FOV
+                float dist = Def.GetF("camDistance", 0f); // 0 = leave vanilla's distance
+                bool want = (fov > 0f) || !Mathf.Approximately(dist, 0f);
+                if (!want && !_adjustedCam) return;
+
+                if (!_camCaptured)
+                {
+                    _origFov = cam.fieldOfView;
+                    _origLocalPos = cam.transform.localPosition;
+                    _camCaptured = true;
+                }
+                if (want)
+                {
+                    cam.fieldOfView = fov > 0f ? Mathf.Clamp(fov, 3f, 60f) : _origFov;
+                    // Positive distance pulls the camera BACK (zoom out) along its forward.
+                    cam.transform.localPosition = _origLocalPos - cam.transform.forward * dist;
+                    _adjustedCam = true;
+                }
+                else
+                {
+                    // Reverted to defaults in the editor — hand the camera back.
+                    cam.fieldOfView = _origFov;
+                    cam.transform.localPosition = _origLocalPos;
+                    _adjustedCam = false;
+                }
+            }
+            catch { }
+        }
+
         /// <summary>Give the portrait back to vanilla. Manual SetActives per the vanilla
         /// setting instead of RefreshPortrait(): vanilla's refresh allocates a brand-new
         /// RenderTexture on every call and never releases the old one — calling it per
@@ -170,6 +219,22 @@ namespace StationeersUIMod.UI.Hud.Widgets
         /// stops being wanted (tier drop, toggle, or teardown).</summary>
         public void RestorePortrait()
         {
+            // Hand back the camera zoom first (independent of the show/hide borrow state).
+            if (_adjustedCam && _camCaptured)
+            {
+                try
+                {
+                    var cam0 = CameraController.Instance != null ? CameraController.Instance.PortraitCamera : null;
+                    if (cam0 != null)
+                    {
+                        cam0.fieldOfView = _origFov;
+                        cam0.transform.localPosition = _origLocalPos;
+                    }
+                }
+                catch { }
+                _adjustedCam = false;
+            }
+
             if (!_forcedPortraitCam && !_hidVanillaPortrait) return;
             _forcedPortraitCam = false;
             _hidVanillaPortrait = false;
@@ -195,6 +260,8 @@ namespace StationeersUIMod.UI.Hud.Widgets
             var d = Def;
             into.Add(HudProp.Bool("Hologram tint", () => d.GetB("holo", true), v => d.SetB("holo", v)));
             into.Add(HudProp.Bool("Scanlines", () => d.GetB("scanlines", true), v => d.SetB("scanlines", v)));
+            into.Add(HudProp.F("Camera FOV (0 = vanilla)", () => d.GetF("camFov", 0f), v => d.SetF("camFov", Mathf.Clamp(v, 0f, 60f)), 0f, 60f));
+            into.Add(HudProp.F("Camera zoom-out", () => d.GetF("camDistance", 0f), v => d.SetF("camDistance", v), -1f, 3f));
         }
     }
 }

@@ -101,14 +101,22 @@ namespace StationeersUIMod.UI.Hud.Widgets
             bool showDegrees = Def.GetB("degrees", true);
             float heading = s.HeadingDeg;
 
-            _back.color = FillColor();
-            _back.BorderColor = BorderColor();
-            _back.BorderWidth = BorderWidthFor();
-            ApplyGlass(_back);
+            // Boxless mode (Glassy 2.0 top bar): the strip fades straight into whatever
+            // it sits on — no backdrop, no border.
+            bool showBox = Def.GetB("box", true);
+            _back.enabled = showBox;
+            if (showBox)
+            {
+                _back.color = FillColor();
+                _back.BorderColor = BorderColor();
+                _back.BorderWidth = BorderWidthFor();
+                ApplyGlass(_back);
+            }
 
             _caret.Configure(pointsUp: false, size: 9f);
             _caret.color = HudPalette.CompassNeedle.Value;
             _caret.SetVerticesDirty();
+
 
             if (showDegrees)
             {
@@ -171,6 +179,8 @@ namespace StationeersUIMod.UI.Hud.Widgets
         {
             base.DescribeProps(into);
             var d = Def;
+            into.Add(HudProp.Bool("Backdrop box", () => d.GetB("box", true),
+                v => d.SetB("box", v)));
             into.Add(HudProp.F("Compass FOV°", () => d.GetF("fov", 90f),
                 v => d.SetF("fov", Mathf.Clamp(v, 40f, 200f)), 40f, 200f));
             into.Add(HudProp.Bool("Show degrees", () => d.GetB("degrees", true),

@@ -93,8 +93,11 @@ namespace StationeersUIMod.UI.Hud
             if (_box != null)
             {
                 ((RectTransform)_box.transform).anchoredPosition = c;
+                // Insets pull the top/bottom corners inward — a positive bottom inset
+                // makes the visor-bar trapezoid (top edge wider, angled sides).
                 _box.SetShape(s.x, s.y,
-                    Radius(Def.RTL), Radius(Def.RTR), Radius(Def.RBR), Radius(Def.RBL));
+                    Radius(Def.RTL), Radius(Def.RTR), Radius(Def.RBR), Radius(Def.RBL),
+                    Def.GetF("insetTop", 0f) * scale, Def.GetF("insetBottom", 0f) * scale);
             }
             if (_text != null)
             {
@@ -110,6 +113,7 @@ namespace StationeersUIMod.UI.Hud
                 for (int i = 0; i < pts.Length; i++) _pointScratch.Add(pts[i] * scale);
                 _line.SetPoints(_pointScratch, Def.GetB("closed", false));
                 _line.Width = Mathf.Max(0.5f, Def.GetF("width", 2f) * scale);
+                _line.FadeEnds = Def.GetF("fadeEnds", 0f);
             }
             if (_sprite != null)
             {
@@ -170,6 +174,10 @@ namespace StationeersUIMod.UI.Hud
             var d = Def;
             switch (d.Type)
             {
+                case HudElementType.Box:
+                    into.Add(HudProp.F("Top inset (trapezoid)", () => d.GetF("insetTop", 0f), v => d.SetF("insetTop", Mathf.Max(0f, v)), 0f, 400f));
+                    into.Add(HudProp.F("Bottom inset (trapezoid)", () => d.GetF("insetBottom", 0f), v => d.SetF("insetBottom", Mathf.Max(0f, v)), 0f, 400f));
+                    break;
                 case HudElementType.Label:
                     into.Add(HudProp.Text("Text", () => d.Text ?? "", v => d.Text = v));
                     into.Add(HudProp.F("Text size", () => d.GetF("size", 14f), v => d.SetF("size", v), 6f, 64f));
@@ -179,6 +187,7 @@ namespace StationeersUIMod.UI.Hud
                 case HudElementType.Polyline:
                     into.Add(HudProp.F("Line width", () => d.GetF("width", 2f), v => d.SetF("width", Mathf.Max(0.5f, v)), 0.5f, 24f));
                     into.Add(HudProp.Bool("Closed loop", () => d.GetB("closed", false), v => d.SetB("closed", v)));
+                    into.Add(HudProp.F("Fade ends (0=off)", () => d.GetF("fadeEnds", 0f), v => d.SetF("fadeEnds", Mathf.Clamp(v, 0f, 0.49f)), 0f, 0.49f));
                     break;
                 case HudElementType.Icon:
                     into.Add(HudProp.Text("Icon (glyph or PNG name)", () => d.Icon ?? "", v => d.Icon = v));

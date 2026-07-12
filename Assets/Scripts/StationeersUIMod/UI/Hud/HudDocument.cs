@@ -33,7 +33,9 @@ namespace StationeersUIMod.UI.Hud
         Box, Label, Polyline, Icon,
         Readout, Clock, WorldName, DayCounter, ActiveHandBadge, Compass,
         MoodletDashboard, EquipmentColumn, HandBoxes, KeybindChips,
-        Portrait, BodyDoll, SuitChips, BareSenses, Vignette
+        Portrait, BodyDoll, SuitChips, BareSenses, Vignette,
+        // Glassy 2.0 additions (append-only — see enum note above):
+        VitalsPanel, DamageDoll, JetpackBox, StateChips
     }
 
     /// <summary>Which live value a <see cref="HudElementType.Readout"/> samples. Kept as a
@@ -51,6 +53,9 @@ namespace StationeersUIMod.UI.Hud
         /// otherwise — the vitals card's TEMP semantics (valid with ANY atmosphere,
         /// unlike InternalTemp which needs internals running).</summary>
         FeltTemp,
+        /// <summary>Player movement speed in m/s (Human.VelocityMagnitude) — vanilla's
+        /// external velocity readout.</summary>
+        Speed,
     }
 
     /// <summary>

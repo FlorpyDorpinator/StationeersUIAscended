@@ -156,7 +156,9 @@ namespace StationeersUIMod.UI.Hud.Widgets
         {
             var human = s?.Human;
             if (human == null) return;
-            var c = CenterFor(scale);
+            // Logical (unwarped) centre: drop zones are hit-tested with the inverse-warped
+            // mouse, so they must live where the box logically is, not where it draws.
+            var c = CenterForLogical(scale);
             float boxW, boxH, boxX;
             BoxMetrics(scale, out boxW, out boxH, out boxX);
             for (int i = 0; i < 2; i++)

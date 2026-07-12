@@ -44,20 +44,39 @@ namespace StationeersUIMod.Core
             _cache.Clear();
             _rampBack = null;
             _rampFront = null;
+            _rampBackColor = new Color(1f, 1f, 1f, 0.251f);
+            _rampFrontColor = Color.white;
+            _canister = null;
         }
 
         // ---- the game's own pressure-ramp bar art (PlayerStateWindow.cs:42-52,469-481) ----
+        //
+        // Scene truth (Base.unity): the BACK is "PressureGaugeBG" — sprite
+        // "pressure-gaugebg" drawn by vanilla at WHITE ALPHA 0.251. The FRONT
+        // RectTransform ("PressureGaugeLitMask") is a SPRITE-LESS Image + Mask
+        // (ShowMaskGraphic off) that stretches with pressure and reveals its CHILD
+        // "PressureGaugeLitImage" (sprite "pressure-gauge", white, full-size). So the
+        // fill ART must be harvested from the mask's child, never the mask itself.
 
         private static Sprite _rampBack, _rampFront;
+        private static Color _rampBackColor = new Color(1f, 1f, 1f, 0.251f);
+        private static Color _rampFrontColor = Color.white;
 
         /// <summary>The track sprite of vanilla's pressure ramp bar. Null until the
         /// PlayerStateWindow exists (world only) — callers retry.</summary>
         public static Sprite PressureRampBack()
             => _rampBack != null ? _rampBack : (_rampBack = RampSprite(false));
 
-        /// <summary>The fill sprite of vanilla's pressure ramp bar.</summary>
+        /// <summary>The lit fill art of vanilla's pressure ramp bar (the mask's child).</summary>
         public static Sprite PressureRampFront()
             => _rampFront != null ? _rampFront : (_rampFront = RampSprite(true));
+
+        /// <summary>Vanilla's own tint for the track (white @ ~25% in the shipped scene).
+        /// Valid once PressureRampBack() has resolved; the default matches the scene.</summary>
+        public static Color PressureRampBackColor() => _rampBackColor;
+
+        /// <summary>Vanilla's own tint for the lit fill art.</summary>
+        public static Color PressureRampFrontColor() => _rampFrontColor;
 
         /// <summary>Vanilla's EXACT kPa→fill mapping (PressureCurve, clamped to its last
         /// key like the external readout does). NaN when the window isn't up yet.</summary>
@@ -81,8 +100,109 @@ namespace StationeersUIMod.Core
                 var psw = Assets.Scripts.UI.PlayerStateWindow.Instance;
                 if (psw == null) return null;
                 var rt = front ? psw.InfoExternalPressureRampFront : psw.InfoExternalPressureRampBack;
-                var img = rt != null ? rt.GetComponent<UnityEngine.UI.Image>() : null;
-                return img != null ? img.sprite : null;
+                if (rt == null) return null;
+
+                if (!front)
+                {
+                    var img = rt.GetComponent<UnityEngine.UI.Image>();
+                    if (img == null || img.sprite == null) return null;
+                    _rampBackColor = img.color;
+                    return img.sprite;
+                }
+
+                // The front object itself is the sprite-less mask — the art is on
+                // whichever child actually carries a sprite (PressureGaugeLitImage).
+                for (int i = 0; i < rt.childCount; i++)
+                {
+                    var img = rt.GetChild(i).GetComponent<UnityEngine.UI.Image>();
+                    if (img != null && img.sprite != null)
+                    {
+                        _rampFrontColor = img.color;
+                        return img.sprite;
+                    }
+                }
+                return null;
+            }
+            catch { return null; }
+        }
+
+        // ---- state-aware vanilla icon helpers (Glassy 2.0) ----
+
+        /// <summary>The conditional temperature icon vanilla shows next to a temp readout:
+        /// the HOT sprite above 50°C, the COLD sprite below 0°C, null in between — the exact
+        /// ShowTooHotLimit(323.15K)/ShowTooColdLimit(273.15K) bands from PlayerStateWindow
+        /// (icon-temphigh = Sprites[1], icon-templow = Sprites[0]).</summary>
+        public static Sprite TempStateIcon(float celsius)
+        {
+            if (celsius > 50f) return TempToggle(1); // hot
+            if (celsius < 0f) return TempToggle(0);  // cold
+            return null;
+        }
+
+        private static Sprite TempToggle(int index)
+        {
+            try
+            {
+                var psw = Assets.Scripts.UI.PlayerStateWindow.Instance;
+                var t = psw != null ? psw.ExternalTemperatureToggle : null;
+                return t != null && t.Sprites != null && t.Sprites.Length > index ? t.Sprites[index] : null;
+            }
+            catch { return null; }
+        }
+
+        /// <summary>The green propellant canister icon from vanilla's jetpack box
+        /// (icon-jetpackpressure, the child of the named InfoJetpackPressureDeltaPanel).
+        /// Static art, so we walk the panel for its Image once and cache it.</summary>
+        private static Sprite _canister;
+        public static Sprite JetpackCanister()
+        {
+            if (_canister != null) return _canister;
+            try
+            {
+                var psw = Assets.Scripts.UI.PlayerStateWindow.Instance;
+                var panel = psw != null ? psw.InfoJetpackPressureDeltaPanel : null;
+                if (panel == null) return null;
+                var imgs = panel.GetComponentsInChildren<UnityEngine.UI.Image>(true);
+                for (int i = 0; i < imgs.Length; i++)
+                    if (imgs[i] != null && imgs[i].sprite != null) { _canister = imgs[i].sprite; break; }
+            }
+            catch { }
+            return _canister;
+        }
+
+        /// <summary>The food-quality star sprite for a 0..1 quality, matching vanilla's
+        /// GetFoodQualityIndex bands (&lt;0.45→1★, &lt;0.7→2★, &lt;0.9→3★, else 4★) read off
+        /// FoodQualityToggle.Sprites[0..3].</summary>
+        public static Sprite FoodQualityStar(float quality01)
+        {
+            int idx = quality01 < 0.45f ? 0 : quality01 < 0.7f ? 1 : quality01 < 0.9f ? 2 : 3;
+            try
+            {
+                var psw = Assets.Scripts.UI.PlayerStateWindow.Instance;
+                var t = psw != null ? psw.FoodQualityToggle : null;
+                return t != null && t.Sprites != null && t.Sprites.Length > idx ? t.Sprites[idx] : null;
+            }
+            catch { return null; }
+        }
+
+        /// <summary>A suit on/off chip sprite by state — the vanilla ImageToggle sprite for
+        /// the given key ("helmet"/"jetpack"/"light") at index 1 when ON, index 0 when OFF
+        /// (matching vanilla's SetImage convention). null until the window exists.</summary>
+        public static Sprite SuitStateIcon(string key, bool on)
+        {
+            try
+            {
+                var psw = Assets.Scripts.UI.PlayerStateWindow.Instance;
+                if (psw == null || string.IsNullOrEmpty(key)) return null;
+                Assets.Scripts.UI.ImageToggle t = null;
+                switch (key.ToLowerInvariant())
+                {
+                    case "helmet": t = psw.HelmetImageToggle; break;
+                    case "jetpack": t = psw.JetPackImageToggle; break;
+                    case "light": t = psw.LightImageToggle; break;
+                }
+                int index = on ? 1 : 0;
+                return t != null && t.Sprites != null && t.Sprites.Length > index ? t.Sprites[index] : null;
             }
             catch { return null; }
         }

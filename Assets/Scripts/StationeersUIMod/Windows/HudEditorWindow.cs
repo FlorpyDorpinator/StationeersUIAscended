@@ -349,9 +349,13 @@ namespace StationeersUIMod.Windows
                 if (el == null || el.Def == null) return;
                 bool elMoved = _elementPopupStamp != HudEditorMode.ElementStamp;
                 _elementPopupStamp = HudEditorMode.ElementStamp;
-                ImGui.SetNextWindowPos(new Vector2(HudEditorMode.PopupPos.x, HudEditorMode.PopupPos.y),
-                    elMoved ? ImGuiCond.Always : ImGuiCond.Appearing);
-                ImGui.SetNextWindowSizeConstraints(new Vector2(320f, 0f), new Vector2(400f, 560f));
+                // Open CENTERED (FlorpyDorp: the click-point spawn kept landing bottom-
+                // right) and freely resizable up to nearly the screen — the old 400x560
+                // cap cut off long property lists.
+                ImGui.SetNextWindowPos(new Vector2(Screen.width * 0.5f, Screen.height * 0.5f),
+                    elMoved ? ImGuiCond.Always : ImGuiCond.Appearing, new Vector2(0.5f, 0.5f));
+                ImGui.SetNextWindowSizeConstraints(new Vector2(320f, 120f),
+                    new Vector2(Screen.width * 0.92f, Screen.height * 0.92f));
                 bool elOpen = true;
                 if (ImGui.Begin("Edit: " + el.Def.Type + "###UIAHudElementPopup",
                     ref elOpen, ImGuiWindowFlags.NoCollapse))

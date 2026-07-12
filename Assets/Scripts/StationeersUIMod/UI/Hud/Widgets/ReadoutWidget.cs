@@ -60,11 +60,14 @@ namespace StationeersUIMod.UI.Hud.Widgets
             // "Pressure" — the art players already know) -> built-in glyph. Vanilla
             // sprites can resolve late (their singletons exist only in-world), so that
             // channel keeps retrying in UpdatePanel until the sprite lands.
-            if (!string.IsNullOrEmpty(Def.Icon))
+            // A conditional temp icon needs the sprite slot even if no Icon key was set —
+            // otherwise the F9 "Conditional temp icon" toggle would silently do nothing.
+            bool tempIconWanted = Def.GetB("tempIcon", false);
+            if (!string.IsNullOrEmpty(Def.Icon) || tempIconWanted)
             {
                 var sprite = Core.HudIconStore.TryGet(Def.Icon);
-                _iconIsVanilla = sprite == null && Core.VanillaIcons.IsKey(Def.Icon);
-                if (_iconIsVanilla) sprite = Core.VanillaIcons.TryGet(Def.Icon);
+                _iconIsVanilla = sprite == null && (tempIconWanted || Core.VanillaIcons.IsKey(Def.Icon));
+                if (_iconIsVanilla && !tempIconWanted) sprite = Core.VanillaIcons.TryGet(Def.Icon);
 
                 if (sprite != null || _iconIsVanilla)
                 {
@@ -152,7 +155,31 @@ namespace StationeersUIMod.UI.Hud.Widgets
             float cx = (cLeft + cRight) * 0.5f;
             float cw = cRight - cLeft;
 
-            if (vertical)
+            // Stacked box (the internal-pressure/temp instruments): title on top, a TARGET
+            // line, then the big value with its conditional icon to the left, horizontal
+            // bar already reserved along the bottom.
+            if (Def.GetB("stack", false))
+            {
+                float lblY = Mathf.Lerp(cBot, cTop, 0.84f);
+                float tgtY = Mathf.Lerp(cBot, cTop, 0.54f);
+                float valY = Mathf.Lerp(cBot, cTop, 0.26f);
+                _label.alignment = TMPro.TextAlignmentOptions.Center;
+                _value.alignment = TMPro.TextAlignmentOptions.Center;
+                _labelRt.anchoredPosition = new Vector2(cx, lblY);
+                _labelRt.sizeDelta = new Vector2(cw, 16f * scale);
+                _targetRt.anchoredPosition = new Vector2(cx, tgtY);
+                _targetRt.sizeDelta = new Vector2(cw, 12f * scale);
+                _valueRt.anchoredPosition = new Vector2(cx, valY);
+                _valueRt.sizeDelta = new Vector2(cw, 22f * scale);
+                if (_iconRt != null)
+                {
+                    // Conditional hot/cold glyph sits just left of the value row.
+                    float isz = Mathf.Clamp((cTop - cBot) * 0.22f, 10f * scale, 22f * scale);
+                    _iconRt.anchoredPosition = new Vector2(cLeft + isz * 0.5f, valY);
+                    _iconRt.sizeDelta = new Vector2(isz, isz);
+                }
+            }
+            else if (vertical)
             {
                 // Tall card: multi-line label up top, value mid, target line, icon at the
                 // very bottom (the concept's gauge column). The label box gets TWO lines
@@ -216,7 +243,18 @@ namespace StationeersUIMod.UI.Hud.Widgets
 
             var accent = TextColor();
             if (_glyph != null) _glyph.color = accent;
-            if (_iconSprite != null)
+            // Conditional temperature icon: vanilla shows the hot sprite above 50°C, the
+            // cold sprite below 0°C, nothing between (PlayerStateWindow thresholds). Driven
+            // from the live reading, overriding the static Def.Icon sprite each frame.
+            bool tempIcon = Def.GetB("tempIcon", false);
+            if (_iconSprite != null && tempIcon)
+            {
+                var ts = r.Valid ? Core.VanillaIcons.TempStateIcon(r.Raw) : null;
+                _iconSprite.sprite = ts;
+                _iconSprite.enabled = ts != null;
+                _iconSprite.color = Color.white;
+            }
+            else if (_iconSprite != null)
             {
                 if (_iconIsVanilla)
                 {
@@ -336,15 +374,22 @@ namespace StationeersUIMod.UI.Hud.Widgets
             go.transform.SetParent(Root, false);
             var img = go.AddComponent<Image>();
             img.raycastTarget = false;
-            img.preserveAspect = false;   // vanilla scales the fill sprite directly
+            img.preserveAspect = false;
+            // BORN DISABLED: a sprite-less Image renders as a solid white rect, and the
+            // vanilla sprites resolve late (world-only) — the 2026-07-12 play-test's
+            // "white square at screen center" was exactly this object, enabled at its
+            // default 100x100 before the first successful UpdateRamp.
+            img.enabled = false;
             go.AddComponent<VisorWarp>();
             var rt = img.rectTransform;
             rt.anchorMin = rt.anchorMax = new Vector2(0.5f, 0.5f);
             return img;
         }
 
-        /// <summary>Static ramp geometry: the track fills the reserved bar strip; a
-        /// vertical gauge rotates the horizontal art 90°.</summary>
+        /// <summary>Static ramp geometry: BOTH images fill the reserved bar strip; a
+        /// vertical gauge rotates the horizontal art 90° (a left-origin horizontal
+        /// fill then grows from the bottom). The fill level is fillAmount cropping —
+        /// the same reveal vanilla gets from its stretch-mask.</summary>
         private void LayoutRamp()
         {
             if (_rampBackRt == null) return;
@@ -355,21 +400,38 @@ namespace StationeersUIMod.UI.Hud.Widgets
             _rampFrontRt.localEulerAngles = rot;
             _rampBackRt.anchoredPosition = _barCenter;
             _rampBackRt.sizeDelta = new Vector2(len, thick);
+            _rampFrontRt.anchoredPosition = _barCenter;
+            _rampFrontRt.sizeDelta = new Vector2(len, thick);
         }
 
         /// <summary>Per-frame fill. Pressure sources use vanilla's EXACT curve; everything
-        /// else maps linearly over the gauge span. Only a real fill change moves pixels.</summary>
+        /// else maps linearly over the gauge span. Vanilla scene truth: the track draws at
+        /// vanilla's own tint (white ~25%), the lit art white, and the fill is a REVEAL of
+        /// full-length art — Image.fillAmount reproduces it without vanilla's mask.</summary>
         private bool UpdateRamp(Reading r)
         {
             var back = Core.VanillaIcons.PressureRampBack();
             var front = Core.VanillaIcons.PressureRampFront();
-            if (back == null || front == null) return false; // world not up yet — retry
+            if (back == null || front == null)
+            {
+                // World not up yet — hide BOTH images (never let a sprite-less Image
+                // draw its white placeholder) and let the procedural bar stand in.
+                _rampBack.enabled = false;
+                _rampFront.enabled = false;
+                return false;
+            }
 
             if (_rampBack.sprite == null) _rampBack.sprite = back;
-            if (_rampFront.sprite == null) _rampFront.sprite = front;
+            if (_rampFront.sprite == null)
+            {
+                _rampFront.sprite = front;
+                _rampFront.type = Image.Type.Filled;
+                _rampFront.fillMethod = Image.FillMethod.Horizontal;
+                _rampFront.fillOrigin = (int)Image.OriginHorizontal.Left;
+            }
             _rampBack.enabled = true;
-            _rampBack.color = Color.white;
-            _rampFront.color = Color.white;
+            _rampBack.color = Core.VanillaIcons.PressureRampBackColor();
+            _rampFront.color = Core.VanillaIcons.PressureRampFrontColor();
 
             float fill;
             var src = ParseSource(Def);
@@ -386,19 +448,9 @@ namespace StationeersUIMod.UI.Hud.Widgets
                     : 0f;
             }
             fill = Mathf.Round(fill * 256f) / 256f; // quantize: no per-frame mesh churn
-            if (Mathf.Approximately(fill, _lastFill) && _rampFront.enabled == (fill > 0f))
-                return true;
             _lastFill = fill;
-
             _rampFront.enabled = fill > 0f;
-            float len = _barIsVertical ? _barSize.y : _barSize.x;
-            float thick = _barIsVertical ? _barSize.x : _barSize.y;
-            float fillLen = len * fill;
-            // Grow from the START edge (left / bottom), exactly like vanilla's ramp.
-            _rampFrontRt.sizeDelta = new Vector2(fillLen, thick);
-            _rampFrontRt.anchoredPosition = _barIsVertical
-                ? new Vector2(_barCenter.x, _barCenter.y - len * 0.5f + fillLen * 0.5f)
-                : new Vector2(_barCenter.x - len * 0.5f + fillLen * 0.5f, _barCenter.y);
+            _rampFront.fillAmount = fill; // Image dirty-guards internally
             return true;
         }
 
@@ -559,6 +611,11 @@ namespace StationeersUIMod.UI.Hud.Widgets
                     r.Valid = true; r.Raw = s.HeadingDeg;
                     r.Max = 360f;
                     break;
+                case HudReadoutSource.Speed:
+                    r.Label = "SPEED"; r.Unit = " m/s"; r.Decimals = 1;
+                    r.Valid = true; r.Raw = s.SpeedMs;
+                    r.Max = 20f;
+                    break;
             }
 
             r.Level = r.Valid ? LevelFor(r) : r.InvalidLevel;
@@ -586,6 +643,8 @@ namespace StationeersUIMod.UI.Hud.Widgets
             into.Add(HudProp.Enum("Source", () => (int)ParseSource(d),
                 v => d.Set("src", SourceNames[Mathf.Clamp(v, 0, SourceNames.Length - 1)]), SourceNames));
             into.Add(HudProp.Bool("Background box", () => d.GetB("box", true), v => d.SetB("box", v)));
+            into.Add(HudProp.Bool("Stacked layout", () => d.GetB("stack", false), v => d.SetB("stack", v)));
+            into.Add(HudProp.Bool("Conditional temp icon", () => d.GetB("tempIcon", false), v => d.SetB("tempIcon", v)));
             into.Add(HudProp.Bool("Target line", () => d.GetB("target", SourceHasTarget(ParseSource(d))),
                 v => d.SetB("target", v)));
             into.Add(HudProp.Bool("Threshold bar", () => d.GetB("bar", true), v => d.SetB("bar", v)));

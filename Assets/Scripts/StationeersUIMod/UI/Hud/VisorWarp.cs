@@ -20,16 +20,31 @@ namespace StationeersUIMod.UI.Hud
         public static float Direction = 1f;
         public static float HalfW = 960f, HalfH = 540f;
 
-        public static bool Enabled => Active != Kind.None && Strength > 0.001f;
+        /// <summary>Set while the player is BARE (suit off / powered down): the visor is
+        /// gone, so the HUD reads FLAT — HudSystem folds this into the layout hash so the
+        /// whole HUD re-lays-out and re-meshes without curvature on the transition.</summary>
+        public static bool BareFlat;
+
+        public static bool Enabled => Active != Kind.None && Strength > 0.001f && !BareFlat;
 
         /// <summary>The shared barrel term: +1 pushes rows AWAY from the horizontal
-        /// axis at the screen edges (corners flare outward), −1 pinches them inward.</summary>
+        /// axis at the screen edges (corners flare outward), −1 pinches them inward.
+        /// A strength-tied inward fit-scale keeps the flared corners ON-SCREEN — without
+        /// it, k=1 threw edge vertices 30% past the screen half-extent and the overlay
+        /// canvas clipped them ("everything gets cut off"). The scale lives here so the
+        /// Unwarp fixed-point inverse (and the editor hit-test that rides it) track it
+        /// automatically.</summary>
         public static Vector2 Barrel(Vector2 p, float k, float halfW, float halfH)
         {
             float nx = p.x / halfW;
             float ny = p.y / halfH;
             p.y += p.y * k * 0.30f * nx * nx;
             p.x += p.x * k * 0.12f * ny * ny;
+            // Pull the whole field inward so the worst-case vertical flare (0.30·|k|)
+            // lands back on the edge instead of beyond it.
+            float fit = 1f / (1f + Mathf.Abs(k) * 0.30f);
+            p.x *= fit;
+            p.y *= fit;
             return p;
         }
 
@@ -38,6 +53,7 @@ namespace StationeersUIMod.UI.Hud
         /// places selection handles with this so they hug curved elements.</summary>
         public static Vector2 WarpPoint(Vector2 p)
         {
+            if (BareFlat) return p; // flat while bare — keep editor handles unwarped too
             var mode = HudConfig.Curvature != null ? HudConfig.Curvature.Value : HudCurvature.Flat;
             if (mode != HudCurvature.VertexWarp && mode != HudCurvature.DomeProjection) return p;
             float k = HudConfig.CurveStrength.Value * (HudConfig.CurveInvert.Value ? -1f : 1f);
@@ -52,6 +68,7 @@ namespace StationeersUIMod.UI.Hud
         /// chip-drop zones so mouse points always land where the warped HUD draws.</summary>
         public static Vector2 Unwarp(Vector2 p)
         {
+            if (BareFlat) return p; // flat while bare — mouse maps 1:1
             var mode = HudConfig.Curvature != null ? HudConfig.Curvature.Value : HudCurvature.Flat;
             if (mode != HudCurvature.VertexWarp && mode != HudCurvature.DomeProjection) return p;
             float k = HudConfig.CurveStrength.Value * (HudConfig.CurveInvert.Value ? -1f : 1f);

@@ -40,6 +40,7 @@ namespace StationeersUIMod.UI.Hud
         public static ConfigEntry<float> CurveStrength;
         public static ConfigEntry<bool> CurveInvert;
         public static ConfigEntry<float> WorldCanvasDistance;
+        public static ConfigEntry<bool> BareFlattens;
 
         // Panels
         public static ConfigEntry<bool> ShowTopBar;
@@ -128,6 +129,9 @@ namespace StationeersUIMod.UI.Hud
             WorldCanvasDistance = cfg.Bind(S, "WorldCanvasDistance", 0.6f,
                 new ConfigDescription("CurvedWorldCanvas mode: how far in front of the camera " +
                     "the visor floats (metres).", new AcceptableValueRange<float>(0.25f, 2f)));
+            BareFlattens = cfg.Bind(S, "BareFlattens", true,
+                "When the suit is off or powered down (BARE), drop all visor curvature so the " +
+                "remaining HUD reads flat. The top bar hides itself by tier regardless.");
 
             ShowTopBar = cfg.Bind(S, "ShowTopBar", true, "The curved top status bar.");
             ShowCompass = cfg.Bind(S, "ShowCompass", true, "Compass ribbon under the top bar.");
