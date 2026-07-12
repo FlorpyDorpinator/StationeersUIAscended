@@ -183,7 +183,19 @@ namespace StationeersUIMod.UI.Hud
                 string name = HudConfig.HudActiveProfile != null
                     ? HudConfig.HudActiveProfile.Value : "Default";
                 Features.HudProfileStore.LoadActive(name, BuildStarterDocument);
-                _docRebuildNeeded = false; // the SetActive above fired the event; we build right after
+
+                // A stale shipped-default (the schema-1 primitive demo) upgrades to the
+                // current starter — but ONLY the literal "Default" profile; anything the
+                // user named themselves is theirs, whatever its age.
+                var active = Features.HudProfileStore.Active;
+                if (active != null && active.Schema < 2
+                    && string.Equals(name, "Default", System.StringComparison.OrdinalIgnoreCase))
+                {
+                    var fresh = BuildStarterDocument();
+                    Features.HudProfileStore.SetActive(fresh, name);
+                    Features.HudProfileStore.MarkChanged(); // persist the upgrade
+                }
+                _docRebuildNeeded = false; // SetActive fired the event; we build right after
             }
         }
 
@@ -299,11 +311,14 @@ namespace StationeersUIMod.UI.Hud
         /// first run (and whenever the file goes missing).</summary>
         private static HudDocument BuildStarterDocument()
         {
-            var doc = new HudDocument { Name = "Default" };
+            // Schema 2 = the widget-parity layout (schema 1 was the primitive demo doc;
+            // EnsureActiveDocument silently upgrades a stale schema-1 "Default").
+            var doc = new HudDocument { Name = "Default", Schema = 2 };
             var els = doc.Elements;
 
             // --- top bar: backdrop + badge, clock, external cells, compass, day, world ---
             var bar = El("top-bar", HudElementType.Box, HudAnchor.TopCenter, 0f, -44f, 1840f, 66f, SuitOnly, 0);
+            bar.WPct = 0.96f; // span ~the screen at ANY resolution, not just 1920
             bar.RTL = 4f; bar.RTR = 4f; bar.RBR = 16f; bar.RBL = 16f;
             els.Add(bar);
             els.Add(El("hand-badge", HudElementType.ActiveHandBadge, HudAnchor.TopLeft, 70f, -44f, 44f, 36f));
@@ -332,7 +347,9 @@ namespace StationeersUIMod.UI.Hud
             els.Add(chips);
 
             // --- bottom-right vitals: four readout rows + the round hologram portrait ---
-            string[] rowSrc = { "Health", "O2Quality", "SuitPower", "InternalTemp" };
+            // TEMP is the FELT temperature (any atmosphere), not InternalTemp (needs
+            // internals running) — the legacy vitals card's semantics, incl. robots.
+            string[] rowSrc = { "Health", "O2Quality", "SuitPower", "FeltTemp" };
             string[] rowLbl = { "HEALTH", "O2", "POWER", "TEMP" };
             for (int i = 0; i < 4; i++)
             {

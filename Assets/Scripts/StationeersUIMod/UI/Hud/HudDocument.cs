@@ -46,7 +46,11 @@ namespace StationeersUIMod.UI.Hud
         SuitTargetPressure, SuitTargetTemp,
         Nutrition, Hydration, Sanitation, Hygiene,
         JetpackThrust, JetpackPropellant, SuitPower,
-        Health, O2Quality, Heading
+        Health, O2Quality, Heading,
+        /// <summary>The temperature you FEEL: breathing atmosphere when sealed, ambient
+        /// otherwise — the vitals card's TEMP semantics (valid with ANY atmosphere,
+        /// unlike InternalTemp which needs internals running).</summary>
+        FeltTemp,
     }
 
     /// <summary>
@@ -171,6 +175,11 @@ namespace StationeersUIMod.UI.Hud
         [XmlAttribute] public float Y;
         [XmlAttribute] public float W = 120f;
         [XmlAttribute] public float H = 40f;
+        /// <summary>Optional RELATIVE size: when > 0, width/height is this fraction of the
+        /// SCREEN instead of the fixed W/H reference px — full-width bars survive ultrawide
+        /// and 1440p without editing. -1 = fixed size.</summary>
+        [XmlAttribute] public float WPct = -1f;
+        [XmlAttribute] public float HPct = -1f;
         [XmlAttribute] public int Z;
         [XmlAttribute] public HudTierMask Tiers = HudTierMask.All;
 
@@ -319,6 +328,7 @@ namespace StationeersUIMod.UI.Hud
                 Type = Type,
                 Anchor = Anchor,
                 X = X, Y = Y, W = W, H = H, Z = Z,
+                WPct = WPct, HPct = HPct,
                 Tiers = Tiers,
                 Fill = Fill,
                 Border = Border,

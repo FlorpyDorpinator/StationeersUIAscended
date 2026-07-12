@@ -49,7 +49,14 @@ namespace StationeersUIMod.UI.Hud
                 + new Vector2(Def.X, Def.Y) * scale;
         }
 
-        protected Vector2 SizeFor(float scale) => new Vector2(Def.W, Def.H) * scale;
+        /// <summary>Fixed reference px × scale, unless the element opted into screen-
+        /// relative sizing (WPct/HPct > 0) — full-width bars survive any resolution.</summary>
+        protected Vector2 SizeFor(float scale)
+        {
+            float w = Def.WPct > 0f ? Screen.width * Def.WPct : Def.W * scale;
+            float h = Def.HPct > 0f ? Screen.height * Def.HPct : Def.H * scale;
+            return new Vector2(w, h);
+        }
 
         /// <summary>Per-corner radius with the −1 = "global CornerRadius" convention.</summary>
         protected static float Radius(float perCorner)
@@ -75,6 +82,8 @@ namespace StationeersUIMod.UI.Hud
             into.Add(HudProp.F("Y", () => d.Y, v => d.Y = v, -2000f, 2000f));
             into.Add(HudProp.F("Width", () => d.W, v => d.W = Mathf.Max(2f, v), 2f, 2200f));
             into.Add(HudProp.F("Height", () => d.H, v => d.H = Mathf.Max(2f, v), 2f, 1300f));
+            into.Add(HudProp.F("Width % of screen (-1 = fixed)", () => d.WPct, v => d.WPct = v, -1f, 1f));
+            into.Add(HudProp.F("Height % of screen (-1 = fixed)", () => d.HPct, v => d.HPct = v, -1f, 1f));
             into.Add(HudProp.I("Z order", () => d.Z, v => d.Z = v, -100, 100));
             into.Add(HudProp.Tier("Tiers", () => (int)d.Tiers, v => d.Tiers = (HudTierMask)v));
             into.Add(HudProp.Color("Fill", () => d.Fill, v => d.Fill = v));

@@ -29,6 +29,16 @@ namespace StationeersUIMod.UI.Hud.Widgets
         private ThresholdBarGraphic _bar;
         private RectTransform _barRt;
 
+        // Display-string cache: rebuilt only when the rounded value / validity / unit
+        // changes (see UpdatePanel) — never a per-frame allocation.
+        private bool _shownValid;
+        private float _shownValue;
+        private string _shownUnit;
+        private string _valueText = "--";
+        private bool _shownTgtOn;
+        private float _shownTgt;
+        private string _tgtText = "";
+
         private static readonly string[] SourceNames = System.Enum.GetNames(typeof(HudReadoutSource));
 
         protected override void BuildContent(RectTransform root)
@@ -160,18 +170,36 @@ namespace StationeersUIMod.UI.Hud.Widgets
             string lbl = Def.GetS("label", "");
             if (string.IsNullOrEmpty(lbl)) lbl = r.Label;
 
-            string valueText = r.Valid
-                ? ((int)r.Raw).ToString(CultureInfo.InvariantCulture) + Small(r.Unit)
-                : "--";
+            // Value/target strings rebuild only when the ROUNDED display value changes —
+            // an always-on readout must not allocate a string per frame. Rounded (never
+            // truncated) to the source's decimals: the legacy cells showed "22.9" and
+            // "-5.9", and (int) would have read a degree warm on the negative side.
+            float shown = r.Valid ? (float)System.Math.Round(r.Raw, r.Decimals) : 0f;
+            if (r.Valid != _shownValid || (r.Valid && shown != _shownValue)
+                || !ReferenceEquals(r.Unit, _shownUnit))
+            {
+                _shownValid = r.Valid; _shownValue = shown; _shownUnit = r.Unit;
+                _valueText = r.Valid
+                    ? shown.ToString(r.Decimals == 1 ? "0.0" : "0", CultureInfo.InvariantCulture) + Small(r.Unit)
+                    : "--";
+            }
+            string valueText = _valueText;
 
             Color vcol = r.Level >= 2 ? HudPalette.Critical.Value
                 : r.Level == 1 ? HudPalette.Warn.Value
                 : accent;
 
             bool showTarget = Def.GetB("target", SourceHasTarget(src));
-            string tgtText = (showTarget && r.HasTarget && !float.IsNaN(r.Target))
-                ? "TARGET " + ((int)r.Target).ToString(CultureInfo.InvariantCulture)
-                : "";
+            bool tgtOn = showTarget && r.HasTarget && !float.IsNaN(r.Target);
+            float tgtShown = tgtOn ? (float)System.Math.Round(r.Target) : 0f;
+            if (tgtOn != _shownTgtOn || (tgtOn && tgtShown != _shownTgt))
+            {
+                _shownTgtOn = tgtOn; _shownTgt = tgtShown;
+                _tgtText = tgtOn
+                    ? "TARGET " + tgtShown.ToString("0", CultureInfo.InvariantCulture)
+                    : "";
+            }
+            string tgtText = _tgtText;
 
             float vs = Def.GetF("valueSize", 17f) * Def.FontScale;
             HudText.Sync(_label); HudText.Sync(_value); HudText.Sync(_target);
@@ -232,6 +260,12 @@ namespace StationeersUIMod.UI.Hud.Widgets
             public int Level;
             public float Min, Max;
             public float WarnLow, CritLow, WarnHigh, CritHigh;
+            /// <summary>Displayed decimal places (temps and O2 carry one, like the legacy
+            /// cells; everything else is whole numbers). Rounded, never truncated.</summary>
+            public int Decimals;
+            /// <summary>Band to color "--" with when the reading is invalid (the legacy top
+            /// bar painted a missing battery red, not neutral).</summary>
+            public int InvalidLevel;
         }
 
         // Every value below comes straight from the snapshot; the warn/crit numbers replicate
@@ -259,13 +293,22 @@ namespace StationeersUIMod.UI.Hud.Widgets
                     r.WarnLow = 20f; r.CritLow = 6.3f; r.WarnHigh = 303.97f; r.CritHigh = 607.95f;
                     break;
                 case HudReadoutSource.ExternalTemp:
-                    r.Label = "EXTERNAL TEMP"; r.Unit = " °C";
+                    r.Label = "EXTERNAL TEMP"; r.Unit = " °C"; r.Decimals = 1;
                     r.Valid = s.HasAtmosphere; r.Raw = s.TempC;
                     r.Min = -30f; r.Max = 90f;
                     r.WarnLow = 0f; r.CritLow = -10f; r.WarnHigh = 50f; r.CritHigh = 80f;
                     break;
+                case HudReadoutSource.FeltTemp:
+                    // The vitals-card TEMP semantics: what your skin reads — breathing
+                    // atmosphere when sealed, ambient otherwise. Valid with ANY atmosphere
+                    // (InternalTemp instead requires internals running).
+                    r.Label = "TEMP"; r.Unit = " °C"; r.Decimals = 1;
+                    r.Valid = s.FeltValid; r.Raw = s.FeltTempC;
+                    r.Min = -30f; r.Max = 90f;
+                    r.WarnLow = 0f; r.CritLow = -10f; r.WarnHigh = 50f; r.CritHigh = 80f;
+                    break;
                 case HudReadoutSource.ExternalO2:
-                    r.Label = "EXTERNAL O2"; r.Unit = " %";
+                    r.Label = "EXTERNAL O2"; r.Unit = " %"; r.Decimals = 1;
                     r.Valid = s.HasAtmosphere; r.Raw = s.O2Fraction * 100f;
                     r.WarnLow = 18f; r.CritLow = 10f;
                     break;
@@ -277,7 +320,7 @@ namespace StationeersUIMod.UI.Hud.Widgets
                     if (s.SuitTargetPressureKPa >= 0f) { r.HasTarget = true; r.Target = s.SuitTargetPressureKPa; }
                     break;
                 case HudReadoutSource.InternalTemp:
-                    r.Label = "INTERNAL TEMP"; r.Unit = " °C";
+                    r.Label = "INTERNAL TEMP"; r.Unit = " °C"; r.Decimals = 1;
                     r.Valid = s.InternalValid; r.Raw = s.InternalTempC;
                     r.Min = -30f; r.Max = 90f;
                     r.WarnLow = 0f; r.CritLow = -10f; r.WarnHigh = 50f; r.CritHigh = 80f;
@@ -289,7 +332,7 @@ namespace StationeersUIMod.UI.Hud.Widgets
                     r.Max = 300f;
                     break;
                 case HudReadoutSource.SuitTargetTemp:
-                    r.Label = "TARGET TEMP"; r.Unit = " °C";
+                    r.Label = "TARGET TEMP"; r.Unit = " °C"; r.Decimals = 1;
                     r.Valid = !float.IsNaN(s.SuitTargetTempC); r.Raw = s.SuitTargetTempC;
                     r.Min = -10f; r.Max = 50f;
                     break;
@@ -327,7 +370,10 @@ namespace StationeersUIMod.UI.Hud.Widgets
                 case HudReadoutSource.SuitPower:
                     r.Label = "SUIT POWER"; r.Unit = " %";
                     r.Valid = s.SuitBatteryPct >= 0; r.Raw = s.SuitBatteryPct;
-                    r.WarnLow = 25f; r.CritLow = 10f;
+                    // Battery % is an integer; the legacy cells alarmed INCLUSIVELY
+                    // (amber AT 25, red AT 10) — the half-step encodes that exactly.
+                    r.WarnLow = 25.5f; r.CritLow = 10.5f;
+                    r.InvalidLevel = 2; // no battery reads as an alarm, not a shrug
                     break;
                 case HudReadoutSource.Health:
                     r.Label = "HEALTH"; r.Unit = " %";
@@ -346,15 +392,16 @@ namespace StationeersUIMod.UI.Hud.Widgets
                     break;
             }
 
-            r.Level = LevelFor(r);
+            r.Level = r.Valid ? LevelFor(r) : r.InvalidLevel;
             return r;
         }
 
         /// <summary>Whole-value threshold band, mirroring the bar's own crit-trumps-warn rule
-        /// so the number and the gauge always agree. An untrustworthy reading is never alarmed.</summary>
+        /// so the number and the gauge always agree. Bounds are strict; integer-quantized
+        /// sources that legacy alarmed INCLUSIVELY (battery: red AT 10%) encode that by
+        /// placing the boundary at n + 0.5 instead.</summary>
         private static int LevelFor(Reading r)
         {
-            if (!r.Valid) return 0;
             float v = r.Raw;
             if ((!float.IsNaN(r.CritLow) && v < r.CritLow) || (!float.IsNaN(r.CritHigh) && v > r.CritHigh)) return 2;
             if ((!float.IsNaN(r.WarnLow) && v < r.WarnLow) || (!float.IsNaN(r.WarnHigh) && v > r.WarnHigh)) return 1;

@@ -22,8 +22,11 @@ namespace StationeersUIMod.UI.Hud.Widgets
     /// </summary>
     internal sealed class CompassWidget : HudElementView
     {
-        private const int TickPool = 24;
-        private const int LabelPool = 8;
+        // Sized for the WORST the props allow (fov 200° / tick 5° -> 41 visible + edge
+        // slack; cardinals every 15° -> 15). An undersized pool truncates ONE edge of
+        // the ribbon asymmetrically, which reads as a broken compass.
+        private const int TickPool = 48;
+        private const int LabelPool = 16;
         private static readonly string[] Cardinals = { "N", "NE", "E", "SE", "S", "SW", "W", "NW" };
 
         private PanelGraphic _back;
