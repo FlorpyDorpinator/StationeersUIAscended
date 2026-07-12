@@ -209,7 +209,7 @@ namespace StationeersUIMod.UI.Hud
                     Features.HudProfileStore.SetActive(fresh, name);
                     Features.HudProfileStore.MarkChanged(); // persist the upgrade
                 }
-                else if (active != null && active.Schema < 9
+                else if (active != null && active.Schema < 10
                     && string.Equals(name, "Glassy 2.0", System.StringComparison.OrdinalIgnoreCase))
                 {
                     var fresh = BuildGlassy2Document();
@@ -492,7 +492,7 @@ namespace StationeersUIMod.UI.Hud
         // ---- Glassy 2.0: the full car-dashboard redesign (FlorpyDorp's Big Prompt) ----
 
         private const string G2Fill = "#05080DA6";     // smoked near-black glass
-        private const string G2Border = "#D9E6EE59";   // pale steel hairline
+        private const string G2Border = "#B9BEC259";   // grey hairline (play-test: "greyer")
         private const float G2Sheen = 0.5f;
         private const float G2Spec = 0.8f;
 
@@ -513,7 +513,7 @@ namespace StationeersUIMod.UI.Hud
         /// gets a words-mode vitals panel and everything flattens (BareFlattens).</summary>
         private static HudDocument BuildGlassy2Document()
         {
-            var doc = new HudDocument { Name = "Glassy 2.0", Schema = 9 };
+            var doc = new HudDocument { Name = "Glassy 2.0", Schema = 10 };
             var els = doc.Elements;
 
             // ===== 1. TOP BAR (full-width trapezoid, top edge wider than bottom) =====
@@ -1046,12 +1046,19 @@ namespace StationeersUIMod.UI.Hud
             Camera cam = null;
             try { cam = CameraController.CurrentCamera; } catch { }
             if (cam == null) return;
-            float dist = HudConfig.WorldCanvasDistance.Value;
+            // Keep the plane safely beyond the camera's near clip — inside it, whole edges
+            // of the HUD vanished ("UI elements totally clip out").
+            float dist = Mathf.Max(HudConfig.WorldCanvasDistance.Value, cam.nearClipPlane + 0.06f);
             var rt = (RectTransform)_canvas.transform;
             rt.sizeDelta = new Vector2(Screen.width, Screen.height);
             var t = cam.transform;
             rt.SetPositionAndRotation(t.position + t.rotation * new Vector3(0f, 0f, dist), t.rotation);
-            float worldH = 2f * dist * Mathf.Tan(cam.fieldOfView * 0.5f * Mathf.Deg2Rad);
+            // Size from a FIXED reference distance, not from `dist` — sizing from dist made
+            // the canvas fill the frustum EXACTLY at every distance, so the "visor distance"
+            // slider visibly did nothing. Anchored to 0.6 m, the HUD now genuinely recedes
+            // (smaller, margins appear) as the slider goes up and looms closer below it.
+            const float refDist = 0.6f;
+            float worldH = 2f * refDist * Mathf.Tan(cam.fieldOfView * 0.5f * Mathf.Deg2Rad);
             float s = worldH / Mathf.Max(1f, Screen.height);
             rt.localScale = new Vector3(s, s, s);
             _canvas.worldCamera = cam;
@@ -1311,6 +1318,11 @@ namespace StationeersUIMod.UI.Hud
                     HideCluster(psw.InfoExternal);
                     HideCluster(psw.InfoJetpack);
                     HideCluster(psw.InfoHealth);
+                    // InfoHealth is UNASSIGNED in the shipped scene (fileID 0), so the
+                    // vanilla vitals list (VitalsObject/PanelHealth) leaked through the
+                    // panel path above — alpha it out via a CanvasGroup that vanilla's
+                    // per-frame SetActive can't fight.
+                    SetVitalsAlpha(psw, 0f);
                     _restorePlayerState = true;
                 }
                 else if (_restorePlayerState)
@@ -1321,6 +1333,7 @@ namespace StationeersUIMod.UI.Hud
                     ShowCluster(psw.InfoExternal);
                     ShowCluster(psw.InfoJetpack);
                     ShowCluster(psw.InfoHealth);
+                    SetVitalsAlpha(psw, 1f);
                 }
                 else
                 {
@@ -1345,6 +1358,22 @@ namespace StationeersUIMod.UI.Hud
             try { if (p != null && !p.IsVisible) p.SetVisible(true); } catch { }
         }
 
+        /// <summary>Alpha the vanilla vitals list (VitalsObject) via a CanvasGroup —
+        /// vanilla SetActives it per frame, but never touches a CanvasGroup, so alpha 0
+        /// sticks while every child stays readable. Idempotent per-frame call.</summary>
+        private static void SetVitalsAlpha(Assets.Scripts.UI.PlayerStateWindow psw, float alpha)
+        {
+            try
+            {
+                var go = psw.VitalsObject;
+                if (go == null) return;
+                var grp = go.GetComponent<UnityEngine.CanvasGroup>()
+                    ?? go.AddComponent<UnityEngine.CanvasGroup>();
+                if (!Mathf.Approximately(grp.alpha, alpha)) grp.alpha = alpha;
+            }
+            catch { }
+        }
+
         public static void RestoreVanillaIfNeeded()
         {
             // The borrowed moodlet strip is handed back by RestoreAnyPortraits (called first
@@ -1364,6 +1393,7 @@ namespace StationeersUIMod.UI.Hud
                         ShowCluster(psw.InfoExternal);
                         ShowCluster(psw.InfoJetpack);
                         ShowCluster(psw.InfoHealth);
+                        SetVitalsAlpha(psw, 1f);
                     }
                 }
                 catch { }

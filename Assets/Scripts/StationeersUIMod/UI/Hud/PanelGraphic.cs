@@ -180,6 +180,14 @@ namespace StationeersUIMod.UI.Hud
 
             vh.AddVert(Vector3.zero, FillAt(0f, hh), Vector2.zero); // fill fan centre
 
+            // One column = `stops` verts along the outward normal at a contour point.
+            void EmitColumn(Vector2 dir, Vector2 onShape)
+            {
+                ColumnColors(dir, onShape);
+                for (int s = 0; s < stops; s++)
+                    vh.AddVert(onShape + dir * _stopD[s], _stopC[s], Vector2.one);
+            }
+
             int columns = 0;
             for (int c = 0; c < 4; c++)
             {
@@ -199,10 +207,28 @@ namespace StationeersUIMod.UI.Hud
                 {
                     float a = Mathf.Lerp(aIn, aOut, i / (float)cornerSegs);
                     var dir = new Vector2(Mathf.Cos(a), Mathf.Sin(a));
-                    ColumnColors(dir, cur + dir * rc);
-                    for (int s = 0; s < stops; s++)
-                        vh.AddVert(cur + dir * (rc + _stopD[s]), _stopC[s], Vector2.one);
+                    EmitColumn(dir, cur + dir * rc);
                     columns++;
+                }
+
+                // EDGE SUBDIVISION: the straight run to the NEXT corner's arc start gets
+                // intermediate columns every ~48px. Without them a 2500px top bar is one
+                // quad — the visor warp can only move VERTICES, so the bar (and everything
+                // aligned to it) stayed a dead-straight line while small elements curved
+                // around it (play-test: "the interior of the top bar simply doesn't curve").
+                {
+                    float rNext = _radii[(c + 1) % 4];
+                    var edgeDir = new Vector2(Mathf.Cos(aOut), Mathf.Sin(aOut));
+                    Vector2 from = cur + edgeDir * rc;
+                    Vector2 to = next + edgeDir * rNext;
+                    float len = (to - from).magnitude;
+                    int segs = Mathf.Min(48, Mathf.FloorToInt(len / 48f));
+                    for (int i = 1; i <= segs; i++)
+                    {
+                        Vector2 p = Vector2.Lerp(from, to, i / (float)(segs + 1));
+                        EmitColumn(edgeDir, p);
+                        columns++;
+                    }
                 }
             }
 
@@ -212,9 +238,7 @@ namespace StationeersUIMod.UI.Hud
                 Vector2 cur = _centers[0];
                 float aIn = NormalAngle(prev, cur);
                 var dir = new Vector2(Mathf.Cos(aIn), Mathf.Sin(aIn));
-                ColumnColors(dir, cur + dir * _radii[0]);
-                for (int s = 0; s < stops; s++)
-                    vh.AddVert(cur + dir * (_radii[0] + _stopD[s]), _stopC[s], Vector2.one);
+                EmitColumn(dir, cur + dir * _radii[0]);
                 columns++;
             }
 

@@ -49,18 +49,20 @@ namespace StationeersUIMod.UI.Hud.Widgets
         {
             // Vanilla's ImageToggle sprites are ALWAYS populated (both on/off frames live in
             // the prefab; vanilla hides an icon via alpha, not a null sprite). So sprite-null
-            // can't gate presence — gate on the actual worn gear from the snapshot, or every
-            // chip shows even bare-handed (review finding).
+            // can't gate presence — gate on the actual worn GEAR: a chip shows while the
+            // equipment is worn, and its SPRITE flips with the on/off state (play-test: the
+            // light-off icon must show when the lamp is off, not vanish).
             bool wantHelmet = Def.GetB("helmet", true) && s != null && s.HelmetPresent;
-            bool wantLight = Def.GetB("light", true) && s != null && s.HelmetPresent && s.HelmetLightOn;
+            bool wantLight = Def.GetB("light", true) && s != null && s.HelmetPresent;
             bool wantJetpack = Def.GetB("jetpack", true) && s != null && s.JetpackPresent;
 
             // On-state per chip. Helmet: index1 (the "on" sprite) is the OPEN visor, so pass
-            // on = !HelmetClosed. Lamp is a clean bool. Jetpack has no "mode active" bool in the
-            // snapshot yet, so presence stands in for on — see the play-test note.
+            // on = !HelmetClosed. Lamp: clean bool → lighton/lightoff sprites. Jetpack:
+            // actually FLYING (vanilla IsJetpackOn — ControlMode Jetpack/JetpackGravity),
+            // so it reads jetpackoff while walking even with the pack on your back.
             bool helmetOpen = s != null && !s.HelmetClosed;
             bool lightOn = s != null && s.HelmetLightOn;
-            bool jetOn = s != null && s.JetpackPresent;
+            bool jetOn = s != null && s.JetpackOn;
 
             _sprite[Helmet] = wantHelmet ? SafeIcon("helmet", helmetOpen) : null;
             _sprite[Light] = wantLight ? SafeIcon("light", lightOn) : null;

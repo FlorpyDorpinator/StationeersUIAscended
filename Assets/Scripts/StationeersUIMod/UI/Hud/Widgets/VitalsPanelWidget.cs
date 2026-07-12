@@ -146,8 +146,32 @@ namespace StationeersUIMod.UI.Hud.Widgets
             PushPressureRow(vPressure, s, dim);
             PushTempRow(vTemp, s, dim);
 
-            // --- food-quality stars (hunger row only) ---
-            PushStars(vHunger, accent, dim);
+            // The hunger row's ICON is the live food-quality badge (burger + stars in ONE
+            // vanilla image, exactly what vanilla shows) — no separate badge slot, which
+            // had put two burgers on the row (play-test).
+            if (vHunger) PushFoodBadge(_rows[Hunger]);
+            for (int i = 0; i < StarCount; i++) _stars[i].enabled = false;
+        }
+
+        /// <summary>Swap the hunger row's icon to vanilla's FoodQualityToggle badge for the
+        /// current quality band. Re-checked each frame (band changes as food quality does);
+        /// Image.sprite is dirty-guarded so a steady band costs nothing.</summary>
+        private void PushFoodBadge(Row row)
+        {
+            try
+            {
+                float quality = 0.5f;
+                var h = Core.Guards.LocalHuman;
+                if (h != null) quality = h.FoodQuality;
+                var badge = Core.VanillaIcons.FoodQualityStar(quality);
+                if (badge != null)
+                {
+                    row.Icon.sprite = badge;
+                    row.IconIsOverride = false;
+                    row.Icon.color = Color.white;
+                }
+            }
+            catch { }
         }
 
         // ---- row pushers ----
@@ -393,11 +417,7 @@ namespace StationeersUIMod.UI.Hud.Widgets
                 _seps[i].BorderWidth = 0f;
             }
 
-            // Star strip reserved on the right of the HUNGER row only.
-            float starSz = Mathf.Clamp(rowH * 0.42f, 4f, rowH);
-            float starGap = 2f * scale;
-            float starArea = StarCount * starSz + (StarCount - 1) * starGap;
-
+            // (No star strip: the hunger row's icon IS the food-quality badge.)
             for (int k = 0; k < n; k++)
             {
                 int id = order[k];
@@ -408,21 +428,9 @@ namespace StationeersUIMod.UI.Hud.Widgets
                 row.IconRt.sizeDelta = new Vector2(iconSz, iconSz);
 
                 float textLeft = left + iconSz + 6f * scale;
-                float textRight = id == Hunger ? right - starArea - 6f * scale : right;
-                float tw = Mathf.Max(12f, textRight - textLeft);
+                float tw = Mathf.Max(12f, right - textLeft);
                 row.ValueRt.anchoredPosition = new Vector2(textLeft + tw * 0.5f, rowCy);
                 row.ValueRt.sizeDelta = new Vector2(tw, rowH);
-
-                if (id == Hunger)
-                {
-                    float sx = right - starArea + starSz * 0.5f;
-                    for (int j = 0; j < StarCount; j++)
-                    {
-                        var st = _stars[j].rectTransform;
-                        st.anchoredPosition = new Vector2(sx + j * (starSz + starGap), rowCy);
-                        st.sizeDelta = new Vector2(starSz, starSz);
-                    }
-                }
             }
         }
 

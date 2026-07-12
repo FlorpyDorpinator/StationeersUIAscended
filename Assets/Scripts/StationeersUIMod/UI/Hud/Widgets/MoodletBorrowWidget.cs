@@ -31,6 +31,13 @@ namespace StationeersUIMod.UI.Hud.Widgets
         private Vector2 _origAnchorMin, _origAnchorMax, _origPivot;
         private Vector3 _origScale;
 
+        // Vanilla lays its strip out as a VERTICAL column (its own layout group). While
+        // borrowed we disable that and run our own horizontal group; both are cached so
+        // restore hands back the exact original arrangement.
+        private UnityEngine.UI.LayoutGroup _origLayout;
+        private bool _origLayoutEnabled;
+        private UnityEngine.UI.HorizontalLayoutGroup _ourLayout;
+
         protected override void BuildContent(RectTransform root)
         {
             var holderGo = new GameObject("MoodletHolder", typeof(RectTransform));
@@ -73,12 +80,32 @@ namespace StationeersUIMod.UI.Hud.Widgets
             _origPivot = rt.pivot;
             _origScale = rt.localScale;
 
-            // Reparent + centre. Vanilla's own layout group arranges the moodlet children
-            // relative to the strip, so it stays a tidy row wherever we put it.
+            // Reparent + centre.
             rt.SetParent(_holder, false);
             rt.anchorMin = rt.anchorMax = new Vector2(0.5f, 0.5f);
             rt.pivot = new Vector2(0.5f, 0.5f);
             rt.anchoredPosition = Vector2.zero;
+
+            // Horizontal row instead of vanilla's vertical column: park vanilla's own
+            // layout group and drive the children with ours (removed again on restore).
+            try
+            {
+                _origLayout = rt.GetComponent<UnityEngine.UI.LayoutGroup>();
+                if (_origLayout != null)
+                {
+                    _origLayoutEnabled = _origLayout.enabled;
+                    _origLayout.enabled = false;
+                }
+                _ourLayout = rt.gameObject.AddComponent<UnityEngine.UI.HorizontalLayoutGroup>();
+                _ourLayout.childAlignment = TextAnchor.MiddleCenter;
+                _ourLayout.spacing = 14f;
+                _ourLayout.childControlWidth = false;
+                _ourLayout.childControlHeight = false;
+                _ourLayout.childForceExpandWidth = false;
+                _ourLayout.childForceExpandHeight = false;
+            }
+            catch { }
+
             _borrowed = true;
         }
 
@@ -87,7 +114,7 @@ namespace StationeersUIMod.UI.Hud.Widgets
         private void Place(float scale)
         {
             if (_stripRt == null) { _borrowed = false; return; }
-            float s = Mathf.Clamp(Def.GetF("moodletScale", 1.4f), 0.3f, 5f) * scale;
+            float s = Mathf.Clamp(Def.GetF("moodletScale", 1f), 0.2f, 4f) * scale;
             var want = new Vector3(s, s, 1f);
             if (_stripRt.localScale != want) _stripRt.localScale = want;
             if (_stripRt.anchoredPosition != Vector2.zero) _stripRt.anchoredPosition = Vector2.zero;
@@ -100,6 +127,14 @@ namespace StationeersUIMod.UI.Hud.Widgets
         {
             if (!_borrowed) return;
             _borrowed = false;
+            try
+            {
+                if (_ourLayout != null) Object.Destroy(_ourLayout);
+                _ourLayout = null;
+                if (_origLayout != null) _origLayout.enabled = _origLayoutEnabled;
+                _origLayout = null;
+            }
+            catch { }
             try
             {
                 if (_stripRt != null)
@@ -122,8 +157,8 @@ namespace StationeersUIMod.UI.Hud.Widgets
         {
             base.DescribeProps(into);
             var d = Def;
-            into.Add(HudProp.F("Moodlet scale", () => d.GetF("moodletScale", 1.4f),
-                v => d.SetF("moodletScale", Mathf.Clamp(v, 0.3f, 5f)), 0.3f, 5f));
+            into.Add(HudProp.F("Moodlet scale", () => d.GetF("moodletScale", 1f),
+                v => d.SetF("moodletScale", Mathf.Clamp(v, 0.2f, 4f)), 0.2f, 4f));
         }
     }
 }

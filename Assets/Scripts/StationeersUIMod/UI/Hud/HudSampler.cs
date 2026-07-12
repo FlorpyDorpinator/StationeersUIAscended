@@ -120,6 +120,10 @@ namespace StationeersUIMod.UI.Hud
 
         // Player movement speed (m/s) — Human.VelocityMagnitude, vanilla's velocity readout.
         public float SpeedMs;
+
+        // Jetpack actually flying — vanilla's IsJetpackOn(): ControlMode is Jetpack or
+        // JetpackGravity (StatusUpdates.cs:296). Distinct from JetpackPresent (worn).
+        public bool JetpackOn;
     }
 
     /// <summary>
@@ -322,6 +326,17 @@ namespace StationeersUIMod.UI.Hud
             // MP-safe (it is our own controlled entity). PlayerStateWindow.cs:215-218.
             s.SpeedMs = 0f;
             try { s.SpeedMs = human.VelocityMagnitude; } catch { }
+
+            // Jetpack flying — vanilla IsJetpackOn() (StatusUpdates.cs:296-299).
+            s.JetpackOn = false;
+            try
+            {
+                var mc = human.MovementController;
+                s.JetpackOn = mc != null
+                    && (mc.ControlMode == Assets.Scripts.MovementController.Mode.Jetpack
+                     || mc.ControlMode == Assets.Scripts.MovementController.Mode.JetpackGravity);
+            }
+            catch { }
 
             // ---- suit / helmet chips + the suit's own setpoints. Reset first (reused
             // snapshot). PlayerStateWindow reads OutputSetting/OutputTemperature only when
