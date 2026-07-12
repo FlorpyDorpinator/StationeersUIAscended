@@ -222,18 +222,39 @@ namespace StationeersUIMod.UI.Hud
 
         private static readonly List<HudElementDef> _docSorted = new List<HudElementDef>();
 
-        /// <summary>The type→view registry. Phases 2-3 add the live widgets here;
-        /// everything unregistered renders as PrimitiveView's named placeholder.</summary>
+        /// <summary>The type→view registry. Everything unregistered renders as
+        /// PrimitiveView's named placeholder (newer profiles degrade visibly).</summary>
         private static HudElementView CreateViewFor(HudElementDef def)
         {
             switch (def.Type)
             {
-                case HudElementType.Box:
-                case HudElementType.Label:
-                case HudElementType.Polyline:
-                case HudElementType.Icon:
+                case HudElementType.Compass: return new Widgets.CompassWidget();
+                case HudElementType.EquipmentColumn: return new Widgets.EquipmentColumnWidget();
+                case HudElementType.HandBoxes: return new Widgets.HandBoxesWidget();
+                case HudElementType.KeybindChips: return new Widgets.KeybindChipsWidget();
+                case HudElementType.BareSenses: return new Widgets.BareSensesWidget();
+                case HudElementType.Portrait: return new Widgets.PortraitWidget();
+                case HudElementType.Readout: return new Widgets.ReadoutWidget();
+                case HudElementType.Clock:
+                case HudElementType.WorldName:
+                case HudElementType.DayCounter:
+                case HudElementType.ActiveHandBadge:
+                    return new Widgets.DynamicTextWidget();
                 default:
                     return new PrimitiveView();
+            }
+        }
+
+        /// <summary>Hand the vanilla portrait back from WHOEVER borrowed it — the legacy
+        /// vitals card or any document PortraitWidget. Safe on empty/none.</summary>
+        private static void RestoreAnyPortraits()
+        {
+            try { _vitals?.RestorePortrait(); } catch { }
+            foreach (var p in _panels)
+            {
+                var pw = p as Widgets.PortraitWidget;
+                if (pw == null) continue;
+                try { pw.RestorePortrait(); } catch { }
             }
         }
 
@@ -241,7 +262,7 @@ namespace StationeersUIMod.UI.Hud
         /// canvas, vignette and animator survive.</summary>
         private static void RebuildViews()
         {
-            try { _vitals?.RestorePortrait(); } catch { }
+            RestoreAnyPortraits();
             foreach (var p in _panels) p.Destroy();
             _panels.Clear();
             _vitals = null;
@@ -260,48 +281,79 @@ namespace StationeersUIMod.UI.Hud
             RelayoutAll();
         }
 
-        /// <summary>Phase 1 starter: a handful of primitives proving the document path
-        /// end-to-end (render, palette refs, PNG icons, autosave). Replaced by the
-        /// concept-art default when the widget set lands.</summary>
+        private const HudTierMask SuitOnly = HudTierMask.Suited | HudTierMask.Robot;
+
+        private static HudElementDef El(string id, HudElementType type, HudAnchor anchor,
+            float x, float y, float w, float h, HudTierMask tiers = HudTierMask.All, int z = 1)
+        {
+            return new HudElementDef
+            {
+                Id = id, Type = type, Anchor = anchor,
+                X = x, Y = y, W = w, H = h, Tiers = tiers, Z = z,
+            };
+        }
+
+        /// <summary>The shipped default layout: the 0.5.0 visor arrangement rebuilt from
+        /// widgets — the parity baseline every element of which can now be moved, resized,
+        /// restyled or deleted in the designer. Written to HudProfiles/Default.xml on
+        /// first run (and whenever the file goes missing).</summary>
         private static HudDocument BuildStarterDocument()
         {
             var doc = new HudDocument { Name = "Default" };
-            var box = new HudElementDef
+            var els = doc.Elements;
+
+            // --- top bar: backdrop + badge, clock, external cells, compass, day, world ---
+            var bar = El("top-bar", HudElementType.Box, HudAnchor.TopCenter, 0f, -44f, 1840f, 66f, SuitOnly, 0);
+            bar.RTL = 4f; bar.RTR = 4f; bar.RBR = 16f; bar.RBL = 16f;
+            els.Add(bar);
+            els.Add(El("hand-badge", HudElementType.ActiveHandBadge, HudAnchor.TopLeft, 70f, -44f, 44f, 36f));
+            els.Add(El("clock", HudElementType.Clock, HudAnchor.TopLeft, 185f, -44f, 190f, 40f, SuitOnly));
+
+            var extP = El("ext-pressure", HudElementType.Readout, HudAnchor.TopCenter, -330f, -44f, 200f, 56f, SuitOnly);
+            extP.Set("src", "ExternalPressure"); extP.Set("label", "EXTERNAL");
+            extP.SetB("box", false); extP.SetB("bar", false);
+            els.Add(extP);
+
+            els.Add(El("compass", HudElementType.Compass, HudAnchor.TopCenter, 0f, -44f, 240f, 46f, SuitOnly));
+
+            var extT = El("ext-temp", HudElementType.Readout, HudAnchor.TopCenter, 330f, -44f, 200f, 56f, SuitOnly);
+            extT.Set("src", "ExternalTemp"); extT.Set("label", "EXTERNAL");
+            extT.SetB("box", false); extT.SetB("bar", false);
+            els.Add(extT);
+
+            els.Add(El("day", HudElementType.DayCounter, HudAnchor.TopRight, -270f, -44f, 140f, 40f, SuitOnly));
+            els.Add(El("world", HudElementType.WorldName, HudAnchor.TopRight, -95f, -44f, 150f, 40f, SuitOnly));
+
+            // --- left equipment column, bottom hand tray + key chips ---
+            els.Add(El("equipment", HudElementType.EquipmentColumn, HudAnchor.MiddleLeft, 70f, 0f, 84f, 520f));
+            els.Add(El("hands", HudElementType.HandBoxes, HudAnchor.BottomCenter, 0f, 78f, 400f, 126f));
+            var chips = El("key-chips", HudElementType.KeybindChips, HudAnchor.BottomCenter, -320f, 66f, 110f, 96f);
+            chips.SetB("vertical", true);
+            els.Add(chips);
+
+            // --- bottom-right vitals: four readout rows + the round hologram portrait ---
+            string[] rowSrc = { "Health", "O2Quality", "SuitPower", "InternalTemp" };
+            string[] rowLbl = { "HEALTH", "O2", "POWER", "TEMP" };
+            for (int i = 0; i < 4; i++)
             {
-                Id = "demo-box", Type = HudElementType.Box,
-                Anchor = HudAnchor.Center, X = 0f, Y = 220f, W = 320f, H = 64f,
-                RTL = 18f, RTR = 18f, RBR = 4f, RBL = 4f, Z = 0,
-            };
-            var label = new HudElementDef
-            {
-                Id = "demo-label", Type = HudElementType.Label,
-                Anchor = HudAnchor.Center, X = 0f, Y = 220f, W = 300f, H = 40f,
-                Text = "DOCUMENT HUD ONLINE", Z = 1,
-            };
-            label.SetF("size", 16f);
-            var icon = new HudElementDef
-            {
-                Id = "demo-icon", Type = HudElementType.Icon,
-                Anchor = HudAnchor.Center, X = -180f, Y = 220f, W = 40f, H = 40f,
-                Icon = "Gauge", Z = 1,
-            };
-            var line = new HudElementDef
-            {
-                Id = "demo-line", Type = HudElementType.Polyline,
-                Anchor = HudAnchor.Center, X = 0f, Y = 176f, W = 340f, H = 10f, Z = 0,
-            };
-            line.SetPoints("pts", new[] { new Vector2(-170f, 0f), new Vector2(150f, 0f), new Vector2(170f, 8f) });
-            line.SetF("width", 1.6f);
-            doc.Elements.Add(box);
-            doc.Elements.Add(label);
-            doc.Elements.Add(icon);
-            doc.Elements.Add(line);
+                var row = El("vital-" + rowLbl[i].ToLowerInvariant(), HudElementType.Readout,
+                    HudAnchor.BottomRight, -300f, 178f - i * 44f, 180f, 42f, SuitOnly);
+                row.Set("src", rowSrc[i]); row.Set("label", rowLbl[i]);
+                row.SetB("box", false);
+                row.SetF("valueSize", 13f);
+                els.Add(row);
+            }
+            els.Add(El("portrait", HudElementType.Portrait, HudAnchor.BottomRight, -105f, 120f, 150f, 150f, SuitOnly));
+
+            // --- bare tier: the felt-sense words own the middle of the view ---
+            els.Add(El("bare-senses", HudElementType.BareSenses, HudAnchor.Center, 0f, -40f, 420f, 320f, HudTierMask.Bare));
+
             return doc;
         }
 
         public static void Shutdown()
         {
-            try { _vitals?.RestorePortrait(); } catch { }
+            RestoreAnyPortraits();
             RestoreVanillaIfNeeded();
             RestoreWorldMaterials();
             foreach (var p in _panels) p.Destroy();
@@ -356,7 +408,7 @@ namespace StationeersUIMod.UI.Hud
             {
                 if (_canvas != null && _canvas.gameObject.activeSelf)
                 {
-                    try { _vitals?.RestorePortrait(); } catch { }
+                    RestoreAnyPortraits();
                     _canvas.gameObject.SetActive(false);
                     if (_domeCanvas != null) _domeCanvas.gameObject.SetActive(false);
                 }
@@ -426,9 +478,11 @@ namespace StationeersUIMod.UI.Hud
                     bool want = p.Toggle == null || p.Toggle.Value;
                     want &= p.VisibleAt(tier);
                     _animator.SetVisible(p.Fader, want, instant: !_hasPrev);
-                    // The vitals card borrows the vanilla portrait; the moment it is no
-                    // longer wanted (tier drop, toggle) the portrait goes back to vanilla.
+                    // Portrait holders borrow the vanilla portrait camera; the moment one
+                    // is no longer wanted (tier drop, toggle, document edit) the portrait
+                    // goes back to vanilla.
                     if (!want && ReferenceEquals(p, _vitals)) _vitals.RestorePortrait();
+                    else if (!want && p is Widgets.PortraitWidget pw) pw.RestorePortrait();
                 }
                 bool vignetteWant = HudConfig.ShowVignette.Value;
                 _animator.SetVisible(_vignetteFader, vignetteWant, instant: !_hasPrev);

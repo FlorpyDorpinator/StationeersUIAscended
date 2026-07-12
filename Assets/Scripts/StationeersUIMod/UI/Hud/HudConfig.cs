@@ -92,10 +92,10 @@ namespace StationeersUIMod.UI.Hud
             VisorHudEnabled = cfg.Bind(S, "VisorHudEnabled", true,
                 "The UGUI visor HUD: curved top status bar, compass, equipment column, hand " +
                 "boxes, vitals card, diegetic power tiers. Replaces the legacy ImGui overlay.");
-            UseDocumentHud = cfg.Bind(S, "UseDocumentHud", false,
-                "TRANSITIONAL (HUD Designer): render the HUD from the active layout profile " +
-                "(a document of movable elements) instead of the fixed 0.5.0 panels. Becomes " +
-                "the only mode once the designer ships; off = the classic panel set.");
+            UseDocumentHud = cfg.Bind(S, "UseDocumentHud", true,
+                "Render the HUD from the active layout profile (a document of movable, " +
+                "restylable elements — the HUD Designer). Off = the fixed 0.5.0 panel set, " +
+                "kept as a fallback during the transition.");
             HudActiveProfile = cfg.Bind(S, "HudActiveProfile", "Default",
                 "Which HUD layout profile to render (a .xml in config/StationeersUIMod/" +
                 "HudProfiles). Missing profiles are recreated from the shipped default.");

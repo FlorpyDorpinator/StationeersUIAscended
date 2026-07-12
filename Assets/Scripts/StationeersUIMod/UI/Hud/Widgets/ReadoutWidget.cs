@@ -1,0 +1,390 @@
+using System.Collections.Generic;
+using System.Globalization;
+using TMPro;
+using UnityEngine;
+using UnityEngine.UI;
+
+namespace StationeersUIMod.UI.Hud.Widgets
+{
+    /// <summary>
+    /// A single instrument readout laid out inside its element rect: an optional dark box,
+    /// a small icon, a small-caps LABEL over a big VALUE with a subscript unit, an optional
+    /// TARGET line, and an optional <see cref="ThresholdBarGraphic"/> gauge. Which live
+    /// number it shows is chosen by the "src" param (<see cref="HudReadoutSource"/>); every
+    /// value, its safe/warn/crit bands and its setpoint come from the frame snapshot so the
+    /// cell agrees with the vanilla panels it echoes (top status bar, vitals card).
+    ///
+    /// Geometry is relative to the rect — the bar reserves a bottom (or right, when vertical)
+    /// strip and the text stack fills what's left — so resizing in the editor scales the whole
+    /// cell sensibly rather than clipping.
+    /// </summary>
+    internal sealed class ReadoutWidget : HudElementView
+    {
+        private PanelGraphic _box;
+        private HudIconGraphic _glyph;
+        private Image _iconSprite;
+        private RectTransform _iconRt;
+        private TextMeshProUGUI _label, _value, _target;
+        private RectTransform _labelRt, _valueRt, _targetRt;
+        private ThresholdBarGraphic _bar;
+        private RectTransform _barRt;
+
+        private static readonly string[] SourceNames = System.Enum.GetNames(typeof(HudReadoutSource));
+
+        protected override void BuildContent(RectTransform root)
+        {
+            _box = MakePanel(root, "Box");
+
+            // Optional icon, decided from the element's Icon field (PNG override beats the
+            // built-in glyph, same as the primitive icon). Nothing is built when it's empty.
+            if (!string.IsNullOrEmpty(Def.Icon))
+            {
+                var sprite = Core.HudIconStore.TryGet(Def.Icon);
+                if (sprite != null)
+                {
+                    _iconSprite = MakeIcon(root, "IconPng");
+                    _iconSprite.sprite = sprite;
+                    _iconRt = _iconSprite.rectTransform;
+                }
+                else
+                {
+                    var go = new GameObject("IconGlyph", typeof(RectTransform));
+                    go.transform.SetParent(root, false);
+                    _glyph = go.AddComponent<HudIconGraphic>();
+                    _glyph.raycastTarget = false;
+                    go.AddComponent<VisorWarp>();
+                    _iconRt = (RectTransform)go.transform;
+                    _iconRt.anchorMin = _iconRt.anchorMax = new Vector2(0.5f, 0.5f);
+                    HudIconKind kind;
+                    if (System.Enum.TryParse(Def.Icon, true, out kind)) _glyph.Kind = kind;
+                }
+            }
+
+            _label = HudText.Make(root, "Label", 11f, TextAlignmentOptions.Center);
+            _value = HudText.Make(root, "Value", 17f, TextAlignmentOptions.Center);
+            _target = HudText.Make(root, "Target", 10f, TextAlignmentOptions.Center);
+            _labelRt = _label.rectTransform;
+            _valueRt = _value.rectTransform;
+            _targetRt = _target.rectTransform;
+
+            var barGo = new GameObject("Bar", typeof(RectTransform));
+            barGo.transform.SetParent(root, false);
+            _bar = barGo.AddComponent<ThresholdBarGraphic>();
+            _bar.raycastTarget = false;
+            barGo.AddComponent<VisorWarp>();
+            _barRt = (RectTransform)barGo.transform;
+            _barRt.anchorMin = _barRt.anchorMax = new Vector2(0.5f, 0.5f);
+        }
+
+        public override void Layout(float scale)
+        {
+            Root.anchoredPosition = Vector2.zero;
+            var c = CenterFor(scale);
+            var s = SizeFor(scale);
+
+            bool showBar = Def.GetB("bar", true);
+            bool vertical = Def.GetB("barVertical", false);
+
+            ((RectTransform)_box.transform).anchoredPosition = c;
+            _box.SetShape(s.x, s.y,
+                Radius(Def.RTL), Radius(Def.RTR), Radius(Def.RBR), Radius(Def.RBL));
+
+            float pad = 6f * scale;
+            float left = c.x - s.x * 0.5f + pad;
+            float right = c.x + s.x * 0.5f - pad;
+            float topEdge = c.y + s.y * 0.5f - pad;
+            float botEdge = c.y - s.y * 0.5f + pad;
+            float gap = 4f * scale;
+
+            // Content region shrinks by the strip the bar reserves.
+            float cLeft = left, cRight = right, cTop = topEdge, cBot = botEdge;
+            if (showBar)
+            {
+                if (vertical)
+                {
+                    float thick = Mathf.Clamp(s.x * 0.12f, 4f * scale, 14f * scale);
+                    _barRt.anchoredPosition = new Vector2(right - thick * 0.5f, c.y);
+                    _barRt.sizeDelta = new Vector2(thick, cTop - cBot);
+                    cRight = right - thick - gap;
+                }
+                else
+                {
+                    float thick = Mathf.Clamp(s.y * 0.14f, 4f * scale, 14f * scale);
+                    _barRt.anchoredPosition = new Vector2(c.x, botEdge + thick * 0.5f);
+                    _barRt.sizeDelta = new Vector2(cRight - cLeft, thick);
+                    cBot = botEdge + thick + gap;
+                }
+            }
+
+            float cx = (cLeft + cRight) * 0.5f;
+            float cw = cRight - cLeft;
+            float lblY = Mathf.Lerp(cBot, cTop, 0.82f);
+            float valY = Mathf.Lerp(cBot, cTop, 0.44f);
+            float tgtY = Mathf.Lerp(cBot, cTop, 0.10f);
+
+            _labelRt.anchoredPosition = new Vector2(cx, lblY);
+            _labelRt.sizeDelta = new Vector2(cw, 14f * scale);
+            _valueRt.anchoredPosition = new Vector2(cx, valY);
+            _valueRt.sizeDelta = new Vector2(cw, 24f * scale);
+            _targetRt.anchoredPosition = new Vector2(cx, tgtY);
+            _targetRt.sizeDelta = new Vector2(cw, 12f * scale);
+
+            if (_iconRt != null)
+            {
+                float isz = Mathf.Clamp(Mathf.Min(cw, cTop - cBot) * 0.24f, 8f * scale, 26f * scale);
+                _iconRt.anchoredPosition = new Vector2(cLeft + isz * 0.5f, lblY);
+                _iconRt.sizeDelta = new Vector2(isz, isz);
+            }
+        }
+
+        public override void UpdatePanel(HudSnapshot snap, float scale)
+        {
+            var src = ParseSource(Def);
+            Reading r = Read(snap, src);
+
+            // --- chrome (per-element ColorRef overrides via the base helpers) ---
+            bool showBox = Def.GetB("box", true);
+            _box.enabled = showBox;
+            if (showBox)
+            {
+                _box.color = FillColor();
+                _box.BorderColor = BorderColor();
+                _box.BorderWidth = BorderWidthFor();
+            }
+
+            var accent = TextColor();
+            if (_glyph != null) _glyph.color = accent;
+            if (_iconSprite != null) _iconSprite.color = accent;
+
+            // --- text ---
+            string lbl = Def.GetS("label", "");
+            if (string.IsNullOrEmpty(lbl)) lbl = r.Label;
+
+            string valueText = r.Valid
+                ? ((int)r.Raw).ToString(CultureInfo.InvariantCulture) + Small(r.Unit)
+                : "--";
+
+            Color vcol = r.Level >= 2 ? HudPalette.Critical.Value
+                : r.Level == 1 ? HudPalette.Warn.Value
+                : accent;
+
+            bool showTarget = Def.GetB("target", SourceHasTarget(src));
+            string tgtText = (showTarget && r.HasTarget && !float.IsNaN(r.Target))
+                ? "TARGET " + ((int)r.Target).ToString(CultureInfo.InvariantCulture)
+                : "";
+
+            float vs = Def.GetF("valueSize", 17f) * Def.FontScale;
+            HudText.Sync(_label); HudText.Sync(_value); HudText.Sync(_target);
+            _value.fontSize = HudText.Size(vs) * scale;
+            _label.fontSize = HudText.Size(vs * 0.62f) * scale;
+            _target.fontSize = HudText.Size(vs * 0.55f) * scale;
+            _label.color = HudPalette.TextLabel.Value;
+            _value.color = vcol;
+            _target.color = HudPalette.TextDim.Value;
+            HudText.Set(_label, lbl);
+            HudText.Set(_value, valueText);
+            HudText.Set(_target, tgtText);
+
+            // --- gauge ---
+            bool showBar = Def.GetB("bar", true);
+            _bar.enabled = showBar;
+            if (showBar)
+            {
+                _bar.Vertical = Def.GetB("barVertical", false);
+                _bar.SetRange(r.Min, r.Max);
+                _bar.SetZones(r.WarnLow, r.CritLow, r.WarnHigh, r.CritHigh);
+                _bar.Value = r.Valid ? r.Raw : float.NaN;
+                _bar.Target = (showTarget && r.HasTarget) ? r.Target : float.NaN;
+                _bar.FillColor = HudPalette.Resolve(Def.GetS("barFill", ""), HudPalette.Good.Value);
+                _bar.WarnColor = HudPalette.Resolve(Def.GetS("barWarn", ""), HudPalette.Warn.Value);
+                _bar.CritColor = HudPalette.Resolve(Def.GetS("barCrit", ""), HudPalette.Critical.Value);
+                _bar.TrackColor = HudPalette.Resolve(Def.GetS("barTrack", ""), HudPalette.PanelBorder.Value);
+                _bar.TargetColor = HudPalette.Resolve(Def.GetS("barTarget", ""), HudPalette.TextValue.Value);
+                _bar.CornerRadius = 3f * scale;
+                _bar.TargetWidth = 2f * scale;
+            }
+        }
+
+        // ---- source resolution ----
+
+        private static HudReadoutSource ParseSource(HudElementDef d)
+        {
+            HudReadoutSource src;
+            if (System.Enum.TryParse(d.GetS("src", ""), true, out src)) return src;
+            return HudReadoutSource.ExternalPressure;
+        }
+
+        /// <summary>Sources whose value carries a natural setpoint — the TARGET line and bar
+        /// caret default on for these and stay off for everything else.</summary>
+        private static bool SourceHasTarget(HudReadoutSource src)
+            => src == HudReadoutSource.InternalPressure || src == HudReadoutSource.InternalTemp;
+
+        /// <summary>One frame's worth of a readout: the number, its unit, whether it can be
+        /// trusted, its optional setpoint, the gauge span and the warn/crit boundaries. Zone
+        /// boundaries default to NaN (band absent); threshold coloring reads them back out.</summary>
+        private struct Reading
+        {
+            public string Label, Unit;
+            public float Raw;
+            public bool Valid;
+            public bool HasTarget;
+            public float Target;
+            public int Level;
+            public float Min, Max;
+            public float WarnLow, CritLow, WarnHigh, CritHigh;
+        }
+
+        // Every value below comes straight from the snapshot; the warn/crit numbers replicate
+        // the ones the top status bar and vitals card already use so the cell reads identically.
+        private static Reading Read(HudSnapshot s, HudReadoutSource src)
+        {
+            var r = new Reading
+            {
+                Unit = "",
+                Min = 0f,
+                Max = 100f,
+                Target = float.NaN,
+                WarnLow = float.NaN,
+                CritLow = float.NaN,
+                WarnHigh = float.NaN,
+                CritHigh = float.NaN,
+            };
+
+            switch (src)
+            {
+                case HudReadoutSource.ExternalPressure:
+                    r.Label = "EXTERNAL PRESSURE"; r.Unit = " kPa";
+                    r.Valid = s.HasAtmosphere; r.Raw = s.PressureKPa;
+                    r.Max = 700f;
+                    r.WarnLow = 20f; r.CritLow = 6.3f; r.WarnHigh = 303.97f; r.CritHigh = 607.95f;
+                    break;
+                case HudReadoutSource.ExternalTemp:
+                    r.Label = "EXTERNAL TEMP"; r.Unit = " °C";
+                    r.Valid = s.HasAtmosphere; r.Raw = s.TempC;
+                    r.Min = -30f; r.Max = 90f;
+                    r.WarnLow = 0f; r.CritLow = -10f; r.WarnHigh = 50f; r.CritHigh = 80f;
+                    break;
+                case HudReadoutSource.ExternalO2:
+                    r.Label = "EXTERNAL O2"; r.Unit = " %";
+                    r.Valid = s.HasAtmosphere; r.Raw = s.O2Fraction * 100f;
+                    r.WarnLow = 18f; r.CritLow = 10f;
+                    break;
+                case HudReadoutSource.InternalPressure:
+                    r.Label = "INTERNAL PRESSURE"; r.Unit = " kPa";
+                    r.Valid = s.InternalValid; r.Raw = s.InternalPressureKPa;
+                    r.Max = 300f;
+                    r.WarnLow = 20f; r.CritLow = 6.3f; r.WarnHigh = 303.97f; r.CritHigh = 607.95f;
+                    if (s.SuitTargetPressureKPa >= 0f) { r.HasTarget = true; r.Target = s.SuitTargetPressureKPa; }
+                    break;
+                case HudReadoutSource.InternalTemp:
+                    r.Label = "INTERNAL TEMP"; r.Unit = " °C";
+                    r.Valid = s.InternalValid; r.Raw = s.InternalTempC;
+                    r.Min = -30f; r.Max = 90f;
+                    r.WarnLow = 0f; r.CritLow = -10f; r.WarnHigh = 50f; r.CritHigh = 80f;
+                    if (!float.IsNaN(s.SuitTargetTempC)) { r.HasTarget = true; r.Target = s.SuitTargetTempC; }
+                    break;
+                case HudReadoutSource.SuitTargetPressure:
+                    r.Label = "TARGET PRESSURE"; r.Unit = " kPa";
+                    r.Valid = s.SuitTargetPressureKPa >= 0f; r.Raw = s.SuitTargetPressureKPa;
+                    r.Max = 300f;
+                    break;
+                case HudReadoutSource.SuitTargetTemp:
+                    r.Label = "TARGET TEMP"; r.Unit = " °C";
+                    r.Valid = !float.IsNaN(s.SuitTargetTempC); r.Raw = s.SuitTargetTempC;
+                    r.Min = -10f; r.Max = 50f;
+                    break;
+                case HudReadoutSource.Nutrition:
+                    r.Label = "NUTRITION"; r.Unit = " %";
+                    r.Valid = true; r.Raw = s.FoodRatio * 100f;
+                    r.WarnLow = 40f; r.CritLow = 20f;
+                    break;
+                case HudReadoutSource.Hydration:
+                    r.Label = "HYDRATION"; r.Unit = " %";
+                    r.Valid = true; r.Raw = s.Hydration01 * 100f;
+                    r.WarnLow = 40f; r.CritLow = 20f;
+                    break;
+                case HudReadoutSource.Sanitation:
+                    r.Label = "SANITATION"; r.Unit = " %";
+                    r.Valid = s.SanitationValid; r.Raw = s.Sanitation01 * 100f;
+                    r.WarnLow = 40f; r.CritLow = 20f;
+                    break;
+                case HudReadoutSource.Hygiene:
+                    r.Label = "HYGIENE"; r.Unit = " %";
+                    r.Valid = true; r.Raw = s.Hygiene01 * 100f;
+                    r.WarnLow = 40f; r.CritLow = 20f;
+                    break;
+                case HudReadoutSource.JetpackThrust:
+                    r.Label = "JETPACK THRUST"; r.Unit = " %";
+                    r.Valid = s.JetpackPresent; r.Raw = s.JetpackThrustPct;
+                    r.Max = 200f;
+                    break;
+                case HudReadoutSource.JetpackPropellant:
+                    r.Label = "PROPELLANT"; r.Unit = " kPa";
+                    r.Valid = s.JetpackPresent && s.JetpackIsGas && s.JetpackPropellantDeltaKPa >= 0f;
+                    r.Raw = s.JetpackPropellantDeltaKPa;
+                    r.Max = 2000f; r.WarnLow = 500f; r.CritLow = 100f;
+                    break;
+                case HudReadoutSource.SuitPower:
+                    r.Label = "SUIT POWER"; r.Unit = " %";
+                    r.Valid = s.SuitBatteryPct >= 0; r.Raw = s.SuitBatteryPct;
+                    r.WarnLow = 25f; r.CritLow = 10f;
+                    break;
+                case HudReadoutSource.Health:
+                    r.Label = "HEALTH"; r.Unit = " %";
+                    r.Valid = true; r.Raw = s.HealthRatio * 100f;
+                    r.WarnLow = 75f; r.CritLow = 25f;
+                    break;
+                case HudReadoutSource.O2Quality:
+                    r.Label = "O2 QUALITY"; r.Unit = " %";
+                    r.Valid = true; r.Raw = s.O2Quality * 100f;
+                    r.WarnLow = 100f; r.CritLow = 75f;
+                    break;
+                case HudReadoutSource.Heading:
+                    r.Label = "HEADING"; r.Unit = "°";
+                    r.Valid = true; r.Raw = s.HeadingDeg;
+                    r.Max = 360f;
+                    break;
+            }
+
+            r.Level = LevelFor(r);
+            return r;
+        }
+
+        /// <summary>Whole-value threshold band, mirroring the bar's own crit-trumps-warn rule
+        /// so the number and the gauge always agree. An untrustworthy reading is never alarmed.</summary>
+        private static int LevelFor(Reading r)
+        {
+            if (!r.Valid) return 0;
+            float v = r.Raw;
+            if ((!float.IsNaN(r.CritLow) && v < r.CritLow) || (!float.IsNaN(r.CritHigh) && v > r.CritHigh)) return 2;
+            if ((!float.IsNaN(r.WarnLow) && v < r.WarnLow) || (!float.IsNaN(r.WarnHigh) && v > r.WarnHigh)) return 1;
+            return 0;
+        }
+
+        private static string Small(string unit) => "<size=62%>" + unit + "</size>";
+
+        public override void DescribeProps(List<HudProp> into)
+        {
+            base.DescribeProps(into);
+            var d = Def;
+            into.Add(HudProp.Enum("Source", () => (int)ParseSource(d),
+                v => d.Set("src", SourceNames[Mathf.Clamp(v, 0, SourceNames.Length - 1)]), SourceNames));
+            into.Add(HudProp.Bool("Background box", () => d.GetB("box", true), v => d.SetB("box", v)));
+            into.Add(HudProp.Bool("Target line", () => d.GetB("target", SourceHasTarget(ParseSource(d))),
+                v => d.SetB("target", v)));
+            into.Add(HudProp.Bool("Threshold bar", () => d.GetB("bar", true), v => d.SetB("bar", v)));
+            into.Add(HudProp.Bool("Vertical bar", () => d.GetB("barVertical", false), v => d.SetB("barVertical", v)));
+            into.Add(HudProp.Color("Bar fill", () => d.GetS("barFill", ""), v => d.Set("barFill", Empty(v))));
+            into.Add(HudProp.Color("Bar warn", () => d.GetS("barWarn", ""), v => d.Set("barWarn", Empty(v))));
+            into.Add(HudProp.Color("Bar crit", () => d.GetS("barCrit", ""), v => d.Set("barCrit", Empty(v))));
+            into.Add(HudProp.Color("Bar track", () => d.GetS("barTrack", ""), v => d.Set("barTrack", Empty(v))));
+            into.Add(HudProp.Color("Bar target", () => d.GetS("barTarget", ""), v => d.Set("barTarget", Empty(v))));
+            into.Add(HudProp.Text("Label override", () => d.GetS("label", ""), v => d.Set("label", Empty(v))));
+            into.Add(HudProp.F("Value size", () => d.GetF("valueSize", 17f), v => d.SetF("valueSize", v), 8f, 48f));
+        }
+
+        /// <summary>Blank in the editor means "revert to the palette/auto default": stored as a
+        /// removed key rather than an empty string, so the profile never persists a dead param.</summary>
+        private static string Empty(string v) => string.IsNullOrEmpty(v) ? null : v;
+    }
+}
