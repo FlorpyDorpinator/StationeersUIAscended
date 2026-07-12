@@ -103,9 +103,14 @@ namespace StationeersUIMod.UI.Hud
 
         // ------------------------------------------------------------------ lifecycle
 
+        /// <summary>Which mode the current canvas was built for — a live flag flip
+        /// tears down and rebuilds (see Update).</summary>
+        private static bool _builtDocMode;
+
         private static void EnsureBuilt()
         {
             if (_canvas != null) return;
+            _builtDocMode = DocumentMode;
 
             var go = new GameObject("UIAscended_HudCanvas");
             UnityEngine.Object.DontDestroyOnLoad(go);
@@ -188,7 +193,7 @@ namespace StationeersUIMod.UI.Hud
                 // current starter — but ONLY the literal "Default" profile; anything the
                 // user named themselves is theirs, whatever its age.
                 var active = Features.HudProfileStore.Active;
-                if (active != null && active.Schema < 3
+                if (active != null && active.Schema < 4
                     && string.Equals(name, "Default", System.StringComparison.OrdinalIgnoreCase))
                 {
                     var fresh = BuildStarterDocument();
@@ -318,9 +323,10 @@ namespace StationeersUIMod.UI.Hud
         /// first run (and whenever the file goes missing).</summary>
         private static HudDocument BuildStarterDocument()
         {
-            // Schema 3 = the concept-art layout (1 was the primitive demo, 2 the plain
-            // parity port; EnsureActiveDocument silently upgrades a stale shipped Default).
-            var doc = new HudDocument { Name = "Default", Schema = 3 };
+            // Schema 4 = the final mockup layout: horizontal mini-bar rows in ONE bottom-
+            // right cluster, game moodlet icons, no hand tray. (1 demo, 2 parity, 3 the
+            // vertical-card draft; EnsureActiveDocument upgrades stale shipped Defaults.)
+            var doc = new HudDocument { Name = "Default", Schema = 4 };
             var els = doc.Elements;
 
             // --- top bar: backdrop + badge, clock, external cells, compass, day, world ---
@@ -328,7 +334,9 @@ namespace StationeersUIMod.UI.Hud
             bar.WPct = 0.96f; // span ~the screen at ANY resolution, not just 1920
             bar.RTL = 4f; bar.RTR = 4f; bar.RBR = 16f; bar.RBL = 16f;
             els.Add(bar);
-            els.Add(El("hand-badge", HudElementType.ActiveHandBadge, HudAnchor.TopLeft, 70f, -44f, 44f, 36f));
+            var badge = El("hand-badge", HudElementType.ActiveHandBadge, HudAnchor.TopLeft, 70f, -44f, 44f, 36f);
+            badge.SetB("number", true); // the mockup's "1" slot badge, not L/R
+            els.Add(badge);
             els.Add(El("clock", HudElementType.Clock, HudAnchor.TopLeft, 185f, -44f, 190f, 40f, SuitOnly));
 
             var extP = El("ext-pressure", HudElementType.Readout, HudAnchor.TopCenter, -330f, -44f, 200f, 56f, SuitOnly);
@@ -348,44 +356,31 @@ namespace StationeersUIMod.UI.Hud
 
             // --- left equipment column, bottom hand tray + key chips ---
             els.Add(El("equipment", HudElementType.EquipmentColumn, HudAnchor.MiddleLeft, 70f, 0f, 84f, 520f));
-            els.Add(El("hands", HudElementType.HandBoxes, HudAnchor.BottomCenter, 0f, 78f, 400f, 126f));
-            var chips = El("key-chips", HudElementType.KeybindChips, HudAnchor.BottomCenter, -320f, 66f, 110f, 96f);
+            var hands = El("hands", HudElementType.HandBoxes, HudAnchor.BottomCenter, 0f, 78f, 380f, 110f);
+            hands.SetB("tray", false); // just the two boxes — no trapezoid shelf
+            els.Add(hands);
+            var chips = El("key-chips", HudElementType.KeybindChips, HudAnchor.BottomCenter, -300f, 66f, 110f, 96f);
             chips.SetB("vertical", true);
             els.Add(chips);
 
             // --- bottom-right vitals: four readout rows + the round hologram portrait ---
-            // --- moodlet dashboard: chips center-out under the top bar, like a car ---
+            // --- moodlet dashboard: the game's own moodlet icons as centered chips ---
             els.Add(El("moodlets", HudElementType.MoodletDashboard, HudAnchor.TopCenter, 0f, -104f, 760f, 36f));
 
-            // --- vertical instrument cards (the concept's gauge columns) ---
-            // Bottom-left pair: the outside world.
-            AddGaugeCard(els, "card-ext-pressure", "ExternalPressure", "EXT PRESS", "Gauge", -1, 62f, 200f);
-            AddGaugeCard(els, "card-ext-temp", "ExternalTemp", "EXT TEMP", "Thermometer", -1, 158f, 200f);
-            // Bottom-right trio: the suit's own instruments.
-            AddGaugeCard(els, "card-int-pressure", "InternalPressure", "INTERNAL\nPRESSURE", "Gauge", 1, -560f, 175f);
-            AddGaugeCard(els, "card-int-temp", "InternalTemp", "INTERNAL\nTEMP", "Thermometer", 1, -455f, 175f);
-            AddGaugeCard(els, "card-jetpack", "JetpackPropellant", "JETPACK", "Jetpack", 1, -350f, 175f);
+            // --- bottom-right cluster (the mockup's single panel): needs rows | internal
+            // rows | round portrait, suit chips floating above it ---
+            var panel = El("cluster-panel", HudElementType.Box, HudAnchor.BottomRight, -330f, 115f, 640f, 170f, SuitOnly, 0);
+            panel.RTL = 14f; panel.RTR = 14f; panel.RBR = 14f; panel.RBL = 14f;
+            els.Add(panel);
 
-            // --- needs pills + suit chips + the round hologram + the damage doll ---
-            var hyd = El("pill-hydration", HudElementType.Readout, HudAnchor.BottomRight, -430f, 40f, 120f, 40f, SuitOnly);
-            hyd.Set("src", "Hydration"); hyd.Set("label", ""); hyd.SetB("bar", false);
-            hyd.Icon = "Droplet"; hyd.SetF("valueSize", 15f);
-            els.Add(hyd);
-            var san = El("pill-sanitation", HudElementType.Readout, HudAnchor.BottomRight, -300f, 40f, 120f, 40f, SuitOnly);
-            san.Set("src", "Sanitation"); san.Set("label", ""); san.SetB("bar", false);
-            san.Icon = "Toilet"; san.SetF("valueSize", 15f);
-            els.Add(san);
+            AddRow(els, "row-hunger", "Nutrition", "HUNGER", "Burger", -540f, 165f, 210f, 46f);
+            AddRow(els, "row-toilet", "Sanitation", "TOILET", "Toilet", -540f, 115f, 210f, 46f);
+            AddRow(els, "row-water", "Hydration", "WATER", "Droplet", -540f, 65f, 210f, 46f);
+            AddRow(els, "row-int-temp", "FeltTemp", "INTERNAL TEMP", "Thermometer", -310f, 150f, 230f, 62f);
+            AddRow(els, "row-int-pressure", "InternalPressure", "INTERNAL PRESSURE", "Gauge", -310f, 75f, 230f, 62f);
 
-            els.Add(El("suit-chips", HudElementType.SuitChips, HudAnchor.BottomRight, -560f, 40f, 170f, 44f, SuitOnly));
-            els.Add(El("portrait", HudElementType.Portrait, HudAnchor.BottomRight, -105f, 110f, 160f, 160f, SuitOnly));
-            els.Add(El("body-doll", HudElementType.BodyDoll, HudAnchor.BottomRight, -205f, 110f, 74f, 165f));
-
-            // A compact power+health pair rides over the portrait's shoulder — the doll
-            // and moodlets carry the story, these carry the numbers.
-            var pow = El("pill-power", HudElementType.Readout, HudAnchor.BottomRight, -105f, 215f, 150f, 36f, SuitOnly);
-            pow.Set("src", "SuitPower"); pow.Set("label", ""); pow.SetB("bar", true); pow.SetB("box", false);
-            pow.Icon = "Bolt"; pow.SetF("valueSize", 14f);
-            els.Add(pow);
+            els.Add(El("portrait", HudElementType.Portrait, HudAnchor.BottomRight, -90f, 115f, 150f, 150f, SuitOnly));
+            els.Add(El("suit-chips", HudElementType.SuitChips, HudAnchor.BottomRight, -120f, 235f, 170f, 44f, SuitOnly));
 
             // --- bare tier: the felt-sense words own the middle of the view ---
             els.Add(El("bare-senses", HudElementType.BareSenses, HudAnchor.Center, 0f, -40f, 420f, 320f, HudTierMask.Bare));
@@ -393,20 +388,18 @@ namespace StationeersUIMod.UI.Hud
             return doc;
         }
 
-        /// <summary>One of the concept art's VERTICAL instrument cards: boxed, icon at the
-        /// bottom, big value + target line, upright threshold bar. side −1 anchors
-        /// bottom-left, +1 bottom-right (x is the offset from that corner).</summary>
-        private static void AddGaugeCard(List<HudElementDef> els, string id, string src,
-            string label, string icon, int side, float x, float h)
+        /// <summary>One of the mockup's compact readout rows: icon + label + value with a
+        /// thin horizontal threshold bar underneath, no box of its own (the cluster panel
+        /// is the backdrop).</summary>
+        private static void AddRow(List<HudElementDef> els, string id, string src,
+            string label, string icon, float x, float y, float w, float h)
         {
-            var e = El(id, HudElementType.Readout,
-                side < 0 ? HudAnchor.BottomLeft : HudAnchor.BottomRight,
-                x, 30f + h * 0.5f, 92f, h, SuitOnly);
+            var e = El(id, HudElementType.Readout, HudAnchor.BottomRight, x, y, w, h, SuitOnly);
             e.Set("src", src);
             e.Set("label", label);
-            e.SetB("box", true);
+            e.SetB("box", false);
             e.SetB("bar", true);
-            e.SetB("barVertical", true);
+            e.SetB("target", false);
             e.Icon = icon;
             e.SetF("valueSize", 15f);
             els.Add(e);
@@ -480,6 +473,14 @@ namespace StationeersUIMod.UI.Hud
                 // (Guards.CanDraw is false then, so no later frame would do it).
                 if (!enabled || !UIAConfig.MasterEnable.Value) RestoreVanillaIfNeeded();
                 return;
+            }
+
+            // Flipping the Document-HUD toggle live must rebuild the whole surface —
+            // panel set and document views are different worlds (review finding: the
+            // in-window checkbox otherwise left a stale mix on screen).
+            if (_canvas != null && _builtDocMode != DocumentMode)
+            {
+                Shutdown();
             }
 
             EnsureBuilt();
@@ -1011,6 +1012,14 @@ namespace StationeersUIMod.UI.Hud
         private static bool _restorePlayerState;
         private static int _playerStateWarns;
 
+        /// <summary>True while the vanilla instrument cluster is being hidden. Read by the
+        /// Harmony prefix that skips PlayerStateWindow.UpdateJetpackPanels — vanilla
+        /// re-SHOWS InfoJetpack every frame a jetpack is worn, and reconciling against
+        /// that means both sides rewrite the panel's alpha every frame (mesh churn and a
+        /// hide that never sticks). Skipping vanilla's re-show is display-only and stops
+        /// the moment the toggle clears.</summary>
+        internal static bool PlayerStateClusterHidden;
+
         /// <summary>The vanilla bottom-right instrument cluster (internal/external/jetpack/
         /// health boxes on PlayerStateWindow) — hidden through the game's OWN alpha path
         /// (UserInterfaceBase.SetVisible), reconciled against actual state every frame
@@ -1026,6 +1035,7 @@ namespace StationeersUIMod.UI.Hud
                     && UIAConfig.HideVanillaPlayerState.Value;
                 if (hide)
                 {
+                    PlayerStateClusterHidden = true; // arms the UpdateJetpackPanels skip
                     HideCluster(psw.InfoInternal);
                     HideCluster(psw.InfoExternal);
                     HideCluster(psw.InfoJetpack);
@@ -1034,11 +1044,16 @@ namespace StationeersUIMod.UI.Hud
                 }
                 else if (_restorePlayerState)
                 {
+                    PlayerStateClusterHidden = false;
                     _restorePlayerState = false;
                     ShowCluster(psw.InfoInternal);
                     ShowCluster(psw.InfoExternal);
                     ShowCluster(psw.InfoJetpack);
                     ShowCluster(psw.InfoHealth);
+                }
+                else
+                {
+                    PlayerStateClusterHidden = false;
                 }
             }
             catch (Exception e)
@@ -1062,6 +1077,7 @@ namespace StationeersUIMod.UI.Hud
         public static void RestoreVanillaIfNeeded()
         {
             // The instrument cluster restores independently of the three big panels.
+            PlayerStateClusterHidden = false;
             if (_restorePlayerState)
             {
                 _restorePlayerState = false;

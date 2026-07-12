@@ -197,7 +197,11 @@ namespace StationeersUIMod.UI.Hud.Widgets
 
                         Sprite sprite = null;
                         try { sprite = su.Icon; } catch { }
-                        HudIconKind kind = GlyphFor(su, sprite);
+                        // The GAME'S own moodlet art is the default (these icons are what
+                        // players already know); the thin-line glyph set is the opt-in.
+                        HudIconKind kind = Def.GetB("glyphs", false)
+                            ? GlyphFor(su, sprite)
+                            : (sprite != null ? HudIconKind.None : GlyphFor(su, null));
 
                         string label = "";
                         try { label = su.GetDisplayName(); } catch { }
@@ -336,6 +340,7 @@ namespace StationeersUIMod.UI.Hud.Widgets
             into.Add(HudProp.F("Chip gap", () => d.GetF("gap", 10f), v => d.SetF("gap", Mathf.Clamp(v, 0f, 60f)), 0f, 60f));
             into.Add(HudProp.F("Chip height", () => d.GetF("chipH", 30f), v => d.SetF("chipH", Mathf.Clamp(v, 10f, 80f)), 10f, 80f));
             into.Add(HudProp.Bool("Show labels", () => d.GetB("labels", true), v => d.SetB("labels", v)));
+            into.Add(HudProp.Bool("Thin-line glyphs (off = game icons)", () => d.GetB("glyphs", false), v => d.SetB("glyphs", v)));
         }
     }
 }

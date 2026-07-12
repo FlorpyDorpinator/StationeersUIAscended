@@ -128,22 +128,50 @@ namespace StationeersUIMod.UI.Hud.Widgets
 
             float cx = (cLeft + cRight) * 0.5f;
             float cw = cRight - cLeft;
-            float lblY = Mathf.Lerp(cBot, cTop, 0.82f);
-            float valY = Mathf.Lerp(cBot, cTop, 0.44f);
-            float tgtY = Mathf.Lerp(cBot, cTop, 0.10f);
 
-            _labelRt.anchoredPosition = new Vector2(cx, lblY);
-            _labelRt.sizeDelta = new Vector2(cw, 14f * scale);
-            _valueRt.anchoredPosition = new Vector2(cx, valY);
-            _valueRt.sizeDelta = new Vector2(cw, 24f * scale);
-            _targetRt.anchoredPosition = new Vector2(cx, tgtY);
-            _targetRt.sizeDelta = new Vector2(cw, 12f * scale);
-
-            if (_iconRt != null)
+            if (vertical)
             {
-                float isz = Mathf.Clamp(Mathf.Min(cw, cTop - cBot) * 0.24f, 8f * scale, 26f * scale);
-                _iconRt.anchoredPosition = new Vector2(cLeft + isz * 0.5f, lblY);
-                _iconRt.sizeDelta = new Vector2(isz, isz);
+                // Tall card: multi-line label up top, value mid, target line, icon at the
+                // very bottom (the concept's gauge column). The label box gets TWO lines
+                // of room — "INTERNAL PRESSURE" style names wrap on a 92px card.
+                float lblY = Mathf.Lerp(cBot, cTop, 0.86f);
+                float valY = Mathf.Lerp(cBot, cTop, 0.56f);
+                float tgtY = Mathf.Lerp(cBot, cTop, 0.34f);
+                _labelRt.anchoredPosition = new Vector2(cx, lblY);
+                _labelRt.sizeDelta = new Vector2(cw, 28f * scale);
+                _valueRt.anchoredPosition = new Vector2(cx, valY);
+                _valueRt.sizeDelta = new Vector2(cw, 24f * scale);
+                _targetRt.anchoredPosition = new Vector2(cx, tgtY);
+                _targetRt.sizeDelta = new Vector2(cw, 12f * scale);
+                if (_iconRt != null)
+                {
+                    float isz = Mathf.Clamp(cw * 0.4f, 10f * scale, 30f * scale);
+                    _iconRt.anchoredPosition = new Vector2(cx, cBot + isz * 0.5f + 2f * scale);
+                    _iconRt.sizeDelta = new Vector2(isz, isz);
+                }
+            }
+            else
+            {
+                // Compact row (the mockup's cluster rows): icon left, label top beside it,
+                // value right-of-label, thin bar already reserved along the bottom.
+                float isz = _iconRt != null
+                    ? Mathf.Clamp((cTop - cBot) * 0.62f, 10f * scale, 26f * scale) : 0f;
+                float textLeft = cLeft + (isz > 0f ? isz + 6f * scale : 0f);
+                float tw = Mathf.Max(20f, cRight - textLeft);
+                float midY = (cTop + cBot) * 0.5f;
+                if (_iconRt != null)
+                {
+                    _iconRt.anchoredPosition = new Vector2(cLeft + isz * 0.5f, midY);
+                    _iconRt.sizeDelta = new Vector2(isz, isz);
+                }
+                _label.alignment = TMPro.TextAlignmentOptions.MidlineLeft;
+                _value.alignment = TMPro.TextAlignmentOptions.MidlineRight;
+                _labelRt.anchoredPosition = new Vector2(textLeft + tw * 0.5f, midY);
+                _labelRt.sizeDelta = new Vector2(tw, 16f * scale);
+                _valueRt.anchoredPosition = new Vector2(textLeft + tw * 0.5f, midY);
+                _valueRt.sizeDelta = new Vector2(tw, 22f * scale);
+                _targetRt.anchoredPosition = new Vector2(textLeft + tw * 0.5f, cBot + 6f * scale);
+                _targetRt.sizeDelta = new Vector2(tw, 12f * scale);
             }
         }
 

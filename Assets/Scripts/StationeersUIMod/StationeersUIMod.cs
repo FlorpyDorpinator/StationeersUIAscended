@@ -18,8 +18,8 @@ namespace StationeersUIMod
     /// </summary>
     public sealed class StationeersUIMod : MonoBehaviour
     {
-        public const string ModVersion = "0.6.2";
-        public const string VersionDisplay = "0.6.2 Alpha";
+        public const string ModVersion = "0.7.0";
+        public const string VersionDisplay = "0.7.0 Alpha";
         public const string ModGuid = "com.stationeersuimod.ui";
 
         public static StationeersUIMod Instance { get; private set; }
@@ -97,7 +97,8 @@ namespace StationeersUIMod
                     typeof(Patch_Human_SpawnDynamicThing),
                     typeof(Patch_KeyManager_SpawnDynamicThing),
                     typeof(Patch_InventoryManager_AllowMouseControl),
-                    typeof(Patch_MovementController_HandleJump));
+                    typeof(Patch_MovementController_HandleJump),
+                    typeof(Patch_PlayerStateWindow_UpdateJetpackPanels));
 
                 // The static `new Mod(...)` above registers us with LaunchPadBooster for the optional client-side mod list.
                 // (Proper direct reference - no reflection hack.)

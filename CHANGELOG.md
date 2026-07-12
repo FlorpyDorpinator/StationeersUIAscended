@@ -2,6 +2,51 @@
 
 All notable changes to the mod. Detailed engineering write-ups live in `Changes Reports/`.
 
+## 0.7.0 Alpha — 2026-07-11 — THE HUD DESIGNER
+
+The HUD stops being ours and becomes YOURS. Everything on screen is now an element in a
+**layout document** you edit in-game with F9 — built across five reviewed phases (opus
+implementation fleets + per-phase adversarial reviews; engineering details in the
+Changes Report).
+
+### The designer (F9)
+- **Click any element** → selection box with 8 drag handles (they hug curved elements —
+  handles are drawn through the visor warp). Drag to move, handles to resize; **grid
+  snap** with a live toggle + size slider (hold Alt to bypass).
+- **Create your own UI**: add any of 18 element types; boxes with per-corner rounding;
+  your own text labels; icons (26 built-in thin-line glyphs, PNG overrides in
+  `config/StationeersUIMod/HudIcons/`); **draw line work** by clicking points on screen.
+- **Edit anything in place**: the popup shows exactly the selected element's properties —
+  geometry, per-corner radii, tier visibility, fonts, and every colour as either a
+  palette link (theme follows the wheels) or a custom literal. Gauges can flip
+  **vertical/horizontal** and recolor their **warn/crit zones per element**.
+- **Undo/redo** (Ctrl+Z/Y, 50 steps), Del removes, Ctrl+D duplicates.
+- **Profiles**: layouts autosave; save-as/switch/share as plain XML in
+  `config/StationeersUIMod/HudProfiles/`. The shipped Default matches the concept art
+  (vertical instrument cards, dashboard moodlets, round hologram) and regenerates if
+  deleted.
+
+### New live elements
+- **Moodlet dashboard**: vanilla's status icons re-rendered as centered chips under the
+  top bar — 1 = dead center, N = even spread — with caution/critical coloring and our
+  thin-line glyphs (vanilla sprite fallback). The vanilla strip is hidden.
+- **Body damage silhouette** (7 regions, the game's own per-organ ratios), **suit status
+  chips** with state dots (helmet/AC/light, open-visor-while-suited reads critical),
+  **vertical instrument cards** with target markers, **readout cards** for any of 18
+  data sources (incl. the new felt-temperature), world name / day counter / active-hand
+  badge / keybind chips.
+- New client-safe data: suit pressure/temperature setpoints, jetpack thrust + propellant
+  delta, hygiene, per-region damage, world name. The toilet gauge is server-only and
+  honestly reads `--` on multiplayer clients.
+
+### Under the hood
+- The legacy fixed-panel HUD remains behind `UseDocumentHud` (off = exact 0.5.0
+  behavior) until the designer proves itself in play-testing.
+- Vanilla's bottom-right instrument cluster hides through the game's own
+  `SetVisible` path, reconciled per-frame, fully restored on exit; the hide-vanilla
+  toggles now default on (the mod replaces the whole HUD surface).
+- Chip drops (0.6.2) survive on the new hand/equipment widgets.
+
 ## 0.6.2 Alpha — 2026-07-11
 
 Three radial quality-of-life additions (FlorpyDorp's spec):

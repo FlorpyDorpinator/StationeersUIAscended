@@ -191,12 +191,19 @@ namespace StationeersUIMod.Windows
                 foreach (var v in _views)
                     if (v.Def.Id == _selectedId) { SelectedElement = v; break; }
 
-            // Keyboard: delete / duplicate / undo / redo work regardless of hover.
-            bool ctrl = Input.GetKey(KeyCode.LeftControl) || Input.GetKey(KeyCode.RightControl);
-            if (ctrl && Input.GetKeyDown(KeyCode.Z)) { DoUndo(); return; }
-            if (ctrl && Input.GetKeyDown(KeyCode.Y)) { DoRedo(); return; }
-            if (SelectedElement != null && Input.GetKeyDown(KeyCode.Delete)) { DeleteSelected(); return; }
-            if (SelectedElement != null && ctrl && Input.GetKeyDown(KeyCode.D)) { DuplicateSelected(); return; }
+            // Keyboard: delete / duplicate / undo / redo — NEVER while an ImGui text
+            // field owns the keyboard (Delete there erases a character, not an element,
+            // and Ctrl+Z is a text-edit reflex; ImGui does not block Unity's Input).
+            bool imguiOwnsKeys = false;
+            try { imguiOwnsKeys = ImGuiNET.ImGui.GetIO().WantCaptureKeyboard; } catch { }
+            if (!imguiOwnsKeys)
+            {
+                bool ctrl = Input.GetKey(KeyCode.LeftControl) || Input.GetKey(KeyCode.RightControl);
+                if (ctrl && Input.GetKeyDown(KeyCode.Z)) { DoUndo(); return; }
+                if (ctrl && Input.GetKeyDown(KeyCode.Y)) { DoRedo(); return; }
+                if (SelectedElement != null && Input.GetKeyDown(KeyCode.Delete)) { DeleteSelected(); return; }
+                if (SelectedElement != null && ctrl && Input.GetKeyDown(KeyCode.D)) { DuplicateSelected(); return; }
+            }
 
             if (DrawingLine)
             {
@@ -371,6 +378,17 @@ namespace StationeersUIMod.Windows
             if (doc != null) UI.Hud.HudDocumentHistory.Push(doc.Clone());
         }
 
+        /// <summary>Any document swap invalidates an in-flight drag — without this, the
+        /// release after a mid-drag Ctrl+Z pushes the STALE pre-drag snapshot onto the
+        /// undo stack (a future state masquerading as the past) and autosaves the wrong
+        /// baseline.</summary>
+        private static void CancelDrag()
+        {
+            _dragging = false;
+            _dragMoved = false;
+            _preDrag = null;
+        }
+
         public static void ClearElementSelection()
         {
             _selectedId = null;
@@ -457,6 +475,7 @@ namespace StationeersUIMod.Windows
 
         public static void DoUndo()
         {
+            CancelDrag();
             var doc = Features.HudProfileStore.Active;
             if (doc == null || !UI.Hud.HudDocumentHistory.CanUndo) return;
             var prev = UI.Hud.HudDocumentHistory.Undo(doc);
@@ -468,6 +487,7 @@ namespace StationeersUIMod.Windows
 
         public static void DoRedo()
         {
+            CancelDrag();
             var doc = Features.HudProfileStore.Active;
             if (doc == null || !UI.Hud.HudDocumentHistory.CanRedo) return;
             var next = UI.Hud.HudDocumentHistory.Redo(doc);

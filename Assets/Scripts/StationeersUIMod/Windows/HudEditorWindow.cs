@@ -238,11 +238,19 @@ namespace StationeersUIMod.Windows
             ImGui.SameLine();
             if (ImGui.Button("Save as") && !string.IsNullOrEmpty(_saveAsName))
             {
+                // Sanitize BEFORE remembering the name: the store strips illegal chars
+                // for the file, and a config name that kept them would miss the file on
+                // the next launch and silently regenerate the default.
+                string clean = _saveAsName;
+                foreach (var bad in System.IO.Path.GetInvalidFileNameChars())
+                    clean = clean.Replace(bad.ToString(), "");
+                clean = clean.Trim();
                 var doc = Features.HudProfileStore.Active;
-                if (doc != null && Features.HudProfileStore.Save(doc, _saveAsName))
+                if (!string.IsNullOrEmpty(clean) && doc != null
+                    && Features.HudProfileStore.Save(doc, clean))
                 {
-                    if (HudConfig.HudActiveProfile != null) HudConfig.HudActiveProfile.Value = _saveAsName;
-                    Features.HudProfileStore.SetActive(doc, _saveAsName);
+                    if (HudConfig.HudActiveProfile != null) HudConfig.HudActiveProfile.Value = clean;
+                    Features.HudProfileStore.SetActive(doc, clean);
                     _saveAsName = "";
                 }
             }
@@ -326,6 +334,7 @@ namespace StationeersUIMod.Windows
 
         private static int _elementPopupStamp = -1;
         private static readonly List<UI.Hud.HudProp> _propScratch = new List<UI.Hud.HudProp>();
+        private static UI.Hud.HudDocument _pendingElementUndo;
 
         public static void DrawPopupOverlay()
         {
@@ -350,16 +359,31 @@ namespace StationeersUIMod.Windows
                     _propScratch.Clear();
                     try { el.DescribeProps(_propScratch); }
                     catch { }
+                    // Undo is pushed on COMMIT, not on focus: IsItemActivated fires on a
+                    // mere click into a widget, and pushing there wiped the redo stack
+                    // with dead steps (review finding). The begin-stash keeps the
+                    // pre-gesture state; only a real change spends it.
+                    if (elMoved) _pendingElementUndo = null;
                     HudPropDrawer.DrawAll(_propScratch,
                         onBeginEdit: () =>
                         {
                             var doc = Features.HudProfileStore.Active;
-                            if (doc != null) UI.Hud.HudDocumentHistory.Push(doc.Clone());
+                            _pendingElementUndo = doc != null ? doc.Clone() : null;
                         },
-                        onCommitted: () => Features.HudProfileStore.MarkChanged());
-                    // Live feedback while a slider is mid-drag: geometry edits apply to
-                    // THIS element immediately; the commit's version bump does the full pass.
-                    HudSystem.RelayoutElement(el);
+                        onCommitted: () =>
+                        {
+                            if (_pendingElementUndo != null)
+                            {
+                                UI.Hud.HudDocumentHistory.Push(_pendingElementUndo);
+                                _pendingElementUndo = null;
+                            }
+                            Features.HudProfileStore.MarkChanged();
+                        });
+                    // Live feedback only while a widget is actually being edited — an
+                    // idle popup must not rebuild the element's meshes every frame.
+                    bool editing = false;
+                    try { editing = ImGui.IsAnyItemActive(); } catch { }
+                    if (editing) HudSystem.RelayoutElement(el);
                     ImGui.Separator();
                     if (ImGui.Button("Duplicate##pop")) HudEditorMode.DuplicateSelected();
                     ImGui.SameLine();

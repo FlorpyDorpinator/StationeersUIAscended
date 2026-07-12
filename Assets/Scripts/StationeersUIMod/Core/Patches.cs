@@ -198,6 +198,23 @@ namespace StationeersUIMod.Core
     }
 
     /// <summary>
+    /// While the HUD hides the vanilla instrument cluster, vanilla's own per-frame
+    /// re-show of the jetpack box (PlayerStateWindow.UpdateJetpackPanels, 27701
+    /// PlayerStateWindow.cs:322 — `if (!InfoJetpack.IsVisible) SetVisible(true)`) would
+    /// fight our per-frame re-hide: both sides rewriting every Image/TMP alpha in the
+    /// panel each frame. Skipping the method is display-only (it only shows/updates the
+    /// jetpack readout) and stops the instant the hide toggle clears.
+    /// </summary>
+    [HarmonyPatch(typeof(Assets.Scripts.UI.PlayerStateWindow), "UpdateJetpackPanels")]
+    internal static class Patch_PlayerStateWindow_UpdateJetpackPanels
+    {
+        private static bool Prefix()
+        {
+            return !UI.Hud.HudSystem.PlayerStateClusterHidden;
+        }
+    }
+
+    /// <summary>
     /// Vanilla NRE guard: Human.SpawnDynamicThing (Human.cs:4430 in 27701) checks
     /// GameMode == Creative but NOT whether a spawnable is selected — with
     /// InventoryManager.SpawnPrefab null it dereferences spawnPrefab.SpawnId and throws
