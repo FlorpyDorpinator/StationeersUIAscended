@@ -30,6 +30,10 @@ namespace StationeersUIMod.UI.Hud
         public static ConfigEntry<bool> VisorHudEnabled;
         public static ConfigEntry<bool> LegacyImGuiHud;
         public static ConfigEntry<KeyCode> HudEditorKey;
+        public static ConfigEntry<bool> UseDocumentHud;
+        public static ConfigEntry<string> HudActiveProfile;
+        public static ConfigEntry<bool> GridSnapEnabled;
+        public static ConfigEntry<float> GridSnapSize;
 
         // Curvature
         public static ConfigEntry<HudCurvature> Curvature;
@@ -88,6 +92,19 @@ namespace StationeersUIMod.UI.Hud
             VisorHudEnabled = cfg.Bind(S, "VisorHudEnabled", true,
                 "The UGUI visor HUD: curved top status bar, compass, equipment column, hand " +
                 "boxes, vitals card, diegetic power tiers. Replaces the legacy ImGui overlay.");
+            UseDocumentHud = cfg.Bind(S, "UseDocumentHud", false,
+                "TRANSITIONAL (HUD Designer): render the HUD from the active layout profile " +
+                "(a document of movable elements) instead of the fixed 0.5.0 panels. Becomes " +
+                "the only mode once the designer ships; off = the classic panel set.");
+            HudActiveProfile = cfg.Bind(S, "HudActiveProfile", "Default",
+                "Which HUD layout profile to render (a .xml in config/StationeersUIMod/" +
+                "HudProfiles). Missing profiles are recreated from the shipped default.");
+            GridSnapEnabled = cfg.Bind(S, "GridSnapEnabled", true,
+                "HUD editor: snap dragged/resized elements to the grid. Toggleable live in " +
+                "the F9 window; hold Alt while dragging for temporary freeform.");
+            GridSnapSize = cfg.Bind(S, "GridSnapSize", 8f,
+                new ConfigDescription("HUD editor: grid cell size in reference pixels.",
+                    new AcceptableValueRange<float>(2f, 64f)));
             LegacyImGuiHud = cfg.Bind(S, "LegacyImGuiHud", false,
                 "Draw the old 0.1.0 ImGui HUD instead (kept as a fallback during the port).");
             HudEditorKey = cfg.Bind(S, "HudEditorKey", KeyCode.F9,

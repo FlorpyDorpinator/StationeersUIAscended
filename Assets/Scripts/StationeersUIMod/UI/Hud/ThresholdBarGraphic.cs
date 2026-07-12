@@ -53,7 +53,9 @@ namespace StationeersUIMod.UI.Hud
         public float Value
         {
             get => _value;
-            set { if (!Mathf.Approximately(_value, value)) { _value = value; SetVerticesDirty(); } }
+            // NaN-aware like Target: a widget with no reading pushes NaN every frame,
+            // and NaN != NaN would re-dirty the mesh forever.
+            set { if (!Same(_value, value)) { _value = value; SetVerticesDirty(); } }
         }
 
         /// <summary>Raw target position; <see cref="float.NaN"/> hides the caret.</summary>

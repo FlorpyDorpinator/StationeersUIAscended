@@ -131,13 +131,22 @@ namespace StationeersUIMod.UI.Hud
             _panels.Clear();
             _animator.Clear();
             _vignetteFader = _animator.Register(vrt, _vignetteGroup, suitTier: false, seed: 91);
-            AddPanel(new TopStatusBar(), 1);
-            AddPanel(new CompassRibbon(), 2);
-            AddPanel(new EquipmentColumn(), 3);
-            AddPanel(new HandBoxes(), 4);
-            _vitals = new VitalsCard();
-            AddPanel(_vitals, 5);
-            AddPanel(new BareSensesPanel(), 6);
+
+            if (DocumentMode)
+            {
+                EnsureActiveDocument();
+                BuildViewsFromDocument();
+            }
+            else
+            {
+                AddPanel(new TopStatusBar(), 1);
+                AddPanel(new CompassRibbon(), 2);
+                AddPanel(new EquipmentColumn(), 3);
+                AddPanel(new HandBoxes(), 4);
+                _vitals = new VitalsCard();
+                AddPanel(_vitals, 5);
+                AddPanel(new BareSensesPanel(), 6);
+            }
 
             SetLayerRecursively(go, HudLayerUi);
             _screenW = Screen.width;
@@ -150,6 +159,144 @@ namespace StationeersUIMod.UI.Hud
             p.Build(_canvas.transform);
             p.Fader = _animator.Register(p.Root, p.Group, p.SuitTier, seed);
             _panels.Add(p);
+        }
+
+        // ------------------------------------------------------------------ document mode
+
+        internal static bool DocumentMode => HudConfig.UseDocumentHud != null
+            && HudConfig.UseDocumentHud.Value;
+
+        /// <summary>Set when the store swaps documents (profile switch, editor load) —
+        /// views are renderers of a dead document at that point and must rebuild.</summary>
+        private static bool _docRebuildNeeded;
+        private static bool _docEventHooked;
+
+        private static void EnsureActiveDocument()
+        {
+            if (!_docEventHooked)
+            {
+                Features.HudProfileStore.ActiveReplaced += OnActiveDocReplaced;
+                _docEventHooked = true;
+            }
+            if (Features.HudProfileStore.Active == null)
+            {
+                string name = HudConfig.HudActiveProfile != null
+                    ? HudConfig.HudActiveProfile.Value : "Default";
+                Features.HudProfileStore.LoadActive(name, BuildStarterDocument);
+                _docRebuildNeeded = false; // the SetActive above fired the event; we build right after
+            }
+        }
+
+        private static void OnActiveDocReplaced() => _docRebuildNeeded = true;
+
+        /// <summary>One view per document element, Z-sorted into sibling order. The
+        /// animator seed derives from the element Id so flicker desync survives both
+        /// rebuilds and hot reloads.</summary>
+        private static void BuildViewsFromDocument()
+        {
+            var doc = Features.HudProfileStore.Active;
+            if (doc == null) return;
+
+            _docSorted.Clear();
+            _docSorted.AddRange(doc.Elements);
+            _docSorted.Sort((a, b) => a.Z != b.Z ? a.Z.CompareTo(b.Z)
+                : string.CompareOrdinal(a.Id, b.Id)); // stable tie-break: no z-fighting churn
+
+            foreach (var def in _docSorted)
+            {
+                if (def == null) continue;
+                // Fail-soft per element: one broken element (bad params, hand-edited
+                // profile) degrades to a missing element, never a missing HUD.
+                try
+                {
+                    HudElementView view = CreateViewFor(def);
+                    view.Def = def;
+                    AddPanel(view, HudDocument.StableSeed(def.Id));
+                }
+                catch (System.Exception e)
+                {
+                    Core.UIALog.Warn("HUD element '" + def.Id + "' (" + def.Type + ") failed to build: " + e.Message);
+                }
+            }
+        }
+
+        private static readonly List<HudElementDef> _docSorted = new List<HudElementDef>();
+
+        /// <summary>The type→view registry. Phases 2-3 add the live widgets here;
+        /// everything unregistered renders as PrimitiveView's named placeholder.</summary>
+        private static HudElementView CreateViewFor(HudElementDef def)
+        {
+            switch (def.Type)
+            {
+                case HudElementType.Box:
+                case HudElementType.Label:
+                case HudElementType.Polyline:
+                case HudElementType.Icon:
+                default:
+                    return new PrimitiveView();
+            }
+        }
+
+        /// <summary>Torn down and rebuilt in place (document swap): panels die, the
+        /// canvas, vignette and animator survive.</summary>
+        private static void RebuildViews()
+        {
+            try { _vitals?.RestorePortrait(); } catch { }
+            foreach (var p in _panels) p.Destroy();
+            _panels.Clear();
+            _vitals = null;
+            _animator.Clear();
+            if (_vignette != null)
+                _vignetteFader = _animator.Register((RectTransform)_vignette.transform,
+                    _vignetteGroup, suitTier: false, seed: 91);
+            BuildViewsFromDocument();
+            SetLayerRecursively(_canvas.gameObject,
+                _appliedMode == HudCurvature.DomeProjection ? HudLayerDome : HudLayerUi);
+            // Mode C swaps every Graphic's material at apply time — views built AFTER
+            // that would render with stock materials (z-fight into the world) unless
+            // the swap is re-run over the fresh subtree.
+            if (_appliedMode == HudCurvature.CurvedWorldCanvas) ApplyWorldMaterials();
+            _hasPrev = false; // fresh views must snap to visibility, not flicker in
+            RelayoutAll();
+        }
+
+        /// <summary>Phase 1 starter: a handful of primitives proving the document path
+        /// end-to-end (render, palette refs, PNG icons, autosave). Replaced by the
+        /// concept-art default when the widget set lands.</summary>
+        private static HudDocument BuildStarterDocument()
+        {
+            var doc = new HudDocument { Name = "Default" };
+            var box = new HudElementDef
+            {
+                Id = "demo-box", Type = HudElementType.Box,
+                Anchor = HudAnchor.Center, X = 0f, Y = 220f, W = 320f, H = 64f,
+                RTL = 18f, RTR = 18f, RBR = 4f, RBL = 4f, Z = 0,
+            };
+            var label = new HudElementDef
+            {
+                Id = "demo-label", Type = HudElementType.Label,
+                Anchor = HudAnchor.Center, X = 0f, Y = 220f, W = 300f, H = 40f,
+                Text = "DOCUMENT HUD ONLINE", Z = 1,
+            };
+            label.SetF("size", 16f);
+            var icon = new HudElementDef
+            {
+                Id = "demo-icon", Type = HudElementType.Icon,
+                Anchor = HudAnchor.Center, X = -180f, Y = 220f, W = 40f, H = 40f,
+                Icon = "Gauge", Z = 1,
+            };
+            var line = new HudElementDef
+            {
+                Id = "demo-line", Type = HudElementType.Polyline,
+                Anchor = HudAnchor.Center, X = 0f, Y = 176f, W = 340f, H = 10f, Z = 0,
+            };
+            line.SetPoints("pts", new[] { new Vector2(-170f, 0f), new Vector2(150f, 0f), new Vector2(170f, 8f) });
+            line.SetF("width", 1.6f);
+            doc.Elements.Add(box);
+            doc.Elements.Add(label);
+            doc.Elements.Add(icon);
+            doc.Elements.Add(line);
+            return doc;
         }
 
         public static void Shutdown()
@@ -186,6 +333,15 @@ namespace StationeersUIMod.UI.Hud
             _demoHoldUntil = 0f;
             LastSnapshot = null;
             HudSampler.Clear();
+            // Document mode: flush any pending autosave and drop the active document +
+            // event hook (hot-reload rule — a reloaded assembly re-subscribes cleanly).
+            if (_docEventHooked)
+            {
+                Features.HudProfileStore.ActiveReplaced -= OnActiveDocReplaced;
+                _docEventHooked = false;
+            }
+            _docRebuildNeeded = false;
+            Features.HudProfileStore.Shutdown();
         }
 
         // ------------------------------------------------------------------ main loop
@@ -217,6 +373,18 @@ namespace StationeersUIMod.UI.Hud
             _canvas.gameObject.SetActive(true);
             SyncVanillaVisibility();
 
+            if (DocumentMode)
+            {
+                // Profile switched / editor loaded a different document: views render a
+                // dead object now — rebuild in place (canvas + animator survive).
+                if (_docRebuildNeeded)
+                {
+                    _docRebuildNeeded = false;
+                    RebuildViews();
+                }
+                Features.HudProfileStore.Tick(Time.unscaledTime); // debounced autosave
+            }
+
             var snap = HudSampler.Sample();
             LastSnapshot = snap;
             if (!snap.Valid) return;
@@ -234,8 +402,12 @@ namespace StationeersUIMod.UI.Hud
                 if (_prevTier != HudTier.Bare && tier == HudTier.Bare)
                 {
                     _animator.PowerDeath();
+                    // Document element views have no Toggle (null = always on) — same
+                    // guard as every sibling loop, or a Bare-only element NREs here and
+                    // wedges _prevTier so the transition re-throws every frame.
                     foreach (var p in _panels)
-                        if (p.VisibleAt(HudTier.Bare) && !p.VisibleAt(HudTier.Suited) && p.Toggle.Value)
+                        if (p.VisibleAt(HudTier.Bare) && !p.VisibleAt(HudTier.Suited)
+                            && (p.Toggle == null || p.Toggle.Value))
                             _animator.SlowShow(p.Fader);
                 }
                 else if (_prevTier == HudTier.Bare && tier != HudTier.Bare)
@@ -331,7 +503,10 @@ namespace StationeersUIMod.UI.Hud
                 + HudConfig.EdgeFeather.Value * 41f   // read inside OnPopulateMesh — meshes
                                                       // must rebuild when the slider moves
                 + (HudConfig.CurveInvert.Value ? 313f : 0f)
-                + HudConfig.CurveStrength.Value * 631f + (int)HudConfig.Curvature.Value * 977f;
+                + HudConfig.CurveStrength.Value * 631f + (int)HudConfig.Curvature.Value * 977f
+                // Document mode: any element edit bumps the store version — geometry
+                // lives in the document, so this replaces the per-panel size entries.
+                + (DocumentMode ? Features.HudProfileStore.Version * 3571f : 0f);
         }
 
         // ------------------------------------------------------------------ curvature

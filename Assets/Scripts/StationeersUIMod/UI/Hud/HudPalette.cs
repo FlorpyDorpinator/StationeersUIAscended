@@ -77,6 +77,67 @@ namespace StationeersUIMod.UI.Hud
         public static Entry Vignette;
         public static Entry Scanline;
 
+        // ---------- colour-ref resolution ----------
+        //
+        // A "colour ref" is either a palette entry Name (so re-tinting the palette re-tints
+        // everything referencing it) or a literal "#RRGGBBAA" (an escape hatch for one-off
+        // colours the palette doesn't carry). Widgets store the ref string; drawing code calls
+        // Resolve every frame, so the common path — a palette-name hit — must not allocate.
+
+        /// <summary>
+        /// Turn a colour ref into a real <see cref="Color"/>. Empty -> <paramref name="fallback"/>;
+        /// a '#'-prefixed or bare 6/8-char hex string -> parsed literal; otherwise the palette
+        /// entry whose Name matches (ordinal); no match -> <paramref name="fallback"/>.
+        /// The palette-name path is allocation-free (indexed scan, ordinal compare, cached Value).
+        /// </summary>
+        public static Color Resolve(string colorRef, Color fallback)
+        {
+            if (string.IsNullOrEmpty(colorRef)) return fallback;
+
+            // RadialPalette.FromHex already TrimStart('#')s and reads 6 or 8 hex chars, so the
+            // literal is handed off whole — no Substring here.
+            if (LooksLikeHex(colorRef))
+                return Overlay.RadialPalette.FromHex(colorRef);
+
+            for (int i = 0; i < All.Count; i++)
+            {
+                Entry e = All[i];
+                if (string.Equals(e.Name, colorRef, StringComparison.Ordinal))
+                    return e.Value;
+            }
+            return fallback;
+        }
+
+        /// <summary>True when the ref names a palette entry rather than a hex literal — the editor
+        /// uses this to choose between the palette dropdown and the free colour wheel.</summary>
+        public static bool IsPaletteName(string colorRef)
+        {
+            return !string.IsNullOrEmpty(colorRef) && !LooksLikeHex(colorRef);
+        }
+
+        /// <summary>Format a colour as a "#RRGGBBAA" ref (RadialPalette.ToHex emits the bare
+        /// hex, so we prepend the '#' that marks it as a literal rather than a palette name).</summary>
+        public static string ToHexRef(Color c)
+        {
+            return "#" + Overlay.RadialPalette.ToHex(c);
+        }
+
+        /// <summary>Cheap classifier: a leading '#', or a pure-hex body of exactly 6 or 8 chars,
+        /// means "hex literal". Char-by-char so it never allocates.</summary>
+        private static bool LooksLikeHex(string s)
+        {
+            if (s[0] == '#') return true;
+            int n = s.Length;
+            if (n != 6 && n != 8) return false;
+            for (int i = 0; i < n; i++)
+            {
+                char c = s[i];
+                bool hex = (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F');
+                if (!hex) return false;
+            }
+            return true;
+        }
+
         public static void Bind(ConfigFile cfg)
         {
             All.Clear();
