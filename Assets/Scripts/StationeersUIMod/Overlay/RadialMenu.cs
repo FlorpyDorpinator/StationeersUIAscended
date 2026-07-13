@@ -640,6 +640,27 @@ namespace StationeersUIMod.Overlay
                         UIAudioManager.Play(UIAudioManager.ObjectIntoHandHash);
                         return;
                     }
+                    // Bug 8: grab an item OUT of a physical-world object's slot (a locker, a
+                    // charger, a crate) into the drag layer — the vanilla drag-from-world-slot,
+                    // range-bounded by the interaction raycast. It becomes a normal slot-sourced
+                    // chip (Expected-pinned), so dropping it anywhere routes through the funnel.
+                    var grabSlot = WorldSlotUnderCursor();
+                    DynamicThing grabOcc = grabSlot?.Get();
+                    if (grabSlot != null && grabOcc is Item)
+                    {
+                        Sprite icon = null;
+                        try { icon = grabOcc.GetThumbnail(); } catch { }
+                        _parking.RemoveBySlot(grabSlot); // one slot = one chip
+                        _parking.Dragging = new ParkingState.Chip
+                        {
+                            Source = new ScannedSlot { Slot = grabSlot, Holder = grabSlot.Parent, Location = "" }.Pin(),
+                            Icon = icon,
+                            Name = grabOcc.DisplayName,
+                        };
+                        _satellite = null; // hands are busy: no child radials while dragging
+                        UIAudioManager.Play(UIAudioManager.ObjectIntoHandHash);
+                        return;
+                    }
                 }
 
                 // Parked chips sit outside the rings; picking one up beats wedge presses.

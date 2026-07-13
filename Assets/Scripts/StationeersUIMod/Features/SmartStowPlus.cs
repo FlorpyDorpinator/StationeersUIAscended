@@ -36,6 +36,27 @@ namespace StationeersUIMod.Features
             int depth = UIAConfig.StowIntoNestedBags.Value ? UIAConfig.ScanDepth.Value : 1;
             List<ScannedSlot> slots = null;
 
+            // 0) Tools onto the toolbelt first (user request): if the held item fits an empty
+            //    slot on the worn toolbelt, it belongs on the belt — stow it there before any
+            //    stack/profile/memory rule. Toolbelt slots are type-gated, so Slot.AllowMove
+            //    passing IS the "this is a tool that belongs here" test. One move message.
+            if (UIAConfig.StowToolsToToolbeltFirst.Value)
+            {
+                DynamicThing belt = human.ToolbeltSlot?.Get();
+                if (belt?.Slots != null)
+                {
+                    foreach (Slot s in belt.Slots)
+                    {
+                        if (s == null || s.IsLocked || s.Get() != null) continue;
+                        if (!Slot.AllowMove(held, s)) continue;
+                        UIALog.Debug($"SmartStow+ tool -> toolbelt slot ({belt.DisplayName})");
+                        OnServer.MoveToSlot(held, s);
+                        UIAudioManager.Play(UIAudioManager.AddToInventoryHash);
+                        return true;
+                    }
+                }
+            }
+
             // 1) Stack merge
             if (UIAConfig.StowPreferStacks.Value && held is IMergeable heldMergeable)
             {

@@ -209,7 +209,7 @@ namespace StationeersUIMod.UI.Hud
                     Features.HudProfileStore.SetActive(fresh, name);
                     Features.HudProfileStore.MarkChanged(); // persist the upgrade
                 }
-                else if (active != null && active.Schema < 10
+                else if (active != null && active.Schema < 11
                     && string.Equals(name, "Glassy 2.0", System.StringComparison.OrdinalIgnoreCase))
                 {
                     var fresh = BuildGlassy2Document();
@@ -513,7 +513,7 @@ namespace StationeersUIMod.UI.Hud
         /// gets a words-mode vitals panel and everything flattens (BareFlattens).</summary>
         private static HudDocument BuildGlassy2Document()
         {
-            var doc = new HudDocument { Name = "Glassy 2.0", Schema = 10 };
+            var doc = new HudDocument { Name = "Glassy 2.0", Schema = 11 };
             var els = doc.Elements;
 
             // ===== 1. TOP BAR (full-width trapezoid, top edge wider than bottom) =====
@@ -548,8 +548,8 @@ namespace StationeersUIMod.UI.Hud
 
             // ===== 2. MOODLET STRIP (subtle, wrapping, game icons) =====
             // The vanilla moodlet strip, relocated here (MoodletBorrowWidget) and scaled up.
-            var mood = El("g2-moodlets", HudElementType.MoodletDashboard, HudAnchor.TopCenter, 0f, -110f, 1100f, 100f, HudTierMask.All, 1);
-            mood.SetF("moodletScale", 1.6f);
+            var mood = El("g2-moodlets", HudElementType.MoodletDashboard, HudAnchor.TopCenter, 0f, -104f, 1100f, 90f, HudTierMask.All, 1);
+            mood.SetF("moodletScale", 0.34f);
             els.Add(mood);
 
             // ===== 3. BOTTOM: 1 2 3 | hands | 4 5 6, with the visor-rim arc =====
@@ -1252,6 +1252,31 @@ namespace StationeersUIMod.UI.Hud
                 }
                 catch { }
             }
+        }
+
+        private static readonly List<HudDropZone> _zoneScratch = new List<HudDropZone>();
+
+        /// <summary>The HUD box (hand / equipment slot) under the current mouse position, or
+        /// null. Shared by the radial drag layer so a HUD box is BOTH a drop target and a drag
+        /// SOURCE — mouse coords are inverse-warped exactly like the F9 editor's hit-testing so
+        /// curved-HUD boxes are grabbed where they DRAW. Returns null off any box (or when the
+        /// visor HUD is off / a panel is faded).</summary>
+        public static HudDropZone ZoneAt()
+        {
+            try
+            {
+                _zoneScratch.Clear();
+                CollectDropZones(_zoneScratch);
+                if (_zoneScratch.Count == 0) return null;
+                var m = (Vector2)Input.mousePosition;   // bottom-left origin, y up
+                var p = new Vector2(m.x - Screen.width * 0.5f, m.y - Screen.height * 0.5f);
+                p = HudWarp.Unwarp(p);
+                foreach (var zone in _zoneScratch)
+                    if (zone.Slot != null && zone.CanvasRect.Contains(p))
+                        return zone;
+            }
+            catch { }
+            return null;
         }
 
         // ---------- vanilla panel visibility (hide, never destroy) ----------

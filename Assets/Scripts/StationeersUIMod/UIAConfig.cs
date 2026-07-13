@@ -91,6 +91,7 @@ namespace StationeersUIMod
         public static ConfigEntry<bool> StowUseProfiles;
         public static ConfigEntry<bool> StowUseTypeMemory;
         public static ConfigEntry<bool> StowIntoNestedBags;
+        public static ConfigEntry<bool> StowToolsToToolbeltFirst;
 
         // --- HUD ---
         public static ConfigEntry<bool> HudEnabled;
@@ -217,6 +218,8 @@ namespace StationeersUIMod
                 "Third choice: stow where the same item type was last stowed this save.");
             StowIntoNestedBags = cfg.Bind("6. SmartStow+", "StowIntoNestedBags", true,
                 "Allow SmartStow+ to target bags nested inside other bags.");
+            StowToolsToToolbeltFirst = cfg.Bind("6. SmartStow+", "ToolsToToolbeltFirst", true,
+                "Highest priority: if the held item fits an empty slot on your worn toolbelt, stow it there first (tools belong on the belt).");
 
             HudEnabled = cfg.Bind("7. HUD", "Enabled", true,
                 "Draw the UI Ascended visor HUD overlay.");
