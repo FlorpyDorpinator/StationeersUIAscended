@@ -99,7 +99,8 @@ namespace StationeersUIMod
                     typeof(Patch_InventoryManager_CheckDisplaySlotInput),
                     typeof(Patch_InventoryManager_AllowMouseControl),
                     typeof(Patch_MovementController_HandleJump),
-                    typeof(Patch_PlayerStateWindow_UpdateJetpackPanels));
+                    typeof(Patch_PlayerStateWindow_UpdateJetpackPanels),
+                    typeof(Core.Patch_CommandLine_Process)); // `finddead` console command
 
                 // The static `new Mod(...)` above registers us with LaunchPadBooster for the optional client-side mod list.
                 // (Proper direct reference - no reflection hack.)
