@@ -35,7 +35,10 @@ namespace StationeersUIMod.UI.Hud
         MoodletDashboard, EquipmentColumn, HandBoxes, KeybindChips,
         Portrait, BodyDoll, SuitChips, BareSenses, Vignette,
         // Glassy 2.0 additions (append-only — see enum note above):
-        VitalsPanel, DamageDoll, JetpackBox, StateChips
+        VitalsPanel, DamageDoll, JetpackBox, StateChips,
+        // A body doll assembled from user PNG art (config/StationeersUIMod/HudIcons), each
+        // part tinted per-region by damage. Append-only.
+        PngDoll
     }
 
     /// <summary>Which live value a <see cref="HudElementType.Readout"/> samples. Kept as a
@@ -98,7 +101,7 @@ namespace StationeersUIMod.UI.Hud
         {
             if (Elements == null) { Elements = new List<HudElementDef>(); return; }
 
-            int dropped = 0, mintedId = 0, clamped = 0, colorFixed = 0, tierFixed = 0;
+            int dropped = 0, mintedId = 0, clamped = 0, colorFixed = 0, tierFixed = 0, speedFixed = 0;
             var seenIds = new HashSet<string>(StringComparer.Ordinal);
 
             for (int i = Elements.Count - 1; i >= 0; i--)
@@ -125,6 +128,20 @@ namespace StationeersUIMod.UI.Hud
                 if (el.Tiers == HudTierMask.None) { el.Tiers = HudTierMask.All; tierFixed++; }
 
                 if (el.Params == null) el.Params = new List<HudParam>();
+
+                // Legacy repair: a SPEED readout must vanish in the power-off (bare) HUD like
+                // every other instrument. Early Add>Readout defaulted new elements to All-tier,
+                // so hand-made speed boxes lingered in bare (play-test, repeatedly). Strip Bare
+                // from any Speed-source readout; idempotent, so it settles after one save.
+                if (el.Type == HudElementType.Readout
+                    && string.Equals(el.GetS("src", ""), "Speed", StringComparison.OrdinalIgnoreCase)
+                    && (el.Tiers & HudTierMask.Bare) != 0)
+                {
+                    el.Tiers &= ~HudTierMask.Bare;
+                    if ((el.Tiers & (HudTierMask.Suited | HudTierMask.Robot)) == 0)
+                        el.Tiers = HudTierMask.Suited | HudTierMask.Robot;
+                    speedFixed++;
+                }
             }
 
             string label = string.IsNullOrEmpty(Name) ? "HudDocument" : "HudDocument '" + Name + "'";
@@ -133,6 +150,7 @@ namespace StationeersUIMod.UI.Hud
             if (clamped > 0) UIALog.Warn($"{label}: clamped {clamped} sub-minimum element size(s) to 2px.");
             if (colorFixed > 0) UIALog.Warn($"{label}: defaulted {colorFixed} empty colour reference(s).");
             if (tierFixed > 0) UIALog.Warn($"{label}: reset {tierFixed} element(s) with no visible tier to All.");
+            if (speedFixed > 0) UIALog.Warn($"{label}: made {speedFixed} Speed readout(s) suit-only (were showing in bare).");
         }
 
         /// <summary>Deterministic small hash of an Id, used to seed per-element animators
