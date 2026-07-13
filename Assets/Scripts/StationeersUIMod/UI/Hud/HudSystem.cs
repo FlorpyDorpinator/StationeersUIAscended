@@ -197,8 +197,8 @@ namespace StationeersUIMod.UI.Hud
                 // corrupt Glassy must respawn as the glass design, not get the flat
                 // starter silently written under its name (review find, 2026-07-12).
                 System.Func<HudDocument> factory =
-                    string.Equals(name, Glassy35Default.Name, System.StringComparison.OrdinalIgnoreCase)
-                        ? (System.Func<HudDocument>)BuildGlassy35Document
+                    string.Equals(name, Glassy40Default.Name, System.StringComparison.OrdinalIgnoreCase)
+                        ? (System.Func<HudDocument>)BuildGlassy40Document
                     : string.Equals(name, "Glassy 2.0", System.StringComparison.OrdinalIgnoreCase)
                         ? (System.Func<HudDocument>)BuildGlassy2Document
                     : string.Equals(name, "Glassy", System.StringComparison.OrdinalIgnoreCase)
@@ -229,24 +229,20 @@ namespace StationeersUIMod.UI.Hud
                 // Ship the alternate "Glassy" look alongside Default. Seeded only when
                 // the file is ABSENT, so a user's edits to it are never overwritten;
                 // deleting it respawns a fresh copy next session (Default's contract).
-                bool haveGlassy = false, haveGlassy2 = false, haveGlassy35 = false;
+                bool haveGlassy2 = false, haveGlassy40 = false;
                 foreach (var n in Features.HudProfileStore.ListProfiles())
                 {
-                    if (string.Equals(n, "Glassy", System.StringComparison.OrdinalIgnoreCase)) haveGlassy = true;
                     if (string.Equals(n, "Glassy 2.0", System.StringComparison.OrdinalIgnoreCase)) haveGlassy2 = true;
-                    if (string.Equals(n, Glassy35Default.Name, System.StringComparison.OrdinalIgnoreCase)) haveGlassy35 = true;
+                    if (string.Equals(n, Glassy40Default.Name, System.StringComparison.OrdinalIgnoreCase)) haveGlassy40 = true;
                 }
-                if (!haveGlassy)
-                    Features.HudProfileStore.Save(BuildGlassyDocument(), "Glassy");
                 // Glassy 2.0: the full car-dashboard redesign. Seeded only when absent
-                // (user edits survive); switch to it in F9 → Profiles. Auto-upgrades the
-                // shipped copy while its schema is below the current one.
+                // (user edits survive); switch to it in F9 → Profiles.
                 if (!haveGlassy2)
                     Features.HudProfileStore.Save(BuildGlassy2Document(), "Glassy 2.0");
-                // Glassy 3.5: the SHIPPED DEFAULT (FlorpyDorp's hand-arranged layout). Seeded
-                // when absent; it's also the default active profile below.
-                if (!haveGlassy35)
-                    Features.HudProfileStore.Save(BuildGlassy35Document(), Glassy35Default.Name);
+                // Glassy 4.0: the SHIPPED DEFAULT (FlorpyDorp's hand-arranged layout). Seeded
+                // when absent; it's also the default active profile.
+                if (!haveGlassy40)
+                    Features.HudProfileStore.Save(BuildGlassy40Document(), Glassy40Default.Name);
             }
         }
 
@@ -569,29 +565,29 @@ namespace StationeersUIMod.UI.Hud
         /// (portrait with camera zoom, state chips, jetpack box, stacked internal pressure/
         /// temp with the game ramp, vanilla vitals + borrowed damage doll + speed). Bare tier
         /// gets a words-mode vitals panel and everything flattens (BareFlattens).</summary>
-        /// <summary>The SHIPPED DEFAULT "Glassy 3.5": FlorpyDorp's hand-arranged layout,
-        /// deserialized from the embedded document (Glassy35Default.Xml). Sanitize() runs on
+        /// <summary>The SHIPPED DEFAULT "Glassy 4.0": FlorpyDorp's hand-arranged layout,
+        /// deserialized from the embedded document (Glassy40Default.Xml). Sanitize() runs on
         /// it like any loaded profile. Falls back to Glassy 2.0 if the embed ever fails to
         /// parse, so the starter is never null.</summary>
-        private static HudDocument BuildGlassy35Document()
+        private static HudDocument BuildGlassy40Document()
         {
             try
             {
                 var ser = new System.Xml.Serialization.XmlSerializer(typeof(HudDocument));
-                using (var r = new System.IO.StringReader(Glassy35Default.Xml))
+                using (var r = new System.IO.StringReader(Glassy40Default.Xml))
                 {
                     var doc = (HudDocument)ser.Deserialize(r);
                     if (doc != null && doc.Elements != null && doc.Elements.Count > 0)
                     {
                         doc.Sanitize();
-                        doc.Name = Glassy35Default.Name;
+                        doc.Name = Glassy40Default.Name;
                         return doc;
                     }
                 }
             }
             catch (System.Exception e)
             {
-                Core.UIALog.Warn("Glassy 3.5 embed failed to parse: " + e.Message);
+                Core.UIALog.Warn("Glassy 4.0 embed failed to parse: " + e.Message);
             }
             return BuildGlassy2Document();
         }

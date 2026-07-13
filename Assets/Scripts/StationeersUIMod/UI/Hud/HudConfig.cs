@@ -99,9 +99,9 @@ namespace StationeersUIMod.UI.Hud
                 "Render the HUD from the active layout profile (a document of movable, " +
                 "restylable elements — the HUD Designer). Off = the fixed 0.5.0 panel set, " +
                 "kept as a fallback during the transition.");
-            HudActiveProfile = cfg.Bind(S, "HudActiveProfile", "Glassy 3.5",
+            HudActiveProfile = cfg.Bind(S, "HudActiveProfile", "Glassy 4.0",
                 "Which HUD layout profile to render (a .xml in config/StationeersUIMod/" +
-                "HudProfiles). 'Glassy 3.5' is the shipped default. Missing profiles are " +
+                "HudProfiles). 'Glassy 4.0' is the shipped default. Missing profiles are " +
                 "recreated from the shipped copy.");
             GridSnapEnabled = cfg.Bind(S, "GridSnapEnabled", true,
                 "HUD editor: snap dragged/resized elements to the grid. Toggleable live in " +

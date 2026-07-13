@@ -143,6 +143,8 @@ namespace StationeersUIMod.Windows
             // Glassy 2.0 widgets (the play-test found these missing — a deleted
             // speed/jetpack/vitals box couldn't be re-created):
             "VitalsPanel", "DamageDoll", "JetpackBox", "StateChips",
+            // The PNG body doll (assembled from config/StationeersUIMod/HudIcons art):
+            "PngDoll",
         };
 
         /// <summary>The HUD Designer controls: grid, add/draw, undo, selection actions,

@@ -115,6 +115,10 @@ namespace StationeersUIMod.UI.Hud
             into.Add(HudProp.F("Height % of screen (-1 = fixed)", () => d.HPct, v => d.HPct = v, -1f, 1f));
             into.Add(HudProp.I("Z order", () => d.Z, v => d.Z = v, -100, 100));
             into.Add(HudProp.Tier("Tiers", () => (int)d.Tiers, v => d.Tiers = (HudTierMask)v));
+            // Quick per-element toggle for the power-off (bare) HUD, shown on EVERY element so
+            // you never have to open the Tiers multi-select just to add/remove Bare.
+            into.Add(HudProp.Bool("Show in bare mode", () => (d.Tiers & HudTierMask.Bare) != 0,
+                v => d.Tiers = v ? (d.Tiers | HudTierMask.Bare) : (d.Tiers & ~HudTierMask.Bare)));
             into.Add(HudProp.Color("Fill", () => d.Fill, v => d.Fill = v));
             into.Add(HudProp.Color("Border", () => d.Border, v => d.Border = v));
             into.Add(HudProp.Color("Text / accent", () => d.TextColor, v => d.TextColor = v));

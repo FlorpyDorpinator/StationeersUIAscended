@@ -607,6 +607,7 @@ namespace StationeersUIMod.Windows
                     case UI.Hud.HudElementType.DamageDoll:
                     case UI.Hud.HudElementType.JetpackBox:
                     case UI.Hud.HudElementType.StateChips:
+                    case UI.Hud.HudElementType.PngDoll:
                         e.Fill = "#05080DA6";
                         e.Border = "#B9BEC259";
                         e.SetF("sheen", 0.5f);
@@ -633,6 +634,7 @@ namespace StationeersUIMod.Windows
                 case UI.Hud.HudElementType.DamageDoll: return 120f;
                 case UI.Hud.HudElementType.JetpackBox: return 168f;
                 case UI.Hud.HudElementType.StateChips: return 168f;
+                case UI.Hud.HudElementType.PngDoll: return 126f;
                 default: return 180f;
             }
         }
@@ -650,6 +652,7 @@ namespace StationeersUIMod.Windows
                 case UI.Hud.HudElementType.DamageDoll: return 150f;
                 case UI.Hud.HudElementType.JetpackBox: return 128f;
                 case UI.Hud.HudElementType.StateChips: return 40f;
+                case UI.Hud.HudElementType.PngDoll: return 192f;
                 default: return 60f;
             }
         }

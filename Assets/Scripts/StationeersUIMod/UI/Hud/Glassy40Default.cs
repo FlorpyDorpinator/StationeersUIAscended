@@ -1,19 +1,17 @@
 namespace StationeersUIMod.UI.Hud
 {
     /// <summary>
-    /// The shipped "Glassy 3.5" default HUD — FlorpyDorp's hand-arranged layout, embedded
+    /// The shipped "Glassy 4.0" default HUD — FlorpyDorp's hand-arranged layout, embedded
     /// verbatim so a fresh install (or a reset) reproduces it exactly. Attributes are
     /// single-quoted on purpose: XmlSerializer reads single-quoted XML fine, and it lets the
-    /// whole document live in a C# verbatim string with zero escaping. The speed readout's
-    /// tier was corrected to suit-only at embed time (it had drifted to All from an early
-    /// Add>Readout default), and the schema stamped current.
+    /// whole document live in a C# verbatim string with zero escaping. Schema stamped current.
     /// </summary>
-    internal static class Glassy35Default
+    internal static class Glassy40Default
     {
-        public const string Name = "Glassy 3.5";
+        public const string Name = "Glassy 4.0";
 
         public const string Xml =
-@"<HudDocument xmlns:xsd='http://www.w3.org/2001/XMLSchema' xmlns:xsi='http://www.w3.org/2001/XMLSchema-instance' Schema='13' Name='Glassy 3.5'>
+@"<HudDocument xmlns:xsd='http://www.w3.org/2001/XMLSchema' xmlns:xsi='http://www.w3.org/2001/XMLSchema-instance' Schema='14' Name='Glassy 4.0'>
   <El Id='g2-topbar' Type='Box' Anchor='TopCenter' X='0' Y='-38' W='1860' H='62' WPct='0.99' HPct='-1' Z='0' Tiers='Suited Robot' Fill='#05080DA6' Border='#B8B9B907' TextColor='HudTextValue' BorderWidth='-1' RTL='4' RTR='4' RBR='20' RBL='20' FontScale='1' Align='Center'>
     <P K='insetBottom' V='46' />
     <P K='sheen' V='0.5' />
@@ -136,9 +134,6 @@ namespace StationeersUIMod.UI.Hud
     <P K='box' V='true' />
     <P K='iconScale' V='0.643' />
   </El>
-  <El Id='g2-doll' Type='DamageDoll' Anchor='BottomRight' X='-424' Y='254' W='94' H='158' WPct='-1' HPct='-1' Z='3' Tiers='All' Fill='HudPanelFill' Border='HudPanelBorder' TextColor='HudTextValue' BorderWidth='-1' RTL='-1' RTR='-1' RBR='-1' RBL='-1' FontScale='1.852' Align='Center'>
-    <P K='padPx' V='0' />
-  </El>
   <El Id='g2-bare-vitals' Type='VitalsPanel' Anchor='BottomRight' X='-141' Y='187' W='212' H='220' WPct='-1' HPct='-1' Z='3' Tiers='Bare' Fill='#0A0E14C0' Border='#00000000' TextColor='HudTextValue' BorderWidth='-1' RTL='-1' RTR='-1' RBR='-1' RBL='-1' FontScale='1' Align='Center'>
     <P K='sheen' V='0.25' />
     <P K='spec' V='0' />
@@ -156,6 +151,14 @@ namespace StationeersUIMod.UI.Hud
     <P K='target' V='false' />
     <P K='sheen' V='0.5' />
     <P K='spec' V='0.8' />
+  </El>
+  <El Id='g2-png-doll' Type='PngDoll' Anchor='Center' X='752' Y='-452' W='138' H='188' WPct='-1' HPct='-1' Z='50' Tiers='All' Fill='HudScanline' Border='HudPanelBorder' TextColor='HudTextValue' BorderWidth='-1' RTL='-1' RTR='-1' RBR='-1' RBL='-1' FontScale='1' Align='Center'>
+    <P K='armY' V='0.002' />
+    <P K='legSpread' V='0.088' />
+    <P K='legY' V='-0.114' />
+    <P K='armSpread' V='1.517' />
+    <P K='figScale' V='0.909' />
+    <P K='box' V='false' />
   </El>
 </HudDocument>";
     }
