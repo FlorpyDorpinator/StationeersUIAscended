@@ -43,6 +43,20 @@ namespace StationeersUIMod.Features
                 });
             }
 
+            // A stack of more than one gets a SPLIT branch (peel items off into a hand).
+            if (CanSplit(thing))
+            {
+                var stackThing = thing;
+                int qty = (thing as Assets.Scripts.Objects.Items.Stackable).Quantity;
+                entries.Add(new RadialEntry
+                {
+                    Label = "Split",
+                    ActionText = "Split stack",
+                    Sublabel = "x" + qty,
+                    ChildProvider = () => BuildSplitLevel(stackThing),
+                });
+            }
+
             var controls = BuildControlsList(thing);
             var slotEntries = new List<RadialEntry>();
             if (thing.Slots != null)
@@ -473,6 +487,59 @@ namespace StationeersUIMod.Features
                     Warning = InventoryScanner.ConsequenceOfRemoving(c),
                     Icon = c.Occupant.GetThumbnail(),
                     OnSelect = () => ItemActions.SwapIntoSlot(c, targetSlot),
+                });
+            }
+            return entries;
+        }
+
+        /// <summary>A stack with more than one item can be split.</summary>
+        public static bool CanSplit(DynamicThing thing)
+        {
+            var s = thing as Assets.Scripts.Objects.Items.Stackable;
+            return s != null && s.Quantity > 1;
+        }
+
+        /// <summary>The split level: SPLIT ONE and SPLIT HALF (both vanilla's own MP-safe
+        /// interactions), plus — host/single-player only — SPLIT COUNT with a scroll wheel
+        /// that sets how many to peel off. Scrolling only changes the number between the
+        /// triangles; the CLICK does the split. (Arbitrary count has no networked vanilla
+        /// path, so the count wedge is hidden on multiplayer clients — never a client-side
+        /// Quantity mutation.)</summary>
+        public static List<RadialEntry> BuildSplitLevel(DynamicThing thing)
+        {
+            var entries = new List<RadialEntry>();
+            var s = thing as Assets.Scripts.Objects.Items.Stackable;
+            if (s == null) return entries;
+            var t = thing;
+
+            entries.Add(new RadialEntry
+            {
+                Label = "Split one",
+                ActionText = "Take 1 to hand",
+                Sublabel = "peel one off",
+                Icon = t.GetThumbnail(),
+                OnSelect = () => ItemActions.SplitStack(t, half: false),
+            });
+            entries.Add(new RadialEntry
+            {
+                Label = "Split half",
+                ActionText = "Take half to hand",
+                Sublabel = "split the stack in two",
+                Icon = t.GetThumbnail(),
+                OnSelect = () => ItemActions.SplitStack(t, half: true),
+            });
+            if (ItemActions.CanSplitCount(t))
+            {
+                int max = System.Math.Max(1, s.Quantity - 1);
+                var box = new int[] { UnityEngine.Mathf.Clamp(max / 2, 1, max) };
+                entries.Add(new RadialEntry
+                {
+                    Label = "Split count",
+                    ActionText = "Split off this many",
+                    Sublabel = "scroll to choose",
+                    OnScroll = d => box[0] = UnityEngine.Mathf.Clamp(box[0] + d, 1, max),
+                    ValueText = () => box[0].ToString(),
+                    OnSelect = () => ItemActions.SplitStackCount(t, box[0]),
                 });
             }
             return entries;

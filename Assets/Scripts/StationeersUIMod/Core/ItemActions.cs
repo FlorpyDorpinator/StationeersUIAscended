@@ -293,6 +293,59 @@ namespace StationeersUIMod.Core
             return true;
         }
 
+        /// <summary>Split a stack MP-safely via vanilla's OWN split interactions — Button1
+        /// takes one, Button2 takes half (27701 Stackable.cs:346-380, which routes through
+        /// SplitIntoHand → OnServer.MoveToSlot). Runs through PlayerInteractWith like every
+        /// other control, so it's one authoritative message; no client-side Quantity touch.</summary>
+        public static bool SplitStack(Thing stackable, bool half)
+        {
+            if (stackable == null) return Fail();
+            var want = half ? InteractableType.Button2 : InteractableType.Button1;
+            Interactable target = null;
+            try
+            {
+                if (stackable.Interactables != null)
+                    foreach (var it in stackable.Interactables)
+                        if (it != null && it.Action == want) { target = it; break; }
+            }
+            catch { }
+            if (target == null) return Fail();
+            return PressInteractable(stackable, target);
+        }
+
+        /// <summary>Arbitrary-count split. There is NO vanilla interaction for it, so it is
+        /// only performed while WE are the simulation authority (host / single-player), where
+        /// SplitStack(int, Slot) runs server-side exactly as it would for any interaction.
+        /// Returns false (offer hidden) on a multiplayer client — never a client Quantity
+        /// mutation.</summary>
+        public static bool SplitStackCount(Thing stackable, int count)
+        {
+            var s = stackable as Assets.Scripts.Objects.Items.Stackable;
+            if (s == null) return Fail();
+            if (!IsCarriedByLocalPlayer(stackable)) return Fail();
+            bool authoritative = false;
+            try { authoritative = Assets.Scripts.GameManager.RunSimulation; } catch { }
+            if (!authoritative) return Fail();          // MP client: not ours to mutate
+            count = UnityEngine.Mathf.Clamp(count, 1, s.Quantity - 1);
+            if (count < 1) return Fail();
+            var human = InventoryManager.ParentHuman;
+            Slot free = human != null
+                ? (human.LeftHandSlot?.Get() == null ? human.LeftHandSlot
+                 : human.RightHandSlot?.Get() == null ? human.RightHandSlot : null)
+                : null;
+            if (free == null) return Fail();            // no free hand to receive the split
+            try { s.SplitStack(count, free); UIAudioManager.Play(UIAudioManager.AddToInventoryHash); return true; }
+            catch { return Fail(); }
+        }
+
+        /// <summary>Is arbitrary-count split available right now (host/SP + a stack &gt; 1)?</summary>
+        public static bool CanSplitCount(Thing stackable)
+        {
+            var s = stackable as Assets.Scripts.Objects.Items.Stackable;
+            if (s == null || s.Quantity < 2) return false;
+            try { return Assets.Scripts.GameManager.RunSimulation; } catch { return false; }
+        }
+
         /// <summary>Merge the held stackable into an existing stack (server-authoritative).</summary>
         public static bool MergeInto(IMergeable targetStack, IMergeable held)
         {
