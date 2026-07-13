@@ -435,6 +435,7 @@ namespace StationeersUIMod.Features
                     Label = current.DisplayName,
                     ActionText = "Eject",
                     Sublabel = "to free hand / ground",
+                    StateText = StateText.For(current),
                     Icon = current.GetThumbnail(),
                     AccentOverride = Theme.Warn,
                     OnSelect = () => ItemActions.Eject(targetSlot),
@@ -448,6 +449,7 @@ namespace StationeersUIMod.Features
                 {
                     Label = held.DisplayName,
                     ActionText = "Insert from hand",
+                    StateText = StateText.For(held),
                     Icon = held.GetThumbnail(),
                     AccentOverride = Theme.Accent,
                     FillOverride = Theme.RingStow,
@@ -465,6 +467,9 @@ namespace StationeersUIMod.Features
                     Label = c.Occupant.DisplayName,
                     ActionText = targetSlot.Get() != null ? "Swap in" : "Install",
                     Sublabel = c.Location,
+                    // The stat every candidate carries (canister kPa, battery %, filter/dirt %)
+                    // so a swap/Replace list shows what you're choosing BETWEEN, not just names.
+                    StateText = StateText.For(c.Occupant),
                     Warning = InventoryScanner.ConsequenceOfRemoving(c),
                     Icon = c.Occupant.GetThumbnail(),
                     OnSelect = () => ItemActions.SwapIntoSlot(c, targetSlot),
