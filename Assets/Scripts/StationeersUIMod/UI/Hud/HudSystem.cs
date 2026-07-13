@@ -118,6 +118,12 @@ namespace StationeersUIMod.UI.Hud
             _canvas = go.AddComponent<Canvas>();
             _canvas.renderMode = RenderMode.ScreenSpaceOverlay;
             _canvas.sortingOrder = 3800; // above vanilla HUD (0), under radials (5000)
+            // A raycaster so BORROWED vanilla widgets (the moodlet strip) can still receive
+            // their own hover tooltips. Only graphics with raycastTarget=true are hit, and
+            // the root CanvasGroup blocks raycasts by default — a subtree opts back in with
+            // its own ignoreParentGroups CanvasGroup (see MoodletBorrowWidget), so the rest
+            // of the HUD never intercepts the mouse.
+            go.AddComponent<UnityEngine.UI.GraphicRaycaster>();
             _rootGroup = go.AddComponent<CanvasGroup>();
             _rootGroup.interactable = false;
             _rootGroup.blocksRaycasts = false;
@@ -235,6 +241,28 @@ namespace StationeersUIMod.UI.Hud
                 if (!haveGlassy2)
                     Features.HudProfileStore.Save(BuildGlassy2Document(), "Glassy 2.0");
             }
+        }
+
+        private static bool _debugForcedBare;
+
+        /// <summary>Debug show-all: force every vanilla moodlet icon on this frame so the
+        /// borrowed strip previews full. Vanilla's own update turns them back off the moment
+        /// the debug flag clears — display-only, no game state touched.</summary>
+        private static void ForceAllMoodlets()
+        {
+            try
+            {
+                var all = Assets.Scripts.UI.StatusUpdates.AllStatusUpdates;
+                if (all == null) return;
+                for (int i = 0; i < all.Count; i++)
+                {
+                    var su = all[i];
+                    if (su == null || su.UsesDedicatedDisplay) continue;
+                    var img = su.Image;
+                    if (img != null && !img.gameObject.activeSelf) img.gameObject.SetActive(true);
+                }
+            }
+            catch { }
         }
 
         private static void OnActiveDocReplaced() => _docRebuildNeeded = true;
@@ -690,6 +718,8 @@ namespace StationeersUIMod.UI.Hud
             HudText.Shutdown();
             HudWarp.Active = HudWarp.Kind.None;
             HudWarp.BareFlat = false; // reset alongside Active so a reload starts un-flattened
+            HudSampler.DebugShowAll = false;
+            _debugForcedBare = false;
             _hasPrev = false;
             _appliedMode = HudCurvature.Flat;
             ForceTier = null;
@@ -756,6 +786,17 @@ namespace StationeersUIMod.UI.Hud
                 }
                 Features.HudProfileStore.Tick(Time.unscaledTime); // debounced autosave
             }
+
+            // Debug "show everything": fill the snapshot before sampling reads the flag, and
+            // the bare variant additionally forces the power-off tier so the suit-off layout
+            // is previewable full. Both light every vanilla moodlet too.
+            bool dbgBare = HudConfig.DebugShowAllBare != null && HudConfig.DebugShowAllBare.Value;
+            bool dbgAll = (HudConfig.DebugShowAll != null && HudConfig.DebugShowAll.Value) || dbgBare;
+            HudSampler.DebugShowAll = dbgAll;
+            if (dbgBare) ForceTier = HudTier.Bare;
+            else if (_debugForcedBare) ForceTier = null; // clear only what WE forced
+            _debugForcedBare = dbgBare;
+            if (dbgAll) ForceAllMoodlets();
 
             var snap = HudSampler.Sample();
             LastSnapshot = snap;

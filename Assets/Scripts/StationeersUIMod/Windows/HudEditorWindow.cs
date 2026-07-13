@@ -153,6 +153,12 @@ namespace StationeersUIMod.Windows
 
             ImGui.TextDisabled("Click an element to select - drag to move, corners resize.");
             ImGui.TextDisabled("Del removes - Ctrl+D duplicates - Ctrl+Z / Ctrl+Y undo/redo.");
+            ImGui.TextDisabled("Ctrl+drag = box-select many - arrow keys nudge (Shift = grid).");
+            ImGui.Spacing();
+
+            // Debug previews: fill the HUD so you can arrange the worst case.
+            Toggle(HudConfig.DebugShowAll, "DEBUG: show everything (all vitals/moodlets/instruments)");
+            Toggle(HudConfig.DebugShowAllBare, "DEBUG: show everything, power-off (bare) layout");
             ImGui.Spacing();
 
             Toggle(HudConfig.GridSnapEnabled, "Snap to grid (hold Alt to bypass)");

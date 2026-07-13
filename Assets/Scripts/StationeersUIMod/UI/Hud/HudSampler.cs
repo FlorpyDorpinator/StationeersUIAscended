@@ -565,7 +565,43 @@ namespace StationeersUIMod.UI.Hud
             try { s.RightHandActive = InventoryManager.ActiveHandSlot == human.RightHandSlot; }
             catch { }
 
+            if (DebugShowAll) ForceEverythingVisible(s);
+
             return s;
+        }
+
+        /// <summary>F9 debug: pretend every readable value is present and interesting so
+        /// EVERY snapshot-driven widget shows its content at once — the worst-case full
+        /// layout, for arranging the HUD so nothing overlaps when full. Real reads above are
+        /// overwritten; this touches no game state.</summary>
+        public static bool DebugShowAll;
+
+        private static void ForceEverythingVisible(HudSnapshot s)
+        {
+            // Needs: all rows present (toilet needs valid + >0.25; health needs <1).
+            s.FoodRatio = 0.62f; s.WaterRatio = 0.48f;
+            s.Sanitation01 = 0.55f; s.SanitationValid = true;
+            s.HealthRatio = 0.7f; s.O2Quality = 0.9f;
+            s.DamageHead01 = 0.4f; s.DamageChest01 = 0.55f; s.DamageBody01 = 0.3f;
+            s.Hydration01 = 0.48f; s.Hygiene01 = 0.6f;
+
+            // Atmosphere + internal instruments valid with lively numbers.
+            s.HasAtmosphere = true; s.PressureKPa = 101.3f; s.TempC = 21.5f; s.O2Fraction = 0.21f;
+            s.FeltValid = true; s.FeltTempC = 21.5f;
+            s.InternalValid = true; s.InternalPressureKPa = 99.2f; s.InternalTempC = 20.4f;
+            s.SuitTargetPressureKPa = 101f; s.SuitTargetTempC = 20f;
+            s.SpeedMs = 3.4f;
+
+            // Jetpack + suit chips lit.
+            s.JetpackPresent = true; s.JetpackIsGas = true; s.JetpackThrustPct = 120f;
+            s.JetpackPropellantDeltaKPa = 5712f; s.JetpackLow = false; s.JetpackCrit = false;
+            s.JetpackOn = true;
+            s.HelmetPresent = true; s.HelmetClosed = true; s.HelmetLightOn = true;
+            s.SuitAcOn = true; s.HasInternals = true; s.InternalsOn = true;
+
+            // Bare-tier felt words, so the power-off preview has something in every row.
+            s.WordTemp = "WARM"; s.WordAir = "THIN"; s.WordHunger = "PECKISH";
+            s.WordThirst = "THIRSTY"; s.WordHealth = "HURT"; s.WordPressure = "LOW";
         }
 
         private static bool UsesTiers()

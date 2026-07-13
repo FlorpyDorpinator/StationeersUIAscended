@@ -50,6 +50,13 @@ namespace StationeersUIMod.UI.Hud.Widgets
             holderGo.transform.SetParent(root, false);
             _holder = (RectTransform)holderGo.transform;
             _holder.anchorMin = _holder.anchorMax = new Vector2(0.5f, 0.5f);
+
+            // Opt this subtree back INTO raycasts (the HUD root CanvasGroup blocks them) so
+            // vanilla's moodlet hover tooltip still fires after we reparent the strip here.
+            var grp = holderGo.AddComponent<CanvasGroup>();
+            grp.ignoreParentGroups = true;
+            grp.interactable = true;
+            grp.blocksRaycasts = true;
         }
 
         public override void Layout(float scale)

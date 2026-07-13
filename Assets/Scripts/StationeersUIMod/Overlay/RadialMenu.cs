@@ -674,6 +674,29 @@ namespace StationeersUIMod.Overlay
                     return;
                 }
 
+                // Bugs 2 & 5: the visor HUD hand boxes and the six equipment boxes are drag
+                // SOURCES too, not just drop targets — press one that holds an item to tear it
+                // into the drag layer (drag your held item into a STOW wedge, swap two boxes,
+                // pull a worn piece onto the belt). Boxes live outside the rings, so this can
+                // never shadow a wedge press. The chip is Expected-pinned like any other.
+                var hudZone = UI.Hud.HudSystem.ZoneAt();
+                DynamicThing hudOcc = hudZone?.Slot?.Get();
+                if (hudOcc != null)
+                {
+                    Sprite icon = null;
+                    try { icon = hudOcc.GetThumbnail(); } catch { }
+                    _parking.RemoveBySlot(hudZone.Slot); // one slot = one chip
+                    _parking.Dragging = new ParkingState.Chip
+                    {
+                        Source = new ScannedSlot { Slot = hudZone.Slot, Holder = hudZone.Slot.Parent, Location = hudZone.Label ?? "" }.Pin(),
+                        Icon = icon,
+                        Name = hudOcc.DisplayName,
+                    };
+                    _satellite = null; // hands are busy: no child radials while dragging
+                    UIAudioManager.Play(UIAudioManager.ObjectIntoHandHash);
+                    return;
+                }
+
                 RadialEntry entry = null;
                 bool fromSat = false;
                 if (_satellite != null && _satHovered >= 0)
@@ -805,6 +828,10 @@ namespace StationeersUIMod.Overlay
                     _satellite = null;
                     Top().Refresh();
                     _hovered = -1;
+                    // Bug 1: on an MP client the slot is still empty this frame (the move is a
+                    // server round-trip); a second refresh once it lands makes the item appear
+                    // in the wedge without reopening the radial. Matches the scroll/select paths.
+                    _pendingRefreshAt = Time.unscaledTime + 0.6f;
                     return;
                 }
                 UIAudioManager.Play(UIAudioManager.ActionFailHash);
@@ -815,6 +842,13 @@ namespace StationeersUIMod.Overlay
             // INTO that slot (swap when occupied — the ItemActions funnel gates it all).
             // A release on a box is always consumed: it must never fall through to parking.
             if (TryDropOnHudZone(chip, item))
+                return;
+
+            // Bug 7: releasing over a slot on a PHYSICAL-WORLD object (a battery charger, a
+            // locker) drops the chip into that slot — swap when occupied, so the game sees a
+            // radial battery being installed into / swapped with the charger's battery. The
+            // release raycast bounds it to the vanilla interaction range.
+            if (TryDropOnWorldSlot(chip, item))
                 return;
 
             bool outsideRings = _mainDist > _lastOuterR + 30f
@@ -830,44 +864,61 @@ namespace StationeersUIMod.Overlay
             // else: released over dead space inside the rings, or the screen is full — cancel.
         }
 
-        private static readonly List<UI.Hud.HudDropZone> _dropZones = new List<UI.Hud.HudDropZone>();
-
         /// <summary>0.6.2: drop a dragged chip onto a visor HUD hand/equipment box. Returns
         /// true when the release landed ON a box (whether or not the move succeeded — a
-        /// failed move plays the fail sound and eats the release; it never parks).</summary>
+        /// failed move plays the fail sound and eats the release; it never parks). Uses the
+        /// same hit-test as the box drag-SOURCE grab, so both agree exactly.</summary>
         private bool TryDropOnHudZone(ParkingState.Chip chip, DynamicThing item)
         {
             try
             {
-                _dropZones.Clear();
-                UI.Hud.HudSystem.CollectDropZones(_dropZones);
-                if (_dropZones.Count == 0) return false;
-
-                // Same mouse->canvas transform as the F9 editor: centre origin, y up,
-                // inverse-warped so curved-HUD boxes hit-test where they DRAW.
-                var m = (Vector2)Input.mousePosition;
-                var p = new Vector2(m.x - Screen.width * 0.5f, m.y - Screen.height * 0.5f);
-                p = UI.Hud.HudWarp.Unwarp(p);
-
-                foreach (var zone in _dropZones)
+                var zone = UI.Hud.HudSystem.ZoneAt();
+                if (zone?.Slot == null) return false;
+                bool moved = chip.IsWorld
+                    ? ItemActions.MoveWorldItemToSlot(chip.WorldSource, zone.Slot)
+                    : ItemActions.SwapIntoSlot(chip.Source, zone.Slot);
+                if (moved)
                 {
-                    if (zone.Slot == null || !zone.CanvasRect.Contains(p)) continue;
-                    bool moved = chip.IsWorld
-                        ? ItemActions.MoveWorldItemToSlot(chip.WorldSource, zone.Slot)
-                        : ItemActions.SwapIntoSlot(chip.Source, zone.Slot);
-                    if (moved)
-                    {
-                        _satellite = null;
-                        Top().Refresh();
-                        _hovered = -1;
-                    }
-                    // failure already played the fail sound inside ItemActions.Fail()
-                    return true;
+                    _satellite = null;
+                    Top().Refresh();
+                    _hovered = -1;
+                    _pendingRefreshAt = Time.unscaledTime + 0.6f; // MP: box refills post-roundtrip
                 }
+                // failure already played the fail sound inside ItemActions.Fail()
+                return true;
             }
             catch (Exception e)
             {
                 UIALog.Warn("HUD drop zone failed: " + e.Message);
+            }
+            return false;
+        }
+
+        /// <summary>Bug 7: drop a dragged chip into a slot on a physical-world object (charger,
+        /// locker, crate). Returns true when the release landed ON a world slot (whether or not
+        /// the move succeeded), so it consumes the release instead of parking. The mutation goes
+        /// through the same funnel as any slot move/swap; range is bounded by the raycast.</summary>
+        private bool TryDropOnWorldSlot(ParkingState.Chip chip, DynamicThing item)
+        {
+            try
+            {
+                var worldSlot = WorldSlotUnderCursor();
+                if (worldSlot == null) return false;
+                bool moved = chip.IsWorld
+                    ? ItemActions.MoveWorldItemToSlot(chip.WorldSource, worldSlot)
+                    : ItemActions.SwapIntoSlot(chip.Source, worldSlot);
+                if (moved)
+                {
+                    _satellite = null;
+                    Top().Refresh();
+                    _hovered = -1;
+                    _pendingRefreshAt = Time.unscaledTime + 0.6f;
+                }
+                return true;
+            }
+            catch (Exception e)
+            {
+                UIALog.Warn("World slot drop failed: " + e.Message);
             }
             return false;
         }
@@ -910,6 +961,32 @@ namespace StationeersUIMod.Overlay
                 var thing = Thing.Find(hit.collider) as Item;
                 if (thing == null || thing.ParentSlot != null) return null; // free-lying only
                 return thing;
+            }
+            catch { return null; }
+        }
+
+        /// <summary>The slot on a physical-world object under the cursor (a locker/charger/crate
+        /// slot), mirroring vanilla's InputMouse.GetHoverWorldSlot (InputMouse.cs:288-304):
+        /// raycast → the collider's Thing → its Interactable → the Interactable's Slot. Bounded
+        /// by the vanilla interaction range, so both the grab (bug 8) and the drop (bug 7) can
+        /// never out-reach the vanilla cursor. Independent of BlockCursorRaycast, like the item
+        /// raycast above.</summary>
+        private static Slot WorldSlotUnderCursor()
+        {
+            try
+            {
+                var cam = CameraController.CurrentCamera;
+                if (cam == null) return null;
+                var ray = cam.ScreenPointToRay(Input.mousePosition);
+                float maxDist = 3f;
+                try { maxDist = CursorManager.MaxInteractDistance; } catch { }
+                int mask = CursorManager.Instance != null ? (int)CursorManager.Instance.CursorHitMask : ~0;
+                RaycastHit hit;
+                if (!Physics.Raycast(ray, out hit, maxDist, mask)) return null;
+                var thing = hit.transform.GetComponentInParent<Thing>();
+                if (thing == null) return null;
+                var interactable = thing.GetInteractable(hit.collider);
+                return interactable != null ? interactable.Slot : null;
             }
             catch { return null; }
         }

@@ -38,6 +38,17 @@ namespace StationeersUIMod.Core
                     var tank = torch.FuelTank;
                     return tank != null ? tank.GetQuantityText() : null;
                 }
+
+                // Portable atmospherics (the DynamicGasCanister tank and kin) don't override
+                // GetQuantityText, but their InternalAtmosphere IS networked to clients — the
+                // world tooltip reads it (PortableAtmospherics.GetPassiveTooltip), so this is
+                // client-safe. Show the same kPa a small GasCanister would.
+                if (thing is Assets.Scripts.Objects.PortableAtmospherics && thing.InternalAtmosphere != null)
+                {
+                    int kpa = UnityEngine.Mathf.RoundToInt(
+                        thing.InternalAtmosphere.PressureGassesAndLiquids.ToFloat());
+                    return kpa + " kPa";
+                }
             }
             catch { }
             return null;

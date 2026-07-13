@@ -780,7 +780,15 @@ namespace StationeersUIMod.UI
                 }
                 else
                 {
-                    _warn.text = string.Empty;
+                    // Bug 6: the hovered item's live stat (canister kPa, battery %, stack xN,
+                    // filter %, device value) in the center readout, so EVERY radial surfaces
+                    // it the same way — not just the toolbelt radial (which baked it into its
+                    // sublabel). StateText carries TMP tags; the readout is TMP, so they render.
+                    string stat = null;
+                    try { stat = hovered.ValueText != null ? hovered.ValueText() : hovered.StateText; }
+                    catch { }
+                    _warn.text = stat ?? string.Empty;
+                    _warn.color = RadialPalette.TextAccent.Value;
                 }
             }
 

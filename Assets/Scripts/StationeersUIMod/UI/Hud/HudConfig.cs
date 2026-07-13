@@ -34,6 +34,8 @@ namespace StationeersUIMod.UI.Hud
         public static ConfigEntry<string> HudActiveProfile;
         public static ConfigEntry<bool> GridSnapEnabled;
         public static ConfigEntry<float> GridSnapSize;
+        public static ConfigEntry<bool> DebugShowAll;
+        public static ConfigEntry<bool> DebugShowAllBare;
 
         // Curvature
         public static ConfigEntry<HudCurvature> Curvature;
@@ -106,6 +108,13 @@ namespace StationeersUIMod.UI.Hud
             GridSnapSize = cfg.Bind(S, "GridSnapSize", 8f,
                 new ConfigDescription("HUD editor: grid cell size in reference pixels.",
                     new AcceptableValueRange<float>(2f, 64f)));
+            DebugShowAll = cfg.Bind(S, "DebugShowAll", false,
+                "F9 DEBUG: force every HUD element to show its content at once (all vitals " +
+                "rows, all moodlets, all instruments) with dummy data, to arrange the layout " +
+                "for the worst case. Display-only; turn off when done.");
+            DebugShowAllBare = cfg.Bind(S, "DebugShowAllBare", false,
+                "F9 DEBUG: same as DebugShowAll but forces the POWER-OFF (bare) tier, to lay " +
+                "out the suit-off HUD full.");
             LegacyImGuiHud = cfg.Bind(S, "LegacyImGuiHud", false,
                 "Draw the old 0.1.0 ImGui HUD instead (kept as a fallback during the port).");
             HudEditorKey = cfg.Bind(S, "HudEditorKey", KeyCode.F9,

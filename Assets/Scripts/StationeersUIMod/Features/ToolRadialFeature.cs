@@ -20,7 +20,12 @@ namespace StationeersUIMod.Features
             get
             {
                 var held = InventoryManager.ActiveHandSlot?.Get();
-                return held != null ? held.DisplayName : "Tool";
+                if (held == null) return "Tool";
+                // Bug 6: the held item is the ROOT here (no self-wedge), so its own live stat
+                // (welder fuel, drill charge, canister kPa) rides in the title — otherwise it
+                // would be the one item whose stat the radial never shows.
+                string state = StateText.Plain(held);
+                return string.IsNullOrEmpty(state) ? held.DisplayName : held.DisplayName + " - " + state;
             }
         }
 
