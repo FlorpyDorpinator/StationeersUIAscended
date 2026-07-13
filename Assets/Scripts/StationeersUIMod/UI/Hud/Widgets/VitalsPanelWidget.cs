@@ -28,11 +28,11 @@ namespace StationeersUIMod.UI.Hud.Widgets
     internal sealed class VitalsPanelWidget : HudElementView
     {
         // Row identity. Order here is the top-to-bottom draw order.
-        private const int Hunger = 0, Water = 1, Toilet = 2, Health = 3, Pressure = 4, Temp = 5;
-        private const int RowCount = 6;
+        private const int Hunger = 0, Water = 1, Toilet = 2, Health = 3, Cognition = 4, Pressure = 5, Temp = 6;
+        private const int RowCount = 7;
 
         // The game-icon key each row asks VanillaIcons for.
-        private static readonly string[] IconKeys = { "Hunger", "Water", "Toilet", "Health", "Pressure", "Temp" };
+        private static readonly string[] IconKeys = { "Hunger", "Water", "Toilet", "Health", "Cognition", "Pressure", "Temp" };
 
         private sealed class Row
         {
@@ -106,18 +106,21 @@ namespace StationeersUIMod.UI.Hud.Widgets
             // (Entity.cs:1753). HealthRatio is body-only, so also check the organ regions.
             bool vHealth = s != null && (s.HealthRatio < 1.0f
                 || s.DamageHead01 > 0.001f || s.DamageChest01 > 0.001f || s.DamageBody01 > 0.001f);
+            // Cognition (consciousness): only when impaired, like vanilla's SymbolCognition row.
+            // O2Quality is the consciousness driver (low breathable O2 → you black out).
+            bool vCognition = s != null && s.O2Quality < 0.999f;
             bool vPressure = words && Def.GetB("rowPressure", false);
             bool vTemp = words && Def.GetB("rowTemp", false);
 
             bool showBox = Def.GetB("box", true);
 
             int sig = (vHunger ? 1 : 0) | (vWater ? 2 : 0) | (vToilet ? 4 : 0)
-                | (vHealth ? 8 : 0) | (vPressure ? 16 : 0) | (vTemp ? 32 : 0)
+                | (vHealth ? 8 : 0) | (vCognition ? 256 : 0) | (vPressure ? 16 : 0) | (vTemp ? 32 : 0)
                 | (words ? 64 : 0) | (showBox ? 128 : 0);
             if (sig != _sig)
             {
                 _sig = sig;
-                Reflow(scale, vHunger, vWater, vToilet, vHealth, vPressure, vTemp, showBox);
+                Reflow(scale, vHunger, vWater, vToilet, vHealth, vCognition, vPressure, vTemp, showBox);
             }
 
             // --- chrome ---
@@ -138,10 +141,17 @@ namespace StationeersUIMod.UI.Hud.Widgets
                 "FED", "PECKISH", "STARVING");
             PushNeedRow(Water, vWater, s != null ? s.WaterRatio : 0f, words, accent, dim,
                 "HYDRATED", "THIRSTY", "PARCHED");
-            // Toilet has no vanilla level-word, so it stays numeric even in words mode.
-            PushRowNumeric(Toilet, vToilet, s != null ? s.Sanitation01 : 0f, accent, dim);
+            // Toilet: Sanitation01 is the WASTE ratio (high = need to go, decompile Human.cs
+            // :2807 GetWasteRatio + IsSanitationCritical = ratio > threshold). Invert it to a
+            // "holding capacity" reserve so it reads like the other needs (high % = fine,
+            // green RELIEVED; low % = urgent, red DESPERATE) in both bare words and suited %.
+            PushNeedRow(Toilet, vToilet, s != null ? (1f - s.Sanitation01) : 1f, words, accent, dim,
+                "RELIEVED", "UNEASY", "DESPERATE");
             PushNeedRow(Health, vHealth, s != null ? s.HealthRatio : 0f, words, accent, dim,
                 "OK", "HURT", "CRITICAL");
+            // Cognition/consciousness (icon-cognition): high O2Quality = ALERT, low = blacking out.
+            PushNeedRow(Cognition, vCognition, s != null ? s.O2Quality : 1f, words, accent, dim,
+                "ALERT", "DAZED", "FADING");
 
             PushPressureRow(vPressure, s, dim);
             PushTempRow(vTemp, s, dim);
@@ -367,7 +377,7 @@ namespace StationeersUIMod.UI.Hud.Widgets
         // ---- layout ----
 
         private void Reflow(float scale, bool vHunger, bool vWater, bool vToilet,
-            bool vHealth, bool vPressure, bool vTemp, bool showBox)
+            bool vHealth, bool vCognition, bool vPressure, bool vTemp, bool showBox)
         {
             _lastScale = scale;
             var c = CenterFor(scale);
@@ -382,6 +392,7 @@ namespace StationeersUIMod.UI.Hud.Widgets
             if (vWater) order.Add(Water);
             if (vToilet) order.Add(Toilet);
             if (vHealth) order.Add(Health);
+            if (vCognition) order.Add(Cognition);
             if (vPressure) order.Add(Pressure);
             if (vTemp) order.Add(Temp);
             int n = order.Count;

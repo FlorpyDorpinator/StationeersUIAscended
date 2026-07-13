@@ -215,7 +215,7 @@ namespace StationeersUIMod.UI.Hud
                     Features.HudProfileStore.SetActive(fresh, name);
                     Features.HudProfileStore.MarkChanged(); // persist the upgrade
                 }
-                else if (active != null && active.Schema < 11
+                else if (active != null && active.Schema < 12
                     && string.Equals(name, "Glassy 2.0", System.StringComparison.OrdinalIgnoreCase))
                 {
                     var fresh = BuildGlassy2Document();
@@ -563,7 +563,7 @@ namespace StationeersUIMod.UI.Hud
         /// gets a words-mode vitals panel and everything flattens (BareFlattens).</summary>
         private static HudDocument BuildGlassy2Document()
         {
-            var doc = new HudDocument { Name = "Glassy 2.0", Schema = 11 };
+            var doc = new HudDocument { Name = "Glassy 2.0", Schema = 12 };
             var els = doc.Elements;
 
             // ===== 1. TOP BAR (full-width trapezoid, top edge wider than bottom) =====

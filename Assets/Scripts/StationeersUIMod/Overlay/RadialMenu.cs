@@ -1207,8 +1207,14 @@ namespace StationeersUIMod.Overlay
             // --- slide-out trigger (dwell-gated so fast flick-releases aren't hijacked) ---
             // Never while dragging a chip: the hand is busy — a child radial popping up
             // mid-drag both steals the drop target and reads as noise (0.6.2 request).
+            // Never while the mouse modifier (Alt) is held either: that key means "I'm
+            // reaching into the world" (Z-grab / world-slot grab), so a child radial dwelling
+            // open would fight the world interaction (resetting the candidate stops it firing
+            // the instant the key is released).
+            bool slideMouseMod = false;
+            try { slideMouseMod = KeyManager.GetButton(KeyMap.MouseControl); } catch { }
             if (_satellite == null && _hovered >= 0 && _mainDist > outerR + 14f
-                && _parking.Dragging == null)
+                && _parking.Dragging == null && !slideMouseMod)
             {
                 var hoveredEntry = MainEntry(_hovered);
                 if (hoveredEntry != null && hoveredEntry.HasSlideOut)
@@ -1229,7 +1235,7 @@ namespace StationeersUIMod.Overlay
                     _slideOutCandidate = -1;
                 }
             }
-            else if (_satellite != null || _mainDist <= outerR + 14f)
+            else if (_satellite != null || _mainDist <= outerR + 14f || slideMouseMod)
             {
                 _slideOutCandidate = -1;
             }

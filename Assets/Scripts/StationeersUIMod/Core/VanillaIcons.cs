@@ -23,6 +23,7 @@ namespace StationeersUIMod.Core
             "o2", "oxygen", "health", "temp", "temperature", "cold", "pressure",
             "helmet", "jetpack", "light", "toxins", "leak", "waste", "filter",
             "airtank", "air", "speed", "velocity", "canister", "propellant",
+            "cognition", "consciousness", "unconscious",
         };
 
         /// <summary>Whether this name addresses a game icon (regardless of whether it can
@@ -237,6 +238,8 @@ namespace StationeersUIMod.Core
                     case "toxins": return SpriteByName("SymbolToxins");
                     case "speed": case "velocity": return SpriteByName("SymbolVelocity");
                     case "canister": case "propellant": return SpriteByName("SymbolPressureDelta");
+                    case "cognition": case "consciousness": case "unconscious":
+                        return SpriteByName("SymbolCognition"); // icon-cognition
                     // Alerts without a dedicated vitals symbol still use the moodlet art.
                     case "toilet": case "waste": return Icon(su != null ? su.WasteCritical : null);
                     case "power": case "battery": return Icon(su != null ? su.PowerStateWarning : null);
