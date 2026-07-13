@@ -48,6 +48,7 @@ namespace StationeersUIMod.Core
             _rampBackColor = new Color(1f, 1f, 1f, 0.251f);
             _rampFrontColor = Color.white;
             _canister = null;
+            _toilet = null;
         }
 
         // ---- the game's own pressure-ramp bar art (PlayerStateWindow.cs:42-52,469-481) ----
@@ -184,6 +185,37 @@ namespace StationeersUIMod.Core
         public static Sprite JetpackCanister()
             => _canister != null ? _canister : (_canister = SpriteByName("SymbolPressureDelta"));
 
+        /// <summary>The Toilet Update's bowel-need icon: the sprite on the icon child of
+        /// PlayerStateWindow.WastePercentageObject. Prefers a "Symbol"/"Icon"-named child;
+        /// falls back to the first sprite-bearing child. Cached once resolved (the panel is
+        /// inactive until the need crosses 25%, but its sprite refs exist regardless).</summary>
+        private static Sprite _toilet;
+        public static Sprite ToiletIcon()
+        {
+            if (_toilet != null) return _toilet;
+            try
+            {
+                var psw = Assets.Scripts.UI.PlayerStateWindow.Instance;
+                var obj = psw != null ? psw.WastePercentageObject : null;
+                if (obj == null) return null;
+                var imgs = obj.GetComponentsInChildren<UnityEngine.UI.Image>(true);
+                UnityEngine.UI.Image fallback = null;
+                for (int i = 0; i < imgs.Length; i++)
+                {
+                    var img = imgs[i];
+                    if (img == null || img.sprite == null) continue;
+                    string n = img.gameObject.name;
+                    if (n.IndexOf("Symbol", StringComparison.OrdinalIgnoreCase) >= 0
+                        || n.IndexOf("Icon", StringComparison.OrdinalIgnoreCase) >= 0)
+                        return _toilet = img.sprite;
+                    if (fallback == null) fallback = img;
+                }
+                if (fallback != null) _toilet = fallback.sprite;
+            }
+            catch { }
+            return _toilet;
+        }
+
         /// <summary>The food-quality star sprite for a 0..1 quality, matching vanilla's
         /// GetFoodQualityIndex bands (&lt;0.45→1★, &lt;0.7→2★, &lt;0.9→3★, else 4★) read off
         /// FoodQualityToggle.Sprites[0..3].</summary>
@@ -240,8 +272,12 @@ namespace StationeersUIMod.Core
                     case "canister": case "propellant": return SpriteByName("SymbolPressureDelta");
                     case "cognition": case "consciousness": case "unconscious":
                         return SpriteByName("SymbolCognition"); // icon-cognition
-                    // Alerts without a dedicated vitals symbol still use the moodlet art.
-                    case "toilet": case "waste": return Icon(su != null ? su.WasteCritical : null);
+                    // The toilet/bowel need icon was added in the game's Toilet Update — it
+                    // lives on PlayerStateWindow.WastePercentageObject (the vitals waste panel,
+                    // shown when SanitationRatio > 0.25). Grabbed at runtime; this scene rip
+                    // predates it so there's no asset to reference, only the live object.
+                    case "toilet": return ToiletIcon();
+                    case "waste": return Icon(su != null ? su.WasteCritical : null);
                     case "power": case "battery": return Icon(su != null ? su.PowerStateWarning : null);
                     case "o2": case "oxygen": return Icon(su != null ? su.OxygenWarning : null);
                     case "leak": return Icon(su != null ? su.LeakWarning : null);

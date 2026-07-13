@@ -351,14 +351,23 @@ namespace StationeersUIMod.UI.Hud.Widgets
         /// art keeps its native white.</summary>
         private void ResolveIcon(Row row, int i, Color accent)
         {
-            // The bowel/toilet need has no vanilla sprite (the game only offers a "WASTE"
-            // warning triangle). A PNG override still wins; otherwise draw our procedural
-            // toilet glyph rather than the alarming waste triangle (play-test).
+            // The bowel/toilet need: use the GAME's own toilet icon (added in the Toilet
+            // Update, grabbed at runtime off PlayerStateWindow.WastePercentageObject). A PNG
+            // override wins; the procedural toilet glyph is only a last resort so the row is
+            // never a white box before the world singleton exists.
             if (i == Toilet)
             {
                 var over = Core.HudIconStore.TryGet(IconKeys[i]);
-                if (over != null) { row.UsesGlyph = false; row.Icon.sprite = over; row.Icon.color = accent; return; }
-                row.UsesGlyph = true;
+                Sprite sp = over != null ? over : Core.VanillaIcons.TryGet("toilet");
+                if (sp != null)
+                {
+                    row.UsesGlyph = false;
+                    row.IconIsOverride = over != null;
+                    row.Icon.sprite = sp;
+                    row.Icon.color = over != null ? accent : Color.white;
+                    return;
+                }
+                row.UsesGlyph = true;         // fallback until the game icon resolves
                 row.Glyph.Kind = HudIconKind.Toilet;
                 row.Glyph.color = accent;
                 return;
