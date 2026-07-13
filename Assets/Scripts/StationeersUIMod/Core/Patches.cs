@@ -275,5 +275,48 @@ namespace StationeersUIMod.Core
             catch { return true; }
         }
     }
+
+    /// <summary>
+    /// Diagnostic + fail-soft guard for a VANILLA null-ref. ThingRenderer.OverrideShadowMode
+    /// (ThingRenderer.cs:405) dereferences its private UnityRenderer without a null check, so a
+    /// batched/instanced Thing (no individual renderer — HasRenderer() is still true via its
+    /// RocketRenderer/DrawData) throws an unobserved-task NRE every time it crosses the shadow-LOD
+    /// distance as the player walks past it. We read that field; when it's null we log the
+    /// offending Thing ONCE — name + ref id + world position, so it can be walked to and deleted —
+    /// and skip the body so the log spam stops. Purely defensive: a renderer-less ThingRenderer has
+    /// no Unity shadow mode to set. Not the mod's bug; this just papers over it and names the culprit.
+    /// </summary>
+    [HarmonyPatch(typeof(Assets.Scripts.Objects.ThingRenderer), "OverrideShadowMode")]
+    internal static class Patch_ThingRenderer_OverrideShadowMode
+    {
+        private static System.Reflection.FieldInfo _urField;
+        private static readonly System.Collections.Generic.HashSet<long> _logged =
+            new System.Collections.Generic.HashSet<long>();
+
+        private static bool Prefix(Assets.Scripts.Objects.ThingRenderer __instance)
+        {
+            try
+            {
+                if (__instance == null || UIAConfig.MasterEnable == null || !UIAConfig.MasterEnable.Value)
+                    return true;
+                if (_urField == null)
+                    _urField = AccessTools.Field(typeof(Assets.Scripts.Objects.ThingRenderer), "UnityRenderer");
+                var r = _urField != null ? _urField.GetValue(__instance) as UnityEngine.Renderer : null;
+                if (r != null) return true; // has a real renderer -> let vanilla run
+
+                var t = __instance.Parent;
+                if (t != null && _logged.Add(t.ReferenceId))
+                {
+                    UnityEngine.Vector3 pos = UnityEngine.Vector3.zero;
+                    try { pos = t.transform.position; } catch { }
+                    UIALog.Info("[UIA shadow-guard] renderer-less Thing '" + t.DisplayName + "' (RefId "
+                        + t.ReferenceId + ") at " + pos.ToString("F1") + " - the source of the vanilla "
+                        + "shadow-LOD NRE spam. Walk there and delete it; the crash is now suppressed.");
+                }
+                return false; // skip the body -> no NRE
+            }
+            catch { return true; } // never let the guard itself take vanilla down
+        }
+    }
 }
 

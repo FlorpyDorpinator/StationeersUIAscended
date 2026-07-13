@@ -57,6 +57,10 @@ namespace StationeersUIMod.Overlay
         public static Entry WedgeBorderHover;
         public static Entry RimShine;
 
+        // Sorting-class GROUP wedges (crowded bags grouped by category: Storage, Power Cells…)
+        public static Entry GroupWedgeFill;
+        public static Entry GroupWedgeBorder;
+
         // Hub (the circle in the middle)
         public static Entry HubFill;
         public static Entry HubBorder;
@@ -93,6 +97,14 @@ namespace StationeersUIMod.Overlay
                 "Border around the SELECTED wedge.");
             RimShine = Add(cfg, "RimShine", "FFFFFF1A",
                 "Subtle gloss blended into the outer rim.");
+
+            // Category/sorting-class group wedges (a crowded bag grouped into Storage / Power
+            // Cells / … wedges). The EDGE reads a distinct lighter blue so grouping is obvious;
+            // the FILL defaults to the normal wedge background (its own colour so it's tunable).
+            GroupWedgeFill = Add(cfg, "GroupWedgeFill", "0E213373",
+                "Fill of a sorting-class GROUP wedge (crowded bags grouped by category). Defaults to the normal wedge fill.");
+            GroupWedgeBorder = Add(cfg, "GroupWedgeBorder", "5AA0F0E6",
+                "Edge of a sorting-class GROUP wedge. A lighter blue so category wedges stand out.");
 
             HubFill = Add(cfg, "HubFill", "D91A3400",
                 "Centre circle background (alpha 0 = invisible by default).");

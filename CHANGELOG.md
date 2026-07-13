@@ -2,6 +2,71 @@
 
 All notable changes to the mod. Detailed engineering write-ups live in `Changes Reports/`.
 
+## 0.8.0 Alpha — 2026-07-13 — GLASSY + THE DESIGNER, DEEPER
+
+The HUD designer from 0.7.0 grows up: a full **"Glassy"** dashboard redesign as the shipped
+look, two new curvature modes, per-element effects and per-mode/per-tier layouts, a tunable
+moodlet dashboard, curved line-work, and a long list of radial refinements.
+
+### The Glassy HUD
+- **New shipped default: "Glassy 4.0"** — a procedural-glass, car-dashboard redesign. Glass
+  sheen/edge-light rendering on boxes; the game's own ramp-bar art on the gauges; a de-blued
+  restyle. (The whole Glassy 2.0 → 4.0 line ships in this version; older shipped defaults
+  auto-upgrade, your custom profiles are left untouched.)
+- **Moodlet dashboard**: vanilla's real status strip relocated into the bar as centered chips
+  that **bend onto the visor curve**, keep their hover tooltips, and hide the vanilla strip.
+  New **transparency** and **brightness** sliders per moodlet dashboard.
+
+### Curvature
+- **Mode C walk-swim fixed** — the curved world-space canvas now head-locks by parenting to the
+  camera, so it no longer drifts as you move.
+- **New Mode D (Curved RT)** — Mode C's curved look *without* the swim, rendered to a fixed
+  RenderTexture. Both C and D are selectable.
+- **Per-curvature-mode placement** — each element remembers its own position/size per mode
+  (A/B/C/D); switching curvature recalls that mode's arrangement.
+
+### The designer (F9), deeper
+- **Per-element effects** — Death collapse / Glitch tear / Warp each have a per-element on/off
+  + 0–2× strength slider (turn the top bar's CRT collapse off, etc.). Glitch moved into F9.
+- **Per-tier layout** — one element can sit in a different spot/size in bare vs suit mode
+  (no more duplicating an element per mode).
+- **Global box colours** — retint every box from one place; per-element "Follow global colours".
+- **Z order re-layers live** — drag the Z slider and elements re-stack immediately (e.g. a box
+  behind the moodlets).
+- **Curved line-work** — the draw tool's Polyline gets a **Smooth (curved)** toggle: a spline
+  through your points, with a smoothness control.
+- Readout labels **wrap** to their box; **Icon-scale** slider; **"Show grid"** snap overlay;
+  boxes get **trapezoid** top/bottom insets for angled ends.
+
+### Bare senses & vitals
+- **Bare senses**: rearrange / add / remove any of **8** felt-senses per row (now including
+  **Consciousness** and **Toilet**); health reads as general **wellness** (UNWELL → AILING →
+  DYING); hunger/thirst now trigger at the same thresholds as the vitals card.
+- **Vitals panel**: "Row lines" and "Row icons" toggles.
+- **Body doll**: edit the PNG doll's healthy / warning / critical damage colours from its popup.
+
+### Radials
+- One or two device settings show **inline** (no "Settings" wedge for a single toggle).
+- **Split-stack** wedges (Split one / half / count); live **stats on swap/replace/eject** wedges.
+- Swipe chevron only appears on wedges that actually open a child radial.
+- **Sorting-class wedge colours**; hold-mode drag parity; drag a chip onto a hand/1-6 box.
+- **Wedge hotkeys**: bind a device setting to a key from its wedge — now it won't shadow any
+  game keybind (or Ctrl / C), and pressing a wedge's own letter again unbinds it.
+
+### Effects & fixes
+- Optional **power-transition glitch**: a static/distortion pass on suit death/boot, reusing the
+  game's own CameraFilterPack shaders, tunable.
+- Fixed a crash from two moodlet / damage-doll widgets fighting over one vanilla object
+  (`StatusUpdates` NRE spam); borrowed vanilla UI is now always restored before destroy.
+
+### Console
+- **`finddead`** — locate dead-player body bags near you, with coordinates.
+- **`findlargebox`** — locate large cardboard boxes near you, with coordinates + name.
+
+### Bundled
+- Your saved HUD profiles are versioned in the repo under `HudProfiles/` (share/restore by
+  dropping them into `config/StationeersUIMod/HudProfiles/`).
+
 ## 0.7.0 Alpha — 2026-07-11 — THE HUD DESIGNER
 
 The HUD stops being ours and becomes YOURS. Everything on screen is now an element in a

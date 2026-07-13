@@ -53,7 +53,8 @@ namespace StationeersUIMod.Windows
                 CurvatureCombo();
                 FloatSlider(HudConfig.CurveStrength, "Curve strength (0 flat - 1 fishbowl)", 0f, 1f);
                 Toggle(HudConfig.CurveInvert, "Invert curve direction");
-                if (HudConfig.Curvature.Value == HudCurvature.CurvedWorldCanvas)
+                if (HudConfig.Curvature.Value == HudCurvature.CurvedWorldCanvas
+                    || HudConfig.Curvature.Value == HudCurvature.CurvedRt)
                     FloatSlider(HudConfig.WorldCanvasDistance, "Visor distance (m)", 0.25f, 2f);
             }
 
@@ -83,6 +84,19 @@ namespace StationeersUIMod.Windows
                 Toggle(UIAConfig.HideVanillaStatus, "Hide vanilla status panel");
                 Toggle(UIAConfig.HideVanillaPlayerState, "Hide vanilla instrument cluster (bottom-right)");
                 Toggle(HudConfig.LegacyImGuiHud, "Use the legacy ImGui HUD instead");
+            }
+
+            if (ImGui.CollapsingHeader("Power-transition glitch (global)"))
+            {
+                Toggle(HudConfig.GlitchEnabled, "Enable glitch (tear/shake) on power down / off / on");
+                FloatSlider(HudConfig.GlitchDuration, "Duration (seconds)", 0.1f, 4f);
+                FloatSlider(HudConfig.GlitchIntensity, "Severity", 0f, 1f);
+                Toggle(HudConfig.GlitchOnPowerDown, "Fire on power DOWN / suit removed");
+                Toggle(HudConfig.GlitchOnPowerUp, "Fire on power UP / boot");
+                if (ImGui.Button("Test glitch now"))
+                    HudGlitch.TriggerTest();
+                ImGui.TextDisabled("Per-element opt-in + strength: click an element, see its");
+                ImGui.TextDisabled("'Effects' section (also controls Death collapse and Warp).");
             }
 
             if (HudSystem.DocumentMode)
@@ -164,6 +178,7 @@ namespace StationeersUIMod.Windows
             ImGui.Spacing();
 
             Toggle(HudConfig.GridSnapEnabled, "Snap to grid (hold Alt to bypass)");
+            Toggle(HudConfig.ShowGrid, "Show grid");
             FloatSlider(HudConfig.GridSnapSize, "Grid size (px)", 2f, 64f);
             ImGui.Spacing();
 
@@ -208,6 +223,24 @@ namespace StationeersUIMod.Windows
                 if (ImGui.Button("Duplicate")) HudEditorMode.DuplicateSelected();
                 ImGui.SameLine();
                 if (ImGui.Button("Delete")) HudEditorMode.DeleteSelected();
+
+                // Per-curvature-mode placement: dragging writes to the CURRENT mode's own layout
+                // for the LIVE HUD (bare stays shared). Show which, and let it snap back to base.
+                var lm = UI.Hud.HudElementView.LayoutMode;
+                string mn = lm == UI.Hud.HudCurvature.VertexWarp ? "A"
+                    : lm == UI.Hud.HudCurvature.DomeProjection ? "B"
+                    : lm == UI.Hud.HudCurvature.CurvedWorldCanvas ? "C"
+                    : lm == UI.Hud.HudCurvature.CurvedRt ? "D" : null;
+                if (mn == null)
+                    ImGui.TextDisabled("Flat: editing the base placement (shared by all modes).");
+                else
+                {
+                    bool has = sel.Def.HasModeLayout(lm);
+                    ImGui.TextDisabled("Placement saved per mode - editing writes mode " + mn
+                        + (has ? " (custom)." : " (= base)."));
+                    if (has && ImGui.Button("Reset mode " + mn + " placement to base"))
+                        HudEditorMode.ResetModeLayout();
+                }
             }
             ImGui.Spacing();
             DrawProfilesSection();
@@ -283,6 +316,13 @@ namespace StationeersUIMod.Windows
 
             var hov = HudEditorMode.HoverElement;
             var sel = HudEditorMode.SelectedElement;
+
+            // Snap-grid overlay (drawn first, behind the outlines). Snapping is measured from an
+            // element's own anchor, so the grid is drawn from the SELECTED element's anchor (else
+            // screen centre) — its centre then lands exactly on the intersections as you drag.
+            if (HudConfig.ShowGrid != null && HudConfig.ShowGrid.Value && HudConfig.GridSnapSize != null)
+                DrawGrid(dl, sel, scale);
+
             if (hov != null && !ReferenceEquals(hov, sel))
                 OutlineRect(dl, hov.CanvasRect(scale), hovCol, 1.2f);
 
@@ -331,6 +371,41 @@ namespace StationeersUIMod.Windows
                     dl.AddCircleFilled(s, 3.5f, selCol, 12);
                     if (i > 0) dl.AddLine(ToImGui(pts[i - 1]), s, selCol, 2f);
                 }
+            }
+        }
+
+        /// <summary>Draw the snap grid, WARPED to match the active curvature (each line is sampled
+        /// through the same forward warp as the element outlines, so it bends with modes A/B and
+        /// stays flat under C exactly like the outlines do). Origin = the selected element's anchor
+        /// point so its centre lands on the intersections as it snaps (snapping is measured from
+        /// each element's own anchor). When the snap cell is very fine, only every Nth snap line is
+        /// drawn so the grid stays readable and cheap — every drawn line is still a snap line.</summary>
+        private static void DrawGrid(ImGuiNET.ImDrawListPtr dl, UI.Hud.HudElementView sel, float scale)
+        {
+            float cell = Mathf.Max(1f, HudConfig.GridSnapSize.Value) * scale;
+            float g = cell;
+            while (g < 6f) g += cell;   // keep on-screen spacing >= ~6px (multiple of the snap cell)
+            float hw = Screen.width * 0.5f, hh = Screen.height * 0.5f;
+            var anchor = sel != null
+                ? sel.Def.AnchorFor(UI.Hud.HudElementView.LayoutBare, UI.Hud.HudElementView.LayoutMode)
+                : UI.Hud.HudAnchor.Center;
+            Vector2 o = UI.Hud.HudElementDef.AnchorPoint(anchor, hw, hh);
+            uint col = ImGui.GetColorU32(new Vector4(0.25f, 0.85f, 0.93f, 0.14f));
+            uint axis = ImGui.GetColorU32(new Vector4(0.25f, 0.85f, 0.93f, 0.40f)); // the anchor's own row/column
+
+            int nx = Mathf.CeilToInt((hw + Mathf.Abs(o.x)) / g) + 1;
+            for (int k = -nx; k <= nx; k++)
+            {
+                float x = o.x + k * g;
+                if (x < -hw || x > hw) continue;
+                SampledEdge(dl, new Vector2(x, -hh), new Vector2(x, hh), k == 0 ? axis : col, 1f);
+            }
+            int ny = Mathf.CeilToInt((hh + Mathf.Abs(o.y)) / g) + 1;
+            for (int k = -ny; k <= ny; k++)
+            {
+                float y = o.y + k * g;
+                if (y < -hh || y > hh) continue;
+                SampledEdge(dl, new Vector2(-hw, y), new Vector2(hw, y), k == 0 ? axis : col, 1f);
             }
         }
 
@@ -518,6 +593,12 @@ namespace StationeersUIMod.Windows
                     HudSystem.ForceTier = HudTier.Robot;
                 ImGui.EndCombo();
             }
+            // Per-tier layout: while previewing BARE, dragging/resizing (and the X/Y/W/H fields)
+            // edit the BARE-mode layout of any element shown in bare — turn on "Separate bare-mode
+            // layout" in an element's popup for it to diverge from its suit position. Gated on the
+            // exact signal that routes writes, so the cue can never disagree with what's edited.
+            if (UI.Hud.HudElementView.EditBareTier)
+                ImGui.TextDisabled("Editing BARE layout — moves bare-mode positions.");
         }
 
         private static void CurvatureCombo()
@@ -526,7 +607,8 @@ namespace StationeersUIMod.Windows
             string current = mode == HudCurvature.Flat ? "Flat (no curve)"
                 : mode == HudCurvature.VertexWarp ? "A - Vertex warp (recommended)"
                 : mode == HudCurvature.DomeProjection ? "B - Dome projection (RenderTexture)"
-                : "C - Curved world canvas (experimental)";
+                : mode == HudCurvature.CurvedWorldCanvas ? "C - Curved world canvas (experimental)"
+                : "D - Curved, steady (RenderTexture)";
             if (ImGui.BeginCombo("Curvature mode", current))
             {
                 if (ImGui.Selectable("Flat (no curve)", mode == HudCurvature.Flat))
@@ -537,16 +619,30 @@ namespace StationeersUIMod.Windows
                     HudConfig.Curvature.Value = HudCurvature.DomeProjection;
                 if (ImGui.Selectable("C - Curved world canvas (experimental)", mode == HudCurvature.CurvedWorldCanvas))
                     HudConfig.Curvature.Value = HudCurvature.CurvedWorldCanvas;
+                if (ImGui.Selectable("D - Curved, steady (RenderTexture)", mode == HudCurvature.CurvedRt))
+                    HudConfig.Curvature.Value = HudCurvature.CurvedRt;
                 ImGui.EndCombo();
             }
             ImGui.TextDisabled(mode == HudCurvature.DomeProjection
                 ? "Whole HUD renders to a texture on a dome grid; scanline colour applies."
                 : mode == HudCurvature.CurvedWorldCanvas
-                ? "The visor physically floats in front of the camera. Text uses the\ngame's ZTest-Always TMP shader; panels may clip into very close walls."
+                ? "The visor physically floats in front of the camera. Text uses the\ngame's ZTest-Always TMP shader; panels may clip into very close walls.\nKNOWN: swims as you move (far-from-origin precision) — use D instead."
+                : mode == HudCurvature.CurvedRt
+                ? "Mode C's curve rendered to a texture, shown full-screen: STEADY when\nyou move (no swim), no wall clipping. Scanline colour applies."
                 : mode == HudCurvature.VertexWarp
                 ? "Every element mesh bends toward the screen axis. Crisp text, zero cost."
-                : "The baseline. Pick A, B or C to compare the three visor projections.");
+                : "The baseline. Pick A, B, C or D to compare the visor projections.");
         }
+
+        // The shared colours that box elements draw when "Follow global colours" is ticked. Shown in
+        // their own section at the top so changing all boxes at once is one edit; skipped in the full
+        // list below so a swatch never appears (and fights for its ImGui id) twice.
+        private static readonly System.Collections.Generic.HashSet<string> _boxColourNames =
+            new System.Collections.Generic.HashSet<string>
+            {
+                "HudPanelFill", "HudPanelBorder", "HudTextValue", "HudTextLabel", "HudTextDim",
+                "HudGood", "HudWarn", "HudCritical",
+            };
 
         private static void DrawColourControls()
         {
@@ -563,21 +659,51 @@ namespace StationeersUIMod.Windows
             bool scrollTo = hotSig != _lastHotSig && hotSig.Length > 0;
             _lastHotSig = hotSig;
 
+            // --- Global box colours: change these to re-tint every box that follows global. ---
+            ImGui.TextColored(new Vector4(0.25f, 0.85f, 0.93f, 1f), "GLOBAL BOX COLOURS");
+            ImGui.TextDisabled("Every box set to \"Follow global colours\" uses these — one edit re-tints them all.");
+            ColorWheelHot(HudPalette.PanelFill, ref scrollTo);
+            ColorWheelHot(HudPalette.PanelBorder, ref scrollTo);
+            ColorWheelHot(HudPalette.TextValue, ref scrollTo);
+            ColorWheelHot(HudPalette.TextLabel, ref scrollTo);
+            ColorWheelHot(HudPalette.TextDim, ref scrollTo);
+            ColorWheelHot(HudPalette.Good, ref scrollTo);
+            ColorWheelHot(HudPalette.Warn, ref scrollTo);
+            ColorWheelHot(HudPalette.Critical, ref scrollTo);
+            if (HudSystem.DocumentMode)
+            {
+                if (ImGui.Button("Make ALL boxes follow global"))
+                    HudEditorMode.SetAllFollowGlobal(true);
+                ImGui.SameLine();
+                if (ImGui.Button("Give each box its own"))
+                    HudEditorMode.SetAllFollowGlobal(false);
+            }
+            ImGui.Separator();
+            ImGui.TextDisabled("Other HUD colours (compass, hologram, edges, scanline...):");
+
             foreach (var entry in HudPalette.All)
             {
-                bool hot = HudEditorMode.Active && HudEditorMode.HotPalette.Contains(entry.Name);
-                if (hot)
-                {
-                    if (scrollTo) { ImGui.SetScrollHereY(0.3f); scrollTo = false; }
-                    ImGui.PushStyleColor(ImGuiCol.Text, new Vector4(1f, 0.55f, 0.16f, 1f));
-                }
-                ColorWheel(entry);
-                if (hot) ImGui.PopStyleColor();
+                if (_boxColourNames.Contains(entry.Name)) continue; // shown in the box section above
+                ColorWheelHot(entry, ref scrollTo);
             }
 
             ImGui.Spacing();
             if (ImGui.Button("Reset all HUD colours to defaults"))
                 HudPalette.ResetToDefaults();
+        }
+
+        /// <summary>A palette swatch that highlights (and scrolls into view) when its element is
+        /// hovered in the editor — the shared draw for both the box section and the full list.</summary>
+        private static void ColorWheelHot(HudPalette.Entry entry, ref bool scrollTo)
+        {
+            bool hot = HudEditorMode.Active && HudEditorMode.HotPalette.Contains(entry.Name);
+            if (hot)
+            {
+                if (scrollTo) { ImGui.SetScrollHereY(0.3f); scrollTo = false; }
+                ImGui.PushStyleColor(ImGuiCol.Text, new Vector4(1f, 0.55f, 0.16f, 1f));
+            }
+            ColorWheel(entry);
+            if (hot) ImGui.PopStyleColor();
         }
 
         private static void FontCombo()

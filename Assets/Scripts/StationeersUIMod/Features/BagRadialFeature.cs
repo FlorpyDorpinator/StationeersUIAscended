@@ -261,6 +261,7 @@ namespace StationeersUIMod.Features
                             ActionText = "Open",
                             Sublabel = slots.Count + " item(s)",
                             Icon = first?.GetThumbnail(),
+                            GroupStyle = true, // category wedge: its own edge/fill palette
                             ChildProvider = () => slots.Select(s => ItemEntry(bag, s)).Where(e => e != null).ToList(),
                         });
                     }
@@ -279,6 +280,7 @@ namespace StationeersUIMod.Features
                             ActionText = "Open",
                             Sublabel = slots.Count + " item(s)",
                             Icon = first?.GetThumbnail(),
+                            GroupStyle = true, // category wedge: its own edge/fill palette
                             ChildProvider = () => slots.Select(s => ItemEntry(bag, s)).Where(e => e != null).ToList(),
                         });
                     }

@@ -27,8 +27,12 @@ namespace StationeersUIMod.UI.Hud.Widgets
     internal sealed class MoodletBorrowWidget : HudElementView
     {
         private RectTransform _holder;
+        private CanvasGroup _holderGroup; // drives the F9 "Moodlet transparency" fade
 
         private bool _borrowed;
+        // Only ONE widget may hold the single vanilla strip at a time (see TryBorrow) — a
+        // duplicate would fight over the reparent and crash vanilla's StatusUpdates.
+        private static MoodletBorrowWidget _stripOwner;
         private RectTransform _stripRt;
         private Transform _origParent;
         private int _origSiblingIndex;
@@ -57,6 +61,7 @@ namespace StationeersUIMod.UI.Hud.Widgets
             grp.ignoreParentGroups = true;
             grp.interactable = true;
             grp.blocksRaycasts = true;
+            _holderGroup = grp;
         }
 
         public override void Layout(float scale)
@@ -78,10 +83,28 @@ namespace StationeersUIMod.UI.Hud.Widgets
 
         private void TryBorrow()
         {
+            // Only a WANTED widget borrows. Without this, a suit-mode copy that is fading OUT
+            // re-borrows every frame during its ~0.4s fade, so the incoming bare-mode copy never
+            // gets the strip and it snaps back to vanilla ("moodlets return to the right side when
+            // I hit bare mode"). Fader.Target is the panel's visible/hidden goal.
+            if (Fader != null && !Fader.Target) return;
+
             var su = Assets.Scripts.UI.StatusUpdates.Instance;
             var strip = su != null ? su.StatusTransform : null;
             var rt = strip as RectTransform;
             if (rt == null) return;
+
+            // One owner at a time (two copies reparenting the SAME vanilla strip crashed
+            // StatusUpdates.ManagerUpdate). A wanted widget may take the strip from an owner that
+            // is itself fading OUT (not wanted) so the bare↔suit handoff completes; it never steals
+            // from another WANTED widget, so two same-tier copies can't fight — the extra one just
+            // renders empty. Prefer ONE element with a per-tier layout override over duplicates.
+            var owner = _stripOwner;
+            if (owner != null && owner != this && owner._borrowed)
+            {
+                if (owner.Fader != null && owner.Fader.Target) return; // a wanted owner keeps it
+                owner.RestoreMoodlets();                               // unwanted holder → take over
+            }
 
             _stripRt = rt;
             _origParent = rt.parent;
@@ -111,9 +134,11 @@ namespace StationeersUIMod.UI.Hud.Widgets
             rt.pivot = new Vector2(0.5f, 0.5f);
             rt.anchoredPosition = Vector2.zero;
             _borrowed = true;
+            _stripOwner = this;
         }
 
         private static readonly List<RectTransform> _cells = new List<RectTransform>();
+        private static readonly List<Graphic> _gfxBuf = new List<Graphic>(); // brightness-tint scratch
 
         private void Apply(float scale)
         {
@@ -133,6 +158,15 @@ namespace StationeersUIMod.UI.Hud.Widgets
             var want = new Vector3(sc, sc, 1f);
             if (_stripRt.localScale != want) _stripRt.localScale = want;
             if (_stripRt.anchoredPosition != Vector2.zero) _stripRt.anchoredPosition = Vector2.zero;
+
+            // F9 "Moodlet transparency" (0 = solid, 1 = invisible): faded via the holder's own
+            // CanvasGroup. It already ignores the HUD-root group (for the hover tooltip), so this
+            // alpha is the moodlets' final opacity — nothing else fights it.
+            if (_holderGroup != null)
+            {
+                float a = 1f - Mathf.Clamp01(Def.GetF("moodletTransparency", 0f));
+                if (!Mathf.Approximately(_holderGroup.alpha, a)) _holderGroup.alpha = a;
+            }
 
             LayoutCellsCurved(sc);
         }
@@ -158,6 +192,14 @@ namespace StationeersUIMod.UI.Hud.Widgets
             var mid = new Vector2(0.5f, 0.5f);
             var cellSize = new Vector2(cell, cell);
 
+            // F9 "Moodlet brightness" (1 = native, 0 = black): a CanvasRenderer colour tint that
+            // MULTIPLIES on top of whatever colour vanilla drew the cell (its own flash included),
+            // so it can only darken — a colour multiply can't lift a coloured sprite to pure white.
+            // Alpha stays 1 so icon transparency and the holder's transparency slider are untouched.
+            // At 1.0 the tint is white = identity, which also resets any earlier darkening for free.
+            float bright = Mathf.Clamp01(Def.GetF("moodletBrightness", 1f));
+            var tint = new Color(bright, bright, bright, 1f);
+
             for (int k = 0; k < n; k++)
             {
                 var ch = _cells[k];
@@ -173,6 +215,15 @@ namespace StationeersUIMod.UI.Hud.Widgets
                 // Back to strip-local (strip sits at centre, scaled by sc).
                 ch.anchoredPosition3D = new Vector3(
                     (abs.x - center.x) / sc, (abs.y - center.y) / sc, abs.z / Mathf.Max(0.0001f, sc));
+
+                // Re-assert the tint every frame: vanilla owns Graphic.color (the mesh), while this
+                // is the CanvasRenderer multiplier on top — the two never collide.
+                ch.GetComponentsInChildren<Graphic>(true, _gfxBuf);
+                for (int g = 0; g < _gfxBuf.Count; g++)
+                {
+                    var cr = _gfxBuf[g].canvasRenderer;
+                    if (cr != null) cr.SetColor(tint);
+                }
             }
         }
 
@@ -188,6 +239,7 @@ namespace StationeersUIMod.UI.Hud.Widgets
         {
             if (!_borrowed) return;
             _borrowed = false;
+            if (ReferenceEquals(_stripOwner, this)) _stripOwner = null;
             try
             {
                 if (_grid != null)
@@ -231,6 +283,10 @@ namespace StationeersUIMod.UI.Hud.Widgets
             var d = Def;
             into.Add(HudProp.F("Moodlet scale", () => d.GetF("moodletScale", 0.32f),
                 v => d.SetF("moodletScale", Mathf.Clamp(v, 0.08f, 1.5f)), 0.08f, 1.5f));
+            into.Add(HudProp.F("Moodlet transparency", () => d.GetF("moodletTransparency", 0f),
+                v => d.SetF("moodletTransparency", Mathf.Clamp01(v)), 0f, 1f));
+            into.Add(HudProp.F("Moodlet brightness", () => d.GetF("moodletBrightness", 1f),
+                v => d.SetF("moodletBrightness", Mathf.Clamp01(v)), 0f, 1f));
         }
     }
 }

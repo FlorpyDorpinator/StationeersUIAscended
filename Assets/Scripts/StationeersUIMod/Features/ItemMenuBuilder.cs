@@ -69,10 +69,11 @@ namespace StationeersUIMod.Features
                 }
             }
 
-            // Option A rule (parity everywhere): a SETTINGS wedge whenever the item has more
-            // than two controls, or any controls alongside slot wedges (a backpack shows
-            // SETTINGS + its slots, never three settings mixed into the item grid). One or
-            // two controls with no slots stay inline (a canister just says OPEN).
+            // Option A rule (parity everywhere): a SETTINGS wedge only when the item has MORE
+            // than two controls — one or two settings always go straight into the radial, even
+            // alongside slot wedges (sensor lenses just say "On"; a welder shows On + its slots).
+            // Three or more controls still collapse into a SETTINGS wedge so the item grid never
+            // drowns in toggles.
             if (UIAConfig.IsA && UseSettingsWedge(controls.Count, slotEntries.Count))
             {
                 entries.Add(BuildSettingsWedge(thing, controls.Count));
@@ -97,8 +98,11 @@ namespace StationeersUIMod.Features
             return controls;
         }
 
+        /// <summary>Collapse controls into a SETTINGS wedge only past two of them. One or two
+        /// settings stay inline in the radial regardless of how many slot wedges sit beside
+        /// them (<paramref name="slotWedgeCount"/> is kept for call-site clarity/history).</summary>
         public static bool UseSettingsWedge(int controlCount, int slotWedgeCount)
-            => controlCount > 2 || (controlCount > 0 && slotWedgeCount > 0);
+            => controlCount > 2;
 
         public static RadialEntry BuildSettingsWedge(DynamicThing thing, int controlCount)
         {

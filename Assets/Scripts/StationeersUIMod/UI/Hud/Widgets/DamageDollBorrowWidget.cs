@@ -33,6 +33,8 @@ namespace StationeersUIMod.UI.Hud.Widgets
 
         // Borrow bookkeeping (all captured on the first successful borrow, restored on release).
         private bool _borrowed;
+        // Only ONE widget may hold the single vanilla doll at a time (see TryBorrow).
+        private static DamageDollBorrowWidget _dollOwner;
         private RectTransform _dollRt;
         private Transform _origParent;
         private int _origSiblingIndex;
@@ -106,6 +108,10 @@ namespace StationeersUIMod.UI.Hud.Widgets
 
         private void TryBorrow()
         {
+            // Only a WANTED widget borrows — a suit-mode copy fading OUT must not keep re-grabbing
+            // the doll during its fade, or the incoming bare-mode copy never gets it.
+            if (Fader != null && !Fader.Target) return;
+
             var psw = Assets.Scripts.UI.PlayerStateWindow.Instance;
             if (psw == null) return;
             var doll = psw.PersonDamageObject;
@@ -113,6 +119,17 @@ namespace StationeersUIMod.UI.Hud.Widgets
 
             var rt = doll.transform as RectTransform;
             if (rt == null) return;
+
+            // One owner at a time (two copies reparenting the SAME vanilla doll would fight). A
+            // wanted widget may take the doll from an owner that is itself fading OUT (not wanted)
+            // so the bare↔suit handoff completes; it never steals from a WANTED owner, so two
+            // same-tier copies can't fight — the extra one just renders an empty box.
+            var owner = _dollOwner;
+            if (owner != null && owner != this && owner._borrowed)
+            {
+                if (owner.Fader != null && owner.Fader.Target) return;
+                owner.RestoreDoll();
+            }
 
             // Cache everything needed to hand the doll back untouched.
             _dollRt = rt;
@@ -150,6 +167,7 @@ namespace StationeersUIMod.UI.Hud.Widgets
             rt.anchoredPosition = Vector2.zero;
 
             _borrowed = true;
+            _dollOwner = this;
             _appliedScale = -1f;
         }
 
@@ -188,6 +206,7 @@ namespace StationeersUIMod.UI.Hud.Widgets
         {
             if (!_borrowed) return;
             _borrowed = false;
+            if (ReferenceEquals(_dollOwner, this)) _dollOwner = null;
             try
             {
                 if (_bgImage != null) _bgImage.enabled = _bgWasEnabled;

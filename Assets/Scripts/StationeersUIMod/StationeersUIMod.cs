@@ -18,8 +18,8 @@ namespace StationeersUIMod
     /// </summary>
     public sealed class StationeersUIMod : MonoBehaviour
     {
-        public const string ModVersion = "0.7.0";
-        public const string VersionDisplay = "0.7.0 Alpha";
+        public const string ModVersion = "0.8.0";
+        public const string VersionDisplay = "0.8.0 Alpha";
         public const string ModGuid = "com.stationeersuimod.ui";
 
         public static StationeersUIMod Instance { get; private set; }
@@ -100,6 +100,7 @@ namespace StationeersUIMod
                     typeof(Patch_InventoryManager_AllowMouseControl),
                     typeof(Patch_MovementController_HandleJump),
                     typeof(Patch_PlayerStateWindow_UpdateJetpackPanels),
+                    typeof(Patch_ThingRenderer_OverrideShadowMode), // names + silences the vanilla shadow-LOD NRE
                     typeof(Core.Patch_CommandLine_Process)); // `finddead` console command
 
                 // The static `new Mod(...)` above registers us with LaunchPadBooster for the optional client-side mod list.

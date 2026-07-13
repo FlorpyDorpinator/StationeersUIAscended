@@ -80,9 +80,13 @@ namespace StationeersUIMod.UI.Hud
             return q;
         }
 
-        public static Vector3 Warp(Vector3 p)
+        public static Vector3 Warp(Vector3 p) => Warp(p, 1f);
+
+        /// <summary>Warp a canvas point, scaling the bend by a per-element multiplier
+        /// (0 = flat for that element, 1 = the global strength, up to 2).</summary>
+        public static Vector3 Warp(Vector3 p, float mult)
         {
-            float k = Strength * Direction;
+            float k = Strength * Direction * mult;
             switch (Active)
             {
                 case Kind.Barrel:
@@ -114,9 +118,13 @@ namespace StationeersUIMod.UI.Hud
     [RequireComponent(typeof(Graphic))]
     public sealed class VisorWarp : BaseMeshEffect
     {
+        /// <summary>Per-element bend multiplier (set by <see cref="HudElementView"/> from the
+        /// element's fxWarp props): 0 leaves this graphic flat, 1 is the full global curve.</summary>
+        public float StrengthMult = 1f;
+
         public override void ModifyMesh(VertexHelper vh)
         {
-            if (!IsActive() || !HudWarp.Enabled || graphic == null) return;
+            if (!IsActive() || !HudWarp.Enabled || graphic == null || StrengthMult <= 0.001f) return;
             var canvas = graphic.canvas;
             if (canvas == null) return;
 
@@ -129,7 +137,7 @@ namespace StationeersUIMod.UI.Hud
             for (int i = 0; i < count; i++)
             {
                 vh.PopulateUIVertex(ref v, i);
-                v.position = back.MultiplyPoint3x4(HudWarp.Warp(toCanvas.MultiplyPoint3x4(v.position)));
+                v.position = back.MultiplyPoint3x4(HudWarp.Warp(toCanvas.MultiplyPoint3x4(v.position), StrengthMult));
                 vh.SetUIVertex(v, i);
             }
         }
@@ -144,6 +152,9 @@ namespace StationeersUIMod.UI.Hud
     [RequireComponent(typeof(TextMeshProUGUI))]
     public sealed class TmpWarp : MonoBehaviour
     {
+        /// <summary>Per-element bend multiplier — see <see cref="VisorWarp.StrengthMult"/>.</summary>
+        public float StrengthMult = 1f;
+
         private TextMeshProUGUI _tmp;
 
         private void OnEnable()
@@ -157,9 +168,15 @@ namespace StationeersUIMod.UI.Hud
             if (_tmp != null) _tmp.OnPreRenderText -= Apply;
         }
 
+        /// <summary>Force the text to re-run OnPreRenderText (so a StrengthMult change takes effect).</summary>
+        public void ReWarp()
+        {
+            if (_tmp != null) _tmp.SetAllDirty();
+        }
+
         private void Apply(TMP_TextInfo info)
         {
-            if (!HudWarp.Enabled || _tmp == null || info == null) return;
+            if (!HudWarp.Enabled || _tmp == null || info == null || StrengthMult <= 0.001f) return;
             var canvas = _tmp.canvas;
             if (canvas == null) return;
 
@@ -173,7 +190,7 @@ namespace StationeersUIMod.UI.Hud
                 if (verts == null) continue;
                 int used = info.meshInfo[m].vertexCount;
                 for (int i = 0; i < used && i < verts.Length; i++)
-                    verts[i] = back.MultiplyPoint3x4(HudWarp.Warp(toCanvas.MultiplyPoint3x4(verts[i])));
+                    verts[i] = back.MultiplyPoint3x4(HudWarp.Warp(toCanvas.MultiplyPoint3x4(verts[i]), StrengthMult));
             }
         }
     }

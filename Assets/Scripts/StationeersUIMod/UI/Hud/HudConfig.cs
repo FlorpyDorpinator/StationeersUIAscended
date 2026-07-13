@@ -17,8 +17,15 @@ namespace StationeersUIMod.UI.Hud
         DomeProjection,
         /// <summary>Option C — the HUD canvas lives in WORLD space, bent onto a cylinder
         /// in front of the camera (what the third-party curved-canvas assets do, written
-        /// in-house — we ship no dependencies). True perspective curvature; experimental.</summary>
+        /// in-house — we ship no dependencies). True perspective curvature; experimental.
+        /// KNOWN: swims when you move — it renders at the player's far-from-origin world
+        /// position (float precision). Kept as-is; use D for the same look, stable.</summary>
         CurvedWorldCanvas,
+        /// <summary>Option D — same cylinder curve as C, but rendered through a FIXED perspective
+        /// camera at the origin into a RenderTexture and composited full-screen. Nothing moves with
+        /// the player, so it is head-locked by construction and immune to the far-from-origin
+        /// precision swim that afflicts C. The steady way to get C's look.</summary>
+        CurvedRt,
     }
 
     /// <summary>
@@ -34,6 +41,7 @@ namespace StationeersUIMod.UI.Hud
         public static ConfigEntry<string> HudActiveProfile;
         public static ConfigEntry<bool> GridSnapEnabled;
         public static ConfigEntry<float> GridSnapSize;
+        public static ConfigEntry<bool> ShowGrid;
         public static ConfigEntry<bool> DebugShowAll;
         public static ConfigEntry<bool> DebugShowAllBare;
 
@@ -88,6 +96,14 @@ namespace StationeersUIMod.UI.Hud
         public static ConfigEntry<bool> LowPowerDropouts;
         public static ConfigEntry<float> LowPowerThreshold;
 
+        // Power-transition glitch (reuses the game's CameraFilterPack shaders)
+        public static ConfigEntry<bool> GlitchEnabled;
+        public static ConfigEntry<string> GlitchShader;
+        public static ConfigEntry<float> GlitchDuration;
+        public static ConfigEntry<float> GlitchIntensity;
+        public static ConfigEntry<bool> GlitchOnPowerDown;
+        public static ConfigEntry<bool> GlitchOnPowerUp;
+
         public static void Bind(ConfigFile cfg)
         {
             const string S = "10. Visor HUD";
@@ -109,6 +125,8 @@ namespace StationeersUIMod.UI.Hud
             GridSnapSize = cfg.Bind(S, "GridSnapSize", 8f,
                 new ConfigDescription("HUD editor: grid cell size in reference pixels.",
                     new AcceptableValueRange<float>(2f, 64f)));
+            ShowGrid = cfg.Bind(S, "ShowGrid", false,
+                "HUD editor: draw the snap grid as a faint overlay while the F9 designer is open.");
             DebugShowAll = cfg.Bind(S, "DebugShowAll", false,
                 "F9 DEBUG: force every HUD element to show its content at once (all vitals " +
                 "rows, all moodlets, all instruments) with dummy data, to arrange the layout " +
@@ -222,6 +240,24 @@ namespace StationeersUIMod.UI.Hud
             LowPowerThreshold = cfg.Bind(S, "LowPowerThreshold", 10f,
                 new ConfigDescription("Suit battery % under which the HUD starts glitching.",
                     new AcceptableValueRange<float>(0f, 40f)));
+
+            GlitchEnabled = cfg.Bind(S, "GlitchEnabled", false,
+                "A momentary screen distortion when the suit powers down / off / on, using one of " +
+                "the game's own CameraFilterPack shaders. Distorts the rendered VIEW during the " +
+                "transition (the overlay HUD is composited after the camera; a true HUD-only " +
+                "version needs the RenderTexture route).");
+            GlitchShader = cfg.Bind(S, "GlitchShader", "TV static",
+                "Which preloaded shader the glitch uses (see the F10 window's dropdown for the list).");
+            GlitchDuration = cfg.Bind(S, "GlitchDuration", 1.1f,
+                new ConfigDescription("How long the glitch lasts, seconds.",
+                    new AcceptableValueRange<float>(0.1f, 4f)));
+            GlitchIntensity = cfg.Bind(S, "GlitchIntensity", 0.85f,
+                new ConfigDescription("Peak severity of the glitch (0-1).",
+                    new AcceptableValueRange<float>(0f, 1f)));
+            GlitchOnPowerDown = cfg.Bind(S, "GlitchOnPowerDown", true,
+                "Play the glitch when the suit powers down / is taken off (HUD collapses).");
+            GlitchOnPowerUp = cfg.Bind(S, "GlitchOnPowerUp", true,
+                "Play the glitch when the suit powers on / boots up.");
 
             HudPalette.Bind(cfg);
         }

@@ -6,7 +6,7 @@ namespace StationeersUIMod.UI.Hud
     /// How a <see cref="HudProp"/> wants to be edited. The editor window maps each kind to a
     /// widget (checkbox, slider, combo, colour swatch…) — the descriptor itself never draws.
     /// </summary>
-    public enum HudPropKind { Bool, Float, Int, Text, Enum, ColorRef, Anchor, TierMask, Points }
+    public enum HudPropKind { Bool, Float, Int, Text, Enum, ColorRef, Anchor, TierMask, Points, Header }
 
     /// <summary>
     /// A single editable knob on a HUD widget, described as data rather than code.
@@ -136,6 +136,13 @@ namespace StationeersUIMod.UI.Hud
                 Get = () => get(),
                 Set = v => set((int)v),
             };
+        }
+
+        /// <summary>A non-interactive section divider — groups a run of props under a heading
+        /// (e.g. the per-element "Effects" block). No get/set.</summary>
+        public static HudProp Header(string label)
+        {
+            return new HudProp { Label = label, Kind = HudPropKind.Header };
         }
     }
 }

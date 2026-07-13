@@ -93,9 +93,12 @@ namespace StationeersUIMod.UI.Hud.Widgets
                 }
             }
 
-            _label = HudText.Make(root, "Label", 11f, TextAlignmentOptions.Center);
+            // The multi-word LABEL and TARGET wrap to the box width instead of spilling past its
+            // edges (their rects are sized to the content width in Layout); the VALUE is a single
+            // number+unit and stays on one line.
+            _label = HudText.Make(root, "Label", 11f, TextAlignmentOptions.Center, wrap: true);
             _value = HudText.Make(root, "Value", 17f, TextAlignmentOptions.Center);
-            _target = HudText.Make(root, "Target", 10f, TextAlignmentOptions.Center);
+            _target = HudText.Make(root, "Target", 10f, TextAlignmentOptions.Center, wrap: true);
             _labelRt = _label.rectTransform;
             _valueRt = _value.rectTransform;
             _targetRt = _target.rectTransform;
@@ -117,6 +120,12 @@ namespace StationeersUIMod.UI.Hud.Widgets
 
             bool showBar = Def.GetB("bar", true);
             bool vertical = Def.GetB("barVertical", false);
+            float iconScale = Def.GetF("iconScale", 1f); // F9 "Icon scale" multiplier
+
+            // Per-element "Wrap text": the label/target wrap to the box width or spill on one line.
+            bool wrapText = Def.GetB("wrap", true);
+            if (_label.enableWordWrapping != wrapText) _label.enableWordWrapping = wrapText;
+            if (_target.enableWordWrapping != wrapText) _target.enableWordWrapping = wrapText;
 
             ((RectTransform)_box.transform).anchoredPosition = c;
             _box.SetShape(s.x, s.y,
@@ -179,7 +188,7 @@ namespace StationeersUIMod.UI.Hud.Widgets
                 {
                     // Conditional hot/cold glyph sits just left of the value row (item 7:
                     // vanilla's hot/cold icon reads ~1.5× the old size).
-                    float isz = Mathf.Clamp((cTop - cBot) * 0.34f, 14f * scale, 40f * scale);
+                    float isz = Mathf.Clamp((cTop - cBot) * 0.34f, 14f * scale, 40f * scale) * iconScale;
                     _iconRt.anchoredPosition = new Vector2(cLeft + isz * 0.5f, valY);
                     _iconRt.sizeDelta = new Vector2(isz, isz);
                 }
@@ -201,7 +210,7 @@ namespace StationeersUIMod.UI.Hud.Widgets
                 _autoValueRef = cw / Mathf.Max(0.01f, scale) * 0.22f;
                 if (_iconRt != null)
                 {
-                    float isz = Mathf.Clamp(cw * 0.5f, 14f * scale, 44f * scale);
+                    float isz = Mathf.Clamp(cw * 0.5f, 14f * scale, 44f * scale) * iconScale;
                     _iconRt.anchoredPosition = new Vector2(cx, cBot + isz * 0.5f + 2f * scale);
                     _iconRt.sizeDelta = new Vector2(isz, isz);
                 }
@@ -212,7 +221,7 @@ namespace StationeersUIMod.UI.Hud.Widgets
                 // value right-of-label, thin bar already reserved along the bottom.
                 _autoValueRef = (cTop - cBot) / Mathf.Max(0.01f, scale) * 0.42f;
                 float isz = _iconRt != null
-                    ? Mathf.Clamp((cTop - cBot) * 0.82f, 14f * scale, 44f * scale) : 0f;
+                    ? Mathf.Clamp((cTop - cBot) * 0.82f, 14f * scale, 44f * scale) * iconScale : 0f;
                 float textLeft = cLeft + (isz > 0f ? isz + 6f * scale : 0f);
                 float tw = Mathf.Max(20f, cRight - textLeft);
                 float midY = (cTop + cBot) * 0.5f;
@@ -350,11 +359,11 @@ namespace StationeersUIMod.UI.Hud.Widgets
                 _bar.SetZones(r.WarnLow, r.CritLow, r.WarnHigh, r.CritHigh);
                 _bar.Value = r.Valid ? r.Raw : float.NaN;
                 _bar.Target = (showTarget && r.HasTarget) ? r.Target : float.NaN;
-                _bar.FillColor = HudPalette.Resolve(Def.GetS("barFill", ""), HudPalette.Good.Value);
-                _bar.WarnColor = HudPalette.Resolve(Def.GetS("barWarn", ""), HudPalette.Warn.Value);
-                _bar.CritColor = HudPalette.Resolve(Def.GetS("barCrit", ""), HudPalette.Critical.Value);
-                _bar.TrackColor = HudPalette.Resolve(Def.GetS("barTrack", ""), HudPalette.PanelBorder.Value);
-                _bar.TargetColor = HudPalette.Resolve(Def.GetS("barTarget", ""), HudPalette.TextValue.Value);
+                _bar.FillColor = GlobalOr(Def.GetS("barFill", ""), HudPalette.Good.Value);
+                _bar.WarnColor = GlobalOr(Def.GetS("barWarn", ""), HudPalette.Warn.Value);
+                _bar.CritColor = GlobalOr(Def.GetS("barCrit", ""), HudPalette.Critical.Value);
+                _bar.TrackColor = GlobalOr(Def.GetS("barTrack", ""), HudPalette.PanelBorder.Value);
+                _bar.TargetColor = GlobalOr(Def.GetS("barTarget", ""), HudPalette.TextValue.Value);
                 _bar.CornerRadius = 3f * scale;
                 _bar.TargetWidth = 2f * scale;
             }
@@ -651,6 +660,7 @@ namespace StationeersUIMod.UI.Hud.Widgets
             var d = Def;
             into.Add(HudProp.Enum("Source", () => (int)ParseSource(d),
                 v => d.Set("src", SourceNames[Mathf.Clamp(v, 0, SourceNames.Length - 1)]), SourceNames));
+            into.Add(HudProp.Bool("Wrap text (label/target)", () => d.GetB("wrap", true), v => d.SetB("wrap", v)));
             into.Add(HudProp.Bool("Background box", () => d.GetB("box", true), v => d.SetB("box", v)));
             into.Add(HudProp.Bool("Stacked layout", () => d.GetB("stack", false), v => d.SetB("stack", v)));
             into.Add(HudProp.Bool("Conditional temp icon", () => d.GetB("tempIcon", false), v => d.SetB("tempIcon", v)));
@@ -660,15 +670,19 @@ namespace StationeersUIMod.UI.Hud.Widgets
             into.Add(HudProp.Bool("Vertical bar", () => d.GetB("barVertical", false), v => d.SetB("barVertical", v)));
             into.Add(HudProp.Enum("Bar style", () => UseGameBar() ? 1 : 0,
                 v => d.Set("barStyle", v == 1 ? "game" : null), BarStyleNames));
-            into.Add(HudProp.Color("Bar fill", () => d.GetS("barFill", ""), v => d.Set("barFill", Empty(v))));
-            into.Add(HudProp.Color("Bar warn", () => d.GetS("barWarn", ""), v => d.Set("barWarn", Empty(v))));
-            into.Add(HudProp.Color("Bar crit", () => d.GetS("barCrit", ""), v => d.Set("barCrit", Empty(v))));
-            into.Add(HudProp.Color("Bar track", () => d.GetS("barTrack", ""), v => d.Set("barTrack", Empty(v))));
-            into.Add(HudProp.Color("Bar target", () => d.GetS("barTarget", ""), v => d.Set("barTarget", Empty(v))));
+            if (!d.GetB("followGlobal", false)) // hidden while the element follows the global colours
+            {
+                into.Add(HudProp.Color("Bar fill", () => d.GetS("barFill", ""), v => d.Set("barFill", Empty(v))));
+                into.Add(HudProp.Color("Bar warn", () => d.GetS("barWarn", ""), v => d.Set("barWarn", Empty(v))));
+                into.Add(HudProp.Color("Bar crit", () => d.GetS("barCrit", ""), v => d.Set("barCrit", Empty(v))));
+                into.Add(HudProp.Color("Bar track", () => d.GetS("barTrack", ""), v => d.Set("barTrack", Empty(v))));
+                into.Add(HudProp.Color("Bar target", () => d.GetS("barTarget", ""), v => d.Set("barTarget", Empty(v))));
+            }
             into.Add(HudProp.Text("Label override", () => d.GetS("label", ""), v => d.Set("label", Empty(v))));
             // The icon slot is created at build time, so an icon change rebuilds the view.
             into.Add(HudProp.Text("Icon (game key/glyph/PNG)", () => d.Icon ?? "",
                 v => { d.Icon = Empty(v); HudSystem.RequestViewRebuild(); }));
+            into.Add(HudProp.F("Icon scale", () => d.GetF("iconScale", 1f), v => d.SetF("iconScale", Mathf.Clamp(v, 0.2f, 4f)), 0.2f, 4f));
             into.Add(HudProp.F("Text scale (× box-auto)", () => d.GetF("textScale", 1f), v => d.SetF("textScale", Mathf.Clamp(v, 0.3f, 3f)), 0.3f, 3f));
         }
 

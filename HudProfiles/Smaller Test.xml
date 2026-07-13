@@ -1,0 +1,222 @@
+<?xml version="1.0"?>
+<HudDocument xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" Schema="7" Name="Smaller Test">
+  <El Id="g2-topbar" Type="Box" Anchor="TopCenter" X="0" Y="-38" W="1860" H="62" WPct="0.99" HPct="-1" Z="0" Tiers="Suited Robot" Fill="#05080DA6" Border="#B8B9B907" TextColor="HudTextValue" BorderWidth="0.524" RTL="4" RTR="4" RBR="20" RBL="20" FontScale="1" Align="Center">
+    <P K="insetBottom" V="46" />
+    <P K="sheen" V="0.511" />
+    <P K="spec" V="0.819" />
+    <P K="fxCollapse" V="false" />
+    <P K="followGlobal" V="true" />
+  </El>
+  <El Id="g2-clock" Type="Clock" Anchor="TopLeft" X="150" Y="-38" W="200" H="40" WPct="-1" HPct="-1" Z="2" Tiers="Suited Robot" Fill="HudPanelFill" Border="HudPanelBorder" TextColor="HudTextValue" BorderWidth="-1" RTL="-1" RTR="-1" RBR="-1" RBL="-1" FontScale="1" Align="Center">
+    <P K="fxCollapse" V="false" />
+    <P K="followGlobal" V="true" />
+  </El>
+  <El Id="g2-extpress" Type="Readout" Anchor="TopLeft" X="488.8861" Y="-31.7937088" W="287.217" H="61.11" WPct="-1" HPct="-1" Z="2" Tiers="Suited Robot" Fill="HudPanelFill" Border="HudPanelBorder" TextColor="HudTextValue" BorderWidth="-1" RTL="-1" RTR="-1" RBR="-1" RBL="-1" FontScale="1" Align="Center">
+    <P K="src" V="ExternalPressure" />
+    <P K="label" V="EXTERNAL PRESSURE" />
+    <P K="box" V="false" />
+    <P K="bar" V="true" />
+    <P K="barStyle" V="game" />
+    <P K="barVertical" V="false" />
+    <P K="target" V="false" />
+    <P K="textScale" V="0.929" />
+    <P K="fxCollapse" V="false" />
+    <P K="followGlobal" V="true" />
+  </El>
+  <El Id="g2-compass" Type="Compass" Anchor="TopCenter" X="-24" Y="-38" W="329.813" H="68" WPct="-0.995" HPct="-1" Z="3" Tiers="Suited Robot" Fill="HudPanelFill" Border="HudPanelBorder" TextColor="HudTextValue" BorderWidth="-1" RTL="-1" RTR="-1" RBR="-1" RBL="-1" FontScale="1.08" Align="Center">
+    <P K="box" V="false" />
+    <P K="fov" V="111.418" />
+    <P K="tickDeg" V="17.035" />
+    <P K="cardinalDeg" V="64.236" />
+    <P K="fxCollapse" V="false" />
+    <P K="followGlobal" V="true" />
+  </El>
+  <El Id="g2-exttemp" Type="Readout" Anchor="TopRight" X="-360" Y="-38" W="240" H="50" WPct="-1" HPct="-1" Z="2" Tiers="Suited Robot" Fill="HudPanelFill" Border="HudPanelBorder" TextColor="HudTextValue" BorderWidth="-1" RTL="-1" RTR="-1" RBR="-1" RBL="-1" FontScale="1" Align="Center" Icon="Temp">
+    <P K="src" V="ExternalTemp" />
+    <P K="label" V="EXTERNAL TEMP" />
+    <P K="box" V="false" />
+    <P K="bar" V="false" />
+    <P K="target" V="false" />
+    <P K="tempIcon" V="true" />
+    <P K="fxCollapse" V="false" />
+    <P K="followGlobal" V="true" />
+  </El>
+  <El Id="g2-day" Type="DayCounter" Anchor="TopRight" X="-120" Y="-38" W="130" H="40" WPct="-1" HPct="-1" Z="2" Tiers="Suited Robot" Fill="HudPanelFill" Border="HudPanelBorder" TextColor="HudTextValue" BorderWidth="-1" RTL="-1" RTR="-1" RBR="-1" RBL="-1" FontScale="1" Align="Center">
+    <P K="fxCollapse" V="false" />
+    <P K="followGlobal" V="true" />
+  </El>
+  <El Id="g2-moodlets" Type="MoodletDashboard" Anchor="TopCenter" X="-26" Y="-105" W="1414" H="64" WPct="-1" HPct="-1" Z="35" Tiers="All" Fill="#05090E99" Border="HudPanelBorder" TextColor="HudTextValue" BorderWidth="-1" RTL="-1" RTR="-1" RBR="-1" RBL="-1" FontScale="0.852" Align="Center">
+    <P K="box" V="false" />
+    <P K="stackWords" V="true" />
+    <P K="labels" V="true" />
+    <P K="iconScale" V="0.732" />
+    <P K="textScale" V="0.267" />
+    <P K="rowGap" V="11.295" />
+    <P K="colGap" V="8.977" />
+    <P K="sheen" V="0" />
+    <P K="glyphs" V="false" />
+    <P K="chipWidth" V="171.877" />
+    <P K="chipH" V="115.586" />
+    <P K="moodletScale" V="0.555" />
+    <P K="bLayout" V="true" />
+    <P K="bAnchor" V="1" />
+    <P K="bX" V="-15.2116184" />
+    <P K="bY" V="-1049.54761" />
+    <P K="bW" V="1414" />
+    <P K="bH" V="64" />
+    <P K="bWPct" V="-1" />
+    <P K="bHPct" V="-1" />
+    <P K="moodletTransparency" V="0" />
+    <P K="moodletBrightness" V="0.961" />
+    <P K="fxCollapse" V="false" />
+    <P K="fxGlitch" V="false" />
+    <P K="fxWarp" V="false" />
+    <P K="followGlobal" V="true" />
+    <P K="mAL" V="true" />
+    <P K="mAAnchor" V="1" />
+    <P K="mAX" V="-26" />
+    <P K="mAY" V="-113.214005" />
+    <P K="mAW" V="1414" />
+    <P K="mAH" V="64.428" />
+    <P K="mAWPct" V="-1" />
+    <P K="mAHPct" V="-1" />
+  </El>
+  <El Id="g2-eqleft" Type="EquipmentColumn" Anchor="BottomCenter" X="-360" Y="56" W="264" H="78" WPct="-1" HPct="-1" Z="2" Tiers="All" Fill="#05080DA6" Border="#D9E6EE59" TextColor="HudTextValue" BorderWidth="-1" RTL="-1" RTR="-1" RBR="-1" RBL="-1" FontScale="1" Align="Center">
+    <P K="horizontal" V="true" />
+    <P K="first" V="0" />
+    <P K="count" V="3" />
+    <P K="sheen" V="0.5" />
+    <P K="spec" V="0.8" />
+    <P K="fxCollapse" V="false" />
+    <P K="fxGlitch" V="false" />
+    <P K="fxWarp" V="false" />
+    <P K="followGlobal" V="true" />
+  </El>
+  <El Id="g2-hands" Type="HandBoxes" Anchor="BottomCenter" X="-16" Y="62" W="358" H="118" WPct="-1" HPct="-1" Z="2" Tiers="All" Fill="#05080DA6" Border="#D9E6EE59" TextColor="HudTextValue" BorderWidth="-1" RTL="-1" RTR="-1" RBR="-1" RBL="-1" FontScale="1" Align="Center">
+    <P K="tray" V="false" />
+    <P K="sheen" V="0.5" />
+    <P K="spec" V="0.8" />
+    <P K="fxCollapse" V="false" />
+    <P K="fxGlitch" V="false" />
+    <P K="fxWarp" V="false" />
+    <P K="followGlobal" V="true" />
+  </El>
+  <El Id="g2-eqright" Type="EquipmentColumn" Anchor="BottomCenter" X="360" Y="56" W="264" H="78" WPct="-1" HPct="-1" Z="2" Tiers="All" Fill="#05080DA6" Border="#D9E6EE59" TextColor="HudTextValue" BorderWidth="-1" RTL="-1" RTR="-1" RBR="-1" RBL="-1" FontScale="1" Align="Center">
+    <P K="horizontal" V="true" />
+    <P K="first" V="3" />
+    <P K="count" V="3" />
+    <P K="sheen" V="0.5" />
+    <P K="spec" V="0.8" />
+    <P K="fxCollapse" V="false" />
+    <P K="fxGlitch" V="false" />
+    <P K="fxWarp" V="false" />
+    <P K="followGlobal" V="true" />
+  </El>
+  <El Id="g2-visor-arc" Type="Polyline" Anchor="BottomCenter" X="6.111" Y="122.22" W="1118.313" H="91.665" WPct="-1" HPct="-1" Z="1" Tiers="Suited Robot" Fill="HudPanelFill" Border="HudPanelBorder" TextColor="#CFE6F088" BorderWidth="-1" RTL="-1" RTR="-1" RBR="-1" RBL="-1" FontScale="1" Align="Center">
+    <P K="width" V="0.5" />
+    <P K="fadeEnds" V="0.407" />
+    <P K="pts" V="-440,-14;-220,8;0,14;220,8;440,-14" />
+    <P K="closed" V="false" />
+    <P K="sheen" V="0" />
+    <P K="spec" V="0.031" />
+    <P K="fxCollapse" V="false" />
+    <P K="followGlobal" V="true" />
+  </El>
+  <El Id="g2-portrait" Type="Portrait" Anchor="BottomRight" X="-96" Y="100" W="186" H="178" WPct="-1" HPct="-1" Z="3" Tiers="Suited Robot" Fill="HudPanelFill" Border="#D9E6EE72" TextColor="HudTextValue" BorderWidth="0.243" RTL="-1" RTR="-1" RBR="-1" RBL="-1" FontScale="0.679" Align="Center">
+    <P K="camFov" V="25.08" />
+    <P K="holo" V="false" />
+    <P K="scanlines" V="true" />
+    <P K="camDistance" V="-0.014" />
+    <P K="sheen" V="0.141" />
+    <P K="followGlobal" V="true" />
+  </El>
+  <El Id="g2-chips" Type="StateChips" Anchor="BottomRight" X="-98" Y="208" W="115.479019" H="27.8273258" WPct="-1" HPct="-1" Z="3" Tiers="Suited Robot" Fill="#05080DA6" Border="#D9E6EE59" TextColor="HudTextValue" BorderWidth="-1" RTL="-1" RTR="-1" RBR="-1" RBL="-1" FontScale="1" Align="Center">
+    <P K="sheen" V="0.5" />
+    <P K="spec" V="0.8" />
+    <P K="light" V="true" />
+    <P K="jetpack" V="true" />
+    <P K="followGlobal" V="true" />
+  </El>
+  <El Id="g2-intpress" Type="Readout" Anchor="BottomRight" X="-226.599" Y="125.067" W="72" H="56" WPct="-0.741" HPct="-0.758" Z="-7" Tiers="Suited Robot" Fill="#05080DA6" Border="#D9E6EE59" TextColor="HudTextValue" BorderWidth="-1" RTL="-1" RTR="-1" RBR="-1" RBL="-1" FontScale="1.804" Align="Center">
+    <P K="src" V="InternalPressure" />
+    <P K="label" V="INTERNAL PRESSURE" />
+    <P K="box" V="true" />
+    <P K="stack" V="true" />
+    <P K="bar" V="true" />
+    <P K="barStyle" V="game" />
+    <P K="barVertical" V="false" />
+    <P K="target" V="true" />
+    <P K="sheen" V="0.5" />
+    <P K="spec" V="0.8" />
+    <P K="followGlobal" V="true" />
+  </El>
+  <El Id="g2-inttemp" Type="Readout" Anchor="BottomRight" X="-226.599" Y="69.687" W="74.763" H="49.8420029" WPct="-1" HPct="-1" Z="3" Tiers="Suited Robot" Fill="#05080DA6" Border="#D9E6EE59" TextColor="HudTextValue" BorderWidth="-1" RTL="-1" RTR="-1" RBR="-1" RBL="-1" FontScale="1.811" Align="Center" Icon="Temp">
+    <P K="src" V="InternalTemp" />
+    <P K="label" V="INTERNAL TEMP" />
+    <P K="box" V="true" />
+    <P K="stack" V="true" />
+    <P K="bar" V="false" />
+    <P K="target" V="true" />
+    <P K="tempIcon" V="true" />
+    <P K="sheen" V="0.5" />
+    <P K="spec" V="0.8" />
+    <P K="barVertical" V="false" />
+    <P K="followGlobal" V="true" />
+  </El>
+  <El Id="g2-jetpack" Type="JetpackBox" Anchor="BottomRight" X="-226.599" Y="183.216" W="71.994" H="55.38" WPct="-1" HPct="-1" Z="3" Tiers="Suited Robot" Fill="#05080DA6" Border="#D9E6EE59" TextColor="HudTextValue" BorderWidth="-1" RTL="-1" RTR="-1" RBR="-1" RBL="-1" FontScale="0.685" Align="Center">
+    <P K="sheen" V="0.5" />
+    <P K="spec" V="0.8" />
+    <P K="followGlobal" V="true" />
+  </El>
+  <El Id="g2-vitals" Type="VitalsPanel" Anchor="BottomRight" X="-304.131" Y="133.374" W="73.82112" H="152" WPct="-1" HPct="-1" Z="3" Tiers="Suited Robot" Fill="#05080DA6" Border="#D9E6EE59" TextColor="HudTextValue" BorderWidth="-1" RTL="-1" RTR="-1" RBR="-1" RBL="-1" FontScale="1" Align="Center">
+    <P K="sheen" V="0.5" />
+    <P K="spec" V="0.8" />
+    <P K="words" V="false" />
+    <P K="rowPressure" V="false" />
+    <P K="rowTemp" V="false" />
+    <P K="box" V="true" />
+    <P K="iconScale" V="0.643" />
+    <P K="rowHeight" V="29.768" />
+    <P K="followGlobal" V="true" />
+  </El>
+  <El Id="g2-bare-senses" Type="BareSenses" Anchor="Center" X="-564.876038" Y="13.845" W="304.59" H="415.35" WPct="-1" HPct="-1" Z="2" Tiers="Bare" Fill="HudPanelFill" Border="HudPanelBorder" TextColor="HudTextValue" BorderWidth="-1" RTL="-1" RTR="-1" RBR="-1" RBL="-1" FontScale="1" Align="Center">
+    <P K="order" V="temp,air,pressure,thirst,hunger,health,toilet,cognition" />
+    <P K="followGlobal" V="true" />
+  </El>
+  <El Id="cfe7acaf9a1e4ee0af3e7bf373ad9c3b" Type="Readout" Anchor="Center" X="836.697" Y="-575.49" W="77.532" H="38.766" WPct="-1" HPct="-1" Z="50" Tiers="Suited Robot" Fill="#05080DA6" Border="#B9BEC259" TextColor="HudTextValue" BorderWidth="-1" RTL="-1" RTR="-1" RBR="-1" RBL="-1" FontScale="2.381" Align="Center" Icon="speed">
+    <P K="src" V="Speed" />
+    <P K="label" V="SPEED" />
+    <P K="box" V="true" />
+    <P K="bar" V="false" />
+    <P K="target" V="false" />
+    <P K="sheen" V="0.5" />
+    <P K="spec" V="0.8" />
+    <P K="stack" V="true" />
+    <P K="iconScale" V="1.221" />
+    <P K="textScale" V="0.933" />
+    <P K="followGlobal" V="true" />
+  </El>
+  <El Id="e4d9d8873c1b46fab33d7ccb368865d4" Type="PngDoll" Anchor="Center" X="673.326" Y="-500.72702" W="90" H="218" WPct="-1" HPct="-1" Z="50" Tiers="Suited Robot" Fill="HudScanline" Border="HudPanelBorder" TextColor="HudTextValue" BorderWidth="-1" RTL="-1" RTR="-1" RBR="-1" RBL="-1" FontScale="1" Align="Center">
+    <P K="armY" V="0.002" />
+    <P K="legSpread" V="0.088" />
+    <P K="legY" V="-0.114" />
+    <P K="armSpread" V="1.517" />
+    <P K="figScale" V="0.909" />
+    <P K="box" V="false" />
+    <P K="followGlobal" V="true" />
+  </El>
+  <El Id="8232c07f1fc944afb431d0f051615068" Type="Box" Anchor="Center" X="-21.214" Y="495.210022" W="1603.971" H="64.428" WPct="-1" HPct="-0.134" Z="-49" Tiers="Suited Robot" Fill="#00000067" Border="#EEF0F000" TextColor="HudTextValue" BorderWidth="-1" RTL="0.928" RTR="0.248" RBR="64" RBL="64" FontScale="1" Align="Center">
+    <P K="insetTop" V="0" />
+    <P K="insetBottom" V="87.958" />
+    <P K="fxCollapse" V="false" />
+    <P K="followGlobal" V="true" />
+    <P K="mAL" V="true" />
+    <P K="mAAnchor" V="4" />
+    <P K="mAX" V="-33.9564323" />
+    <P K="mAY" V="490.210022" />
+    <P K="mAW" V="1578.486" />
+    <P K="mAH" V="75.754" />
+    <P K="mAWPct" V="-1" />
+    <P K="mAHPct" V="-0.134" />
+  </El>
+</HudDocument>

@@ -101,7 +101,7 @@ namespace StationeersUIMod.UI.Hud
         {
             if (Elements == null) { Elements = new List<HudElementDef>(); return; }
 
-            int dropped = 0, mintedId = 0, clamped = 0, colorFixed = 0, tierFixed = 0, speedFixed = 0;
+            int dropped = 0, mintedId = 0, clamped = 0, colorFixed = 0, tierFixed = 0, speedFixed = 0, bareOrphan = 0;
             var seenIds = new HashSet<string>(StringComparer.Ordinal);
 
             for (int i = Elements.Count - 1; i >= 0; i--)
@@ -129,6 +129,18 @@ namespace StationeersUIMod.UI.Hud
 
                 if (el.Params == null) el.Params = new List<HudParam>();
 
+                // A bare-layout override only means something for a "Both" element (shown in bare
+                // AND a live tier). If the element is single-mode (Bare-only or Live-only), the
+                // override is dead data — strip it so it can't bloat the profile or desync a drag
+                // (render vs edit tier). Idempotent, so it settles after one save.
+                bool both = (el.Tiers & HudTierMask.Bare) != 0
+                         && (el.Tiers & (HudTierMask.Suited | HudTierMask.Robot)) != 0;
+                if (el.HasBareLayout && !both)
+                {
+                    el.SetBareLayout(false);
+                    bareOrphan++;
+                }
+
                 // Legacy repair: a SPEED readout must vanish in the power-off (bare) HUD like
                 // every other instrument. Early Add>Readout defaulted new elements to All-tier,
                 // so hand-made speed boxes lingered in bare (play-test, repeatedly). Strip Bare
@@ -151,6 +163,7 @@ namespace StationeersUIMod.UI.Hud
             if (colorFixed > 0) UIALog.Warn($"{label}: defaulted {colorFixed} empty colour reference(s).");
             if (tierFixed > 0) UIALog.Warn($"{label}: reset {tierFixed} element(s) with no visible tier to All.");
             if (speedFixed > 0) UIALog.Warn($"{label}: made {speedFixed} Speed readout(s) suit-only (were showing in bare).");
+            if (bareOrphan > 0) UIALog.Warn($"{label}: cleared {bareOrphan} orphaned bare-layout override(s) (element not shown in bare).");
         }
 
         /// <summary>Deterministic small hash of an Id, used to seed per-element animators
@@ -375,12 +388,207 @@ namespace StationeersUIMod.UI.Hud
             return c;
         }
 
+        // --- per-tier (bare) layout override -----------------------------------------
+        // An element shown in BOTH bare and suit can carry a SECOND geometry for the power-off
+        // (bare) HUD, so ONE element occupies a different spot/size per mode instead of being
+        // duplicated. Duplication is not just clutter: two copies of a borrow widget
+        // (Moodlet/DamageDoll/Portrait) fight over the one vanilla object they reparent. Stored
+        // in the param bag — absent means "bare inherits the base layout", so most elements
+        // carry nothing extra and profiles authored before this feature load unchanged.
+        public bool HasBareLayout => GetB("bLayout", false);
+
+        /// <summary>Geometry resolved for the tier being laid out. When <paramref name="bare"/>
+        /// and an override exists, the bare values win; otherwise the base fields (which bare
+        /// inherits).</summary>
+        public HudAnchor AnchorFor(bool bare) => bare && HasBareLayout ? (HudAnchor)GetI("bAnchor", (int)Anchor) : Anchor;
+        public float XFor(bool bare)    => bare && HasBareLayout ? GetF("bX", X) : X;
+        public float YFor(bool bare)    => bare && HasBareLayout ? GetF("bY", Y) : Y;
+        public float WFor(bool bare)    => bare && HasBareLayout ? Mathf.Max(2f, GetF("bW", W)) : W;
+        public float HFor(bool bare)    => bare && HasBareLayout ? Mathf.Max(2f, GetF("bH", H)) : H;
+        public float WPctFor(bool bare) => bare && HasBareLayout ? GetF("bWPct", WPct) : WPct;
+        public float HPctFor(bool bare) => bare && HasBareLayout ? GetF("bHPct", HPct) : HPct;
+
+        /// <summary>Turn a bare override on — seeded from the current base geometry, so it starts
+        /// exactly where the suit layout sits and the designer nudges from there — or off, so bare
+        /// reverts to inheriting the base layout. Idempotent.</summary>
+        public void SetBareLayout(bool on)
+        {
+            if (on)
+            {
+                if (HasBareLayout) return;
+                SetB("bLayout", true);
+                SetI("bAnchor", (int)Anchor);
+                SetF("bX", X); SetF("bY", Y);
+                SetF("bW", W); SetF("bH", H);
+                SetF("bWPct", WPct); SetF("bHPct", HPct);
+            }
+            else
+            {
+                Set("bLayout", null); Set("bAnchor", null);
+                Set("bX", null); Set("bY", null);
+                Set("bW", null); Set("bH", null);
+                Set("bWPct", null); Set("bHPct", null);
+            }
+        }
+
+        // Write helpers: when <paramref name="bare"/> they target the bare override (auto-enabling
+        // it, so a drag with the preview set to BARE simply starts remembering a bare position);
+        // otherwise they write the base fields.
+        public void SetAnchorFor(bool bare, HudAnchor a) { if (bare) { SetBareLayout(true); SetI("bAnchor", (int)a); } else Anchor = a; }
+        public void SetXFor(bool bare, float v) { if (bare) { SetBareLayout(true); SetF("bX", v); } else X = v; }
+        public void SetYFor(bool bare, float v) { if (bare) { SetBareLayout(true); SetF("bY", v); } else Y = v; }
+        public void SetWFor(bool bare, float v) { if (bare) { SetBareLayout(true); SetF("bW", v); } else W = v; }
+        public void SetHFor(bool bare, float v) { if (bare) { SetBareLayout(true); SetF("bH", v); } else H = v; }
+        public void SetWPctFor(bool bare, float v) { if (bare) { SetBareLayout(true); SetF("bWPct", v); } else WPct = v; }
+        public void SetHPctFor(bool bare, float v) { if (bare) { SetBareLayout(true); SetF("bHPct", v); } else HPct = v; }
+
+        // ---- per-curvature-mode LIVE layout (A/B/C/D each remember their own placement) ----
+        // Same mechanism as the bare override, but keyed by the curvature mode instead of the
+        // tier, and it only touches the LIVE (non-bare) layout — bare stays one shared override
+        // (FlorpyDorp's choice). Stored in the param bag under a per-mode prefix, so profiles
+        // authored before this feature (no such params) load unchanged and Flat uses the base.
+        internal static string ModeKey(HudCurvature mode)
+        {
+            switch (mode)
+            {
+                case HudCurvature.VertexWarp: return "mA";
+                case HudCurvature.DomeProjection: return "mB";
+                case HudCurvature.CurvedWorldCanvas: return "mC";
+                case HudCurvature.CurvedRt: return "mD";
+                default: return null; // Flat (and unknown) edit/read the base layout
+            }
+        }
+
+        public bool HasModeLayout(HudCurvature mode)
+        {
+            var k = ModeKey(mode);
+            return k != null && GetB(k + "L", false);
+        }
+
+        // Resolution honouring BOTH overrides: bare wins when bare (mode-independent); otherwise a
+        // live per-mode override wins; otherwise the base fields.
+        public HudAnchor AnchorFor(bool bare, HudCurvature mode)
+        {
+            if (bare && HasBareLayout) return (HudAnchor)GetI("bAnchor", (int)Anchor);
+            var k = ModeKey(mode);
+            return k != null && GetB(k + "L", false) ? (HudAnchor)GetI(k + "Anchor", (int)Anchor) : Anchor;
+        }
+        public float XFor(bool bare, HudCurvature mode)
+        {
+            if (bare && HasBareLayout) return GetF("bX", X);
+            var k = ModeKey(mode);
+            return k != null && GetB(k + "L", false) ? GetF(k + "X", X) : X;
+        }
+        public float YFor(bool bare, HudCurvature mode)
+        {
+            if (bare && HasBareLayout) return GetF("bY", Y);
+            var k = ModeKey(mode);
+            return k != null && GetB(k + "L", false) ? GetF(k + "Y", Y) : Y;
+        }
+        public float WFor(bool bare, HudCurvature mode)
+        {
+            if (bare && HasBareLayout) return Mathf.Max(2f, GetF("bW", W));
+            var k = ModeKey(mode);
+            return k != null && GetB(k + "L", false) ? Mathf.Max(2f, GetF(k + "W", W)) : W;
+        }
+        public float HFor(bool bare, HudCurvature mode)
+        {
+            if (bare && HasBareLayout) return Mathf.Max(2f, GetF("bH", H));
+            var k = ModeKey(mode);
+            return k != null && GetB(k + "L", false) ? Mathf.Max(2f, GetF(k + "H", H)) : H;
+        }
+        public float WPctFor(bool bare, HudCurvature mode)
+        {
+            if (bare && HasBareLayout) return GetF("bWPct", WPct);
+            var k = ModeKey(mode);
+            return k != null && GetB(k + "L", false) ? GetF(k + "WPct", WPct) : WPct;
+        }
+        public float HPctFor(bool bare, HudCurvature mode)
+        {
+            if (bare && HasBareLayout) return GetF("bHPct", HPct);
+            var k = ModeKey(mode);
+            return k != null && GetB(k + "L", false) ? GetF(k + "HPct", HPct) : HPct;
+        }
+
+        /// <summary>Turn a per-mode LIVE override on (seeded from the base geometry, like the bare
+        /// one) or off (revert that mode to the base layout). No-op for Flat, which IS the base.</summary>
+        public void SetModeLayout(HudCurvature mode, bool on)
+        {
+            var k = ModeKey(mode);
+            if (k == null) return;
+            if (on)
+            {
+                if (GetB(k + "L", false)) return;
+                SetB(k + "L", true);
+                SetI(k + "Anchor", (int)Anchor);
+                SetF(k + "X", X); SetF(k + "Y", Y);
+                SetF(k + "W", W); SetF(k + "H", H);
+                SetF(k + "WPct", WPct); SetF(k + "HPct", HPct);
+            }
+            else
+            {
+                Set(k + "L", null); Set(k + "Anchor", null);
+                Set(k + "X", null); Set(k + "Y", null);
+                Set(k + "W", null); Set(k + "H", null);
+                Set(k + "WPct", null); Set(k + "HPct", null);
+            }
+        }
+
+        // Write helpers keyed by tier AND mode: bare targets the bare override; else a non-Flat
+        // mode targets that mode's live override (auto-enabling it); else the base fields.
+        public void SetAnchorFor(bool bare, HudCurvature mode, HudAnchor a)
+        {
+            if (bare) { SetBareLayout(true); SetI("bAnchor", (int)a); return; }
+            var k = ModeKey(mode);
+            if (k != null) { SetModeLayout(mode, true); SetI(k + "Anchor", (int)a); } else Anchor = a;
+        }
+        public void SetXFor(bool bare, HudCurvature mode, float v)
+        {
+            if (bare) { SetBareLayout(true); SetF("bX", v); return; }
+            var k = ModeKey(mode);
+            if (k != null) { SetModeLayout(mode, true); SetF(k + "X", v); } else X = v;
+        }
+        public void SetYFor(bool bare, HudCurvature mode, float v)
+        {
+            if (bare) { SetBareLayout(true); SetF("bY", v); return; }
+            var k = ModeKey(mode);
+            if (k != null) { SetModeLayout(mode, true); SetF(k + "Y", v); } else Y = v;
+        }
+        public void SetWFor(bool bare, HudCurvature mode, float v)
+        {
+            if (bare) { SetBareLayout(true); SetF("bW", v); return; }
+            var k = ModeKey(mode);
+            if (k != null) { SetModeLayout(mode, true); SetF(k + "W", v); } else W = v;
+        }
+        public void SetHFor(bool bare, HudCurvature mode, float v)
+        {
+            if (bare) { SetBareLayout(true); SetF("bH", v); return; }
+            var k = ModeKey(mode);
+            if (k != null) { SetModeLayout(mode, true); SetF(k + "H", v); } else H = v;
+        }
+        public void SetWPctFor(bool bare, HudCurvature mode, float v)
+        {
+            if (bare) { SetBareLayout(true); SetF("bWPct", v); return; }
+            var k = ModeKey(mode);
+            if (k != null) { SetModeLayout(mode, true); SetF(k + "WPct", v); } else WPct = v;
+        }
+        public void SetHPctFor(bool bare, HudCurvature mode, float v)
+        {
+            if (bare) { SetBareLayout(true); SetF("bHPct", v); return; }
+            var k = ModeKey(mode);
+            if (k != null) { SetModeLayout(mode, true); SetF(k + "HPct", v); } else HPct = v;
+        }
+
         /// <summary>The point on the element's own box that its anchor pins to, in canvas space
         /// (centre origin, +y up). Half-extents are passed in so both the layout host and the
         /// editor's handle maths share one definition of "where the anchor sits".</summary>
-        public Vector2 AnchorPoint(float halfW, float halfH)
+        public Vector2 AnchorPoint(float halfW, float halfH) => AnchorPoint(Anchor, halfW, halfH);
+
+        /// <summary>Anchor-point for an EXPLICIT anchor — used by the per-tier layout resolve so
+        /// a bare override can pin to a different screen region than the base.</summary>
+        public static Vector2 AnchorPoint(HudAnchor anchor, float halfW, float halfH)
         {
-            switch (Anchor)
+            switch (anchor)
             {
                 case HudAnchor.TopLeft: return new Vector2(-halfW, halfH);
                 case HudAnchor.TopCenter: return new Vector2(0f, halfH);

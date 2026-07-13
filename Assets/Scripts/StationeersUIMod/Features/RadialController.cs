@@ -209,6 +209,14 @@ namespace StationeersUIMod.Features
 
             if (!_menu.IsSticky)
             {
+                if (Input.GetMouseButtonDown(0))
+                    UIALog.Warn($"[HOLD-DBG] controller NON-STICKY branch active={(_active != null ? _active.Title : "null")} keyHeld={(_active != null && Input.GetKey(_active.Key))}");
+                // Option A hold mode: same drag behaviour as the tapped radial — move the
+                // radial (hub drag), drag items off wedges, Alt-grab from the world, drop,
+                // click-select (self-gates to Option A). A click-select/close tears down here.
+                _menu.UpdateHoldInteractiveA();
+                if (!_menu.IsOpen) { CloseAll(); return; }
+
                 if (_active != null && !Input.GetKey(_active.Key))
                 {
                     bool stayOpen = _menu.OnHoldReleased();
@@ -234,6 +242,8 @@ namespace StationeersUIMod.Features
             }
             else
             {
+                if (Input.GetMouseButtonDown(0))
+                    UIALog.Warn($"[HOLD-DBG] controller STICKY branch active={(_active != null ? _active.Title : "null")}");
                 bool wasOpen = _menu.IsOpen;
                 // While the search panel is typing, raw key presses are TEXT — the re-press
                 // and MMB dismiss gestures must not fire (the panel handles its own exits).

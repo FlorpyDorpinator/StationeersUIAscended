@@ -32,6 +32,7 @@ namespace StationeersUIMod.UI.Hud
         private static CanvasGroup _rootGroup;
         private static Canvas _domeCanvas;
         private static DomeDisplayGraphic _domeDisplay;
+        private static UnityEngine.UI.RawImage _rtFlat; // mode D: the HUD RT shown flat, full-screen
         private static ScanlineGraphic _domeScan;
         private static Camera _rtCam;
         private static RenderTexture _rt;
@@ -63,9 +64,6 @@ namespace StationeersUIMod.UI.Hud
         private static readonly Dictionary<Material, Material> _overlayFontMats
             = new Dictionary<Material, Material>();
         private static bool _worldMatsApplied;
-        // Render-time re-pose hook for mode C (see OnWorldCanvasPreCull). Subscribed only while
-        // the curved world canvas is live; must be unhooked on every teardown (hot-reload safety).
-        private static bool _preCullHooked;
 
         public static bool Built => _canvas != null;
         public static HudSnapshot LastSnapshot { get; private set; }
@@ -81,6 +79,7 @@ namespace StationeersUIMod.UI.Hud
         public static void TestPowerDeath()
         {
             _animator.PowerDeath();
+            HudGlitch.Trigger(powerDown: true);
             _demoHoldUntil = Time.unscaledTime + 2.4f;
         }
 
@@ -91,6 +90,7 @@ namespace StationeersUIMod.UI.Hud
             foreach (var p in _panels)
                 if (p.SuitTier) _animator.SetVisible(p.Fader, false, instant: true);
             _animator.BootUp(BootEligible);
+            HudGlitch.Trigger(powerDown: false);
             _demoHoldUntil = Time.unscaledTime + 2.4f;
         }
 
@@ -299,6 +299,14 @@ namespace StationeersUIMod.UI.Hud
         /// views must rebuild next frame. Geometry-only edits never need this.</summary>
         internal static void RequestViewRebuild() => _docRebuildNeeded = true;
 
+        // Z (draw order) is baked into sibling order at build time. Editing an element's Z in the
+        // popup must re-apply that order to the LIVE panels — without it, the slider changes the
+        // stored number but nothing visibly re-layers. Cheap enough to run on a slider drag (a
+        // sort + SetSiblingIndex, no panel teardown, so borrowed vanilla objects stay put), so it
+        // is preferred over a full RequestViewRebuild for a pure Z change.
+        private static bool _zResortNeeded;
+        internal static void RequestZResort() => _zResortNeeded = true;
+
         /// <summary>One view per document element, Z-sorted into sibling order. The
         /// animator seed derives from the element Id so flicker desync survives both
         /// rebuilds and hot reloads.</summary>
@@ -384,6 +392,36 @@ namespace StationeersUIMod.UI.Hud
             }
         }
 
+        private static readonly List<HudElementView> _zSortScratch = new List<HudElementView>();
+
+        /// <summary>Re-apply document Z as canvas sibling order on the LIVE panels, no rebuild.
+        /// The vignette stays first (behind everything); document elements follow in Z order
+        /// (stable by Id, matching the build sort), lowest Z furthest back. Runs when a Z slider
+        /// changes so re-layering is immediate — the borrowed moodlet strip moves with its holder
+        /// because it is a child of that element's Root.</summary>
+        private static void ResortByZ()
+        {
+            if (!DocumentMode || _panels.Count == 0) return;
+
+            _zSortScratch.Clear();
+            for (int i = 0; i < _panels.Count; i++)
+            {
+                var v = _panels[i] as HudElementView;
+                if (v != null && v.Def != null && v.Root != null) _zSortScratch.Add(v);
+            }
+            if (_zSortScratch.Count == 0) return;
+
+            _zSortScratch.Sort((a, b) => a.Def.Z != b.Def.Z
+                ? a.Def.Z.CompareTo(b.Def.Z)
+                : string.CompareOrdinal(a.Def.Id, b.Def.Id));
+
+            // Vignette is the first child (behind all); place the panels after it.
+            int baseIndex = 0;
+            if (_vignette != null) { _vignette.transform.SetAsFirstSibling(); baseIndex = 1; }
+            for (int i = 0; i < _zSortScratch.Count; i++)
+                _zSortScratch[i].Root.SetSiblingIndex(baseIndex + i);
+        }
+
         /// <summary>Torn down and rebuilt in place (document swap): panels die, the
         /// canvas, vignette and animator survive.</summary>
         private static void RebuildViews()
@@ -398,7 +436,8 @@ namespace StationeersUIMod.UI.Hud
                     _vignetteGroup, suitTier: false, seed: 91);
             BuildViewsFromDocument();
             SetLayerRecursively(_canvas.gameObject,
-                _appliedMode == HudCurvature.DomeProjection ? HudLayerDome : HudLayerUi);
+                (_appliedMode == HudCurvature.DomeProjection || _appliedMode == HudCurvature.CurvedRt)
+                    ? HudLayerDome : HudLayerUi);
             // Mode C swaps every Graphic's material at apply time — views built AFTER
             // that would render with stock materials (z-fight into the world) unless
             // the swap is re-run over the fresh subtree.
@@ -751,9 +790,9 @@ namespace StationeersUIMod.UI.Hud
             RestoreAnyPortraits();
             RestoreVanillaIfNeeded();
             RestoreWorldMaterials();
-            UnhookWorldCanvasPreCull(); // Shutdown bypasses ApplyCurvature's teardown; a leaked
-                                        // static Camera.onPreCull delegate would call into a dead
-                                        // assembly after an F6 hot reload.
+            DetachWorldCanvas(); // Shutdown bypasses ApplyCurvature's teardown; un-parent the world
+                                 // canvas from the camera and return it to a DontDestroyOnLoad root
+                                 // before we destroy it below (else it dies with the camera).
             foreach (var p in _panels) p.Destroy();
             _panels.Clear();
             _animator.Clear();
@@ -765,6 +804,7 @@ namespace StationeersUIMod.UI.Hud
             if (_domeCanvas != null) UnityEngine.Object.Destroy(_domeCanvas.gameObject);
             _domeCanvas = null;
             _domeDisplay = null;
+            _rtFlat = null;
             _domeScan = null;
             if (_rtCam != null) UnityEngine.Object.Destroy(_rtCam.gameObject);
             _rtCam = null;
@@ -774,6 +814,7 @@ namespace StationeersUIMod.UI.Hud
                 if (m != null) UnityEngine.Object.Destroy(m);
             _overlayFontMats.Clear();
             _tmpOriginalMats.Clear();
+            HudGlitch.Shutdown(); // kill any camera image-effect + material before the reload
             HudText.Shutdown();
             HudWarp.Active = HudWarp.Kind.None;
             HudWarp.BareFlat = false; // reset alongside Active so a reload starts un-flattened
@@ -795,6 +836,7 @@ namespace StationeersUIMod.UI.Hud
                 _docEventHooked = false;
             }
             _docRebuildNeeded = false;
+            _zResortNeeded = false;
             Features.HudProfileStore.Shutdown();
         }
 
@@ -811,6 +853,7 @@ namespace StationeersUIMod.UI.Hud
                 if (_canvas != null && _canvas.gameObject.activeSelf)
                 {
                     RestoreAnyPortraits();
+                    DetachWorldCanvas(); // never leave it parented to the camera across a world unload
                     _canvas.gameObject.SetActive(false);
                     if (_domeCanvas != null) _domeCanvas.gameObject.SetActive(false);
                 }
@@ -842,7 +885,13 @@ namespace StationeersUIMod.UI.Hud
                 if (_docRebuildNeeded)
                 {
                     _docRebuildNeeded = false;
+                    _zResortNeeded = false; // a rebuild already lays out in Z order
                     RebuildViews();
+                }
+                else if (_zResortNeeded)
+                {
+                    _zResortNeeded = false;
+                    ResortByZ();
                 }
                 Features.HudProfileStore.Tick(Time.unscaledTime); // debounced autosave
             }
@@ -871,10 +920,31 @@ namespace StationeersUIMod.UI.Hud
             HudWarp.BareFlat = (tier == HudTier.Bare)
                 && (HudConfig.BareFlattens == null || HudConfig.BareFlattens.Value);
 
+            // Per-tier layout wiring. LayoutTier is the visibility tier (which elements show).
+            // While the F9 editor is open we DRAW the geometry of the EXPLICITLY previewed tier
+            // (bare only when ForceTier == Bare) and write edits to that same tier, so a drag can
+            // never render one layout while editing another and 'Live'/'Suited' previews never
+            // silently fork a bare override just because the player is bare. At runtime the drawn
+            // geometry follows the live tier. Folded into LayoutHash below so a preview/tier change
+            // re-lays-out the document.
+            bool explicitBare = ForceTier.HasValue && ForceTier.Value == HudTier.Bare;
+            HudElementView.LayoutTier = tier;
+            HudElementView.EditBareTier = editorActive && explicitBare;
+            HudElementView.LayoutBare = editorActive ? explicitBare : (tier == HudTier.Bare);
+            // Each curvature mode remembers its own LIVE placement; feeding it here (+ into the
+            // layout hash below) re-lays-out the document when you switch A/B/C/D.
+            HudElementView.LayoutMode = HudConfig.Curvature != null ? HudConfig.Curvature.Value : HudCurvature.Flat;
+
             // Setting/clearing the editor's preview tier must never REPLAY a transition
             // (_prevTier tracked the forced tier while real events were suppressed).
             bool forcedChanged = ForceTier != _prevForceTier;
             _prevForceTier = ForceTier;
+
+            // Sync each element's per-element collapse strength to its fader BEFORE a death fires,
+            // so the CRT squash honours the element's setting (0 = the top bar won't collapse).
+            foreach (var pan in _panels)
+                if (pan.Fader != null && pan is HudElementView ev && ev.Def != null)
+                    pan.Fader.CollapseAmt = ev.EffectAmt("fxCollapse", "fxCollapseAmt");
 
             // --- state transitions (flicker events) ---
             if (_hasPrev && HudConfig.FlickerAnimations.Value && !ForceTier.HasValue && !forcedChanged)
@@ -882,6 +952,7 @@ namespace StationeersUIMod.UI.Hud
                 if (_prevTier != HudTier.Bare && tier == HudTier.Bare)
                 {
                     _animator.PowerDeath();
+                    HudGlitch.Trigger(powerDown: true); // suit died / taken off
                     // Document element views have no Toggle (null = always on) — same
                     // guard as every sibling loop, or a Bare-only element NREs here and
                     // wedges _prevTier so the transition re-throws every frame.
@@ -893,6 +964,7 @@ namespace StationeersUIMod.UI.Hud
                 else if (_prevTier == HudTier.Bare && tier != HudTier.Bare)
                 {
                     _animator.BootUp(BootEligible);
+                    HudGlitch.Trigger(powerDown: false); // suit powered on / booted
                 }
             }
             _prevTier = tier;
@@ -953,11 +1025,14 @@ namespace StationeersUIMod.UI.Hud
 
             // --- animations ---
             float now = Time.unscaledTime;
-            _animator.Update(Mathf.Min(Time.unscaledDeltaTime, 0.1f), now);
+            float animDt = Mathf.Min(Time.unscaledDeltaTime, 0.1f);
+            _animator.Update(animDt, now);
+            HudGlitch.ApplyToPanels(_panels); // HUD-only tear/jitter on power transitions
             _rootGroup.alpha = _animator.DropoutMultiplier(snap.LowPower && tier != HudTier.Bare, now);
 
-            // --- dome render ---
-            if (_appliedMode == HudCurvature.DomeProjection && _rtCam != null)
+            // --- dome / curved-RT render (modes B and D both drive the off-screen camera) ---
+            if ((_appliedMode == HudCurvature.DomeProjection || _appliedMode == HudCurvature.CurvedRt)
+                && _rtCam != null)
             {
                 try { _rtCam.Render(); } catch { }
             }
@@ -971,6 +1046,7 @@ namespace StationeersUIMod.UI.Hud
             foreach (var p in _panels)
             {
                 try { p.Layout(scale); } catch (Exception e) { UIALog.Warn("HUD layout " + p.Id + ": " + e.Message); }
+                try { (p as HudElementView)?.ApplyWarpMult(); } catch { }
             }
             DirtyAllMeshes();
         }
@@ -991,6 +1067,9 @@ namespace StationeersUIMod.UI.Hud
                 + (HudConfig.CurveInvert.Value ? 313f : 0f)
                 + HudConfig.CurveStrength.Value * 631f + (int)HudConfig.Curvature.Value * 977f
                 + (HudWarp.BareFlat ? 1289f : 0f) // bare→flat transition re-lays-out + re-meshes
+                // Per-tier layout: a bare↔suit change re-lays-out the document so elements with a
+                // bare override jump to their bare position/size.
+                + (DocumentMode && HudElementView.LayoutBare ? 4099f : 0f)
                 // Document mode: any element edit bumps the store version — geometry
                 // lives in the document, so this replaces the per-panel size entries.
                 + (DocumentMode ? Features.HudProfileStore.Version * 3571f : 0f);
@@ -1003,11 +1082,12 @@ namespace StationeersUIMod.UI.Hud
             var mode = HudConfig.Curvature.Value;
             float strength = HudConfig.CurveStrength.Value;
             HudWarp.Direction = HudConfig.CurveInvert.Value ? -1f : 1f;
-            // Mode C's natural visor is the INVERTED cylinder (edges bulging toward the
-            // camera approximate a shell around your head; the outward bend reads
-            // inside-out there). Flip the semantic so the DEFAULT is the good look and
-            // the invert checkbox still offers the other.
-            if (mode == HudCurvature.CurvedWorldCanvas) HudWarp.Direction = -HudWarp.Direction;
+            // Modes C and D's natural visor is the INVERTED cylinder (edges bulging toward the
+            // camera approximate a shell around your head; the outward bend reads inside-out
+            // there). Flip the semantic so the DEFAULT is the good look and the invert checkbox
+            // still offers the other.
+            if (mode == HudCurvature.CurvedWorldCanvas || mode == HudCurvature.CurvedRt)
+                HudWarp.Direction = -HudWarp.Direction;
 
             if (mode != _appliedMode)
             {
@@ -1015,9 +1095,10 @@ namespace StationeersUIMod.UI.Hud
                 if (_appliedMode == HudCurvature.CurvedWorldCanvas)
                 {
                     RestoreWorldMaterials();
-                    UnhookWorldCanvasPreCull();
+                    DetachWorldCanvas();
                 }
-                if (_appliedMode == HudCurvature.DomeProjection) ReleaseDomeRt();
+                if (_appliedMode == HudCurvature.DomeProjection
+                    || _appliedMode == HudCurvature.CurvedRt) ReleaseDomeRt();
                 if (_domeCanvas != null) _domeCanvas.gameObject.SetActive(false);
 
                 switch (mode)
@@ -1030,11 +1111,21 @@ namespace StationeersUIMod.UI.Hud
                         SetLayerRecursively(_canvas.gameObject, HudLayerDome);
                         _domeCanvas.gameObject.SetActive(true);
                         break;
+                    case HudCurvature.CurvedRt:
+                        // Mode D: the curved world canvas, but on the isolated dome layer so ONLY
+                        // the fixed off-screen _rtCam renders it (not the main camera). Composited
+                        // full-screen by _rtFlat — head-locked and precision-safe by construction.
+                        EnsureDome();
+                        _canvas.renderMode = RenderMode.WorldSpace;
+                        _canvas.worldCamera = _rtCam;
+                        SetLayerRecursively(_canvas.gameObject, HudLayerDome);
+                        _domeCanvas.gameObject.SetActive(true);
+                        break;
                     case HudCurvature.CurvedWorldCanvas:
                         _canvas.renderMode = RenderMode.WorldSpace;
                         SetLayerRecursively(_canvas.gameObject, HudLayerUi);
                         ApplyWorldMaterials();
-                        HookWorldCanvasPreCull(); // re-pose at render time, not one frame late
+                        UpdateWorldCanvasPose(); // parents the canvas under the camera + poses it
                         break;
                     default:
                         _canvas.renderMode = RenderMode.ScreenSpaceOverlay;
@@ -1060,6 +1151,11 @@ namespace StationeersUIMod.UI.Hud
                 case HudCurvature.DomeProjection:
                     HudWarp.Active = HudWarp.Kind.None;
                     UpdateDome(strength);
+                    break;
+                case HudCurvature.CurvedRt:
+                    HudWarp.Active = HudWarp.Kind.Cylinder; // same cylinder curve as mode C
+                    HudWarp.Strength = strength;
+                    UpdateRtCurve();
                     break;
                 default:
                     HudWarp.Active = HudWarp.Kind.None;
@@ -1103,6 +1199,16 @@ namespace StationeersUIMod.UI.Hud
                 _domeDisplay.raycastTarget = false;
                 Stretch((RectTransform)dgo.transform);
 
+                // Mode D shows the HUD RT FLAT and full-screen (the curve is already in the mesh,
+                // unlike mode B's warped grid). Only one of _domeDisplay / _rtFlat draws at a time;
+                // scanlines (added last) sit on top of both.
+                var fgo = new GameObject("RtFlat", typeof(RectTransform));
+                fgo.transform.SetParent(go.transform, false);
+                _rtFlat = fgo.AddComponent<UnityEngine.UI.RawImage>();
+                _rtFlat.raycastTarget = false;
+                _rtFlat.enabled = false;
+                Stretch((RectTransform)fgo.transform);
+
                 var sgo = new GameObject("Scanlines", typeof(RectTransform));
                 sgo.transform.SetParent(go.transform, false);
                 _domeScan = sgo.AddComponent<ScanlineGraphic>();
@@ -1114,10 +1220,16 @@ namespace StationeersUIMod.UI.Hud
         private static void UpdateDome(float strength)
         {
             if (_rtCam == null || _domeDisplay == null) return;
+            _rtCam.orthographic = true;               // mode D leaves it perspective — restore
+            _domeDisplay.enabled = true;              // show the dome grid, hide mode D's flat RT
+            if (_rtFlat != null) _rtFlat.enabled = false;
             if (_rt == null || _rt.width != Screen.width || _rt.height != Screen.height)
             {
                 if (_rt != null) { _rt.Release(); UnityEngine.Object.Destroy(_rt); }
-                _rt = new RenderTexture(Screen.width, Screen.height, 0, RenderTextureFormat.ARGB32)
+                // 24-bit depth buffer => an 8-bit STENCIL, which UI Mask components need. Without
+                // it, masked HUD elements (the circle-clipped portrait — the "3d guy") render
+                // unclipped/wrong inside the RT. The dome camera renders UI, so give it a stencil.
+                _rt = new RenderTexture(Screen.width, Screen.height, 24, RenderTextureFormat.ARGB32)
                 {
                     filterMode = FilterMode.Bilinear,
                 };
@@ -1135,14 +1247,18 @@ namespace StationeersUIMod.UI.Hud
             }
             _domeDisplay.color = Color.white;
             var scan = HudPalette.Scanline.Value;
+            // Mask the scanlines to the HUD: sample the HUD RT's alpha so the strips only appear
+            // over HUD pixels, not across the whole screen (the mode-B complaint).
+            if (_domeScan.MaskTex != _rt) { _domeScan.MaskTex = _rt; _domeScan.Refresh(); }
             if (_domeScan.color != scan) { _domeScan.color = scan; _domeScan.Refresh(); }
         }
 
-        /// <summary>A screen-sized RT is real memory — hand it back when leaving mode B.</summary>
+        /// <summary>A screen-sized RT is real memory — hand it back when leaving mode B or D.</summary>
         private static void ReleaseDomeRt()
         {
             if (_rtCam != null) _rtCam.targetTexture = null;
             if (_domeDisplay != null) _domeDisplay.Texture = null;
+            if (_rtFlat != null) { _rtFlat.texture = null; _rtFlat.enabled = false; }
             if (_rt != null)
             {
                 _rt.Release();
@@ -1151,80 +1267,165 @@ namespace StationeersUIMod.UI.Hud
             }
         }
 
+        // ---- mode D: curved canvas rendered to a fixed RT (steady) ----
+
+        /// <summary>Mode D — render the SAME cylinder-curved canvas as mode C, but through a FIXED
+        /// perspective camera on the isolated dome layer into a RenderTexture, then composite that RT
+        /// FLAT and full-screen. Because neither the camera nor the canvas moves with the player, the
+        /// rendered image is identical every frame no matter where you walk or turn: head-locked by
+        /// construction (a full-screen overlay can't slide) and immune to the far-from-origin float
+        /// precision that swims mode C. Matching the main camera's FOV gives C's true curved look.</summary>
+        private static void UpdateRtCurve()
+        {
+            if (_rtCam == null || _rtFlat == null || _canvas == null) return;
+
+            Camera main = null;
+            try { main = CameraController.CurrentCamera; } catch { }
+            float fov = main != null ? Mathf.Clamp(main.fieldOfView, 20f, 120f) : 60f;
+
+            // 24-bit depth => an 8-bit stencil, which UI Mask needs (the round portrait). MSAA
+            // anti-aliases the curved mesh edges — without it the off-screen render looks rougher
+            // than the direct-to-screen modes (mode B could get away without it because its dome
+            // grid resamples). 4x is a good quality/memory balance for a screen-sized RT.
+            const int msaa = 4;
+            if (_rt == null || _rt.width != Screen.width || _rt.height != Screen.height
+                || _rt.antiAliasing != msaa)
+            {
+                if (_rt != null) { _rt.Release(); UnityEngine.Object.Destroy(_rt); }
+                _rt = new RenderTexture(Screen.width, Screen.height, 24, RenderTextureFormat.ARGB32)
+                {
+                    filterMode = FilterMode.Bilinear,
+                    antiAliasing = msaa,
+                };
+                _rtCam.targetTexture = _rt;
+            }
+
+            // Perspective camera at the RT rig's FIXED position (from EnsureDome); match the main
+            // camera's FOV so the curve reads the same size mode C would.
+            _rtCam.allowMSAA = true; // honour the RT's MSAA (mode B leaves this off)
+            _rtCam.orthographic = false;
+            _rtCam.fieldOfView = fov;
+            _rtCam.nearClipPlane = 0.05f;
+            _rtCam.farClipPlane = 100f;
+
+            // Place the curved canvas a fixed distance in front of the RT camera, sized exactly like
+            // mode C (fixed 0.6 m reference so the "visor distance" slider recedes/looms the HUD).
+            var camT = _rtCam.transform;
+            float dist = Mathf.Max(HudConfig.WorldCanvasDistance.Value, _rtCam.nearClipPlane + 0.06f);
+            const float refDist = 0.6f;
+            float worldH = 2f * refDist * Mathf.Tan(fov * 0.5f * Mathf.Deg2Rad);
+            float s = worldH / Mathf.Max(1f, Screen.height);
+            float z = dist;
+            float k = HudWarp.Strength * HudWarp.Direction;
+            if (k < 0f)
+            {
+                float bulgePx = -k * (HudWarp.HalfW * 0.25f + HudWarp.HalfH * 0.08f);
+                z += bulgePx * s;
+            }
+
+            var rt = (RectTransform)_canvas.transform;
+            var size = new Vector2(Screen.width, Screen.height);
+            if (rt.sizeDelta != size) rt.sizeDelta = size;
+            var mid = new Vector2(0.5f, 0.5f);
+            if (rt.pivot != mid) rt.pivot = mid;
+            rt.SetPositionAndRotation(camT.position + camT.rotation * new Vector3(0f, 0f, z), camT.rotation);
+            if (rt.localScale.x != s) rt.localScale = new Vector3(s, s, s);
+
+            // Composite the RT flat and full-screen (the curve is already in the mesh); hide the
+            // dome grid.
+            _rtFlat.texture = _rt;
+            _rtFlat.color = Color.white;
+            _rtFlat.enabled = true;
+            if (_domeDisplay != null) _domeDisplay.enabled = false;
+
+            // Scanlines masked to the HUD pixels (same as mode B).
+            var scan = HudPalette.Scanline.Value;
+            if (_domeScan != null)
+            {
+                if (_domeScan.MaskTex != _rt) { _domeScan.MaskTex = _rt; _domeScan.Refresh(); }
+                if (_domeScan.color != scan) { _domeScan.color = scan; _domeScan.Refresh(); }
+            }
+        }
+
         // ---- mode C: curved world canvas ----
 
+        // Mode C head-locks the HUD by PARENTING the world canvas under the camera transform, so its
+        // world matrix is DERIVED from the (already-final) camera pose whenever the UGUI Canvas system
+        // reads it. This is why an earlier per-frame world write (Update OR Camera.onPreCull) swam as
+        // you moved: a WorldSpace canvas commits its render batch during the PostLateUpdate canvas
+        // update — BEFORE onPreCull — so the render-time write landed one frame late, and the
+        // cylinder's Z-displacement turned that lag into visible swim (play-tested + video, verified
+        // vs the decompile and a deep-research pass on UGUI canvas timing, 2026-07-12). Parenting is
+        // correct whether UGUI bakes verts at rebuild or reads the transform at submit — both resolve
+        // to the settled camera pose. (Far-from-origin float precision is a separate, secondary
+        // caveat: sub-pixel within a few hundred metres of spawn, ~1px only past ~5000 units — not
+        // addressed here because it is not the near-base cause.) This writes LOCAL values only; the
+        // head-lock is the parent, so a one-frame lag on these camera-INDEPENDENT values is invisible.
         private static void UpdateWorldCanvasPose()
         {
             Camera cam = null;
             try { cam = CameraController.CurrentCamera; } catch { }
-            if (cam == null) return;
-            // Keep the plane safely beyond the camera's near clip — inside it, whole edges
-            // of the HUD vanished ("UI elements totally clip out").
-            float dist = Mathf.Max(HudConfig.WorldCanvasDistance.Value, cam.nearClipPlane + 0.06f);
+            if (cam == null || _canvas == null) return;
+
+            EnsureWorldCanvasParented(cam);
+
             var rt = (RectTransform)_canvas.transform;
-            rt.sizeDelta = new Vector2(Screen.width, Screen.height);
-            var t = cam.transform;
-            rt.SetPositionAndRotation(t.position + t.rotation * new Vector3(0f, 0f, dist), t.rotation);
-            // Size from a FIXED reference distance, not from `dist` — sizing from dist made
-            // the canvas fill the frustum EXACTLY at every distance, so the "visor distance"
-            // slider visibly did nothing. Anchored to 0.6 m, the HUD now genuinely recedes
-            // (smaller, margins appear) as the slider goes up and looms closer below it.
+            // Guarded so an unchanged value can never re-dirty (and thus re-warp) child meshes.
+            var size = new Vector2(Screen.width, Screen.height);
+            if (rt.sizeDelta != size) rt.sizeDelta = size;
+            var mid = new Vector2(0.5f, 0.5f);
+            if (rt.pivot != mid) rt.pivot = mid; // localPosition (0,0,z) then centres the plane
+
+            // Keep the plane safely beyond the camera's near clip — inside it, whole edges of the
+            // HUD vanished ("UI elements totally clip out").
+            float dist = Mathf.Max(HudConfig.WorldCanvasDistance.Value, cam.nearClipPlane + 0.06f);
+            // Size from a FIXED reference distance, not from `dist` — sizing from dist made the canvas
+            // fill the frustum EXACTLY at every distance, so the "visor distance" slider did nothing.
+            // Anchored to 0.6 m, the HUD genuinely recedes/looms with the slider.
             const float refDist = 0.6f;
             float worldH = 2f * refDist * Mathf.Tan(cam.fieldOfView * 0.5f * Mathf.Deg2Rad);
             float s = worldH / Mathf.Max(1f, Screen.height);
-            rt.localScale = new Vector3(s, s, s);
 
-            // INVERTED curve bulges the canvas TOWARD the camera (negative cylinder Z at
-            // the edges) — the bulging edges projected huge and left the screen entirely.
-            // Push the whole plane back by the worst-case bulge so its nearest point still
-            // sits at the configured distance.
+            // INVERTED curve bulges the canvas TOWARD the camera; push the plane back by the
+            // worst-case bulge so its nearest point still sits at the configured distance — a
+            // constant camera-space +Z offset, folded straight into localPosition.z.
+            float z = dist;
             float k = HudWarp.Strength * HudWarp.Direction;
             if (HudWarp.Active == HudWarp.Kind.Cylinder && k < 0f)
             {
                 float bulgePx = -k * (HudWarp.HalfW * 0.25f + HudWarp.HalfH * 0.08f);
-                rt.position += t.rotation * new Vector3(0f, 0f, bulgePx * s);
+                z += bulgePx * s;
             }
-            _canvas.worldCamera = cam;
+
+            rt.localRotation = Quaternion.identity;
+            rt.localPosition = new Vector3(0f, 0f, z);
+            if (rt.localScale.x != s) rt.localScale = new Vector3(s, s, s);
+            _canvas.worldCamera = cam; // UI event/raycast camera only; does not affect rendering
         }
 
-        // The world canvas is head-locked to the camera, but the game finalizes the camera
-        // transform in CameraController.LateUpdate (mouse-look + body-follow, via
-        // CacheCameraPosition) — AFTER every Update. Posing the canvas in Update (the
-        // ApplyCurvature fallback above) therefore locks it to the PREVIOUS frame's camera, so
-        // the curved plane trails the view by one frame and swims/warps while you move (a flat
-        // canvas would only translate; the z-displaced curve makes the same lag read as
-        // distortion). Re-posing in Camera.onPreCull — after all LateUpdates, immediately before
-        // the main camera culls/renders — makes the camera→canvas relative transform identical
-        // every frame, so the curve is invariant to walking and turning, and cam.fieldOfView is
-        // read at render time (no size "breathing" on an FOV kick). Built-in render pipeline only;
-        // under SRP onPreCull is silent and the lagged Update pose simply stands in.
-        private static void HookWorldCanvasPreCull()
+        /// <summary>Head-lock the world canvas by parenting it under the camera transform (idempotent;
+        /// re-parents transparently if CurrentCamera ever swaps). Local pose is set by
+        /// <see cref="UpdateWorldCanvasPose"/>.</summary>
+        private static void EnsureWorldCanvasParented(Camera cam)
         {
-            if (_preCullHooked) return;
-            Camera.onPreCull += OnWorldCanvasPreCull;
-            _preCullHooked = true;
+            if (_canvas == null || cam == null) return;
+            var t = _canvas.transform;
+            if (t.parent == cam.transform) return;
+            t.SetParent(cam.transform, worldPositionStays: false);
         }
 
-        private static void UnhookWorldCanvasPreCull()
+        /// <summary>Return the canvas to a scene root and re-assert DontDestroyOnLoad, so it is never
+        /// destroyed as a child of the camera. Called on mode-C exit, stand-down, Shutdown, hot
+        /// reload. Safe (idempotent) when nothing is parented.</summary>
+        private static void DetachWorldCanvas()
         {
-            if (!_preCullHooked) return;
-            Camera.onPreCull -= OnWorldCanvasPreCull;
-            _preCullHooked = false;
-        }
-
-        // Fires for EVERY camera (the vanilla portrait cam, our dome _rtCam, reflection probes);
-        // only the game's main camera — the one about to render the world canvas — drives the
-        // head-lock, and only while mode C is live. Guards are load-bearing: UpdateWorldCanvasPose
-        // does not null-check _canvas, and a throw here would break the game's render loop.
-        private static void OnWorldCanvasPreCull(Camera cam)
-        {
-            if (_canvas == null
-                || _appliedMode != HudCurvature.CurvedWorldCanvas
-                || !_canvas.gameObject.activeInHierarchy) return;
-            Camera main = null;
-            try { main = CameraController.CurrentCamera; } catch { }
-            if (cam != main) return;
-            try { UpdateWorldCanvasPose(); } catch { }
+            if (_canvas == null) return;
+            var t = _canvas.transform;
+            if (t.parent != null)
+            {
+                t.SetParent(null, worldPositionStays: true);
+                UnityEngine.Object.DontDestroyOnLoad(_canvas.gameObject);
+            }
         }
 
         private static void ApplyWorldMaterials()
@@ -1365,6 +1566,7 @@ namespace StationeersUIMod.UI.Hud
             try
             {
                 view.Layout(HudConfig.HudScale.Value);
+                view.ApplyWarpMult();
                 foreach (var g in view.Root.GetComponentsInChildren<UnityEngine.UI.Graphic>(true))
                 {
                     var tmp = g as TMPro.TextMeshProUGUI;

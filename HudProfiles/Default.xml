@@ -1,0 +1,108 @@
+<?xml version="1.0"?>
+<HudDocument xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" Schema="6" Name="Default">
+  <El Id="top-bar" Type="Box" Anchor="TopCenter" X="0" Y="-44" W="1840" H="60" WPct="0.94" HPct="-1" Z="0" Tiers="Suited Robot" Fill="HudPanelFill" Border="HudPanelBorder" TextColor="HudTextValue" BorderWidth="-1" RTL="4" RTR="4" RBR="14" RBL="14" FontScale="1" Align="Center" />
+  <El Id="clock" Type="Clock" Anchor="TopLeft" X="190" Y="-44" W="200" H="40" WPct="-1" HPct="-1" Z="1" Tiers="Suited Robot" Fill="HudPanelFill" Border="HudPanelBorder" TextColor="HudTextValue" BorderWidth="-1" RTL="-1" RTR="-1" RBR="-1" RBL="-1" FontScale="1" Align="Center" />
+  <El Id="compass" Type="Compass" Anchor="TopCenter" X="0" Y="-44" W="260" H="44" WPct="-1" HPct="-1" Z="1" Tiers="Suited Robot" Fill="HudPanelFill" Border="HudPanelBorder" TextColor="HudTextValue" BorderWidth="-1" RTL="-1" RTR="-1" RBR="-1" RBL="-1" FontScale="1" Align="Center" />
+  <El Id="day" Type="DayCounter" Anchor="TopRight" X="-300" Y="-44" W="130" H="40" WPct="-1" HPct="-1" Z="1" Tiers="Suited Robot" Fill="HudPanelFill" Border="HudPanelBorder" TextColor="HudTextValue" BorderWidth="-1" RTL="-1" RTR="-1" RBR="-1" RBL="-1" FontScale="1" Align="Center" />
+  <El Id="world" Type="WorldName" Anchor="TopRight" X="-120" Y="-44" W="190" H="40" WPct="-1" HPct="-1" Z="1" Tiers="Suited Robot" Fill="HudPanelFill" Border="HudPanelBorder" TextColor="HudTextValue" BorderWidth="-1" RTL="-1" RTR="-1" RBR="-1" RBL="-1" FontScale="1" Align="Center" />
+  <El Id="moodlets" Type="MoodletDashboard" Anchor="TopCenter" X="0" Y="-102" W="820" H="40" WPct="-1" HPct="-1" Z="1" Tiers="All" Fill="HudPanelFill" Border="HudPanelBorder" TextColor="HudTextValue" BorderWidth="-1" RTL="-1" RTR="-1" RBR="-1" RBL="-1" FontScale="1" Align="Center" />
+  <El Id="ext-pressure" Type="Readout" Anchor="MiddleLeft" X="1687.52661" Y="-511.056519" W="79.44799" H="64.56183" WPct="-1" HPct="-1" Z="1" Tiers="Suited Robot" Fill="HudPanelFill" Border="HudPanelBorder" TextColor="HudTextValue" BorderWidth="-1" RTL="-1" RTR="-1" RBR="-1" RBL="-1" FontScale="1" Align="Center" Icon="Pressure">
+    <P K="src" V="ExternalPressure" />
+    <P K="label" V="EXT&#xA;PRESS" />
+    <P K="box" V="true" />
+    <P K="bar" V="false" />
+    <P K="barVertical" V="true" />
+    <P K="target" V="false" />
+    <P K="barStyle" V="game" />
+    <P K="valueSize" V="14" />
+  </El>
+  <El Id="ext-temp" Type="Readout" Anchor="MiddleLeft" X="1762.87073" Y="-507.780518" W="64.70598" H="66.19983" WPct="-1" HPct="-1" Z="1" Tiers="Suited Robot" Fill="HudPanelFill" Border="HudPanelBorder" TextColor="HudTextValue" BorderWidth="-1" RTL="-1" RTR="-1" RBR="-1" RBL="-1" FontScale="1" Align="Center" Icon="Temp">
+    <P K="src" V="ExternalTemp" />
+    <P K="label" V="EXT&#xA;TEMP" />
+    <P K="box" V="true" />
+    <P K="bar" V="false" />
+    <P K="barVertical" V="true" />
+    <P K="target" V="false" />
+    <P K="valueSize" V="14" />
+    <P K="barStyle" V="game" />
+  </El>
+  <El Id="int-temp" Type="Readout" Anchor="MiddleRight" X="-332.481628" Y="-440.925476" W="72.07699" H="66.19983" WPct="-1" HPct="-1" Z="1" Tiers="Suited Robot" Fill="HudPanelFill" Border="HudPanelBorder" TextColor="HudTextValue" BorderWidth="-1" RTL="-1" RTR="-1" RBR="-1" RBL="-1" FontScale="0.664" Align="Center" Icon="Temp">
+    <P K="src" V="FeltTemp" />
+    <P K="label" V="INT&#xA;TEMP" />
+    <P K="box" V="true" />
+    <P K="bar" V="false" />
+    <P K="barVertical" V="true" />
+    <P K="target" V="false" />
+    <P K="barStyle" V="game" />
+    <P K="valueSize" V="19.545" />
+  </El>
+  <El Id="int-pressure" Type="Readout" Anchor="MiddleRight" X="-409.062225" Y="-441.744476" W="69.61999" H="66.19983" WPct="-1" HPct="-1" Z="1" Tiers="Suited Robot" Fill="HudPanelFill" Border="HudPanelBorder" TextColor="HudTextValue" BorderWidth="-1" RTL="-1" RTR="-1" RBR="-1" RBL="-1" FontScale="1" Align="Center" Icon="Pressure">
+    <P K="src" V="InternalPressure" />
+    <P K="label" V="INT&#xA;PRESS" />
+    <P K="box" V="true" />
+    <P K="bar" V="false" />
+    <P K="barVertical" V="true" />
+    <P K="target" V="false" />
+    <P K="barStyle" V="game" />
+    <P K="valueSize" V="14" />
+  </El>
+  <El Id="jetpack" Type="Readout" Anchor="MiddleRight" X="-202.268616" Y="-538.7961" W="91.733" H="70.29483" WPct="-1" HPct="-1" Z="1" Tiers="Suited Robot" Fill="HudPanelFill" Border="HudPanelBorder" TextColor="HudTextValue" BorderWidth="-1" RTL="-1" RTR="-1" RBR="-1" RBL="-1" FontScale="1" Align="Center" Icon="Jetpack">
+    <P K="src" V="JetpackPropellant" />
+    <P K="label" V="JET&#xA;PACK" />
+    <P K="box" V="true" />
+    <P K="bar" V="false" />
+    <P K="barVertical" V="true" />
+    <P K="target" V="false" />
+    <P K="barStyle" V="game" />
+    <P K="valueSize" V="14" />
+  </El>
+  <El Id="suit-chips" Type="SuitChips" Anchor="MiddleRight" X="-86.78542" Y="-402.252258" W="161.850937" H="44" WPct="-1" HPct="-1" Z="2" Tiers="Suited Robot" Fill="HudPanelFill" Border="HudPanelBorder" TextColor="HudTextValue" BorderWidth="-1" RTL="-1" RTR="-1" RBR="-1" RBL="-1" FontScale="1" Align="Center">
+    <P K="internals" V="false" />
+  </El>
+  <El Id="needs-panel" Type="Box" Anchor="BottomRight" X="-301.3349" Y="97.71499" W="295.692047" H="173.104" WPct="-0.455" HPct="-1" Z="0" Tiers="Suited Robot" Fill="HudPanelFill" Border="HudPanelBorder" TextColor="HudTextValue" BorderWidth="-1" RTL="12" RTR="12" RBR="12" RBL="12" FontScale="1" Align="Center" />
+  <El Id="row-hunger" Type="Readout" Anchor="BottomRight" X="-210.425888" Y="159.637955" W="102.977882" H="68.57002" WPct="-1" HPct="-1" Z="1" Tiers="Suited Robot" Fill="HudPanelFill" Border="HudPanelBorder" TextColor="HudTextValue" BorderWidth="-1" RTL="-1" RTR="-1" RBR="-1" RBL="-1" FontScale="1" Align="Center" Icon="Hunger">
+    <P K="src" V="Nutrition" />
+    <P K="label" V="HGR" />
+    <P K="box" V="false" />
+    <P K="bar" V="false" />
+    <P K="target" V="false" />
+    <P K="valueSize" V="15" />
+  </El>
+  <El Id="row-water" Type="Readout" Anchor="BottomRight" X="-208.378387" Y="128.42749" W="107.072891" H="51.37101" WPct="-1" HPct="-1" Z="1" Tiers="Suited Robot" Fill="HudPanelFill" Border="HudPanelBorder" TextColor="HudTextValue" BorderWidth="-1" RTL="-1" RTR="-1" RBR="-1" RBL="-1" FontScale="1" Align="Center" Icon="Water">
+    <P K="src" V="Hydration" />
+    <P K="label" V="WTR" />
+    <P K="box" V="false" />
+    <P K="bar" V="false" />
+    <P K="target" V="false" />
+    <P K="valueSize" V="15" />
+    <P K="barVertical" V="false" />
+  </El>
+  <El Id="row-toilet" Type="Readout" Anchor="BottomRight" X="-214.520874" Y="101.721535" W="94.78788" H="64.47502" WPct="-1" HPct="-1" Z="1" Tiers="Suited Robot" Fill="HudPanelFill" Border="HudPanelBorder" TextColor="HudTextValue" BorderWidth="-1" RTL="-1" RTR="-1" RBR="-1" RBL="-1" FontScale="1" Align="Center" Icon="Toilet">
+    <P K="src" V="Sanitation" />
+    <P K="label" V="TLT" />
+    <P K="box" V="false" />
+    <P K="bar" V="false" />
+    <P K="target" V="false" />
+    <P K="valueSize" V="15" />
+  </El>
+  <El Id="body-doll" Type="BodyDoll" Anchor="BottomRight" X="-480" Y="110" W="70" H="160" WPct="-1" HPct="-1" Z="1" Tiers="All" Fill="HudPanelFill" Border="HudPanelBorder" TextColor="HudTextValue" BorderWidth="-1" RTL="-1" RTR="-1" RBR="-1" RBL="-1" FontScale="1" Align="Center" />
+  <El Id="portrait" Type="Portrait" Anchor="BottomRight" X="-124.74202" Y="107.543015" W="2" H="170" WPct="-1" HPct="-1" Z="1" Tiers="Suited Robot" Fill="HudPanelFill" Border="HudPanelBorder" TextColor="HudTextValue" BorderWidth="-1" RTL="-1" RTR="-1" RBR="-1" RBL="-1" FontScale="1" Align="Center" />
+  <El Id="equipment-left" Type="EquipmentColumn" Anchor="BottomCenter" X="-350" Y="60" W="260" H="78" WPct="-1" HPct="-1" Z="1" Tiers="All" Fill="HudPanelFill" Border="HudPanelBorder" TextColor="HudTextValue" BorderWidth="-1" RTL="-1" RTR="-1" RBR="-1" RBL="-1" FontScale="1" Align="Center">
+    <P K="horizontal" V="true" />
+    <P K="first" V="0" />
+    <P K="count" V="3" />
+  </El>
+  <El Id="hands" Type="HandBoxes" Anchor="BottomCenter" X="0" Y="70" W="380" H="110" WPct="-1" HPct="-1" Z="1" Tiers="All" Fill="HudPanelFill" Border="HudPanelBorder" TextColor="HudTextValue" BorderWidth="-1" RTL="-1" RTR="-1" RBR="-1" RBL="-1" FontScale="1" Align="Center">
+    <P K="tray" V="false" />
+  </El>
+  <El Id="equipment-right" Type="EquipmentColumn" Anchor="BottomCenter" X="350" Y="60" W="260" H="78" WPct="-1" HPct="-1" Z="1" Tiers="All" Fill="HudPanelFill" Border="HudPanelBorder" TextColor="HudTextValue" BorderWidth="-1" RTL="-1" RTR="-1" RBR="-1" RBL="-1" FontScale="1" Align="Center">
+    <P K="horizontal" V="true" />
+    <P K="first" V="3" />
+    <P K="count" V="3" />
+  </El>
+  <El Id="bare-senses" Type="BareSenses" Anchor="Center" X="-357.903381" Y="-62.9320221" W="420" H="320" WPct="-1" HPct="-1" Z="1" Tiers="Bare" Fill="HudPanelFill" Border="HudPanelBorder" TextColor="HudTextValue" BorderWidth="-1" RTL="-1" RTR="-1" RBR="-1" RBL="-1" FontScale="1" Align="Center" />
+  <El Id="2aa9108336854c2ba78758d55bbdf832" Type="Portrait" Anchor="Center" X="966.421" Y="-503.685516" W="150" H="150" WPct="-1" HPct="-1" Z="50" Tiers="All" Fill="HudPanelFill" Border="HudPanelBorder" TextColor="HudTextValue" BorderWidth="-1" RTL="-1" RTR="-1" RBR="-1" RBL="-1" FontScale="1" Align="Center">
+    <P K="holo" V="true" />
+    <P K="scanlines" V="true" />
+  </El>
+</HudDocument>

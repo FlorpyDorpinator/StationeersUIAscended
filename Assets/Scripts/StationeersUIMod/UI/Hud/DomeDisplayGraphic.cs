@@ -60,11 +60,19 @@ namespace StationeersUIMod.UI.Hud
 
     /// <summary>Thin translucent strips over the dome display — the CRT/hologram
     /// scanline dressing. Colour+strength via the HudScanline palette entry (alpha 0
-    /// disables; the mesh is skipped entirely).</summary>
+    /// disables; the mesh is skipped entirely).
+    ///
+    /// Masked to the HUD: with <see cref="MaskTex"/> set to the HUD RenderTexture, each strip
+    /// samples the RT's alpha (screen-aligned UVs), so the lines only appear over HUD pixels
+    /// rather than across the whole screen. Falls back to a solid full-screen strip when no
+    /// mask is set.</summary>
     [RequireComponent(typeof(CanvasRenderer))]
     public sealed class ScanlineGraphic : MaskableGraphic
     {
         private const float Spacing = 5f;
+
+        public Texture MaskTex;
+        public override Texture mainTexture => MaskTex != null ? MaskTex : s_WhiteTexture;
 
         public void Refresh() => SetVerticesDirty();
 
@@ -76,14 +84,18 @@ namespace StationeersUIMod.UI.Hud
             float hw = rect.width * 0.5f, hh = rect.height * 0.5f;
             if (hw < 1f || hh < 1f) return;
 
+            // Screen-aligned UV so the (screen-sized) HUD RT masks the strips: a vertex at local
+            // (x,y) samples the RT at ((x+hw)/w, (y+hh)/h).
+            float w = hw * 2f, h = hh * 2f;
+            Vector2 UV(float x, float y) => new Vector2((x + hw) / w, (y + hh) / h);
+
             int idx = 0;
-            var uv = Vector2.zero;
             for (float y = -hh; y < hh; y += Spacing)
             {
-                vh.AddVert(new Vector3(-hw, y, 0f), color, uv);
-                vh.AddVert(new Vector3(hw, y, 0f), color, uv);
-                vh.AddVert(new Vector3(hw, y + 1f, 0f), color, uv);
-                vh.AddVert(new Vector3(-hw, y + 1f, 0f), color, uv);
+                vh.AddVert(new Vector3(-hw, y, 0f), color, UV(-hw, y));
+                vh.AddVert(new Vector3(hw, y, 0f), color, UV(hw, y));
+                vh.AddVert(new Vector3(hw, y + 1f, 0f), color, UV(hw, y + 1f));
+                vh.AddVert(new Vector3(-hw, y + 1f, 0f), color, UV(-hw, y + 1f));
                 vh.AddTriangle(idx, idx + 1, idx + 2);
                 vh.AddTriangle(idx, idx + 2, idx + 3);
                 idx += 4;

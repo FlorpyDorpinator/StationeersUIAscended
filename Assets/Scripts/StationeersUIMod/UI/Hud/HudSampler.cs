@@ -69,6 +69,8 @@ namespace StationeersUIMod.UI.Hud
         public string WordThirst = "";
         public string WordHealth = "";
         public string WordPressure = "";
+        public string WordCognition = "";   // consciousness (O2 quality)
+        public string WordToilet = "";      // bowel (server-sim only; silent on a pure client)
 
         // Hands + equipment come straight from slots at draw time (thumbnails), but the
         // active hand is sampled here so every panel agrees within the frame.
@@ -444,16 +446,17 @@ namespace StationeersUIMod.UI.Hud
                     : o2Quality < 0.9f ? "THIN AIR"
                     : "";
 
-                float warnFood = 15f, critFood = 5f, warnWater = 2f, critWater = 1f;
-                try { warnFood = human.WarningNutrition; critFood = human.CriticalNutrition; } catch { }
-                try { warnWater = human.WarningHydration; critWater = human.CriticalHydration; } catch { }
-                float rawFood = 50f;
-                try { rawFood = human.Nutrition; } catch { }
-                s.WordHunger = rawFood <= critFood ? "STARVING" : rawFood <= warnFood ? "HUNGRY" : "";
-                s.WordThirst = hydration <= critWater ? "PARCHED" : hydration <= warnWater ? "THIRSTY" : "";
+                // Parity with the vitals panel's words-mode bands (warn ≤66%, crit ≤33%) so a
+                // need that reads HUNGRY/THIRSTY on the numeric card also surfaces as a felt word
+                // here. The game's raw WarningHydration (2 of 5 = 40%) fired much later, so the
+                // two panels disagreed — you'd read THIRSTY yet feel nothing.
+                s.WordHunger = s.FoodRatio <= 0.33f ? "STARVING" : s.FoodRatio <= 0.66f ? "HUNGRY" : "";
+                s.WordThirst = s.WaterRatio <= 0.33f ? "PARCHED" : s.WaterRatio <= 0.66f ? "THIRSTY" : "";
 
-                s.WordHealth = damage > 0.75f ? "DYING" : damage > 0.25f ? "HURT"
-                    : damage > 0.05f ? "BRUISED" : "";
+                // Health reads as general WELLNESS (0–100), not injury — you can't "bruise" in
+                // Stationeers. Only the degraded end shows (nominal = felt nothing).
+                s.WordHealth = damage > 0.75f ? "DYING" : damage > 0.25f ? "AILING"
+                    : damage > 0.05f ? "UNWELL" : "";
 
                 s.WordPressure = breathKPa < 6.3f ? "VACUUM"
                     : breathKPa < 20f ? "LOW PRESSURE"
@@ -522,6 +525,24 @@ namespace StationeersUIMod.UI.Hud
             try { s.Hygiene01 = Mathf.Clamp01(human.HygieneRatio); } catch { }
             try { s.Sanitation01 = Mathf.Clamp01(human.SanitationRatio); } catch { }
             try { s.SanitationValid = GameManager.RunSimulation; } catch { }
+
+            // Consciousness + bowel felt words (bare senses can place these too). Empty when
+            // nominal. Consciousness rides O2 quality (low breathable O2 → you black out);
+            // the bowel word needs the server sim (SanitationValid) or it stays silent so a
+            // pure MP client never guesses a server-only value.
+            if (isRobot)
+            {
+                s.WordCognition = "";
+                s.WordToilet = "";
+            }
+            else
+            {
+                s.WordCognition = s.O2Quality < 0.5f ? "FADING" : s.O2Quality < 0.9f ? "DAZED" : "";
+                s.WordToilet = !s.SanitationValid ? ""
+                    : s.Sanitation01 > 0.75f ? "DESPERATE"
+                    : s.Sanitation01 > 0.45f ? "NEED TO GO"
+                    : "";
+            }
 
             // ---- body doll (vanilla StatusUpdates.HandleDamageIndicators): each region is
             // the worst of the whole-body TotalRatio and its signature organ; robot chest is
@@ -601,7 +622,8 @@ namespace StationeersUIMod.UI.Hud
 
             // Bare-tier felt words, so the power-off preview has something in every row.
             s.WordTemp = "WARM"; s.WordAir = "THIN"; s.WordHunger = "PECKISH";
-            s.WordThirst = "THIRSTY"; s.WordHealth = "HURT"; s.WordPressure = "LOW";
+            s.WordThirst = "THIRSTY"; s.WordHealth = "AILING"; s.WordPressure = "LOW";
+            s.WordCognition = "DAZED"; s.WordToilet = "NEED TO GO";
         }
 
         private static bool UsesTiers()

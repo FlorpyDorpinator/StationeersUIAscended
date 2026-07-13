@@ -24,12 +24,14 @@ namespace StationeersUIMod.Overlay
         public Func<List<RadialEntry>> ChildProvider;  // branch entered by click/release (when no OnSelect)
         public Func<List<RadialEntry>> SlideOutProvider; // satellite ring opened by sliding past the outer edge
         public string SlideOutLabel;                   // hint: "Open", "Swap with…"
+        private bool? _slideOutHasContent;             // memoized emptiness of the slide-out
         public object Tag;
 
         // --- Option A additions ---
         public string StateText;            // live state under the icon: "87%", "5,301 kPa", "x25"
         public Sprite HoverIcon;            // swapped in while hovered (STOW wedges preview the held item)
         public bool StowStyle;              // schema A stow wedge: neutral fill, orange only on hover
+        public bool GroupStyle;             // sorting-class GROUP wedge: distinct edge/fill palette
         public Action<int> OnScroll;        // scroll-wheel value adjust (+1 / -1 per notch)
         public Func<string> ValueText;      // live value between the scroll triangles
         public Core.ScannedSlot DragSource; // parking: where this item physically lives
@@ -44,6 +46,25 @@ namespace StationeersUIMod.Overlay
 
         public bool IsBranch => ChildProvider != null && OnSelect == null;
         public bool HasSlideOut => SlideOutProvider != null;
+
+        /// <summary>Would a swipe on this wedge actually open a satellite? A slide-out
+        /// provider that yields NOTHING (a tool with no settings/slots — wire cutters, a
+        /// wrench) makes <see cref="HasSlideOut"/> true but <see cref="OpenSatellite"/>
+        /// no-ops, so the swipe chevron must be gated on real content, not just a non-null
+        /// provider. Evaluated once and cached — entries are rebuilt on every Refresh, so the
+        /// snapshot can't go stale within one entry's lifetime; providers run lazily and this
+        /// only fires for wedges that carry a slide-out.</summary>
+        public bool SlideOutHasContent()
+        {
+            if (SlideOutProvider == null) return false;
+            if (_slideOutHasContent.HasValue) return _slideOutHasContent.Value;
+            bool has;
+            try { var e = SlideOutProvider(); has = e != null && e.Count > 0; }
+            catch { has = false; } // a throwing provider is treated as empty (OpenSatellite nulls it)
+            _slideOutHasContent = has;
+            return has;
+        }
+
         public bool IsScrollAdjust => OnScroll != null;
         public bool CanDrag => DragSource != null;
         public bool AcceptsDrop => DropSlot != null || DropResolver != null;
@@ -263,6 +284,30 @@ namespace StationeersUIMod.Overlay
         public bool OnHoldReleased()
         {
             if (!IsOpen) return false;
+            // World-grab in hold mode: if a chip is on the cursor when the key is let go, DROP
+            // it where the cursor is (bag / HUD box / world / ground) instead of running
+            // whatever wedge happens to sit behind it. Parked chips (dropped on open screen)
+            // likewise cancel to a close, never a wedge select.
+            if (_parking.Dragging != null)
+            {
+                ResolveDragRelease(DrawUtil.MousePos());
+                Close();
+                return false;
+            }
+            if (_parking.Active)
+            {
+                Close();
+                return false;
+            }
+            // Reaching into the world (Alt held) at release means "I'm done with the world",
+            // not "select this wedge" — just close.
+            bool worldReach = false;
+            try { worldReach = KeyManager.GetButton(KeyMap.MouseControl); } catch { }
+            if (worldReach)
+            {
+                Close();
+                return false;
+            }
             // Releasing over the hub CLOSE button is a cancel, never a select.
             if (_closeHovered)
             {
@@ -489,45 +534,9 @@ namespace StationeersUIMod.Overlay
                 return;
             }
 
-            // --- hub interactions, shared by both schemas ---
-            var hubMouse = DrawUtil.MousePos();
-            if (_hubDragging)
-            {
-                if (!Input.GetMouseButton(0))
-                {
-                    _hubDragging = false;
-                }
-                else
-                {
-                    _centerOffset += hubMouse - _lastDragMouse;
-                    _lastDragMouse = hubMouse;
-                }
-                return; // dragging the radial around owns the mouse
-            }
-            if (Input.GetMouseButtonDown(0) && _parking.Dragging == null)
-            {
-                bool imguiOwns = false;
-                try { imguiOwns = ImGui.GetIO().WantCaptureMouse; } catch { }
-                if (!imguiOwns)
-                {
-                    if (_closeHovered)
-                    {
-                        // The always-works exit. A deliberate close, so parked items drop
-                        // (same contract as RMB-out).
-                        DumpChipsToGround();
-                        Close();
-                        return;
-                    }
-                    // Grabbing the hub (inside the ring, off the CLOSE band) moves the radial.
-                    float hubR = Mathf.Max(0f, _lastInnerR - 6f);
-                    if (_satellite == null && _mainDist < hubR)
-                    {
-                        _hubDragging = true;
-                        _lastDragMouse = hubMouse;
-                        return;
-                    }
-                }
-            }
+            // Hub interactions (move the radial, the always-works CLOSE band) — shared by both
+            // schemas AND by hold mode, so holding the key can move the radial too.
+            if (UpdateHubDrag()) return;
 
             if (UIAConfig.IsA)
             {
@@ -622,86 +631,9 @@ namespace StationeersUIMod.Overlay
             {
                 try { if (ImGui.GetIO().WantCaptureMouse) return; } catch { }
 
-                // Z-grab (the vanilla MouseControl key, default Alt): clicking a world item
-                // under the cursor tears it into the drag layer as if dragged off a wedge —
-                // move the radial aside (hub drag), grab things off the floor, drop them
-                // into bags. Range-gated at grab AND at drop (the server doesn't check).
-                bool mouseMod = false;
-                try { mouseMod = KeyManager.GetButton(KeyMap.MouseControl); } catch { }
-                if (mouseMod)
-                {
-                    var worldThing = WorldItemUnderCursor();
-                    if (worldThing != null)
-                    {
-                        Sprite icon = null;
-                        try { icon = worldThing.GetThumbnail(); } catch { }
-                        _parking.RemoveByWorldThing(worldThing); // one item = one chip
-                        _parking.Dragging = new ParkingState.Chip
-                        {
-                            WorldSource = worldThing,
-                            Icon = icon,
-                            Name = worldThing.DisplayName,
-                        };
-                        _satellite = null; // hands are busy: no child radials while dragging
-                        UIAudioManager.Play(UIAudioManager.ObjectIntoHandHash);
-                        return;
-                    }
-                    // Bug 8: grab an item OUT of a physical-world object's slot (a locker, a
-                    // charger, a crate) into the drag layer — the vanilla drag-from-world-slot,
-                    // range-bounded by the interaction raycast. It becomes a normal slot-sourced
-                    // chip (Expected-pinned), so dropping it anywhere routes through the funnel.
-                    var grabSlot = WorldSlotUnderCursor();
-                    DynamicThing grabOcc = grabSlot?.Get();
-                    if (grabSlot != null && grabOcc is Item)
-                    {
-                        Sprite icon = null;
-                        try { icon = grabOcc.GetThumbnail(); } catch { }
-                        _parking.RemoveBySlot(grabSlot); // one slot = one chip
-                        _parking.Dragging = new ParkingState.Chip
-                        {
-                            Source = new ScannedSlot { Slot = grabSlot, Holder = grabSlot.Parent, Location = "" }.Pin(),
-                            Icon = icon,
-                            Name = grabOcc.DisplayName,
-                        };
-                        _satellite = null; // hands are busy: no child radials while dragging
-                        UIAudioManager.Play(UIAudioManager.ObjectIntoHandHash);
-                        return;
-                    }
-                }
-
-                // Parked chips sit outside the rings; picking one up beats wedge presses.
-                var chip = _parking.ChipAt(mouse);
-                if (chip != null)
-                {
-                    _parking.Chips.Remove(chip);
-                    _parking.Dragging = chip;
-                    _satellite = null; // hands are busy: no child radials while dragging
-                    UIAudioManager.Play(UIAudioManager.ObjectIntoHandHash);
-                    return;
-                }
-
-                // Bugs 2 & 5: the visor HUD hand boxes and the six equipment boxes are drag
-                // SOURCES too, not just drop targets — press one that holds an item to tear it
-                // into the drag layer (drag your held item into a STOW wedge, swap two boxes,
-                // pull a worn piece onto the belt). Boxes live outside the rings, so this can
-                // never shadow a wedge press. The chip is Expected-pinned like any other.
-                var hudZone = UI.Hud.HudSystem.ZoneAt();
-                DynamicThing hudOcc = hudZone?.Slot?.Get();
-                if (hudOcc != null)
-                {
-                    Sprite icon = null;
-                    try { icon = hudOcc.GetThumbnail(); } catch { }
-                    _parking.RemoveBySlot(hudZone.Slot); // one slot = one chip
-                    _parking.Dragging = new ParkingState.Chip
-                    {
-                        Source = new ScannedSlot { Slot = hudZone.Slot, Holder = hudZone.Slot.Parent, Location = hudZone.Label ?? "" }.Pin(),
-                        Icon = icon,
-                        Name = hudOcc.DisplayName,
-                    };
-                    _satellite = null; // hands are busy: no child radials while dragging
-                    UIAudioManager.Play(UIAudioManager.ObjectIntoHandHash);
-                    return;
-                }
+                // Drag layer first: Alt-grab a world item/slot, pick a parked chip back up, or
+                // tear an item out of a visor HUD box. Any of these consumes the press.
+                if (TryBeginDrag(mouse)) return;
 
                 RadialEntry entry = null;
                 bool fromSat = false;
@@ -796,6 +728,174 @@ namespace StationeersUIMod.Overlay
             Top().Refresh();
             _hovered = -1;
             _pendingRefreshAt = Time.unscaledTime + 0.6f; // MP: refresh again post-roundtrip
+        }
+
+        /// <summary>The drag-layer GRAB, shared by sticky click-handling and HOLD mode: Alt-grab
+        /// a free item or a world-slot occupant out of the physical world, pick a parked chip
+        /// back up, or tear an item out of a visor HUD hand/equipment box. Each mints
+        /// <c>_parking.Dragging</c> (and closes any satellite — the hand is busy) and returns
+        /// true; returns false when nothing under the cursor is grabbable, so the caller can do
+        /// its own wedge handling. World grabs are range-gated by the raycast at grab and again
+        /// at drop.</summary>
+        private bool TryBeginDrag(Vector2 mouse)
+        {
+            // Z-grab (the vanilla MouseControl key, default Alt): a free-lying world item.
+            bool mouseMod = false;
+            try { mouseMod = KeyManager.GetButton(KeyMap.MouseControl); } catch { }
+            if (mouseMod)
+            {
+                var worldThing = WorldItemUnderCursor();
+                if (worldThing != null)
+                {
+                    Sprite icon = null;
+                    try { icon = worldThing.GetThumbnail(); } catch { }
+                    _parking.RemoveByWorldThing(worldThing); // one item = one chip
+                    _parking.Dragging = new ParkingState.Chip
+                    {
+                        WorldSource = worldThing,
+                        Icon = icon,
+                        Name = worldThing.DisplayName,
+                    };
+                    _satellite = null; // hands are busy: no child radials while dragging
+                    UIAudioManager.Play(UIAudioManager.ObjectIntoHandHash);
+                    return true;
+                }
+                // Bug 8: grab an item OUT of a physical-world object's slot (a locker, a
+                // charger, a crate) into the drag layer — the vanilla drag-from-world-slot,
+                // range-bounded by the interaction raycast. It becomes a normal slot-sourced
+                // chip (Expected-pinned), so dropping it anywhere routes through the funnel.
+                var grabSlot = WorldSlotUnderCursor();
+                DynamicThing grabOcc = grabSlot?.Get();
+                if (grabSlot != null && grabOcc is Item)
+                {
+                    Sprite icon = null;
+                    try { icon = grabOcc.GetThumbnail(); } catch { }
+                    _parking.RemoveBySlot(grabSlot); // one slot = one chip
+                    _parking.Dragging = new ParkingState.Chip
+                    {
+                        Source = new ScannedSlot { Slot = grabSlot, Holder = grabSlot.Parent, Location = "" }.Pin(),
+                        Icon = icon,
+                        Name = grabOcc.DisplayName,
+                    };
+                    _satellite = null; // hands are busy: no child radials while dragging
+                    UIAudioManager.Play(UIAudioManager.ObjectIntoHandHash);
+                    return true;
+                }
+            }
+
+            // Parked chips sit outside the rings; picking one up beats wedge presses.
+            var chip = _parking.ChipAt(mouse);
+            if (chip != null)
+            {
+                _parking.Chips.Remove(chip);
+                _parking.Dragging = chip;
+                _satellite = null; // hands are busy: no child radials while dragging
+                UIAudioManager.Play(UIAudioManager.ObjectIntoHandHash);
+                return true;
+            }
+
+            // Bugs 2 & 5: the visor HUD hand boxes and the six equipment boxes are drag
+            // SOURCES too, not just drop targets — press one that holds an item to tear it
+            // into the drag layer. Boxes live outside the rings, so this can never shadow a
+            // wedge press. The chip is Expected-pinned like any other.
+            var hudZone = UI.Hud.HudSystem.ZoneAt();
+            DynamicThing hudOcc = hudZone?.Slot?.Get();
+            if (hudOcc != null)
+            {
+                Sprite icon = null;
+                try { icon = hudOcc.GetThumbnail(); } catch { }
+                _parking.RemoveBySlot(hudZone.Slot); // one slot = one chip
+                _parking.Dragging = new ParkingState.Chip
+                {
+                    Source = new ScannedSlot { Slot = hudZone.Slot, Holder = hudZone.Slot.Parent, Location = hudZone.Label ?? "" }.Pin(),
+                    Icon = icon,
+                    Name = hudOcc.DisplayName,
+                };
+                _satellite = null; // hands are busy: no child radials while dragging
+                UIAudioManager.Play(UIAudioManager.ObjectIntoHandHash);
+                return true;
+            }
+            return false;
+        }
+
+        /// <summary>Hub drag: grab the centre circle (off the CLOSE band, no satellite open) and
+        /// hold LMB to move the whole radial; clicking the CLOSE band closes. Returns true when it
+        /// owns the mouse this frame (dragging, just started, or closed), so the caller stops.
+        /// Shared by sticky mode and hold mode.</summary>
+        private bool UpdateHubDrag()
+        {
+            var hubMouse = DrawUtil.MousePos();
+            if (_hubDragging)
+            {
+                if (!Input.GetMouseButton(0))
+                {
+                    _hubDragging = false;
+                }
+                else
+                {
+                    _centerOffset += hubMouse - _lastDragMouse;
+                    _lastDragMouse = hubMouse;
+                }
+                return true; // dragging the radial around owns the mouse
+            }
+            if (Input.GetMouseButtonDown(0) && _parking.Dragging == null)
+            {
+                bool imguiOwns = false;
+                try { imguiOwns = ImGui.GetIO().WantCaptureMouse; } catch { }
+                if (!imguiOwns)
+                {
+                    if (_closeHovered)
+                    {
+                        // The always-works exit. A deliberate close, so parked items drop
+                        // (same contract as RMB-out).
+                        DumpChipsToGround();
+                        Close();
+                        return true;
+                    }
+                    // Grabbing the hub (inside the ring, off the CLOSE band) moves the radial.
+                    float hubR = Mathf.Max(0f, _lastInnerR - 6f);
+                    if (_satellite == null && _mainDist < hubR)
+                    {
+                        _hubDragging = true;
+                        _lastDragMouse = hubMouse;
+                        return true;
+                    }
+                }
+            }
+            return false;
+        }
+
+        /// <summary>Option A HOLD mode (holding the radial key — e.g. hold R): give the transient
+        /// radial the SAME mouse interaction as the tapped (sticky) radial — move the radial (hub
+        /// drag), drag an item off a wedge, Alt-grab items out of the physical world, drop onto
+        /// wedges / HUD boxes / the ground, and click-to-select. Wedge selection ALSO still happens
+        /// on key-release (the flick-release gesture — see <see cref="OnHoldReleased"/>). While a
+        /// chip is on the cursor or Alt is held, Draw() withholds child radials and the ring
+        /// highlight so the radial stays out of the way. Call every frame from the controller's
+        /// non-sticky branch; self-gates to Option A (B hold mode dives branches on LMB).</summary>
+        public void UpdateHoldInteractiveA()
+        {
+            bool dbgDown = Input.GetMouseButtonDown(0);
+            if (!IsOpen || _sticky || _searchOpen)
+            {
+                if (dbgDown) UIALog.Warn($"[HOLD-DBG] early-out open={IsOpen} sticky={_sticky} search={_searchOpen}");
+                return;
+            }
+            if (!UIAConfig.IsA || UIAConfig.IsB)
+            {
+                if (dbgDown) UIALog.Warn($"[HOLD-DBG] schema-gated IsA={UIAConfig.IsA} IsB={UIAConfig.IsB}");
+                return;
+            }
+            _parking.Prune();
+            if (dbgDown)
+                UIALog.Warn($"[HOLD-DBG] down mainDist={_mainDist:0} hubR={_lastInnerR - 6f:0} outerR={_lastOuterR:0} hovered={_hovered} close={_closeHovered} drag={_parking.Dragging != null}");
+            if (UpdateHubDrag())
+            {
+                if (dbgDown) UIALog.Warn($"[HOLD-DBG] hubdrag consumed (hubDragging={_hubDragging})");
+                return;
+            }
+            UpdateStickyOptionA();
+            if (dbgDown) UIALog.Warn($"[HOLD-DBG] after stickyA press={(_press == null ? "null" : _press.Label + " canDrag=" + _press.CanDrag)}");
         }
 
         /// <summary>Mouse released while dragging an item: drop it into the wedge under the
@@ -1029,8 +1129,17 @@ namespace StationeersUIMod.Overlay
             var k = Core.WedgeHotkeys.PressedBindableLetter();
             if (k != KeyCode.None)
             {
-                Core.WedgeHotkeys.Bind(k, entry.HotkeyInteractable, entry.HotkeyThing, entry.Label);
-                UIALog.Debug("Hotkey " + k + " bound to " + entry.Label);
+                // Same letter over the wedge it's already bound to → toggle the binding OFF.
+                if (Core.WedgeHotkeys.IsBoundTo(k, entry.HotkeyInteractable))
+                {
+                    Core.WedgeHotkeys.Unbind(k);
+                    UIALog.Debug("Hotkey " + k + " unbound from " + entry.Label);
+                }
+                else
+                {
+                    Core.WedgeHotkeys.Bind(k, entry.HotkeyInteractable, entry.HotkeyThing, entry.Label);
+                    UIALog.Debug("Hotkey " + k + " bound to " + entry.Label);
+                }
             }
         }
 
@@ -1194,6 +1303,12 @@ namespace StationeersUIMod.Overlay
                 ? (_satellite.Page + 1) + "/" + _satellite.PageCount + "  -  " + pageKeyName + ": next page"
                 : null;
 
+            // The world-reach modifier (vanilla MouseControl, default Alt): while it's held the
+            // player is reaching into the physical world (Z-grab / world-slot grab), so the ring
+            // goes passive — see the highlight/satellite suppression just below.
+            bool altReach = false;
+            try { altReach = KeyManager.GetButton(KeyMap.MouseControl); } catch { }
+
             // --- hover state: main ring ---
             // The wedge hover boundary and the hub's claim (drag zone + CLOSE band) must be
             // the SAME line (hubR), or there is an annulus where a wedge highlights while
@@ -1205,8 +1320,18 @@ namespace StationeersUIMod.Overlay
             _closeHovered = InCloseButton(delta, innerR);
             if (_closeHovered) _hovered = -1; // highlight and input may never disagree
 
+            // Reaching into the world (Alt held) makes the ring passive — no wedge highlight to
+            // fight the world grab, and nothing to "switch to" while you aim at the floor. A drag
+            // already in progress keeps its highlight: that IS the drop preview (a slot/box lights
+            // up when it will take the carried item).
+            if (altReach && _parking.Dragging == null) { _hovered = -1; _closeHovered = false; }
+
             // --- hover state: satellite ring ---
             _satHovered = -1;
+            // Pressing the world-reach modifier dismisses any open child radial at once — the
+            // hand is reaching into the world and a satellite would fight the grab (user request;
+            // a grab in progress already nulled it when the chip was minted).
+            if (_satellite != null && altReach) _satellite = null;
             if (_satellite != null)
             {
                 var satDelta = mouse - _satellite.Center;
@@ -1238,10 +1363,8 @@ namespace StationeersUIMod.Overlay
             // reaching into the world" (Z-grab / world-slot grab), so a child radial dwelling
             // open would fight the world interaction (resetting the candidate stops it firing
             // the instant the key is released).
-            bool slideMouseMod = false;
-            try { slideMouseMod = KeyManager.GetButton(KeyMap.MouseControl); } catch { }
             if (_satellite == null && _hovered >= 0 && _mainDist > outerR + 14f
-                && _parking.Dragging == null && !slideMouseMod)
+                && _parking.Dragging == null && !altReach)
             {
                 var hoveredEntry = MainEntry(_hovered);
                 if (hoveredEntry != null && hoveredEntry.HasSlideOut)
@@ -1262,7 +1385,7 @@ namespace StationeersUIMod.Overlay
                     _slideOutCandidate = -1;
                 }
             }
-            else if (_satellite != null || _mainDist <= outerR + 14f || slideMouseMod)
+            else if (_satellite != null || _mainDist <= outerR + 14f || altReach)
             {
                 _slideOutCandidate = -1;
             }
@@ -1398,7 +1521,8 @@ namespace StationeersUIMod.Overlay
                 }
 
                 // ASCII only: the game's ImGui font atlas has no glyphs for fancy arrows.
-                if (entry.HasSlideOut)
+                // Same gate as the Unity renderer: an empty slide-out shows no arrow.
+                if (entry.HasSlideOut && entry.SlideOutHasContent())
                     DrawUtil.TextShadowCentered(dl, center + dir * (outerR - 10f), Theme.Accent, ">");
                 else if (entry.IsBranch)
                     DrawUtil.TextShadowCentered(dl, center + dir * (outerR - 10f), Theme.TextDim, "+");
@@ -1471,7 +1595,7 @@ namespace StationeersUIMod.Overlay
                 Line(46f, Theme.Critical, hovered.DisabledReason);
             else if (!string.IsNullOrEmpty(hovered.Warning))
                 Line(46f, Theme.Warn, hovered.Warning);
-            else if (hovered.HasSlideOut && _satellite == null)
+            else if (hovered.HasSlideOut && hovered.SlideOutHasContent() && _satellite == null)
                 Line(46f, Theme.TextDim, "slide out > " + (hovered.SlideOutLabel ?? "more"));
         }
     }

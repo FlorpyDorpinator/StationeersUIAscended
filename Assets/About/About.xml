@@ -1,7 +1,7 @@
 ﻿<ModMetadata xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
   <Name>StationeersUIMod</Name>
   <Author>FlorpyDorp + JXSN</Author>
-  <Version>0.7.0</Version>
+  <Version>0.8.0</Version>
   <Description>
 	  [h1]Stationeers UI Mod[/h1]
 	  
@@ -18,6 +18,17 @@ Ported from BepInEx proof-of-concept into Unity mod project. Radials are now dra
 <br>
 ]]></InGameDescription>
   <ChangeLog>
+    [h3]Version 0.8.0 — GLASSY + THE DESIGNER, DEEPER:[/h3]
+    [list]
+    [*] New shipped look: the "Glassy" car-dashboard HUD (procedural glass boxes, the game's own ramp-bar gauge art, de-blued restyle) — Glassy 4.0 is the default; your custom profiles are left untouched
+    [*] Moodlets relocated into the bar as centered dashboard chips that bend onto the visor curve, keep their hover tooltips, and hide the vanilla strip — with transparency + brightness sliders
+    [*] Curvature: Mode C's walk-swim is fixed (head-locked to the camera); NEW Mode D gives the curved look with no swim; each element remembers its placement per curvature mode
+    [*] Designer gets deeper: per-element effect toggles + strength (death collapse / glitch / warp), per-tier layout (bare vs suit), global box colours with per-element follow, live Z re-layering, and curved (smooth spline) line-work
+    [*] Bare senses: place any of 8 felt-senses (now incl. Consciousness + Toilet) in any row; health reads as general wellness; hunger/thirst match the vitals card
+    [*] Radials: single/double settings show inline, split-stack wedges, live stats on swap/replace/eject, smarter swipe chevrons, sorting-class colours, and wedge hotkeys that never shadow a game keybind (press the letter again to unbind)
+    [*] Optional power-transition static/distortion effect (reuses the game's CameraFilterPack); PNG body-doll damage colours are editable; crash fix for duplicate moodlet/doll borrows
+    [*] Console: finddead (dead-player body bags) and findlargebox (large cardboard boxes) locators with coordinates
+    [/list]
     [h3]Version 0.7.0 — THE HUD DESIGNER:[/h3]
     [list]
     [*] The whole HUD is now a LAYOUT you own: press F9, click any element — drag it anywhere, resize it by its handles (with a toggleable snap grid), restyle every color per element, change any gauge's data source, flip gauges vertical/horizontal with your own zone colors

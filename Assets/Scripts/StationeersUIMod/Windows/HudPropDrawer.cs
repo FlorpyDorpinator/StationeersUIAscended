@@ -62,6 +62,11 @@ namespace StationeersUIMod.Windows
                     case HudPropKind.TierMask: DrawTier(p, i, onBeginEdit, onCommitted); break;
                     case HudPropKind.ColorRef: DrawColorRef(p, i, onBeginEdit, onCommitted); break;
                     case HudPropKind.Points: DrawPoints(p); break;
+                    case HudPropKind.Header:
+                        ImGui.Spacing();
+                        ImGui.Separator();
+                        ImGui.TextColored(new Vector4(0.25f, 0.85f, 0.93f, 1f), p.Label);
+                        break;
                 }
             }
         }

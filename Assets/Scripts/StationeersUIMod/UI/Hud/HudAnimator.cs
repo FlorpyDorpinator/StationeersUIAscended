@@ -28,6 +28,9 @@ namespace StationeersUIMod.UI.Hud
             public RectTransform Root;
             public int Seed;
             public bool SuitTier;             // participates in power-death collapse
+            /// <summary>Per-element CRT-collapse strength on death: 0 = no squash (just flicker
+            /// out), 1 = the default squash, up to 2. Synced from the element's fxCollapse props.</summary>
+            public float CollapseAmt = 1f;
 
             internal bool Target = true;
             internal float Phase = 1f;        // 1 = settled visible, 0 = settled hidden
@@ -162,9 +165,17 @@ namespace StationeersUIMod.UI.Hud
                     f.Group.alpha = decay * (on ? 1f : 0.12f) * (f.DyingCollapse ? f.CapAlpha : 1f);
                     if (f.DyingCollapse && f.Root != null)
                     {
-                        // CRT die: stretch a touch wider while the panel squashes flat.
-                        float sq = 1f - p * p;
-                        f.Root.localScale = new Vector3(1f + 0.25f * p, Mathf.Max(0.02f, sq), 1f);
+                        // CRT die: stretch a touch wider while the panel squashes flat. Per-element
+                        // strength scales it — 0 leaves the panel un-squashed (flicker-out only).
+                        float amt = Mathf.Clamp(f.CollapseAmt, 0f, 2f);
+                        if (amt <= 0.001f) f.Root.localScale = Vector3.one;
+                        else
+                        {
+                            float sq = 1f - p * p;
+                            float sx = Mathf.Lerp(1f, 1f + 0.25f * p, amt);
+                            float sy = Mathf.Max(0.02f, Mathf.Lerp(1f, Mathf.Max(0.02f, sq), amt));
+                            f.Root.localScale = new Vector3(sx, sy, 1f);
+                        }
                     }
                     if (p >= 1f) f.Snap(false);
                 }

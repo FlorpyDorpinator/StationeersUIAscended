@@ -177,6 +177,8 @@ namespace StationeersUIMod.Windows
         private static Vector2 _dragStart;         // canvas coords at mouse-down
         private static float _origX, _origY, _origW, _origH;
         private static bool _dragMoved;
+        private static bool _dragBare;              // this gesture edits the bare override (preview=BARE)
+        private static UI.Hud.HudCurvature _dragMode; // and this curvature mode's LIVE layout (captured at grab)
         private static UI.Hud.HudDocument _preDrag; // undo snapshot armed at mouse-down
 
         // Multi-selection (Ctrl+drag marquee). The PRIMARY selection (_selectedId, popup,
@@ -237,8 +239,10 @@ namespace StationeersUIMod.Windows
                         bool inSel = (SelectedElement != null && ReferenceEquals(v, SelectedElement))
                             || _multiIds.Contains(v.Def.Id);
                         if (!inSel) continue;
-                        v.Def.X += nx * step;
-                        v.Def.Y += ny * step;
+                        bool bare = UI.Hud.HudElementView.EditBare(v.Def);
+                        var mode = UI.Hud.HudElementView.LayoutMode;
+                        v.Def.SetXFor(bare, mode, v.Def.XFor(bare, mode) + nx * step);
+                        v.Def.SetYFor(bare, mode, v.Def.YFor(bare, mode) + ny * step);
                         HudSystem.RelayoutElement(v);
                     }
                     Features.HudProfileStore.MarkChanged();
@@ -259,6 +263,11 @@ namespace StationeersUIMod.Windows
             {
                 foreach (var v in _views)
                 {
+                    // Single-click can grab ANY element, even one hidden in the current preview
+                    // (its rect still exists) — otherwise you couldn't select a Live-mode element
+                    // while previewing bare to change its mode ("locked in to whatever they were").
+                    // The marquee (CommitMarquee) still filters by visibility so drag-groups stay
+                    // tier-homogeneous.
                     var r = v.CanvasRect(scale);
                     if (!r.Contains(p)) continue;
                     float area = r.width * r.height;
@@ -364,6 +373,9 @@ namespace StationeersUIMod.Windows
             string first = null;
             foreach (var v in _views)
             {
+                // Marquee only what's visible in this preview, so a group is always tier-homogeneous
+                // (every member resolves EditBare the same way) and never grabs a hidden element.
+                if (!v.VisibleAt(UI.Hud.HudElementView.LayoutTier)) continue;
                 if (!v.CanvasRect(scale).Overlaps(rect)) continue;
                 _multiIds.Add(v.Def.Id);
                 if (first == null) first = v.Def.Id;
@@ -384,14 +396,23 @@ namespace StationeersUIMod.Windows
             _dragHandle = handle;
             _dragStart = p;
             _dragMoved = false;
-            _origX = v.Def.X; _origY = v.Def.Y; _origW = v.Def.W; _origH = v.Def.H;
+            // Whether this gesture writes the bare override or the base layout follows the
+            // previewed tier (see HudElementView.EditBare); captured once so it stays consistent
+            // across the drag even if a relayout re-reads the preview mid-gesture.
+            _dragBare = UI.Hud.HudElementView.EditBare(v.Def);
+            _dragMode = UI.Hud.HudElementView.LayoutMode;
+            _origX = v.Def.XFor(_dragBare, _dragMode); _origY = v.Def.YFor(_dragBare, _dragMode);
+            _origW = v.Def.WFor(_dragBare, _dragMode); _origH = v.Def.HFor(_dragBare, _dragMode);
 
             // Moving a marquee-group member moves the WHOLE group (resize stays single).
             _dragOrig.Clear();
             if (handle < 0 && _multiIds.Count > 1 && _multiIds.Contains(v.Def.Id))
                 foreach (var view in _views)
                     if (_multiIds.Contains(view.Def.Id))
-                        _dragOrig[view.Def.Id] = new Vector2(view.Def.X, view.Def.Y);
+                    {
+                        bool b = UI.Hud.HudElementView.EditBare(view.Def);
+                        _dragOrig[view.Def.Id] = new Vector2(view.Def.XFor(b, _dragMode), view.Def.YFor(b, _dragMode));
+                    }
 
             var doc = Features.HudProfileStore.Active;
             _preDrag = doc != null ? doc.Clone() : null;
@@ -402,6 +423,7 @@ namespace StationeersUIMod.Windows
             var v = SelectedElement;
             if (v == null) { _dragging = false; return; }
             var d = v.Def;
+            bool bare = _dragBare; // write the bare override or the base layout (captured at grab)
             Vector2 delta = (p - _dragStart) / Mathf.Max(0.01f, scale);
             if (!_dragMoved && delta.sqrMagnitude < 4f) return; // 2px dead zone
             _dragMoved = true;
@@ -412,28 +434,31 @@ namespace StationeersUIMod.Windows
 
             if (_dragHandle < 0)
             {
-                // Group move: every marquee member follows the same delta.
+                // Group move: every marquee member follows the same delta, each into its own
+                // previewed tier.
                 if (_dragOrig.Count > 1)
                 {
                     foreach (var view in _views)
                     {
                         Vector2 orig;
                         if (!_dragOrig.TryGetValue(view.Def.Id, out orig)) continue;
-                        view.Def.X = Snap(orig.x + delta.x, snap, grid);
-                        view.Def.Y = Snap(orig.y + delta.y, snap, grid);
+                        bool b = UI.Hud.HudElementView.EditBare(view.Def);
+                        view.Def.SetXFor(b, _dragMode, Snap(orig.x + delta.x, snap, grid));
+                        view.Def.SetYFor(b, _dragMode, Snap(orig.y + delta.y, snap, grid));
                         HudSystem.RelayoutElement(view);
                     }
                     return;
                 }
-                d.X = Snap(_origX + delta.x, snap, grid);
-                d.Y = Snap(_origY + delta.y, snap, grid);
+                d.SetXFor(bare, _dragMode, Snap(_origX + delta.x, snap, grid));
+                d.SetYFor(bare, _dragMode, Snap(_origY + delta.y, snap, grid));
             }
             else
             {
+                var mode = _dragMode;
                 // A resized percent-sized element becomes fixed-size: the user just chose
                 // exact pixels, and mixing both would make the handles fight the screen.
-                if (d.WPct > 0f && ResizesX(_dragHandle)) { d.W = _origW = _origW <= 2f ? v.CanvasRect(scale).width / scale : _origW; d.WPct = -1f; }
-                if (d.HPct > 0f && ResizesY(_dragHandle)) { d.H = _origH = _origH <= 2f ? v.CanvasRect(scale).height / scale : _origH; d.HPct = -1f; }
+                if (d.WPctFor(bare, mode) > 0f && ResizesX(_dragHandle)) { if (_origW <= 2f) _origW = v.CanvasRect(scale).width / scale; d.SetWFor(bare, mode, _origW); d.SetWPctFor(bare, mode, -1f); }
+                if (d.HPctFor(bare, mode) > 0f && ResizesY(_dragHandle)) { if (_origH <= 2f) _origH = v.CanvasRect(scale).height / scale; d.SetHFor(bare, mode, _origH); d.SetHPctFor(bare, mode, -1f); }
 
                 float dx = delta.x, dy = delta.y;
                 // Corner/edge semantics: move the grabbed edge(s); the opposite edge pins.
@@ -442,10 +467,10 @@ namespace StationeersUIMod.Windows
                 bool bottom = _dragHandle == 0 || _dragHandle == 1 || _dragHandle == 4;
                 bool top = _dragHandle == 2 || _dragHandle == 3 || _dragHandle == 6;
 
-                if (right) { d.W = Snap(Mathf.Max(4f, _origW + dx), snap, grid); d.X = _origX + (d.W - _origW) * 0.5f; }
-                if (left) { d.W = Snap(Mathf.Max(4f, _origW - dx), snap, grid); d.X = _origX - (d.W - _origW) * 0.5f; }
-                if (top) { d.H = Snap(Mathf.Max(4f, _origH + dy), snap, grid); d.Y = _origY + (d.H - _origH) * 0.5f; }
-                if (bottom) { d.H = Snap(Mathf.Max(4f, _origH - dy), snap, grid); d.Y = _origY - (d.H - _origH) * 0.5f; }
+                if (right) { float w = Snap(Mathf.Max(4f, _origW + dx), snap, grid); d.SetWFor(bare, mode, w); d.SetXFor(bare, mode, _origX + (w - _origW) * 0.5f); }
+                if (left) { float w = Snap(Mathf.Max(4f, _origW - dx), snap, grid); d.SetWFor(bare, mode, w); d.SetXFor(bare, mode, _origX - (w - _origW) * 0.5f); }
+                if (top) { float h = Snap(Mathf.Max(4f, _origH + dy), snap, grid); d.SetHFor(bare, mode, h); d.SetYFor(bare, mode, _origY + (h - _origH) * 0.5f); }
+                if (bottom) { float h = Snap(Mathf.Max(4f, _origH - dy), snap, grid); d.SetHFor(bare, mode, h); d.SetYFor(bare, mode, _origY - (h - _origH) * 0.5f); }
             }
             HudSystem.RelayoutElement(v);
         }
@@ -535,6 +560,18 @@ namespace StationeersUIMod.Windows
             HudSystem.RequestViewRebuild();
         }
 
+        /// <summary>Clear the selected element's per-curvature-mode LIVE placement override for the
+        /// current mode, reverting it to the base (shared) layout. One undo step.</summary>
+        public static void ResetModeLayout()
+        {
+            var view = SelectedElement;
+            if (view == null || view.Def == null) return;
+            PushUndoNow();
+            view.Def.SetModeLayout(UI.Hud.HudElementView.LayoutMode, false);
+            HudSystem.RelayoutElement(view);
+            Features.HudProfileStore.MarkChanged();
+        }
+
         public static void DuplicateSelected()
         {
             var doc = Features.HudProfileStore.Active;
@@ -549,6 +586,19 @@ namespace StationeersUIMod.Windows
             _pendingSelectId = copy.Id;
             Features.HudProfileStore.MarkChanged();
             HudSystem.RequestViewRebuild();
+        }
+
+        /// <summary>Set (or clear) "Follow global colours" on EVERY element at once — the one-click
+        /// way to make the whole HUD track the global box colours, or hand each box back its own.
+        /// One undo step; colours apply next frame (read live in UpdatePanel).</summary>
+        public static void SetAllFollowGlobal(bool follow)
+        {
+            var doc = Features.HudProfileStore.Active;
+            if (doc == null || doc.Elements == null) return;
+            PushUndoNow();
+            foreach (var e in doc.Elements)
+                if (e != null) e.SetB("followGlobal", follow);
+            Features.HudProfileStore.MarkChanged();
         }
 
         /// <summary>Add a fresh element of the given type at screen centre, selected.</summary>

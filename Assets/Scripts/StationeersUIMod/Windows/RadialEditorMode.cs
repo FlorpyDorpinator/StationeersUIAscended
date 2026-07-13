@@ -165,6 +165,12 @@ namespace StationeersUIMod.Windows
                     HotPalette.Add("WedgeBorder");
                     HotPalette.Add("WedgeBorderSelected");
                 }
+                else if (hoveredEntry.GroupStyle)
+                {
+                    HotPalette.Add("GroupWedgeFill");
+                    HotPalette.Add("GroupWedgeBorder");
+                    HotPalette.Add("WedgeSelected");
+                }
                 else
                 {
                     HotPalette.Add("WedgeBackground");
@@ -236,6 +242,15 @@ namespace StationeersUIMod.Windows
                     Label = "Open",
                     ActionText = "Open",
                     Sublabel = "a branch wedge",
+                    ChildProvider = () => new List<RadialEntry>(),
+                },
+                new RadialEntry
+                {
+                    Label = "Power Cells",
+                    ActionText = "Open",
+                    Sublabel = "a sorting-class group wedge",
+                    Icon = icons.Count > 1 ? icons[1] : null,
+                    GroupStyle = true,
                     ChildProvider = () => new List<RadialEntry>(),
                 },
                 new RadialEntry

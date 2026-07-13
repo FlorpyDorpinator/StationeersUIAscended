@@ -446,8 +446,11 @@ namespace StationeersUIMod.UI
                     // Swipe affordance: a small outward chevron at the rim of any wedge that
                     // opens a satellite (slide-out) or a click-in branch — "you can swipe this".
                     // Scroll wedges never show it (they carry their own up/down triangles).
+                    // A slide-out that yields NOTHING (a tool with no settings/slots — wire
+                    // cutters, a wrench) must not advertise a swipe it can't honour, so the
+                    // slide-out arm is gated on real content, not just a non-null provider.
                     bool swipeable = !entry.IsScrollAdjust && entry.Enabled
-                        && (entry.HasSlideOut || entry.IsBranch);
+                        && ((entry.HasSlideOut && entry.SlideOutHasContent()) || entry.IsBranch);
                     var sw = _swipe[i];
                     sw.gameObject.SetActive(swipeable);
                     if (swipeable)
@@ -625,6 +628,10 @@ namespace StationeersUIMod.UI
                 else if (entry.StowStyle)
                     // Option A STOW wedge: quiet until hovered, then the orange "goes here".
                     col = hovered ? RadialPalette.WedgeStowHover.Value : RadialPalette.WedgeBg.Value;
+                else if (entry.GroupStyle)
+                    // Sorting-class GROUP wedge: its own fill (defaults to the normal fill),
+                    // normal hover fill on hover. The blue edge (below) is what marks it.
+                    col = hovered ? RadialPalette.WedgeHover.Value : RadialPalette.GroupWedgeFill.Value;
                 else if (entry.FillOverride.HasValue)
                     col = hovered ? RadialPalette.WedgeStowHover.Value : RadialPalette.WedgeStow.Value;
                 else if (hovered)
@@ -636,11 +643,14 @@ namespace StationeersUIMod.UI
                 return col;
             }
 
-            /// <summary>The always-on outline. Hover shifts it to the hover border colour.</summary>
+            /// <summary>The always-on outline. Hover shifts it to the hover border colour.
+            /// Sorting-class GROUP wedges keep their distinct edge colour in every state, so a
+            /// category wedge reads as one at a glance (hover feedback comes from the bulge/shine).</summary>
             private static Color ResolveUguiBorder(RadialEntry entry, bool hovered, bool dimmed)
             {
                 Color border = !entry.Enabled
                     ? RadialPalette.WedgeDisabled.Value
+                    : entry.GroupStyle ? RadialPalette.GroupWedgeBorder.Value
                     : hovered ? RadialPalette.WedgeBorderHover.Value
                               : RadialPalette.WedgeBorder.Value;
                 if (dimmed) border.a *= 0.55f;

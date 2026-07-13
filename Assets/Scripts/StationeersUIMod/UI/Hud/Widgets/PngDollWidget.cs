@@ -122,9 +122,13 @@ namespace StationeersUIMod.UI.Hud.Widgets
             }
 
             bool wholeBody = Def.GetB("wholeBody", false);
-            Color neutral = TextColor();
-            Color warn = HudPalette.Warn.Value;
-            Color crit = HudPalette.Critical.Value;
+            // The damage ramp's three stops. Each is a per-element colour ref (palette name or
+            // "#RRGGBBAA"); left blank it falls back to its old source — the element accent for
+            // healthy, the global Warn/Critical palette for the two damage stops — so an untouched
+            // doll looks exactly as before.
+            Color neutral = HudPalette.Resolve(Def.GetS("cHealthy", ""), TextColor());
+            Color warn = HudPalette.Resolve(Def.GetS("cWarn", ""), HudPalette.Warn.Value);
+            Color crit = HudPalette.Resolve(Def.GetS("cCrit", ""), HudPalette.Critical.Value);
 
             for (int i = 0; i < _parts.Length; i++)
             {
@@ -231,6 +235,18 @@ namespace StationeersUIMod.UI.Hud.Widgets
             catch { }
         }
 
+        /// <summary>The colour ref the F9 picker should SHOW for a ramp stop: the stored override
+        /// if one is set, else the stop's current default source (a palette name or the element's
+        /// own accent ref). Returning the live default — rather than an empty string — makes the
+        /// picker open on the real colour and keep tracking the palette until the user overrides it.
+        /// The render path still reads the raw param (blank) and resolves it against the same
+        /// fallback, so leaving a picker untouched changes nothing.</summary>
+        private string DollColorRef(string key, string defaultRef)
+        {
+            string s = Def.GetS(key, "");
+            return string.IsNullOrEmpty(s) ? defaultRef : s;
+        }
+
         /// <summary>Neutral (the element's accent) at rest, brightening through warn to crit as
         /// a region's damage ratio climbs — the same ramp the procedural doll uses.</summary>
         private static Color ColorFor(float r, Color neutral, Color warn, Color crit)
@@ -247,6 +263,18 @@ namespace StationeersUIMod.UI.Hud.Widgets
             into.Add(HudProp.Bool("Only when injured", () => d.GetB("injuredOnly", true), v => d.SetB("injuredOnly", v)));
             into.Add(HudProp.Bool("Whole-body tint", () => d.GetB("wholeBody", false), v => d.SetB("wholeBody", v)));
             into.Add(HudProp.Bool("Background box", () => d.GetB("box", true), v => d.SetB("box", v)));
+
+            // The doll's damage-ramp tints. Each part fades from the healthy colour through warning
+            // to critical as its region's damage climbs. Each picker OPENS on the colour that stop
+            // currently uses (the element accent for healthy, the global Warn/Critical palette for
+            // the two damage stops) and tracks that palette by name until you pick your own; the
+            // box fill/border are the base "Fill"/"Border" pickers above.
+            into.Add(HudProp.Header("Doll damage colours"));
+            into.Add(HudProp.Color("Healthy tint",
+                () => DollColorRef("cHealthy", string.IsNullOrEmpty(d.TextColor) ? "HudTextValue" : d.TextColor),
+                v => d.Set("cHealthy", v)));
+            into.Add(HudProp.Color("Warning tint", () => DollColorRef("cWarn", "HudWarn"), v => d.Set("cWarn", v)));
+            into.Add(HudProp.Color("Critical tint", () => DollColorRef("cCrit", "HudCritical"), v => d.Set("cCrit", v)));
             into.Add(HudProp.F("Figure scale", () => d.GetF("figScale", 0.98f), v => d.SetF("figScale", Mathf.Clamp(v, 0.3f, 1.2f)), 0.3f, 1.2f));
             into.Add(HudProp.F("Figure Y nudge", () => d.GetF("figY", 0f), v => d.SetF("figY", v), -80f, 80f));
             into.Add(HudProp.F("Arm spread", () => d.GetF("armSpread", 1f), v => d.SetF("armSpread", Mathf.Clamp(v, 0f, 3f)), 0f, 3f));

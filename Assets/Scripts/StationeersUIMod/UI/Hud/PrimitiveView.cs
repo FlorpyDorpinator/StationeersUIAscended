@@ -23,6 +23,7 @@ namespace StationeersUIMod.UI.Hud
         private bool _placeholder;
 
         private static readonly List<Vector2> _pointScratch = new List<Vector2>(16);
+        private static readonly List<Vector2> _curveScratch = new List<Vector2>(128); // smoothed spline
 
         protected override void BuildContent(RectTransform root)
         {
@@ -33,7 +34,9 @@ namespace StationeersUIMod.UI.Hud
                     break;
 
                 case HudElementType.Label:
-                    _text = HudText.Make(root, "Text", 14f, AlignFor(Def.Align));
+                    // Wrap to the element's width instead of spilling past it — the rect is sized
+                    // to the box in Layout, so a long label stacks its words within the box.
+                    _text = HudText.Make(root, "Text", 14f, AlignFor(Def.Align), wrap: true);
                     break;
 
                 case HudElementType.Polyline:
@@ -104,6 +107,8 @@ namespace StationeersUIMod.UI.Hud
                 _text.rectTransform.anchoredPosition = c;
                 _text.rectTransform.sizeDelta = s;
                 _text.alignment = AlignFor(Def.Align);
+                bool wrapText = Def.GetB("wrap", true); // per-element "Wrap text"
+                if (_text.enableWordWrapping != wrapText) _text.enableWordWrapping = wrapText;
             }
             if (_line != null)
             {
@@ -111,7 +116,21 @@ namespace StationeersUIMod.UI.Hud
                 var pts = Def.GetPoints("pts");
                 _pointScratch.Clear();
                 for (int i = 0; i < pts.Length; i++) _pointScratch.Add(pts[i] * scale);
-                _line.SetPoints(_pointScratch, Def.GetB("closed", false));
+                bool closed = Def.GetB("closed", false);
+                // "Smooth" turns the drawn points into control points of a Catmull-Rom spline: the
+                // curve passes THROUGH each point, and the existing straight-segment renderer draws
+                // the densely-subdivided result (the visor warp bends it like any other line). Needs
+                // ≥3 points to define a curve; below that it stays a plain segment.
+                if (Def.GetB("smooth", false) && _pointScratch.Count >= 3)
+                {
+                    int steps = Mathf.Clamp(Def.GetI("curveSteps", 12), 2, 32);
+                    BuildSmooth(_pointScratch, closed, steps, _curveScratch);
+                    _line.SetPoints(_curveScratch, closed);
+                }
+                else
+                {
+                    _line.SetPoints(_pointScratch, closed);
+                }
                 _line.Width = Mathf.Max(0.5f, Def.GetF("width", 2f) * scale);
                 _line.FadeEnds = Def.GetF("fadeEnds", 0f);
             }
@@ -183,11 +202,14 @@ namespace StationeersUIMod.UI.Hud
                     into.Add(HudProp.F("Text size", () => d.GetF("size", 14f), v => d.SetF("size", v), 6f, 64f));
                     into.Add(HudProp.Enum("Align", () => AlignIndex(d.Align),
                         v => d.Align = AlignNames[Mathf.Clamp(v, 0, AlignNames.Length - 1)], AlignNames));
+                    into.Add(HudProp.Bool("Wrap text", () => d.GetB("wrap", true), v => d.SetB("wrap", v)));
                     break;
                 case HudElementType.Polyline:
                     into.Add(HudProp.F("Line width", () => d.GetF("width", 2f), v => d.SetF("width", Mathf.Max(0.5f, v)), 0.5f, 24f));
                     into.Add(HudProp.Bool("Closed loop", () => d.GetB("closed", false), v => d.SetB("closed", v)));
                     into.Add(HudProp.F("Fade ends (0=off)", () => d.GetF("fadeEnds", 0f), v => d.SetF("fadeEnds", Mathf.Clamp(v, 0f, 0.49f)), 0f, 0.49f));
+                    into.Add(HudProp.Bool("Smooth (curved)", () => d.GetB("smooth", false), v => d.SetB("smooth", v)));
+                    into.Add(HudProp.I("Curve smoothness", () => d.GetI("curveSteps", 12), v => d.SetI("curveSteps", Mathf.Clamp(v, 2, 32)), 2, 32));
                     break;
                 case HudElementType.Icon:
                     into.Add(HudProp.Text("Icon (glyph or PNG name)", () => d.Icon ?? "", v => d.Icon = v));
@@ -213,6 +235,44 @@ namespace StationeersUIMod.UI.Hud
                 case 2: return TextAlignmentOptions.MidlineRight;
                 default: return TextAlignmentOptions.Center;
             }
+        }
+
+        // ---- curve smoothing ----
+
+        /// <summary>Expand control points into a Catmull-Rom spline that passes through every one
+        /// of them: <paramref name="steps"/> samples per span, written to <paramref name="outPts"/>.
+        /// Open curves clamp the phantom end tangents (natural ends); closed curves wrap. The final
+        /// control point is appended for open curves so the last span reaches its endpoint.</summary>
+        private static void BuildSmooth(List<Vector2> cp, bool closed, int steps, List<Vector2> outPts)
+        {
+            outPts.Clear();
+            int n = cp.Count;
+            if (n < 3) { for (int i = 0; i < n; i++) outPts.Add(cp[i]); return; }
+
+            int spans = closed ? n : n - 1;
+            for (int i = 0; i < spans; i++)
+            {
+                Vector2 p0 = cp[WrapIndex(i - 1, n, closed)];
+                Vector2 p1 = cp[WrapIndex(i, n, closed)];
+                Vector2 p2 = cp[WrapIndex(i + 1, n, closed)];
+                Vector2 p3 = cp[WrapIndex(i + 2, n, closed)];
+                for (int s = 0; s < steps; s++)
+                    outPts.Add(CatmullRom(p0, p1, p2, p3, s / (float)steps));
+            }
+            if (!closed) outPts.Add(cp[n - 1]); // land exactly on the last drawn point
+        }
+
+        private static int WrapIndex(int i, int n, bool closed)
+            => closed ? ((i % n) + n) % n : Mathf.Clamp(i, 0, n - 1);
+
+        // Uniform Catmull-Rom (tension 0.5): interpolates between p1 and p2 using p0/p3 as tangents.
+        private static Vector2 CatmullRom(Vector2 p0, Vector2 p1, Vector2 p2, Vector2 p3, float t)
+        {
+            float t2 = t * t, t3 = t2 * t;
+            return 0.5f * ((2f * p1)
+                + (-p0 + p2) * t
+                + (2f * p0 - 5f * p1 + 4f * p2 - p3) * t2
+                + (-p0 + 3f * p1 - 3f * p2 + p3) * t3);
         }
     }
 }

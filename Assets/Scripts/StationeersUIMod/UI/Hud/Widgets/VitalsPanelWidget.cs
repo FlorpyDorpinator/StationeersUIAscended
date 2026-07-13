@@ -128,10 +128,14 @@ namespace StationeersUIMod.UI.Hud.Widgets
             bool vTemp = words && Def.GetB("rowTemp", false);
 
             bool showBox = Def.GetB("box", true);
+            bool rowLines = Def.GetB("rowLines", true);
+            bool showIcons = Def.GetB("icons", true);
 
+            // rowLines/icons feed the signature so toggling either re-flows (separators live in
+            // Reflow, and the text column shifts left when the icons are gone).
             int sig = (vHunger ? 1 : 0) | (vWater ? 2 : 0) | (vToilet ? 4 : 0)
                 | (vHealth ? 8 : 0) | (vCognition ? 256 : 0) | (vPressure ? 16 : 0) | (vTemp ? 32 : 0)
-                | (words ? 64 : 0) | (showBox ? 128 : 0);
+                | (words ? 64 : 0) | (showBox ? 128 : 0) | (rowLines ? 512 : 0) | (showIcons ? 1024 : 0);
             if (sig != _sig)
             {
                 _sig = sig;
@@ -391,11 +395,13 @@ namespace StationeersUIMod.UI.Hud.Widgets
         }
 
         /// <summary>Enable exactly the icon channel the row uses (sprite OR glyph), or neither
-        /// when hidden/unresolved.</summary>
-        private static void EnableRowIcon(Row row, bool visible)
+        /// when hidden/unresolved. The "Row icons" checkbox suppresses BOTH channels so the panel
+        /// can read as bare value-only rows.</summary>
+        private void EnableRowIcon(Row row, bool visible)
         {
-            row.Icon.enabled = visible && !row.UsesGlyph && row.Icon.sprite != null;
-            if (row.Glyph != null) row.Glyph.enabled = visible && row.UsesGlyph;
+            bool showIcon = visible && Def.GetB("icons", true);
+            row.Icon.enabled = showIcon && !row.UsesGlyph && row.Icon.sprite != null;
+            if (row.Glyph != null) row.Glyph.enabled = showIcon && row.UsesGlyph;
         }
 
         /// <summary>NN% string, rebuilt only when the rounded integer changes — no per-frame
@@ -431,6 +437,8 @@ namespace StationeersUIMod.UI.Hud.Widgets
             float rowH = Def.GetF("rowHeight", 42f) * scale;
             float pad = 5f * scale;
             float iconScale = Def.GetF("iconScale", 0.92f);
+            bool rowLines = Def.GetB("rowLines", true);
+            bool icons = Def.GetB("icons", true);
 
             // Build the visible-order list.
             var order = new List<int>(RowCount);
@@ -464,7 +472,7 @@ namespace StationeersUIMod.UI.Hud.Widgets
             float sepW = s.x - pad * 2f;
             for (int i = 0; i < _seps.Length; i++)
             {
-                bool on = i < n - 1;
+                bool on = rowLines && i < n - 1;
                 _seps[i].enabled = on;
                 if (!on) continue;
                 float sy = top - rowH * (i + 1);
@@ -487,7 +495,8 @@ namespace StationeersUIMod.UI.Hud.Widgets
                 row.IconRt.sizeDelta = iconDim;
                 if (row.GlyphRt != null) { row.GlyphRt.anchoredPosition = iconPos; row.GlyphRt.sizeDelta = iconDim; }
 
-                float textLeft = left + iconSz + 6f * scale;
+                // With icons off, the value column reclaims the icon gutter (full-width rows).
+                float textLeft = icons ? left + iconSz + 6f * scale : left;
                 float tw = Mathf.Max(12f, right - textLeft);
                 row.ValueRt.anchoredPosition = new Vector2(textLeft + tw * 0.5f, rowCy);
                 row.ValueRt.sizeDelta = new Vector2(tw, rowH);
@@ -499,6 +508,8 @@ namespace StationeersUIMod.UI.Hud.Widgets
             base.DescribeProps(into);
             var d = Def;
             into.Add(HudProp.Bool("Background box", () => d.GetB("box", true), v => d.SetB("box", v)));
+            into.Add(HudProp.Bool("Row lines", () => d.GetB("rowLines", true), v => d.SetB("rowLines", v)));
+            into.Add(HudProp.Bool("Row icons", () => d.GetB("icons", true), v => d.SetB("icons", v)));
             into.Add(HudProp.Bool("Words mode (bare)", () => d.GetB("words", false), v => d.SetB("words", v)));
             into.Add(HudProp.Bool("Pressure row (words)", () => d.GetB("rowPressure", false), v => d.SetB("rowPressure", v)));
             into.Add(HudProp.Bool("Temp row (words)", () => d.GetB("rowTemp", false), v => d.SetB("rowTemp", v)));
