@@ -577,6 +577,10 @@ namespace StationeersUIMod.Windows
                 e.SetB("box", true);
                 e.SetB("bar", false);
                 e.SetB("target", false);
+                // Instruments are suit-tier: they must vanish in the power-off (bare) HUD
+                // like the shipped speed box does (play-test: a re-created box kept showing
+                // in bare because the default was All).
+                e.Tiers = UI.Hud.HudTierMask.Suited | UI.Hud.HudTierMask.Robot;
             }
 
             // On a Glassy-family profile, a fresh element arrives in the profile's own

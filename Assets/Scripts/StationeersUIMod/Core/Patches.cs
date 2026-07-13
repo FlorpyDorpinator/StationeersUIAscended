@@ -258,5 +258,22 @@ namespace StationeersUIMod.Core
             }
         }
     }
+
+    /// <summary>
+    /// While the F9 HUD editor is open, swallow ALL vanilla equipment-slot input
+    /// (InventoryManager.CheckDisplaySlotInput drives the 1-6 slot keys that pop the
+    /// helmet/back/belt bag windows, plus the inventory scroll/next/prev). Otherwise a
+    /// 1-6 press mid-edit throws a vanilla window over the designer (play-test). Purely a
+    /// suppression — the instant the editor closes, vanilla input resumes untouched.
+    /// </summary>
+    [HarmonyPatch(typeof(InventoryManager), "CheckDisplaySlotInput")]
+    internal static class Patch_InventoryManager_CheckDisplaySlotInput
+    {
+        private static bool Prefix()
+        {
+            try { return !Windows.HudEditorMode.Active; }
+            catch { return true; }
+        }
+    }
 }
 

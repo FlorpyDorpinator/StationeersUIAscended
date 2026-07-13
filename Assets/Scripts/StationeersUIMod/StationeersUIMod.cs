@@ -96,6 +96,7 @@ namespace StationeersUIMod
                     typeof(Patch_KeyManager_ToggleScoreboard),
                     typeof(Patch_Human_SpawnDynamicThing),
                     typeof(Patch_KeyManager_SpawnDynamicThing),
+                    typeof(Patch_InventoryManager_CheckDisplaySlotInput),
                     typeof(Patch_InventoryManager_AllowMouseControl),
                     typeof(Patch_MovementController_HandleJump),
                     typeof(Patch_PlayerStateWindow_UpdateJetpackPanels));
