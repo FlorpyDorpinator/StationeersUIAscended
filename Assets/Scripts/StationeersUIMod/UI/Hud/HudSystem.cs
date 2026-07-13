@@ -245,9 +245,15 @@ namespace StationeersUIMod.UI.Hud
 
         private static bool _debugForcedBare;
 
-        /// <summary>Debug show-all: force every vanilla moodlet icon on this frame so the
-        /// borrowed strip previews full. Vanilla's own update turns them back off the moment
-        /// the debug flag clears — display-only, no game state touched.</summary>
+        // The moodlet icons WE force-activated in debug show-all — tracked so we can turn
+        // exactly those back off when the flag clears. Vanilla does NOT re-hide them (it only
+        // manages statuses it considers active), so "they won't go away" without this.
+        private static readonly List<GameObject> _forcedMoodlets = new List<GameObject>();
+
+        /// <summary>Debug show-all: light every vanilla moodlet whose icon actually has a
+        /// sprite (a sprite-less status renders as a white box — that was the "toxins moodlet
+        /// is a white box"). Records each one we switch on so <see cref="ClearForcedMoodlets"/>
+        /// can switch it back off. Display-only, no game state touched.</summary>
         private static void ForceAllMoodlets()
         {
             try
@@ -259,10 +265,26 @@ namespace StationeersUIMod.UI.Hud
                     var su = all[i];
                     if (su == null || su.UsesDedicatedDisplay) continue;
                     var img = su.Image;
-                    if (img != null && !img.gameObject.activeSelf) img.gameObject.SetActive(true);
+                    if (img == null || img.sprite == null) continue; // no art → white box
+                    if (!img.gameObject.activeSelf)
+                    {
+                        img.gameObject.SetActive(true);
+                        if (!_forcedMoodlets.Contains(img.gameObject)) _forcedMoodlets.Add(img.gameObject);
+                    }
                 }
             }
             catch { }
+        }
+
+        /// <summary>Turn back off the moodlets WE forced on (debug cleared / teardown).</summary>
+        private static void ClearForcedMoodlets()
+        {
+            for (int i = 0; i < _forcedMoodlets.Count; i++)
+            {
+                var go = _forcedMoodlets[i];
+                try { if (go != null) go.SetActive(false); } catch { }
+            }
+            _forcedMoodlets.Clear();
         }
 
         private static void OnActiveDocReplaced() => _docRebuildNeeded = true;
@@ -719,6 +741,7 @@ namespace StationeersUIMod.UI.Hud
             HudWarp.Active = HudWarp.Kind.None;
             HudWarp.BareFlat = false; // reset alongside Active so a reload starts un-flattened
             HudSampler.DebugShowAll = false;
+            ClearForcedMoodlets();
             _debugForcedBare = false;
             _hasPrev = false;
             _appliedMode = HudCurvature.Flat;
@@ -797,6 +820,7 @@ namespace StationeersUIMod.UI.Hud
             else if (_debugForcedBare) ForceTier = null; // clear only what WE forced
             _debugForcedBare = dbgBare;
             if (dbgAll) ForceAllMoodlets();
+            else if (_forcedMoodlets.Count > 0) ClearForcedMoodlets(); // flag cleared → hide them
 
             var snap = HudSampler.Sample();
             LastSnapshot = snap;
