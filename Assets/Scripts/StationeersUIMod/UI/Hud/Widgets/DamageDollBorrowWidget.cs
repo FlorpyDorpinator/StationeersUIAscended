@@ -181,6 +181,9 @@ namespace StationeersUIMod.UI.Hud.Widgets
         /// the HUD orchestrator calls it the moment the widget stops being wanted (tier drop,
         /// toggle, document swap, or teardown) — and it MUST run before Root is destroyed, or
         /// the reparented doll dies with it. Safe to call when nothing is borrowed.</summary>
+        /// <summary>Self-heal: hand the doll back the instant our Root is about to die.</summary>
+        protected override void OnBeforeDestroy() => RestoreDoll();
+
         public void RestoreDoll()
         {
             if (!_borrowed) return;
@@ -194,7 +197,9 @@ namespace StationeersUIMod.UI.Hud.Widgets
             {
                 if (_dollRt != null)
                 {
-                    if (_origParent != null) _dollRt.SetParent(_origParent, false);
+                    // Detach from our (possibly dying) subtree even if the original parent is
+                    // gone (fake-null) — send it to the scene root rather than let it die with us.
+                    _dollRt.SetParent(_origParent != null ? _origParent : null, false);
                     _dollRt.anchorMin = _origAnchorMin;
                     _dollRt.anchorMax = _origAnchorMax;
                     _dollRt.pivot = _origPivot;

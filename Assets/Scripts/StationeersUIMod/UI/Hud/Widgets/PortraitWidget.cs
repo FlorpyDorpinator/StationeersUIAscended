@@ -218,6 +218,9 @@ namespace StationeersUIMod.UI.Hud.Widgets
         /// show/hide cycle would leak steadily. Falls back to the vanilla path if the manual
         /// route throws. Public because the HUD orchestrator calls it the moment the widget
         /// stops being wanted (tier drop, toggle, or teardown).</summary>
+        /// <summary>Self-heal: hand the portrait camera back if our Root is destroyed.</summary>
+        protected override void OnBeforeDestroy() => RestorePortrait();
+
         public void RestorePortrait()
         {
             // Hand back the camera zoom first (independent of the show/hide borrow state).

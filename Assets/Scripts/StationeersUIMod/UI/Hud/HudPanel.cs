@@ -64,12 +64,21 @@ namespace StationeersUIMod.UI.Hud
 
         public void Destroy()
         {
+            // Borrow widgets (moodlet strip, portrait, damage doll) reparent a LIVE vanilla
+            // object under Root; it MUST be handed back here or Destroy(Root) takes the vanilla
+            // object with it and its per-frame vanilla updater NREs forever. Self-healing so it
+            // no longer depends on every caller restoring first (the ManagerUpdate spam).
+            try { OnBeforeDestroy(); } catch { }
             if (Root != null) Object.Destroy(Root.gameObject);
             Root = null;
             Group = null;
             Fader = null;
             Built = false;
         }
+
+        /// <summary>Hook fired right before Root is destroyed — borrow widgets restore their
+        /// borrowed vanilla object here. Default no-op.</summary>
+        protected virtual void OnBeforeDestroy() { }
 
         protected abstract void BuildContent(RectTransform root);
 

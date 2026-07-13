@@ -180,6 +180,10 @@ namespace StationeersUIMod.UI.Hud.Widgets
         /// AND its original grid settings (axis/constraint/spacing/cell/alignment). Public
         /// because the HUD orchestrator calls it the moment the widget stops being wanted; it
         /// MUST run before Root is destroyed. Safe when nothing is borrowed.</summary>
+        /// <summary>Self-heal: hand the strip back the instant our Root is about to die,
+        /// whatever destroyed it (profile switch, mode flip, hot reload, shutdown).</summary>
+        protected override void OnBeforeDestroy() => RestoreMoodlets();
+
         public void RestoreMoodlets()
         {
             if (!_borrowed) return;
@@ -203,7 +207,10 @@ namespace StationeersUIMod.UI.Hud.Widgets
             {
                 if (_stripRt != null)
                 {
-                    if (_origParent != null) _stripRt.SetParent(_origParent, false);
+                    // Detach from OUR (possibly dying) subtree no matter what: a destroyed
+                    // original parent (fake-null) must still send the strip to the scene root,
+                    // never leave it under our canvas to be destroyed with it.
+                    _stripRt.SetParent(_origParent != null ? _origParent : null, false);
                     _stripRt.anchorMin = _origAnchorMin;
                     _stripRt.anchorMax = _origAnchorMax;
                     _stripRt.pivot = _origPivot;
