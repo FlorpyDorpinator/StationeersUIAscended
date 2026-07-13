@@ -113,29 +113,67 @@ namespace StationeersUIMod.UI.Hud.Widgets
             _borrowed = true;
         }
 
+        private static readonly List<RectTransform> _cells = new List<RectTransform>();
+
         private void Apply(float scale)
         {
             if (_stripRt == null) { _borrowed = false; return; }
 
-            if (_grid != null)
-            {
-                // Horizontal row, centred. Keep vanilla's 192px cell so each moodlet renders
-                // pixel-identical; the whole strip is scaled down instead (localScale below),
-                // which preserves the icon/text proportions inside every cell.
-                if (_grid.startAxis != GridLayoutGroup.Axis.Horizontal) _grid.startAxis = GridLayoutGroup.Axis.Horizontal;
-                if (_grid.constraint != GridLayoutGroup.Constraint.FixedRowCount) _grid.constraint = GridLayoutGroup.Constraint.FixedRowCount;
-                if (_grid.constraintCount != 1) _grid.constraintCount = 1;
-                if (_grid.childAlignment != TextAnchor.MiddleCenter) _grid.childAlignment = TextAnchor.MiddleCenter;
-                var wantSpacing = new Vector2(10f, 0f);
-                if (_grid.spacing != wantSpacing) _grid.spacing = wantSpacing;
-            }
+            // Take layout OVER from vanilla's grid: the GridLayoutGroup re-flattens any
+            // per-cell offset every layout pass, so it can't coexist with bending the row
+            // onto the visor curve. We hand-place the cells instead (a centred horizontal
+            // row = what the reconfigured grid produced) and warp each cell's position, the
+            // same technique the compass ticks use. Flat mode → warp is identity → the row
+            // is exactly the plain centred row, so nothing regresses when the curve is off.
+            if (_grid != null && _grid.enabled) _grid.enabled = false;
 
-            // Scale the whole 192px-cell strip down to a bar-friendly size. The default puts
-            // a cell at ~62px on screen; the F9 slider tunes it.
+            // Scale the whole 192px-cell strip down to a bar-friendly size; the F9 slider
+            // tunes it. Cells keep their 192px cell so each moodlet renders pixel-identical.
             float sc = Mathf.Clamp(Def.GetF("moodletScale", 0.32f), 0.08f, 1.5f) * scale;
             var want = new Vector3(sc, sc, 1f);
             if (_stripRt.localScale != want) _stripRt.localScale = want;
             if (_stripRt.anchoredPosition != Vector2.zero) _stripRt.anchoredPosition = Vector2.zero;
+
+            LayoutCellsCurved(sc);
+        }
+
+        /// <summary>Centred horizontal row of the currently-active moodlet cells, each bent
+        /// onto the visor curve. Vanilla still owns which cells are active (SetActive); we
+        /// only place the live ones.</summary>
+        private void LayoutCellsCurved(float sc)
+        {
+            _cells.Clear();
+            for (int i = 0; i < _stripRt.childCount; i++)
+            {
+                var ch = _stripRt.GetChild(i) as RectTransform;
+                if (ch != null && ch.gameObject.activeSelf) _cells.Add(ch);
+            }
+            int n = _cells.Count;
+            if (n == 0) return;
+
+            float cell = _gCellSize.x > 1f ? _gCellSize.x : 192f;   // strip-local px
+            float stride = cell + 10f;                              // gap between centres
+            float startX = -(n - 1) * 0.5f * stride;
+            Vector2 center = _holder.anchoredPosition;              // element centre, canvas coords
+            var mid = new Vector2(0.5f, 0.5f);
+            var cellSize = new Vector2(cell, cell);
+
+            for (int k = 0; k < n; k++)
+            {
+                var ch = _cells[k];
+                // Centre-anchor each cell so its position maths is about its middle (the grid
+                // had anchored them upper-left).
+                if (ch.anchorMin != mid || ch.anchorMax != mid || ch.pivot != mid)
+                { ch.anchorMin = ch.anchorMax = mid; ch.pivot = mid; }
+                if (ch.sizeDelta != cellSize) ch.sizeDelta = cellSize;
+
+                float lx = startX + k * stride;                    // flat strip-local x
+                Vector3 abs = new Vector3(center.x + lx * sc, center.y, 0f); // canvas coords
+                if (HudWarp.Enabled) abs = HudWarp.Warp(abs);
+                // Back to strip-local (strip sits at centre, scaled by sc).
+                ch.anchoredPosition3D = new Vector3(
+                    (abs.x - center.x) / sc, (abs.y - center.y) / sc, abs.z / Mathf.Max(0.0001f, sc));
+            }
         }
 
         /// <summary>Hand the moodlet strip back to vanilla — parent, sibling index, geometry,
@@ -156,6 +194,7 @@ namespace StationeersUIMod.UI.Hud.Widgets
                     _grid.spacing = _gSpacing;
                     _grid.cellSize = _gCellSize;
                     _grid.childAlignment = _gChildAlign;
+                    _grid.enabled = true; // we disabled it to own the layout; give it back
                 }
                 _grid = null;
             }
