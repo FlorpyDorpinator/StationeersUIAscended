@@ -38,6 +38,11 @@ namespace StationeersUIMod.UI.Hud.Widgets
         {
             public Image Icon;
             public RectTransform IconRt;
+            // Some needs have no vanilla sprite (the toilet/bowel need) — those draw a
+            // procedural line glyph instead. Exactly one channel is enabled per row.
+            public HudIconGraphic Glyph;
+            public RectTransform GlyphRt;
+            public bool UsesGlyph;
             public TextMeshProUGUI Value;
             public RectTransform ValueRt;
             public bool IconIsOverride; // PNG override => tint accent; vanilla art keeps white
@@ -73,6 +78,16 @@ namespace StationeersUIMod.UI.Hud.Widgets
                 row.Icon = MakeIcon(root, "Icon" + i);
                 row.Icon.enabled = false; // born hidden: a sprite-less Image draws a white box
                 row.IconRt = row.Icon.rectTransform;
+
+                var glyphGo = new GameObject("Glyph" + i, typeof(RectTransform));
+                glyphGo.transform.SetParent(root, false);
+                row.Glyph = glyphGo.AddComponent<HudIconGraphic>();
+                row.Glyph.raycastTarget = false;
+                row.Glyph.enabled = false;
+                glyphGo.AddComponent<VisorWarp>();
+                row.GlyphRt = (RectTransform)glyphGo.transform;
+                row.GlyphRt.anchorMin = row.GlyphRt.anchorMax = new Vector2(0.5f, 0.5f);
+
                 row.Value = HudText.Make(root, "Value" + i, 15f, TextAlignmentOptions.MidlineRight);
                 row.ValueRt = row.Value.rectTransform;
                 _rows[i] = row;
@@ -193,7 +208,7 @@ namespace StationeersUIMod.UI.Hud.Widgets
         {
             var row = _rows[i];
             ResolveIcon(row, i, accent);
-            row.Icon.enabled = visible && row.Icon.sprite != null;
+            EnableRowIcon(row, visible);
             row.Value.enabled = visible;
             if (!visible) return;
 
@@ -220,7 +235,7 @@ namespace StationeersUIMod.UI.Hud.Widgets
         {
             var row = _rows[i];
             ResolveIcon(row, i, accent);
-            row.Icon.enabled = visible && row.Icon.sprite != null;
+            EnableRowIcon(row, visible);
             row.Value.enabled = visible;
             if (!visible) return;
 
@@ -235,7 +250,7 @@ namespace StationeersUIMod.UI.Hud.Widgets
         {
             var row = _rows[Pressure];
             ResolveIcon(row, Pressure, TextColor());
-            row.Icon.enabled = visible && row.Icon.sprite != null;
+            EnableRowIcon(row, visible);
             row.Value.enabled = visible;
             if (!visible) return;
 
@@ -277,7 +292,7 @@ namespace StationeersUIMod.UI.Hud.Widgets
                 if (sp != null) row.Icon.sprite = sp;
                 row.Icon.color = row.IconIsOverride ? TextColor() : Color.white;
             }
-            row.Icon.enabled = visible && row.Icon.sprite != null;
+            EnableRowIcon(row, visible);
             row.Value.enabled = visible;
             if (!visible) return;
 
@@ -336,6 +351,20 @@ namespace StationeersUIMod.UI.Hud.Widgets
         /// art keeps its native white.</summary>
         private void ResolveIcon(Row row, int i, Color accent)
         {
+            // The bowel/toilet need has no vanilla sprite (the game only offers a "WASTE"
+            // warning triangle). A PNG override still wins; otherwise draw our procedural
+            // toilet glyph rather than the alarming waste triangle (play-test).
+            if (i == Toilet)
+            {
+                var over = Core.HudIconStore.TryGet(IconKeys[i]);
+                if (over != null) { row.UsesGlyph = false; row.Icon.sprite = over; row.Icon.color = accent; return; }
+                row.UsesGlyph = true;
+                row.Glyph.Kind = HudIconKind.Toilet;
+                row.Glyph.color = accent;
+                return;
+            }
+
+            row.UsesGlyph = false;
             if (row.Icon.sprite == null)
             {
                 string key = IconKeys[i];
@@ -350,6 +379,14 @@ namespace StationeersUIMod.UI.Hud.Widgets
                 if (sp != null) row.Icon.sprite = sp;
             }
             row.Icon.color = row.IconIsOverride ? accent : Color.white;
+        }
+
+        /// <summary>Enable exactly the icon channel the row uses (sprite OR glyph), or neither
+        /// when hidden/unresolved.</summary>
+        private static void EnableRowIcon(Row row, bool visible)
+        {
+            row.Icon.enabled = visible && !row.UsesGlyph && row.Icon.sprite != null;
+            if (row.Glyph != null) row.Glyph.enabled = visible && row.UsesGlyph;
         }
 
         /// <summary>NN% string, rebuilt only when the rounded integer changes — no per-frame
@@ -435,8 +472,11 @@ namespace StationeersUIMod.UI.Hud.Widgets
                 var row = _rows[id];
                 float rowCy = top - rowH * (k + 0.5f);
 
-                row.IconRt.anchoredPosition = new Vector2(left + iconSz * 0.5f, rowCy);
-                row.IconRt.sizeDelta = new Vector2(iconSz, iconSz);
+                var iconPos = new Vector2(left + iconSz * 0.5f, rowCy);
+                var iconDim = new Vector2(iconSz, iconSz);
+                row.IconRt.anchoredPosition = iconPos;
+                row.IconRt.sizeDelta = iconDim;
+                if (row.GlyphRt != null) { row.GlyphRt.anchoredPosition = iconPos; row.GlyphRt.sizeDelta = iconDim; }
 
                 float textLeft = left + iconSz + 6f * scale;
                 float tw = Mathf.Max(12f, right - textLeft);
