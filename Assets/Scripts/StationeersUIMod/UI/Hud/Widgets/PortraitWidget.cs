@@ -99,11 +99,12 @@ namespace StationeersUIMod.UI.Hud.Widgets
             mrt.sizeDelta = new Vector2(d, d);
             _maskShape.SetRadius(r);
 
-            // The UI stencil doesn't survive the dome RT camera or the world canvas —
-            // there the portrait falls back to the circle's inscribed square (no bleed
-            // past the ring) with the mask off; in flat/vertex modes it's a true circle.
+            // The UI stencil survives everywhere EXCEPT the dome RT camera (mode B), now
+            // that ApplyWorldMaterials exempts mask-clipped graphics from the material
+            // swap — so mode C keeps a true circle. Mode B still falls back to the
+            // inscribed square (no bleed past the ring).
             var mode = HudConfig.Curvature != null ? HudConfig.Curvature.Value : HudCurvature.Flat;
-            bool stencilOk = mode == HudCurvature.Flat || mode == HudCurvature.VertexWarp;
+            bool stencilOk = mode != HudCurvature.DomeProjection;
             _mask.enabled = stencilOk;
             _maskShape.color = stencilOk ? Color.white : Color.clear;
             float side = stencilOk ? d : d * 0.7071f;

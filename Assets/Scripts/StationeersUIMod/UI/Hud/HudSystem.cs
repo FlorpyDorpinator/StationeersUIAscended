@@ -901,6 +901,11 @@ namespace StationeersUIMod.UI.Hud
             var mode = HudConfig.Curvature.Value;
             float strength = HudConfig.CurveStrength.Value;
             HudWarp.Direction = HudConfig.CurveInvert.Value ? -1f : 1f;
+            // Mode C's natural visor is the INVERTED cylinder (edges bulging toward the
+            // camera approximate a shell around your head; the outward bend reads
+            // inside-out there). Flip the semantic so the DEFAULT is the good look and
+            // the invert checkbox still offers the other.
+            if (mode == HudCurvature.CurvedWorldCanvas) HudWarp.Direction = -HudWarp.Direction;
 
             if (mode != _appliedMode)
             {
@@ -1090,6 +1095,12 @@ namespace StationeersUIMod.UI.Hud
                 var overlayShader = Shader.Find("TextMeshPro/Distance Field Overlay"); // ships with the game
                 foreach (var g in _canvas.GetComponentsInChildren<Graphic>(true))
                 {
+                    // Anything under a UGUI Mask (the round portrait) KEEPS its default
+                    // material — our z-test material carries no stencil op, so swapping it
+                    // killed the circular clip in mode C (play-test: "the 3d guy no longer
+                    // is getting clipped by the circle in C mode").
+                    if (g.GetComponentInParent<UnityEngine.UI.Mask>() != null) continue;
+
                     var tmp = g as TextMeshProUGUI;
                     if (tmp != null)
                     {

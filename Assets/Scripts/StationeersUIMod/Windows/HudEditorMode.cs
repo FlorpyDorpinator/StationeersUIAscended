@@ -61,6 +61,9 @@ namespace StationeersUIMod.Windows
             _pendingSelectId = null;
             _dragging = false;
             _preDrag = null;
+            _multiIds.Clear();
+            _marquee = false;
+            _dragOrig.Clear();
             CancelDrawLine();
             HudSystem.ForceTier = null;
             HotPalette.Clear();
@@ -176,6 +179,21 @@ namespace StationeersUIMod.Windows
         private static bool _dragMoved;
         private static UI.Hud.HudDocument _preDrag; // undo snapshot armed at mouse-down
 
+        // Multi-selection (Ctrl+drag marquee). The PRIMARY selection (_selectedId, popup,
+        // resize handles) stays single; the marquee set moves/deletes as a group.
+        private static readonly HashSet<string> _multiIds = new HashSet<string>();
+        private static bool _marquee;
+        private static Vector2 _marqueeStart, _marqueeEnd;
+        // Group-drag original positions by element Id, captured at mouse-down.
+        private static readonly Dictionary<string, Vector2> _dragOrig = new Dictionary<string, Vector2>();
+
+        internal static bool MarqueeActive => _marquee;
+        internal static Rect MarqueeRect => Rect.MinMaxRect(
+            Mathf.Min(_marqueeStart.x, _marqueeEnd.x), Mathf.Min(_marqueeStart.y, _marqueeEnd.y),
+            Mathf.Max(_marqueeStart.x, _marqueeEnd.x), Mathf.Max(_marqueeStart.y, _marqueeEnd.y));
+        internal static bool IsMultiSelected(string id) => id != null && _multiIds.Contains(id);
+        internal static int MultiCount => _multiIds.Count;
+
         private const float HandleScreenR = 7f;    // hit radius around a handle, px
 
         private static void UpdateDesigner(Vector2 mouseScreen, Vector2 p, bool imguiOwnsMouse)
@@ -203,6 +221,29 @@ namespace StationeersUIMod.Windows
                 if (ctrl && Input.GetKeyDown(KeyCode.Y)) { DoRedo(); return; }
                 if (SelectedElement != null && Input.GetKeyDown(KeyCode.Delete)) { DeleteSelected(); return; }
                 if (SelectedElement != null && ctrl && Input.GetKeyDown(KeyCode.D)) { DuplicateSelected(); return; }
+                // Arrow keys nudge the selection (primary + marquee group): 1px per press,
+                // Shift = one grid cell.
+                float nx = (Input.GetKeyDown(KeyCode.RightArrow) ? 1f : 0f) - (Input.GetKeyDown(KeyCode.LeftArrow) ? 1f : 0f);
+                float ny = (Input.GetKeyDown(KeyCode.UpArrow) ? 1f : 0f) - (Input.GetKeyDown(KeyCode.DownArrow) ? 1f : 0f);
+                if ((nx != 0f || ny != 0f) && (SelectedElement != null || _multiIds.Count > 0))
+                {
+                    bool shift = Input.GetKey(KeyCode.LeftShift) || Input.GetKey(KeyCode.RightShift);
+                    float step = shift
+                        ? (HudConfig.GridSnapSize != null ? Mathf.Max(1f, HudConfig.GridSnapSize.Value) : 8f)
+                        : 1f;
+                    PushUndoNow();
+                    foreach (var v in _views)
+                    {
+                        bool inSel = (SelectedElement != null && ReferenceEquals(v, SelectedElement))
+                            || _multiIds.Contains(v.Def.Id);
+                        if (!inSel) continue;
+                        v.Def.X += nx * step;
+                        v.Def.Y += ny * step;
+                        HudSystem.RelayoutElement(v);
+                    }
+                    Features.HudProfileStore.MarkChanged();
+                    return;
+                }
             }
 
             if (DrawingLine)
@@ -225,12 +266,21 @@ namespace StationeersUIMod.Windows
                 }
             }
 
+            // Marquee in progress: track until release, then select everything it touches.
+            if (_marquee)
+            {
+                _marqueeEnd = p;
+                if (Input.GetMouseButtonUp(0)) CommitMarquee(scale);
+                return;
+            }
+
             if (_dragging)
             {
                 UpdateDrag(p, scale);
                 if (Input.GetMouseButtonUp(0))
                 {
                     _dragging = false;
+                    _dragOrig.Clear();
                     if (_dragMoved)
                     {
                         // One gesture = one undo step + one full relayout via the store.
@@ -244,6 +294,15 @@ namespace StationeersUIMod.Windows
 
             if (imguiOwnsMouse || !Input.GetMouseButtonDown(0)) return;
 
+            // Ctrl+drag = marquee multi-select (takes priority over grabbing anything).
+            bool ctrlHeld = Input.GetKey(KeyCode.LeftControl) || Input.GetKey(KeyCode.RightControl);
+            if (ctrlHeld)
+            {
+                _marquee = true;
+                _marqueeStart = _marqueeEnd = p;
+                return;
+            }
+
             // Handle grab beats element grab; both beat empty-space deselect.
             if (SelectedElement != null)
             {
@@ -256,6 +315,9 @@ namespace StationeersUIMod.Windows
             }
             if (HoverElement != null)
             {
+                // Clicking OUTSIDE the marquee group collapses it to a single selection;
+                // clicking a group member keeps the group (so it can be dragged together).
+                if (!_multiIds.Contains(HoverElement.Def.Id)) _multiIds.Clear();
                 if (!ReferenceEquals(HoverElement, SelectedElement))
                 {
                     _selectedId = HoverElement.Def.Id;
@@ -270,6 +332,46 @@ namespace StationeersUIMod.Windows
             {
                 _selectedId = null;
                 SelectedElement = null;
+                _multiIds.Clear();
+            }
+        }
+
+        /// <summary>Finish the Ctrl+drag marquee: everything whose rect OVERLAPS the box
+        /// joins the selection group. A tiny drag (a Ctrl+click) instead TOGGLES the
+        /// element under the cursor in and out of the group.</summary>
+        private static void CommitMarquee(float scale)
+        {
+            _marquee = false;
+            var rect = MarqueeRect;
+            bool tinyDrag = rect.width < 4f && rect.height < 4f;
+
+            if (tinyDrag)
+            {
+                if (HoverElement != null)
+                {
+                    string id = HoverElement.Def.Id;
+                    if (!_multiIds.Remove(id))
+                    {
+                        _multiIds.Add(id);
+                        // Toggling in also seeds the primary if nothing is selected yet.
+                        if (_selectedId == null) { _selectedId = id; ElementStamp++; }
+                    }
+                }
+                return;
+            }
+
+            _multiIds.Clear();
+            string first = null;
+            foreach (var v in _views)
+            {
+                if (!v.CanvasRect(scale).Overlaps(rect)) continue;
+                _multiIds.Add(v.Def.Id);
+                if (first == null) first = v.Def.Id;
+            }
+            if (first != null && _selectedId == null)
+            {
+                _selectedId = first;
+                ElementStamp++;
             }
         }
 
@@ -283,6 +385,14 @@ namespace StationeersUIMod.Windows
             _dragStart = p;
             _dragMoved = false;
             _origX = v.Def.X; _origY = v.Def.Y; _origW = v.Def.W; _origH = v.Def.H;
+
+            // Moving a marquee-group member moves the WHOLE group (resize stays single).
+            _dragOrig.Clear();
+            if (handle < 0 && _multiIds.Count > 1 && _multiIds.Contains(v.Def.Id))
+                foreach (var view in _views)
+                    if (_multiIds.Contains(view.Def.Id))
+                        _dragOrig[view.Def.Id] = new Vector2(view.Def.X, view.Def.Y);
+
             var doc = Features.HudProfileStore.Active;
             _preDrag = doc != null ? doc.Clone() : null;
         }
@@ -302,6 +412,19 @@ namespace StationeersUIMod.Windows
 
             if (_dragHandle < 0)
             {
+                // Group move: every marquee member follows the same delta.
+                if (_dragOrig.Count > 1)
+                {
+                    foreach (var view in _views)
+                    {
+                        Vector2 orig;
+                        if (!_dragOrig.TryGetValue(view.Def.Id, out orig)) continue;
+                        view.Def.X = Snap(orig.x + delta.x, snap, grid);
+                        view.Def.Y = Snap(orig.y + delta.y, snap, grid);
+                        HudSystem.RelayoutElement(view);
+                    }
+                    return;
+                }
                 d.X = Snap(_origX + delta.x, snap, grid);
                 d.Y = Snap(_origY + delta.y, snap, grid);
             }
@@ -401,7 +524,12 @@ namespace StationeersUIMod.Windows
             var v = SelectedElement;
             if (doc == null || v == null) return;
             PushUndoNow();
-            doc.Elements.Remove(v.Def);
+            // A marquee group deletes together (one undo step).
+            if (_multiIds.Count > 1 && _multiIds.Contains(v.Def.Id))
+                doc.Elements.RemoveAll(e => e != null && _multiIds.Contains(e.Id));
+            else
+                doc.Elements.Remove(v.Def);
+            _multiIds.Clear();
             _selectedId = null;
             Features.HudProfileStore.MarkChanged();
             HudSystem.RequestViewRebuild();

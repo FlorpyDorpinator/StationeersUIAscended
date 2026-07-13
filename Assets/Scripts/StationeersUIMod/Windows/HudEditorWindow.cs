@@ -277,6 +277,18 @@ namespace StationeersUIMod.Windows
             var sel = HudEditorMode.SelectedElement;
             if (hov != null && !ReferenceEquals(hov, sel))
                 OutlineRect(dl, hov.CanvasRect(scale), hovCol, 1.2f);
+
+            // Marquee group members get their own outline (thinner than the primary).
+            if (HudEditorMode.MultiCount > 1)
+            {
+                uint grpCol = ImGui.GetColorU32(new Vector4(1f, 0.62f, 0.15f, 0.6f));
+                var views = new List<UI.Hud.HudElementView>();
+                HudSystem.CollectElementViews(views);
+                foreach (var v in views)
+                    if (HudEditorMode.IsMultiSelected(v.Def.Id) && !ReferenceEquals(v, sel))
+                        OutlineRect(dl, v.CanvasRect(scale), grpCol, 1.4f);
+            }
+
             if (sel != null)
             {
                 var r = sel.CanvasRect(scale);
@@ -286,6 +298,20 @@ namespace StationeersUIMod.Windows
                     var s = ToImGui(HudEditorMode.HandlePoint(r, i));
                     dl.AddRectFilled(new Vector2(s.x - 4f, s.y - 4f), new Vector2(s.x + 4f, s.y + 4f), handleCol);
                 }
+            }
+
+            // The live Ctrl+drag marquee box.
+            if (HudEditorMode.MarqueeActive)
+            {
+                uint mqCol = ImGui.GetColorU32(new Vector4(0.25f, 0.85f, 0.93f, 0.9f));
+                uint mqFill = ImGui.GetColorU32(new Vector4(0.25f, 0.85f, 0.93f, 0.12f));
+                var mr = HudEditorMode.MarqueeRect;
+                var a = ToImGui(new Vector2(mr.xMin, mr.yMin));
+                var b = ToImGui(new Vector2(mr.xMax, mr.yMax));
+                var mn = new Vector2(Mathf.Min(a.x, b.x), Mathf.Min(a.y, b.y));
+                var mx = new Vector2(Mathf.Max(a.x, b.x), Mathf.Max(a.y, b.y));
+                dl.AddRectFilled(mn, mx, mqFill);
+                dl.AddRect(mn, mx, mqCol, 0f, ImDrawFlags.None, 1.4f);
             }
 
             if (HudEditorMode.DrawingLine)

@@ -35,6 +35,28 @@ namespace StationeersUIMod.UI.Hud.Widgets
         private readonly List<TextMeshProUGUI> _labels = new List<TextMeshProUGUI>();
         private TriangleGraphic _caret;
         private TextMeshProUGUI _degrees;
+        private Vector2 _center; // element centre captured in Layout (for per-frame warp)
+
+        /// <summary>Place a ribbon child at the given LOCAL offset from the element centre,
+        /// bent onto the visor curve. The ribbon moves every frame, so its mesh is never
+        /// re-warped by VisorWarp — instead we warp its POSITION here: the barrel modes bend
+        /// x/y, mode C's cylinder pushes z, so the ticks/labels ride the same curve the
+        /// backing strip does (which the play-test found they weren't). Parent = _mask, so
+        /// we subtract the mask's own anchor.</summary>
+        private void PlaceOnCurve(RectTransform rt, Vector2 localOffset)
+        {
+            Vector3 abs = new Vector3(_center.x + localOffset.x, _center.y + localOffset.y, 0f);
+            if (HudWarp.Enabled) abs = HudWarp.Warp(abs);
+            rt.anchoredPosition3D = abs - new Vector3(_mask.anchoredPosition.x, _mask.anchoredPosition.y, 0f);
+        }
+
+        /// <summary>Same, but for children parented directly under Root (caret/degrees).</summary>
+        private void PlaceOnCurveRoot(RectTransform rt, Vector2 localOffset)
+        {
+            Vector3 abs = new Vector3(_center.x + localOffset.x, _center.y + localOffset.y, 0f);
+            if (HudWarp.Enabled) abs = HudWarp.Warp(abs);
+            rt.anchoredPosition3D = abs;
+        }
 
         protected override void BuildContent(RectTransform root)
         {
@@ -77,17 +99,18 @@ namespace StationeersUIMod.UI.Hud.Widgets
             float w = s.x;
             float h = s.y;
             Root.anchoredPosition = Vector2.zero;
+            _center = c;
 
             ((RectTransform)_back.transform).anchoredPosition = c;
             _back.SetShape(w, h, Mathf.Min(Radius(Def.RTL), h * 0.4f));
 
+            // The mask stays at the (unwarped) centre; its children are individually bent
+            // onto the curve every frame. Taller than the strip so a bent tick isn't clipped.
             _mask.anchoredPosition = c + new Vector2(0f, 2f * scale);
-            _mask.sizeDelta = new Vector2(w - 8f * scale, h);
-
-            ((RectTransform)_caret.transform).anchoredPosition = c + new Vector2(0f, h * 0.5f + 7f * scale);
+            _mask.sizeDelta = new Vector2(w - 8f * scale, h * 1.6f);
 
             _degrees.rectTransform.sizeDelta = new Vector2(90f * scale, 14f * scale);
-            _degrees.rectTransform.anchoredPosition = c + new Vector2(0f, -h * 0.5f - 9f * scale);
+            // Caret + degrees are bent per frame in UpdatePanel (PlaceOnCurveRoot).
         }
 
         public override void UpdatePanel(HudSnapshot s, float scale)
@@ -116,11 +139,12 @@ namespace StationeersUIMod.UI.Hud.Widgets
             _caret.Configure(pointsUp: false, size: 9f);
             _caret.color = HudPalette.CompassNeedle.Value;
             _caret.SetVerticesDirty();
-
+            PlaceOnCurveRoot((RectTransform)_caret.transform, new Vector2(0f, h * 0.5f + 7f * scale));
 
             if (showDegrees)
             {
                 _degrees.gameObject.SetActive(true);
+                PlaceOnCurveRoot(_degrees.rectTransform, new Vector2(0f, -h * 0.5f - 9f * scale));
                 HudText.Sync(_degrees);
                 _degrees.fontSize = HudText.Size(12f * Def.FontScale) * scale;
                 _degrees.color = HudPalette.CompassCardinal.Value;
@@ -153,8 +177,9 @@ namespace StationeersUIMod.UI.Hud.Widgets
                 img.color = cardinal ? cardColor : tickColor;
                 img.rectTransform.sizeDelta = new Vector2(
                     (cardinal ? 2f : 1f) * scale, cardinal ? h * 0.34f : h * 0.2f);
-                img.rectTransform.anchoredPosition = new Vector2(
-                    offset, -h * 0.5f + img.rectTransform.sizeDelta.y * 0.5f + 3f * scale);
+                // Offset is relative to the ELEMENT centre; the mask sits +2*scale above it.
+                PlaceOnCurve(img.rectTransform, new Vector2(
+                    offset, 2f * scale - h * 0.5f + img.rectTransform.sizeDelta.y * 0.5f + 3f * scale));
 
                 if (cardinal && label < LabelPool)
                 {
@@ -168,7 +193,7 @@ namespace StationeersUIMod.UI.Hud.Widgets
                     t.color = cardColor;
                     HudText.Set(t, Cardinals[ci]);
                     t.rectTransform.sizeDelta = new Vector2(40f * scale, 16f * scale);
-                    t.rectTransform.anchoredPosition = new Vector2(offset, h * 0.16f);
+                    PlaceOnCurve(t.rectTransform, new Vector2(offset, 2f * scale + h * 0.16f));
                 }
             }
             for (int i = tick; i < TickPool; i++) _ticks[i].gameObject.SetActive(false);

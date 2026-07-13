@@ -27,7 +27,11 @@ namespace StationeersUIMod.Features
         public bool Enabled => UIAConfig.ToolRadialEnabled.Value;
         public KeyCode Key => UIAConfig.ToolRadialKey.Value;
         public bool OpenOnTap => false;
-        public bool OpensOnBoth => false;
+        /// <summary>TAP R opens the in-hand item's radial LATCHED (sticky — it persists until
+        /// closed or an action is picked); HOLD R opens it transient (release to act). Either
+        /// way OnTap never runs, so R no longer toggles the vanilla active-hand inventory
+        /// window (its poll is already suppressed while we own the key — see OwnsVanillaKey).</summary>
+        public bool OpensOnBoth => true;
 
         public bool CanOpen() => InventoryManager.ActiveHandSlot?.Get() != null;
 

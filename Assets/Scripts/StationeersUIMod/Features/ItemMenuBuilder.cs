@@ -248,6 +248,12 @@ namespace StationeersUIMod.Features
         {
             bool canStow = held != null && Slot.AllowMove(held, slot);
             Slot target = slot;
+            // Bug 3: swiping past the rim on an empty TYPED slot (a tool's battery/filter
+            // slot, a suit's canister slot) opens the list of items you could install there
+            // — the same eject/insert/swap candidates the classic slot wedge offers, even
+            // with an empty hand. Skipped for generic (None) storage slots, whose candidate
+            // list would be your entire inventory.
+            bool typed = slot.Type != Slot.Class.None || slot.SpecificTypePrefabHash != -1;
             return new RadialEntry
             {
                 Label = "Stow",
@@ -260,6 +266,8 @@ namespace StationeersUIMod.Features
                 DisabledReason = held == null ? "Nothing in hand" : "Held item doesn't fit",
                 DropSlot = target,
                 OnSelect = () => ItemActions.StowActiveHandTo(target),
+                SlideOutProvider = typed ? () => BuildSlotCandidateEntries(target) : (System.Func<List<RadialEntry>>)null,
+                SlideOutLabel = "Install",
                 Tag = slot,
             };
         }
