@@ -1081,6 +1081,9 @@ namespace StationeersUIMod.Overlay
                 entry.SlideOutProvider = null; // don't re-throw every frame while the cursor dwells
                 return;
             }
+            // Nothing to show (a tool with no settings/options) — don't form an empty child
+            // radial; the wedge just isn't swipeable (play-test: wrench/cutters).
+            if (entries.Count == 0) return;
             _satOpenedAt = Time.unscaledTime;
             float sector = Mathf.PI * 2f / Mathf.Max(1, mainCount);
             float aMid = -Mathf.PI * 0.5f + sector * sourceIndex;

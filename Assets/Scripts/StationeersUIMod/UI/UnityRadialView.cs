@@ -324,6 +324,9 @@ namespace StationeersUIMod.UI
             private readonly List<TextMeshProUGUI> _states = new List<TextMeshProUGUI>();
             private readonly List<TriangleGraphic> _triUp = new List<TriangleGraphic>();
             private readonly List<TriangleGraphic> _triDown = new List<TriangleGraphic>();
+            // A small outward chevron on any wedge that can be swiped past the rim (has a
+            // slide-out satellite or is a click-in branch) — the "you can swipe this" hint.
+            private readonly List<TriangleGraphic> _swipe = new List<TriangleGraphic>();
 
             public RingView(Transform parent, string name)
             {
@@ -368,7 +371,7 @@ namespace StationeersUIMod.UI
                     _states[i].gameObject.SetActive(used);
                     _triUp[i].gameObject.SetActive(used);
                     _triDown[i].gameObject.SetActive(used);
-                    if (!used) continue;
+                    if (!used) { _swipe[i].gameObject.SetActive(false); continue; }
 
                     var entry = entries[i];
                     var wedge = _wedges[i];
@@ -437,6 +440,26 @@ namespace StationeersUIMod.UI
 
                     var dir = new Vector2(Mathf.Cos(aMid), -Mathf.Sin(aMid));
                     var slot = dir * midR;
+
+                    // Swipe affordance: a small outward chevron at the rim of any wedge that
+                    // opens a satellite (slide-out) or a click-in branch — "you can swipe this".
+                    // Scroll wedges never show it (they carry their own up/down triangles).
+                    bool swipeable = !entry.IsScrollAdjust && entry.Enabled
+                        && (entry.HasSlideOut || entry.IsBranch);
+                    var sw = _swipe[i];
+                    sw.gameObject.SetActive(swipeable);
+                    if (swipeable)
+                    {
+                        sw.Configure(pointsUp: true, size: 5f);
+                        float swAlpha = (isHovered ? 0.95f : 0.45f) * (dimmed ? 0.4f : 1f);
+                        var swc = RadialPalette.TextPrimary.Value; swc.a *= swAlpha;
+                        sw.color = swc;
+                        var swRt = sw.rectTransform;
+                        swRt.anchoredPosition = dir * (outerR - 9f);
+                        swRt.localEulerAngles = new Vector3(0f, 0f,
+                            Mathf.Atan2(dir.y, dir.x) * Mathf.Rad2Deg - 90f);
+                        sw.SetVerticesDirty();
+                    }
 
                     // Icons scale WITH the wedge: bounded by the band's thickness and by the
                     // wedge's width at mid radius, times the user's ratio.
@@ -666,6 +689,13 @@ namespace StationeersUIMod.UI
                     triD.raycastTarget = false;
                     triD.rectTransform.sizeDelta = new Vector2(14f, 12f);
                     _triDown.Add(triD);
+
+                    var swgo = new GameObject("Swipe" + idx, typeof(RectTransform));
+                    swgo.transform.SetParent(_root, false);
+                    var triW = swgo.AddComponent<TriangleGraphic>();
+                    triW.raycastTarget = false;
+                    triW.rectTransform.sizeDelta = new Vector2(11f, 9f);
+                    _swipe.Add(triW);
                 }
             }
         }
