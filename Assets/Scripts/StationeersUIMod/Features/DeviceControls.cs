@@ -65,6 +65,8 @@ namespace StationeersUIMod.Features
                     Enabled = !disabled,
                     DisabledReason = disabled ? (string.IsNullOrEmpty(stateLine) ? "Unavailable" : stateLine) : null,
                     OnSelect = () => ItemActions.PressInteractable(t, i),
+                    HotkeyThing = t,          // #4: hover + a letter binds this setting to that key
+                    HotkeyInteractable = i,
                 });
             }
             return entries;
@@ -201,6 +203,8 @@ namespace StationeersUIMod.Features
                 OnScroll = d => ItemActions.PressInteractable(t, d > 0 ? up : down, StepsPerNotch(coarseSteps)),
                 // A bare click nudges up one step, so the wedge is never a dead end.
                 OnSelect = () => ItemActions.PressInteractable(t, up),
+                HotkeyThing = t,          // #4: a bound key nudges this setting up one step
+                HotkeyInteractable = up,
             });
         }
 

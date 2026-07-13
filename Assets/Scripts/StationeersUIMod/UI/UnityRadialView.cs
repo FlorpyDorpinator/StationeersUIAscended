@@ -327,6 +327,8 @@ namespace StationeersUIMod.UI
             // A small outward chevron on any wedge that can be swiped past the rim (has a
             // slide-out satellite or is a click-in branch) — the "you can swipe this" hint.
             private readonly List<TriangleGraphic> _swipe = new List<TriangleGraphic>();
+            // #4: the bound hotkey letter, badged near the HUB side of a setting wedge.
+            private readonly List<TextMeshProUGUI> _hotkey = new List<TextMeshProUGUI>();
 
             public RingView(Transform parent, string name)
             {
@@ -371,7 +373,7 @@ namespace StationeersUIMod.UI
                     _states[i].gameObject.SetActive(used);
                     _triUp[i].gameObject.SetActive(used);
                     _triDown[i].gameObject.SetActive(used);
-                    if (!used) { _swipe[i].gameObject.SetActive(false); continue; }
+                    if (!used) { _swipe[i].gameObject.SetActive(false); _hotkey[i].gameObject.SetActive(false); continue; }
 
                     var entry = entries[i];
                     var wedge = _wedges[i];
@@ -459,6 +461,22 @@ namespace StationeersUIMod.UI
                         swRt.localEulerAngles = new Vector3(0f, 0f,
                             Mathf.Atan2(dir.y, dir.x) * Mathf.Rad2Deg - 90f);
                         sw.SetVerticesDirty();
+                    }
+
+                    // #4: the bound hotkey letter, badged near the HUB (inner) side of a
+                    // setting wedge. Set before the scroll-wedge early-return so scroll
+                    // settings (suit pressure/temp) show their letter too.
+                    var hk = _hotkey[i];
+                    char letter = entry.CanHotkey ? Core.WedgeHotkeys.LetterFor(entry.HotkeyInteractable) : '\0';
+                    bool showHk = letter != '\0';
+                    hk.gameObject.SetActive(showHk);
+                    if (showHk)
+                    {
+                        hk.rectTransform.anchoredPosition = dir * (innerR + 11f);
+                        var hkc = RadialPalette.TextPrimary.Value; hkc.a *= (dimmed ? 0.5f : 1f);
+                        hk.color = hkc;
+                        string ls = letter.ToString();
+                        if (hk.text != ls) hk.text = ls;
                     }
 
                     // Icons scale WITH the wedge: bounded by the band's thickness and by the
@@ -696,6 +714,20 @@ namespace StationeersUIMod.UI
                     triW.raycastTarget = false;
                     triW.rectTransform.sizeDelta = new Vector2(11f, 9f);
                     _swipe.Add(triW);
+
+                    var hkgo = new GameObject("Hotkey" + idx, typeof(RectTransform));
+                    hkgo.transform.SetParent(_root, false);
+                    var hktmp = hkgo.AddComponent<TextMeshProUGUI>();
+                    hktmp.font = Font();
+                    hktmp.alignment = TextAlignmentOptions.Center;
+                    hktmp.enableAutoSizing = false;
+                    hktmp.fontSize = 15f;
+                    hktmp.fontStyle = FontStyles.Bold;
+                    hktmp.enableWordWrapping = false;
+                    hktmp.overflowMode = TextOverflowModes.Overflow;
+                    hktmp.raycastTarget = false;
+                    hktmp.rectTransform.sizeDelta = new Vector2(22f, 22f);
+                    _hotkey.Add(hktmp);
                 }
             }
         }

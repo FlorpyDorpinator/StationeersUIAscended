@@ -171,6 +171,12 @@ namespace StationeersUIMod
 
                 _radials.Update();
 
+                // #4: fire wedge-bound hotkeys only during real gameplay — no radial open
+                // (that's binding/using-the-wheel time) and gameplay input accepted (so a
+                // bound letter can't fire into a text field / open menu).
+                if (!_radials.IsRadialOpen && Guards.CanAcceptGameplayInput())
+                    Core.WedgeHotkeys.TickExecute();
+
                 // The visor HUD is pure UGUI — it runs off Update, not the ImGui hook
                 // (which stops over loading screens; Update keeps running and hides it).
                 UI.Hud.HudSystem.Update(Windows.HudEditorMode.Active);
@@ -309,6 +315,7 @@ namespace StationeersUIMod
             try
             {
                 _radials?.ShutdownImmediate();
+                Core.WedgeHotkeys.Clear();
                 if (_settingsWindow != null && _settingsWindow.IsShowing) ImGuiWindowManager.Close(_settingsWindow);
                 if (_profileEditor != null && _profileEditor.IsShowing) ImGuiWindowManager.Close(_profileEditor);
                 if (_hudEditorWindow != null && _hudEditorWindow.IsShowing) ImGuiWindowManager.Close(_hudEditorWindow);

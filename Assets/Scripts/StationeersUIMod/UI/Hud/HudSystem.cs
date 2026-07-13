@@ -63,6 +63,9 @@ namespace StationeersUIMod.UI.Hud
         private static readonly Dictionary<Material, Material> _overlayFontMats
             = new Dictionary<Material, Material>();
         private static bool _worldMatsApplied;
+        // Render-time re-pose hook for mode C (see OnWorldCanvasPreCull). Subscribed only while
+        // the curved world canvas is live; must be unhooked on every teardown (hot-reload safety).
+        private static bool _preCullHooked;
 
         public static bool Built => _canvas != null;
         public static HudSnapshot LastSnapshot { get; private set; }
@@ -748,6 +751,9 @@ namespace StationeersUIMod.UI.Hud
             RestoreAnyPortraits();
             RestoreVanillaIfNeeded();
             RestoreWorldMaterials();
+            UnhookWorldCanvasPreCull(); // Shutdown bypasses ApplyCurvature's teardown; a leaked
+                                        // static Camera.onPreCull delegate would call into a dead
+                                        // assembly after an F6 hot reload.
             foreach (var p in _panels) p.Destroy();
             _panels.Clear();
             _animator.Clear();
@@ -1006,7 +1012,11 @@ namespace StationeersUIMod.UI.Hud
             if (mode != _appliedMode)
             {
                 // Tear down the old mode.
-                if (_appliedMode == HudCurvature.CurvedWorldCanvas) RestoreWorldMaterials();
+                if (_appliedMode == HudCurvature.CurvedWorldCanvas)
+                {
+                    RestoreWorldMaterials();
+                    UnhookWorldCanvasPreCull();
+                }
                 if (_appliedMode == HudCurvature.DomeProjection) ReleaseDomeRt();
                 if (_domeCanvas != null) _domeCanvas.gameObject.SetActive(false);
 
@@ -1024,6 +1034,7 @@ namespace StationeersUIMod.UI.Hud
                         _canvas.renderMode = RenderMode.WorldSpace;
                         SetLayerRecursively(_canvas.gameObject, HudLayerUi);
                         ApplyWorldMaterials();
+                        HookWorldCanvasPreCull(); // re-pose at render time, not one frame late
                         break;
                     default:
                         _canvas.renderMode = RenderMode.ScreenSpaceOverlay;
@@ -1174,6 +1185,46 @@ namespace StationeersUIMod.UI.Hud
                 rt.position += t.rotation * new Vector3(0f, 0f, bulgePx * s);
             }
             _canvas.worldCamera = cam;
+        }
+
+        // The world canvas is head-locked to the camera, but the game finalizes the camera
+        // transform in CameraController.LateUpdate (mouse-look + body-follow, via
+        // CacheCameraPosition) — AFTER every Update. Posing the canvas in Update (the
+        // ApplyCurvature fallback above) therefore locks it to the PREVIOUS frame's camera, so
+        // the curved plane trails the view by one frame and swims/warps while you move (a flat
+        // canvas would only translate; the z-displaced curve makes the same lag read as
+        // distortion). Re-posing in Camera.onPreCull — after all LateUpdates, immediately before
+        // the main camera culls/renders — makes the camera→canvas relative transform identical
+        // every frame, so the curve is invariant to walking and turning, and cam.fieldOfView is
+        // read at render time (no size "breathing" on an FOV kick). Built-in render pipeline only;
+        // under SRP onPreCull is silent and the lagged Update pose simply stands in.
+        private static void HookWorldCanvasPreCull()
+        {
+            if (_preCullHooked) return;
+            Camera.onPreCull += OnWorldCanvasPreCull;
+            _preCullHooked = true;
+        }
+
+        private static void UnhookWorldCanvasPreCull()
+        {
+            if (!_preCullHooked) return;
+            Camera.onPreCull -= OnWorldCanvasPreCull;
+            _preCullHooked = false;
+        }
+
+        // Fires for EVERY camera (the vanilla portrait cam, our dome _rtCam, reflection probes);
+        // only the game's main camera — the one about to render the world canvas — drives the
+        // head-lock, and only while mode C is live. Guards are load-bearing: UpdateWorldCanvasPose
+        // does not null-check _canvas, and a throw here would break the game's render loop.
+        private static void OnWorldCanvasPreCull(Camera cam)
+        {
+            if (_canvas == null
+                || _appliedMode != HudCurvature.CurvedWorldCanvas
+                || !_canvas.gameObject.activeInHierarchy) return;
+            Camera main = null;
+            try { main = CameraController.CurrentCamera; } catch { }
+            if (cam != main) return;
+            try { UpdateWorldCanvasPose(); } catch { }
         }
 
         private static void ApplyWorldMaterials()

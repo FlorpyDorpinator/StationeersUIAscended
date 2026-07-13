@@ -181,6 +181,9 @@ namespace StationeersUIMod.Features
             // Option A: scroll-wheel value adjust works in both hold and sticky modes.
             if (UIAConfig.IsA) _menu.UpdateScroll();
 
+            // #4: hover a setting wedge + press a letter to bind that key to the setting.
+            _menu.UpdateHotkeyCapture();
+
             // E swaps the active hand while any radial is open (never while the search
             // panel is typing — E is a letter there). Q flips pages on crowded rings.
             if (!_menu.IsSearchOpen)

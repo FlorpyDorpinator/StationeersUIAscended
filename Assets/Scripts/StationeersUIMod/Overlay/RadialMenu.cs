@@ -36,6 +36,12 @@ namespace StationeersUIMod.Overlay
         public Slot DropSlot;               // parking: dropping a dragged item goes to this slot
         public Func<DynamicThing, Slot> DropResolver; // parking: pick a slot for the dragged item (bags)
 
+        // --- hotkey binding (#4): a device SETTING wedge can be bound to a key by hovering it
+        // and pressing a letter. Populated by DeviceControls; null on non-setting wedges. ---
+        public DynamicThing HotkeyThing;
+        public Interactable HotkeyInteractable;
+        public bool CanHotkey => HotkeyInteractable != null && HotkeyThing != null;
+
         public bool IsBranch => ChildProvider != null && OnSelect == null;
         public bool HasSlideOut => SlideOutProvider != null;
         public bool IsScrollAdjust => OnScroll != null;
@@ -1008,6 +1014,24 @@ namespace StationeersUIMod.Overlay
             catch (Exception e) { UIALog.Warn("Scroll adjust failed: " + e.Message); }
             if (_satellite != null) RefreshSatellite();
             _pendingRefreshAt = Time.unscaledTime + 0.6f; // MP: values re-sync after roundtrip
+        }
+
+        /// <summary>#4: hover a device-setting wedge and press an allowed letter to bind that
+        /// key to the setting. Same on-the-rings gate as scroll so a stray keypress off the
+        /// wheel can't bind. Called every frame the radial is open.</summary>
+        public void UpdateHotkeyCapture()
+        {
+            if (!IsOpen || _searchOpen) return;
+            RadialEntry entry = _satellite != null && _satHovered >= 0 ? SatEntry(_satHovered)
+                              : _hovered >= 0 && _mainDist <= _lastOuterR * 1.2f ? MainEntry(_hovered)
+                              : null;
+            if (entry == null || !entry.CanHotkey) return;
+            var k = Core.WedgeHotkeys.PressedBindableLetter();
+            if (k != KeyCode.None)
+            {
+                Core.WedgeHotkeys.Bind(k, entry.HotkeyInteractable, entry.HotkeyThing, entry.Label);
+                UIALog.Debug("Hotkey " + k + " bound to " + entry.Label);
+            }
         }
 
         private void RefreshSatellite()
