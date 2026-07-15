@@ -23,6 +23,8 @@ namespace StationeersUIMod.UI.Hud.Widgets
     internal sealed class EquipmentColumnWidget : HudElementView
     {
         private static readonly string[] Labels = { "HELMET", "GLASSES", "SUIT", "BACK", "UNIFORM", "BELT" };
+        // The 1-6 slot digits are constant; hold them so the per-frame text set never allocates.
+        private static readonly string[] SlotNums = { "1", "2", "3", "4", "5", "6" };
 
         private sealed class Box
         {
@@ -137,7 +139,7 @@ namespace StationeersUIMod.UI.Hud.Widgets
                 // The dim label grey, not the bright slot-number white (FlorpyDorp:
                 // "make the numbers more grey so it isn't so bright").
                 b.Number.color = HudPalette.TextDim.Value;
-                HudText.Set(b.Number, (i + 1).ToString());
+                HudText.Set(b.Number, i >= 0 && i < SlotNums.Length ? SlotNums[i] : (i + 1).ToString());
 
                 Sprite icon = null;
                 if (filled) { try { icon = occ.GetThumbnail(); } catch { } }

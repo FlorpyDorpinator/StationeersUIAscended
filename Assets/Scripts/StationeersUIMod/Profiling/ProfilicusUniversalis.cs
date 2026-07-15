@@ -256,6 +256,12 @@ namespace StationeersUIMod.Profiling
         private static readonly Vector4 RowHot = new Vector4(0.20f, 0.055f, 0.06f, 1f);
         private static readonly Vector4 RowWarm = new Vector4(0.18f, 0.12f, 0.035f, 1f);
 
+        // The scenario/metric-count line only changes when a metric is first seen or the
+        // scenario is relabelled; cache it so DrawHeader doesn't concat (and box the int) every frame.
+        private static string _headerCache;
+        private static string _headerScenario;
+        private static int _headerCount = -1;
+
         private static void DrawHeader()
         {
             ImGui.TextColored(TextNormal, _title);
@@ -269,8 +275,13 @@ namespace StationeersUIMod.Profiling
             if (ImGui.Button("Close"))
                 SetVisible(false);
 
-            ImGui.TextColored(TextMuted,
-                "Scenario: " + _scenario + " | " + Lines.Count + " metrics | rolling 10 seconds");
+            if (_headerCache == null || !ReferenceEquals(_scenario, _headerScenario) || Lines.Count != _headerCount)
+            {
+                _headerScenario = _scenario;
+                _headerCount = Lines.Count;
+                _headerCache = "Scenario: " + _scenario + " | " + Lines.Count + " metrics | rolling 10 seconds";
+            }
+            ImGui.TextColored(TextMuted, _headerCache);
             ImGui.TextColored(TextMuted,
                 "Frame avg is budget impact. Active avg and Avg/call exclude frames where a method did not run.");
             ImGui.TextColored(TextWarn,
@@ -327,30 +338,31 @@ namespace StationeersUIMod.Profiling
             ImGui.TableSetColumnIndex(0);
             ImGui.TextColored(color, line.Name);
             ImGui.TableSetColumnIndex(1);
-            DrawMs(line.CurrentMs, hot);
+            DrawMs(line.CurrentMs, line.NowStr, hot);
             ImGui.TableSetColumnIndex(2);
-            DrawMs(line.TenSecondAverageMs, hot);
+            DrawMs(line.TenSecondAverageMs, line.AvgStr, hot);
             ImGui.TableSetColumnIndex(3);
-            DrawMs(line.ActiveFrameAverageMs, false);
+            DrawMs(line.ActiveFrameAverageMs, line.ActiveAvgStr, false);
             ImGui.TableSetColumnIndex(4);
-            DrawMs(line.AverageCallMs, false);
+            DrawMs(line.AverageCallMs, line.PerCallStr, false);
             ImGui.TableSetColumnIndex(5);
-            DrawMs(line.PeakFrameMs, hot);
+            DrawMs(line.PeakFrameMs, line.PeakStr, hot);
             ImGui.TableSetColumnIndex(6);
-            DrawMs(line.MaxCallMs, false);
+            DrawMs(line.MaxCallMs, line.MaxCallStr, false);
             ImGui.TableSetColumnIndex(7);
-            ImGui.TextColored(TextNormal, line.CallsPerSecond.ToString("0.0"));
+            ImGui.TextColored(TextNormal, line.CpsStr);
             ImGui.TableSetColumnIndex(8);
-            ImGui.TextColored(TextNormal, line.MaxCallsPerFrame.ToString());
+            ImGui.TextColored(TextNormal, line.MaxPerFrameStr);
             ImGui.TableSetColumnIndex(9);
-            ImGui.TextColored(line.IsSpiking ? TextBad : TextMuted,
-                line.IsSpiking ? "x" + line.SpikeMultiplier.ToString("0.0") : "-");
+            ImGui.TextColored(line.IsSpiking ? TextBad : TextMuted, line.JumpStr);
         }
 
-        private static void DrawMs(double value, bool forceRed)
+        // Text is precomputed (0.5s refresh); the threshold color still reads the live value,
+        // so cell coloring is unchanged from the per-frame version.
+        private static void DrawMs(double value, string text, bool forceRed)
         {
             Vector4 color = forceRed ? TextBad : value > 8.0 ? TextBad : value > 2.0 ? TextWarn : TextNormal;
-            ImGui.TextColored(color, FormatMs(value));
+            ImGui.TextColored(color, text);
         }
 #endif
 
@@ -470,6 +482,20 @@ namespace StationeersUIMod.Profiling
             public bool HasUsefulData => TenSecondAverageMs > 0.0001 || PeakFrameMs > 0.0001 || CallsPerSecond > 0.0;
             public double SortScore => TenSecondAverageMs + PeakFrameMs * 0.20 + (IsSpiking ? ActiveFrameAverageMs : 0.0);
 
+            // Cached cell strings, rebuilt inside the 0.5s-throttled Refresh so the per-frame
+            // Draw allocates nothing. Formatting every cell every frame was the profiler's own
+            // dominant allocation — it polluted Frame.Total and GC.Alloc KB/frame (the observer
+            // effect). "Now ms" now updates at the 0.5s cadence too; that is intended.
+            public string NowStr { get; private set; } = "";
+            public string AvgStr { get; private set; } = "";
+            public string ActiveAvgStr { get; private set; } = "";
+            public string PerCallStr { get; private set; } = "";
+            public string PeakStr { get; private set; } = "";
+            public string MaxCallStr { get; private set; } = "";
+            public string CpsStr { get; private set; } = "";
+            public string MaxPerFrameStr { get; private set; } = "";
+            public string JumpStr { get; private set; } = "-";
+
             public MetricLine(string name)
             {
                 Name = name;
@@ -548,6 +574,17 @@ namespace StationeersUIMod.Profiling
                             recentFrames > 4 &&
                             previousFrames > 4 &&
                             SpikeMultiplier >= SpikeRatio;
+
+                // Rebuild the cell strings once per refresh (same formats as the old per-frame draw).
+                NowStr = FormatMs(CurrentMs);
+                AvgStr = FormatMs(TenSecondAverageMs);
+                ActiveAvgStr = FormatMs(ActiveFrameAverageMs);
+                PerCallStr = FormatMs(AverageCallMs);
+                PeakStr = FormatMs(PeakFrameMs);
+                MaxCallStr = FormatMs(MaxCallMs);
+                CpsStr = CallsPerSecond.ToString("0.0");
+                MaxPerFrameStr = MaxCallsPerFrame.ToString();
+                JumpStr = IsSpiking ? "x" + SpikeMultiplier.ToString("0.0") : "-";
             }
 
             private void Trim(float now)

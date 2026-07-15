@@ -395,6 +395,18 @@ namespace StationeersUIMod.UI
             // #4: the bound hotkey letter, badged near the HUB side of a setting wedge.
             private readonly List<TextMeshProUGUI> _hotkey = new List<TextMeshProUGUI>();
 
+            // Per-wedge string caches (parallel to the pools above), so the per-frame draw
+            // allocates nothing while a radial is open. WedgeText (ToUpperInvariant) is cached
+            // keyed on the source-label reference; the hotkey badge letter caches its one-char
+            // string keyed on the char. All self-heal on any change — no reset needed.
+            private readonly List<string> _labelSrc = new List<string>();
+            private readonly List<string> _labelDisplay = new List<string>();
+            private readonly List<char> _lastBadgeLetter = new List<char>();
+            private readonly List<string> _badgeStr = new List<string>();
+            // Ctrl+digit bag badges ("^0".."^9") are constant — no per-frame concat.
+            private static readonly string[] BagDigitBadges =
+                { "^0", "^1", "^2", "^3", "^4", "^5", "^6", "^7", "^8", "^9" };
+
             public RingView(Transform parent, string name)
             {
                 var go = new GameObject(name, typeof(RectTransform));
@@ -551,12 +563,17 @@ namespace StationeersUIMod.UI
                     if (entry.CanHotkey)
                     {
                         char letter = Core.WedgeHotkeys.LetterFor(entry.HotkeyInteractable);
-                        if (letter != '\0') badge = letter.ToString();
+                        if (letter != '\0')
+                        {
+                            // Rebuild the one-char badge string only when the bound letter changes.
+                            if (letter != _lastBadgeLetter[i]) { _lastBadgeLetter[i] = letter; _badgeStr[i] = letter.ToString(); }
+                            badge = _badgeStr[i];
+                        }
                     }
                     else if (entry.BindableBag != null)
                     {
                         int digit = global::StationeersUIMod.Features.BagHotkeyStore.DigitForBag(entry.BindableBag);
-                        if (digit >= 0) badge = "^" + digit; // ^ = Ctrl
+                        if (digit >= 0) badge = digit < BagDigitBadges.Length ? BagDigitBadges[digit] : "^" + digit; // ^ = Ctrl
                     }
                     bool showHk = badge != null;
                     hk.gameObject.SetActive(showHk);
@@ -623,9 +640,19 @@ namespace StationeersUIMod.UI
                     label.gameObject.SetActive(labelOn);
                     if (!labelOn) continue;
 
+                    // Cache WedgeText (ToUpperInvariant) per wedge-slot: recompute only when the
+                    // source-label reference changes, then reuse it for the assignment and the
+                    // length check below.
+                    if (!ReferenceEquals(entry.Label, _labelSrc[i]))
+                    {
+                        _labelSrc[i] = entry.Label;
+                        _labelDisplay[i] = WedgeText(entry.Label);
+                    }
+                    string labelDisplay = _labelDisplay[i];
+
                     SyncFont(label);
                     label.fontStyle = WedgeFontStyle();
-                    label.text = WedgeText(entry.Label);
+                    label.text = labelDisplay;
                     label.color = entry.Enabled ? RadialPalette.TextPrimary.Value : RadialPalette.TextDisabled.Value;
                     label.rectTransform.localScale = Vector3.one * contentScale;
 
@@ -644,7 +671,7 @@ namespace StationeersUIMod.UI
                         // the label already fits, stay flat).
                         float radialLen = ringWidth + (isHovered ? HoverBulge : 0f);
                         bool rotate = (UIAConfig.RadialRotateLongLabels == null || UIAConfig.RadialRotateLongLabels.Value)
-                            && WedgeText(entry.Label).Length >= 10
+                            && labelDisplay.Length >= 10
                             && boxW < ringWidth * 1.5f;
                         if (rotate)
                         {
@@ -846,6 +873,12 @@ namespace StationeersUIMod.UI
                     hktmp.raycastTarget = false;
                     hktmp.rectTransform.sizeDelta = new Vector2(22f, 22f);
                     _hotkey.Add(hktmp);
+
+                    // Parallel per-wedge string caches (see field declarations).
+                    _labelSrc.Add(null);
+                    _labelDisplay.Add(null);
+                    _lastBadgeLetter.Add('\0');
+                    _badgeStr.Add(null);
                 }
             }
         }

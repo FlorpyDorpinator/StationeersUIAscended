@@ -143,6 +143,14 @@ namespace StationeersUIMod.UI.Hud
         private static string _cachedWorldName = "";
         private static float _worldNameNextCheck;
 
+        // Clock/date strings changed at most once per in-game minute / per in-game day, but
+        // formatting them every frame boxes ints and allocates. Cache each behind its own
+        // change guard (same idea as _cachedWorldName). Reset on Clear() for the next world.
+        private static int _cachedMinutes = -1;
+        private static string _cachedTimeText = "";
+        private static long _cachedDateDay = long.MinValue; // WorldManager.DaysPast is uint
+        private static string _cachedDateText = "";
+
         /// <summary>Drop object references when the HUD stands down — the static
         /// snapshot must never pin a dead world's Human across unloads/hot reloads.</summary>
         public static void Clear()
@@ -151,7 +159,14 @@ namespace StationeersUIMod.UI.Hud
             _snap.Human = null;
             _cachedWorldName = "";
             _worldNameNextCheck = 0f;
+            _cachedMinutes = -1;
+            _cachedTimeText = "";
+            _cachedDateDay = long.MinValue;
+            _cachedDateText = "";
         }
+
+        /// <summary>Left-pad a 0..99 value to two digits without boxing (string concat).</summary>
+        private static string TwoDigit(int n) => n < 10 ? "0" + n.ToString() : n.ToString();
 
         public static HudSnapshot Sample()
         {
@@ -297,12 +312,22 @@ namespace StationeersUIMod.UI.Hud
             // mission epoch 2080-01-01 + days survived. ----
             try
             {
-                s.Day = WorldManager.DaysPast + 1;
+                uint daysPast = WorldManager.DaysPast;
+                s.Day = daysPast + 1;
                 float t = (OrbitalSimulation.TimeOfDay + 0.25f) % 1f; // 0 sunrise -> 06:00
                 int minutes = Mathf.FloorToInt(t * 24f * 60f) % (24 * 60);
-                s.TimeText = $"{minutes / 60:00}:{minutes % 60:00}";
-                var date = new DateTime(2080, 1, 1).AddDays(WorldManager.DaysPast);
-                s.DateText = date.ToString("yyyy-MM-dd");
+                if (minutes != _cachedMinutes)
+                {
+                    _cachedMinutes = minutes;
+                    _cachedTimeText = TwoDigit(minutes / 60) + ":" + TwoDigit(minutes % 60);
+                }
+                s.TimeText = _cachedTimeText;
+                if (daysPast != _cachedDateDay)
+                {
+                    _cachedDateDay = daysPast;
+                    _cachedDateText = new DateTime(2080, 1, 1).AddDays(daysPast).ToString("yyyy-MM-dd");
+                }
+                s.DateText = _cachedDateText;
                 float tod = OrbitalSimulation.TimeOfDay;
                 s.DayPartWord = tod < 0.06f ? "DAWN"
                     : tod < 0.2f ? "MORNING"

@@ -37,6 +37,11 @@ namespace StationeersUIMod.UI.Hud.Widgets
         private TextMeshProUGUI _degrees;
         private Vector2 _center; // element centre captured in Layout (for per-frame warp)
 
+        // The degree readout string rebuilds only when the rounded heading changes — a
+        // per-frame "<n>°" concat is otherwise pure garbage.
+        private int _lastDeg = int.MinValue;
+        private string _degStr;
+
         // The backing strip takes the trapezoid insets (base supplies the sliders).
         protected override bool SupportsTrapezoid => true;
 
@@ -142,7 +147,9 @@ namespace StationeersUIMod.UI.Hud.Widgets
 
             _caret.Configure(pointsUp: false, size: 9f);
             _caret.color = HudPalette.CompassNeedle.Value;
-            _caret.SetVerticesDirty();
+            // No per-frame SetVerticesDirty: the caret geometry never moves, and Configure /
+            // the color setter already dirty the mesh on any actual change. Position (below)
+            // is a transform update that needs no vertex rebuild.
             PlaceOnCurveRoot((RectTransform)_caret.transform, new Vector2(0f, h * 0.5f + 7f * scale));
 
             if (showDegrees)
@@ -152,7 +159,9 @@ namespace StationeersUIMod.UI.Hud.Widgets
                 HudText.Sync(_degrees);
                 _degrees.fontSize = HudText.Size(12f * Def.FontScale) * scale;
                 _degrees.color = HudPalette.CompassCardinal.Value;
-                HudText.Set(_degrees, Mathf.RoundToInt(heading) + "°");
+                int hd = Mathf.RoundToInt(heading);
+                if (hd != _lastDeg || _degStr == null) { _lastDeg = hd; _degStr = hd + "°"; }
+                HudText.Set(_degrees, _degStr);
             }
             else
             {

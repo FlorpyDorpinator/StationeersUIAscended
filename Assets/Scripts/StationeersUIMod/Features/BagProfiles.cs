@@ -97,6 +97,10 @@ namespace StationeersUIMod.Features
 
         private static string _loadedSaveKey;
 
+        // Path.GetInvalidFileNameChars() allocates a fresh char[] on every call; the save key
+        // is re-derived on a per-frame path (DigitForBag while a bag radial is open), so hold it.
+        private static readonly char[] InvalidNameChars = Path.GetInvalidFileNameChars();
+
         public static string ConfigDir => Path.Combine(Paths.ConfigPath, "StationeersUIMod");
         public static string ProfilesDir => Path.Combine(ConfigDir, "Profiles");
         public static string AssignmentsDir => Path.Combine(ConfigDir, "Assignments");
@@ -165,7 +169,7 @@ namespace StationeersUIMod.Features
                 string name = save?.CurrentStationName;
                 if (string.IsNullOrEmpty(name)) name = save?.CurrentWorldSave?.Name;
                 if (string.IsNullOrEmpty(name)) name = "unsaved";
-                foreach (char c in Path.GetInvalidFileNameChars()) name = name.Replace(c, '_');
+                foreach (char c in InvalidNameChars) name = name.Replace(c, '_');
                 return name;
             }
             catch

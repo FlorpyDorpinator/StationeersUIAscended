@@ -89,7 +89,8 @@ namespace StationeersUIMod.Core
                 var psw = Assets.Scripts.UI.PlayerStateWindow.Instance;
                 var curve = psw != null ? psw.PressureCurve : null;
                 if (curve == null || curve.length == 0) return float.NaN;
-                float max = curve.keys[curve.length - 1].time;
+                // curve[i] reads one Keyframe; curve.keys COPIES the whole array every call.
+                float max = curve[curve.length - 1].time;
                 return Mathf.Clamp01(curve.Evaluate(Mathf.Clamp(kPa, 0f, max)));
             }
             catch { return float.NaN; }
@@ -240,13 +241,12 @@ namespace StationeersUIMod.Core
             {
                 var psw = Assets.Scripts.UI.PlayerStateWindow.Instance;
                 if (psw == null || string.IsNullOrEmpty(key)) return null;
+                // Ordinal-ignore-case compares, not key.ToLowerInvariant() which allocates a
+                // new lowercased string every call.
                 Assets.Scripts.UI.ImageToggle t = null;
-                switch (key.ToLowerInvariant())
-                {
-                    case "helmet": t = psw.HelmetImageToggle; break;
-                    case "jetpack": t = psw.JetPackImageToggle; break;
-                    case "light": t = psw.LightImageToggle; break;
-                }
+                if (string.Equals(key, "helmet", StringComparison.OrdinalIgnoreCase)) t = psw.HelmetImageToggle;
+                else if (string.Equals(key, "jetpack", StringComparison.OrdinalIgnoreCase)) t = psw.JetPackImageToggle;
+                else if (string.Equals(key, "light", StringComparison.OrdinalIgnoreCase)) t = psw.LightImageToggle;
                 int index = on ? 1 : 0;
                 return t != null && t.Sprites != null && t.Sprites.Length > index ? t.Sprites[index] : null;
             }

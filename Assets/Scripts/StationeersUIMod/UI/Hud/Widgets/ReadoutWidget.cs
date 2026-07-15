@@ -40,6 +40,12 @@ namespace StationeersUIMod.UI.Hud.Widgets
         private string _tgtText = "";
         private bool _iconIsVanilla; // game art keeps its own colours + late-resolves
 
+        // Parsed-source cache: Enum.TryParse only re-runs when the editor changes the raw
+        // "src" string. The param bag hands back the stored reference, so a ReferenceEquals
+        // guard self-heals on any edit without a per-frame parse.
+        private string _srcKey;
+        private HudReadoutSource _srcCache = HudReadoutSource.ExternalPressure;
+
         // "Game art" bar style: vanilla's own pressure-ramp sprites instead of the
         // procedural threshold bar. Built lazily; late-resolves like the icons.
         private Image _rampBack, _rampFront;
@@ -478,11 +484,14 @@ namespace StationeersUIMod.UI.Hud.Widgets
 
         // ---- source resolution ----
 
-        private static HudReadoutSource ParseSource(HudElementDef d)
+        private HudReadoutSource ParseSource(HudElementDef d)
         {
+            string raw = d.GetS("src", "");
+            if (ReferenceEquals(raw, _srcKey)) return _srcCache;
+            _srcKey = raw;
             HudReadoutSource src;
-            if (System.Enum.TryParse(d.GetS("src", ""), true, out src)) return src;
-            return HudReadoutSource.ExternalPressure;
+            _srcCache = System.Enum.TryParse(raw, true, out src) ? src : HudReadoutSource.ExternalPressure;
+            return _srcCache;
         }
 
         /// <summary>Sources whose value carries a natural setpoint — the TARGET line and bar

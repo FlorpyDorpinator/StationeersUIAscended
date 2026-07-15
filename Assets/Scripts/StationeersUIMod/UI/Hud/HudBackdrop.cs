@@ -52,6 +52,8 @@ namespace StationeersUIMod.UI.Hud
         private static RenderTexture[] _up;            // upsample buffers matching _down[0..DownSteps-1]
         private static RenderTexture _result;          // the exposed blurred backdrop (== _up[0] after a dispatch)
         private static int _baseW, _baseH;             // cached base dims → recreate on resolution/downsample change
+        private static Camera _lastMain;               // main camera the cached capture-camera resolve was keyed on
+        private static Camera _resolvedCam;            // cached ResolveCaptureCamera result (positive matches only)
 
         private static readonly int _idOffset = Shader.PropertyToID("_Offset");
         private static readonly int _idBlurTex = Shader.PropertyToID("_UiaBlurTex");
@@ -138,6 +140,8 @@ namespace StationeersUIMod.UI.Hud
             DetachComponent();
             _camera = null;
             _cameraGO = null;
+            _lastMain = null;
+            _resolvedCam = null;
             ReleasePyramid();
             if (_mat != null) { try { UnityEngine.Object.DestroyImmediate(_mat); } catch { } _mat = null; }
             // Stop any consuming frost material from sampling a destroyed RT.
@@ -172,6 +176,20 @@ namespace StationeersUIMod.UI.Hud
         /// after main) so a renamed camera still matches; falls back to the main camera when the
         /// rig doesn't match (fail-soft — worst case is the old X-ray behaviour, never a crash).</summary>
         private static Camera ResolveCaptureCamera(Camera main)
+        {
+            // GetComponentsInChildren allocates a Camera[] every call and this runs every Tick.
+            // The rig only changes on world reload, so cache the pick keyed on `main` and re-scan
+            // only when `main` changes or the cached camera died (Unity-null). A fallback to `main`
+            // is NOT cached — the child capture camera can appear a frame after main, so we keep
+            // scanning until it exists, matching the old per-frame upgrade minus the steady-state alloc.
+            if (main == _lastMain && _resolvedCam != null) return _resolvedCam;
+            Camera cam = ResolveCaptureCameraUncached(main);
+            if (cam != main) { _lastMain = main; _resolvedCam = cam; }
+            else { _lastMain = null; _resolvedCam = null; }
+            return cam;
+        }
+
+        private static Camera ResolveCaptureCameraUncached(Camera main)
         {
             try
             {

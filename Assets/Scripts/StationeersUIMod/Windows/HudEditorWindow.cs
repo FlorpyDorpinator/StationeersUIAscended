@@ -279,6 +279,11 @@ namespace StationeersUIMod.Windows
 
         private static int _addTypeIndex;
         private static string _saveAsName = "";
+
+        // Profile-list cache: Directory.GetFiles is disk IO + allocation, and the header runs
+        // it every frame. Re-scan only when the dropdown opens (edge-triggered) or after a save.
+        private static List<string> _profileNamesCache = new List<string>();
+        private static bool _profileComboOpen;
         private static readonly string[] AddableTypes =
         {
             "Box", "Label", "Polyline", "Icon", "Readout", "Clock", "WorldName",
@@ -382,11 +387,13 @@ namespace StationeersUIMod.Windows
         {
             ImGui.TextDisabled("Layout profiles (shareable XML):");
             string active = HudEditorMode.ActiveProfileName();
-            var names = Features.HudProfileStore.ListProfiles();
             ImGui.SetNextItemWidth(200f);
-            if (ImGui.BeginCombo("##profile", active))
+            bool comboOpen = ImGui.BeginCombo("##profile", active);
+            if (comboOpen)
             {
-                foreach (var n in names)
+                // Re-scan disk only on the opening edge; reuse the cache while it stays open.
+                if (!_profileComboOpen) _profileNamesCache = Features.HudProfileStore.ListProfiles();
+                foreach (var n in _profileNamesCache)
                 {
                     if (ImGui.Selectable(n, string.Equals(n, active, System.StringComparison.OrdinalIgnoreCase))
                         && !string.Equals(n, active, System.StringComparison.OrdinalIgnoreCase))
@@ -401,6 +408,7 @@ namespace StationeersUIMod.Windows
                 }
                 ImGui.EndCombo();
             }
+            _profileComboOpen = comboOpen;
             ImGui.SameLine();
             if (ImGui.Button("Open folder"))
             {
@@ -427,6 +435,7 @@ namespace StationeersUIMod.Windows
                     if (HudConfig.HudActiveProfile != null) HudConfig.HudActiveProfile.Value = clean;
                     Features.HudProfileStore.SetActive(doc, clean);
                     _saveAsName = "";
+                    _profileNamesCache = Features.HudProfileStore.ListProfiles(); // new file: refresh the cache
                 }
             }
         }
