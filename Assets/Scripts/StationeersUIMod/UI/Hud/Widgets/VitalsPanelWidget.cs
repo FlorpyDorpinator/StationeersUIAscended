@@ -62,6 +62,10 @@ namespace StationeersUIMod.UI.Hud.Widgets
         private readonly PanelGraphic[] _seps = new PanelGraphic[RowCount - 1];
         private int _sig = -1;
 
+        // The vitals frame takes the trapezoid insets (base supplies the sliders); the thin
+        // row separators stay rectangular.
+        protected override bool SupportsTrapezoid => true;
+
         protected override void BuildContent(RectTransform root)
         {
             _box = MakePanel(root, "Box");
@@ -460,7 +464,8 @@ namespace StationeersUIMod.UI.Hud.Widgets
                 float boxCy = top - stackH * 0.5f;
                 ((RectTransform)_box.transform).anchoredPosition = new Vector2(c.x, boxCy);
                 _box.SetShape(s.x, Mathf.Max(2f, stackH),
-                    Radius(Def.RTL), Radius(Def.RTR), Radius(Def.RBR), Radius(Def.RBL));
+                    Radius(Def.RTL), Radius(Def.RTR), Radius(Def.RBR), Radius(Def.RBL),
+                    InsetTop(scale), InsetBottom(scale));
             }
 
             float left = c.x - s.x * 0.5f + pad;

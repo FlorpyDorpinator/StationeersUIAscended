@@ -64,6 +64,13 @@ namespace StationeersUIMod.UI.Hud.Widgets
             BoxMetrics(scale, out boxW, out boxH, out boxX);
             float boxRadius = Mathf.Min(Radius(Def.RTL), 12f);
 
+            // F9 nudges for the two text rows (reference px × scale). Applied identically to both
+            // hands so the pair stays symmetric — "+X" shifts both labels the same screen direction.
+            float titleDX = Def.GetF("titleDX", 0f) * scale;
+            float titleDY = Def.GetF("titleDY", 0f) * scale;
+            float stateDX = Def.GetF("stateDX", 0f) * scale;
+            float stateDY = Def.GetF("stateDY", 0f) * scale;
+
             for (int i = 0; i < 2; i++)
             {
                 float sign = i == 0 ? -1f : 1f;
@@ -78,13 +85,15 @@ namespace StationeersUIMod.UI.Hud.Widgets
                 _accent[i].SetShape(3.2f * scale, boxH * 0.72f, 1.4f);
 
                 _title[i].rectTransform.sizeDelta = new Vector2(boxW, 14f * scale);
-                _title[i].rectTransform.anchoredPosition = new Vector2(x, y + boxH * 0.5f - 11f * scale);
+                _title[i].rectTransform.anchoredPosition =
+                    new Vector2(x + titleDX, y + boxH * 0.5f - 11f * scale + titleDY);
 
                 _icon[i].rectTransform.sizeDelta = new Vector2(boxH * 0.52f, boxH * 0.52f);
                 _icon[i].rectTransform.anchoredPosition = new Vector2(x, y - boxH * 0.02f);
 
                 _state[i].rectTransform.sizeDelta = new Vector2(boxW, 12f * scale);
-                _state[i].rectTransform.anchoredPosition = new Vector2(x, y - boxH * 0.5f + 10f * scale);
+                _state[i].rectTransform.anchoredPosition =
+                    new Vector2(x + stateDX, y - boxH * 0.5f + 10f * scale + stateDY);
             }
         }
 
@@ -121,8 +130,18 @@ namespace StationeersUIMod.UI.Hud.Widgets
                 // corner would wash the accent out, so the active box never catches
                 // light. Set once (not ApplyGlass-then-override: a per-frame value
                 // flip-flop would defeat the dirty-guard and rebuild the mesh).
-                _box[i].Sheen = Def.GetF("sheen", 0f);
-                _box[i].Spec = active ? 0f : Def.GetF("spec", 0f);
+                _box[i].Sheen = GlassSheenFor();
+                _box[i].Spec = active ? 0f : GlassEdgeFor();
+                ApplyMeshFx(_box[i]); // full 0.9.0 push (trio + ripple + uv0 + material) — sheen/spec above stay custom
+
+                // #4: drop cue — light this box (border, or whole box per F9) while a dragged
+                // item is over it and would be accepted. Overrides the active-hand look on purpose.
+                if (HudDropCue.Active && ReferenceEquals(HudDropCue.HoveredSlot, slot) && HudDropCue.Accepts(slot))
+                {
+                    var hi = DropHighlightColor();
+                    if (DropWholeBox()) _box[i].color = hi;
+                    else { _box[i].BorderColor = hi; _box[i].BorderWidth = BorderWidthFor() * 2f; }
+                }
 
                 var ac = HudPalette.ActiveHandAccent.Value;
                 if (!active) ac.a = 0f;
@@ -184,6 +203,15 @@ namespace StationeersUIMod.UI.Hud.Widgets
                 v => d.SetF("gap", Mathf.Max(0f, v)), 0f, 160f));
             into.Add(HudProp.Bool("Show tray shelf", () => d.GetB("tray", true),
                 v => d.SetB("tray", v)));
+
+            // Nudge the two text rows within each hand box (both hands move together, stays
+            // symmetric). "Hand name" is the LEFT/RIGHT HAND label; "Item state" is the status
+            // line under the thumbnail. Offsets are in reference px, so they scale with the HUD.
+            into.Add(HudProp.F("Hand-name X", () => d.GetF("titleDX", 0f), v => d.SetF("titleDX", v), -200f, 200f));
+            into.Add(HudProp.F("Hand-name Y", () => d.GetF("titleDY", 0f), v => d.SetF("titleDY", v), -200f, 200f));
+            into.Add(HudProp.F("Item-state X", () => d.GetF("stateDX", 0f), v => d.SetF("stateDX", v), -200f, 200f));
+            into.Add(HudProp.F("Item-state Y", () => d.GetF("stateDY", 0f), v => d.SetF("stateDY", v), -200f, 200f));
+            AddDropHighlightProps(into); // #4: drag-over drop cue mode + colour
         }
     }
 }

@@ -80,6 +80,8 @@ namespace StationeersUIMod.UI.Hud
         public static ConfigEntry<float> CornerRadius;
         public static ConfigEntry<float> BorderWidth;
         public static ConfigEntry<float> EdgeFeather;
+        public static ConfigEntry<float> GlassSheen;
+        public static ConfigEntry<float> GlassEdge;
 
         // Text
         public static ConfigEntry<string> FontName;
@@ -96,13 +98,66 @@ namespace StationeersUIMod.UI.Hud
         public static ConfigEntry<bool> LowPowerDropouts;
         public static ConfigEntry<float> LowPowerThreshold;
 
-        // Power-transition glitch (reuses the game's CameraFilterPack shaders)
+        // Power-transition glitch (transform-jitter envelope; see HudGlitch)
+        // NOTE: the old GlitchShader knob was RETIRED in 0.9.0 — it was bound but read by
+        // nothing (a leftover from the abandoned CameraFilterPack screen-shader approach);
+        // its orphaned value in existing cfg files is harmless (FlorpyDorp-approved call).
         public static ConfigEntry<bool> GlitchEnabled;
-        public static ConfigEntry<string> GlitchShader;
         public static ConfigEntry<float> GlitchDuration;
         public static ConfigEntry<float> GlitchIntensity;
         public static ConfigEntry<bool> GlitchOnPowerDown;
         public static ConfigEntry<bool> GlitchOnPowerUp;
+
+        // ---- 0.9.0 effect tiers (master switches + effect globals; per-element overrides
+        // live in each element's Params bag with the "-1/absent = follow global" contract) ----
+        public static ConfigEntry<bool> FxTierA;            // mesh effects master
+        public static ConfigEntry<bool> FxTierB;            // bundle-shader effects master
+        public static ConfigEntry<bool> FxTierC;            // backdrop (frost) master — EXPERIMENTAL
+        // Per-effect checkboxes (play-test: "add checkboxes to each individual feature —
+        // right now they are all always on when I check tier a/b/c").
+        public static ConfigEntry<bool> FxHairlinesOn;
+        public static ConfigEntry<bool> FxEdgeLightOn;
+        public static ConfigEntry<bool> FxPulseOn;
+        public static ConfigEntry<bool> FxShineOn;
+        public static ConfigEntry<bool> FxIridOn;
+        public static ConfigEntry<bool> FxChromaOn;
+        public static ConfigEntry<float> FxHairlineMin;     // 0 = true hairlines allowed
+        public static ConfigEntry<float> FxEdgeLight;       // directional edge-light strength (lines + borders)
+        public static ConfigEntry<float> FxEdgeRipple;      // irregular light/dark shimmer along edges (0 = smooth)
+        public static ConfigEntry<float> FxEdgeRippleFreq;  // shimmer frequency, cycles per ~100px
+        public static ConfigEntry<float> FxPulseSpeed;      // breathing pulse rate, Hz
+        public static ConfigEntry<float> FxPulseDepth;      // 0..1 how deep the dim half of the pulse goes
+        public static ConfigEntry<float> FxShine;           // shine sweep global strength (Tier B)
+        public static ConfigEntry<float> FxShinePeriod;     // seconds between sweeps
+        public static ConfigEntry<float> FxIridescence;     // iridescent edge global strength (Tier B)
+        public static ConfigEntry<float> FxChroma;          // chromatic-aberration strength (Tier B)
+        public static ConfigEntry<bool> FxDissolveBoot;     // dissolve reveal on boot/power transitions
+        // The concept-art trio (global defaults; per-element params override with -1 = these):
+        public static ConfigEntry<bool> FxBorderFadeOn;
+        public static ConfigEntry<bool> FxSoftEdgeOn;
+        public static ConfigEntry<bool> FxGlowOn;
+        public static ConfigEntry<float> FxBorderFade;      // 0 = solid outline, 1 = unlit border sections dissolve
+        public static ConfigEntry<float> FxSoftEdge;        // px of soft outer fill fade ("boxes blur into each other")
+        public static ConfigEntry<float> FxGlow;            // halo intensity OUTSIDE frames
+        public static ConfigEntry<float> FxGlowInner;       // glow intensity INTO the glass
+        public static ConfigEntry<float> FxGlowWidth;       // halo width, px (shared by both sides)
+        public static ConfigEntry<float> FxGlowDiffuse;     // halo shape: 0 tight rim, 1 wide soft haze
+        public static ConfigEntry<float> FrostDownsample;   // blur RT divisor (2/4/8)
+        public static ConfigEntry<int> FrostUpdateEveryN;   // re-blur throttle, frames
+        public static ConfigEntry<float> FrostDarken;       // 0..1 backdrop darkening
+        public static ConfigEntry<string> FrostTint;        // #RRGGBB gray-leaning tint (FlorpyDorp: grayer than concept)
+
+        // Stage 2 HUD bloom — bright HUD pixels light their neighbours. Routes the HUD through a
+        // render texture (forces the flat/vertex-warp path onto the RT rig while on).
+        public static ConfigEntry<bool> FxBloomOn;
+        public static ConfigEntry<float> FxBloomStrength;   // additive composite strength, 0..3
+        public static ConfigEntry<float> FxBloomThreshold;  // bright cutoff on max(r,g,b), 0..1.5
+        public static ConfigEntry<float> FxBloomKnee;       // soft-knee width as a fraction of threshold, 0..1
+        public static ConfigEntry<int> FxBloomBlurSteps;    // dual-Kawase pyramid depth, 1..5
+        public static ConfigEntry<float> FxBloomSpread;     // Kawase sample offset — CONTINUOUS width between steps
+        public static ConfigEntry<bool> FxBloomFineDetail;  // half-res bright pass: thin borders/lines survive into bloom
+        public static ConfigEntry<float> FxBloomSaturation; // 0 white-hot .. 1 source hues .. 2 oversaturated
+        public static ConfigEntry<string> FxBloomTint;      // #RRGGBB multiply on the glow
 
         public static void Bind(ConfigFile cfg)
         {
@@ -115,10 +170,10 @@ namespace StationeersUIMod.UI.Hud
                 "Render the HUD from the active layout profile (a document of movable, " +
                 "restylable elements — the HUD Designer). Off = the fixed 0.5.0 panel set, " +
                 "kept as a fallback during the transition.");
-            HudActiveProfile = cfg.Bind(S, "HudActiveProfile", "Glassy 4.0",
+            HudActiveProfile = cfg.Bind(S, "HudActiveProfile", "Smaller Test",
                 "Which HUD layout profile to render (a .xml in config/StationeersUIMod/" +
-                "HudProfiles). 'Glassy 4.0' is the shipped default. Missing profiles are " +
-                "recreated from the shipped copy.");
+                "HudProfiles). 'Smaller Test' is the shipped default for the 0.9.0 play-test " +
+                "(FlorpyDorp's pick); shipped profiles import from the mod folder on first run.");
             GridSnapEnabled = cfg.Bind(S, "GridSnapEnabled", true,
                 "HUD editor: snap dragged/resized elements to the grid. Toggleable live in " +
                 "the F9 window; hold Alt while dragging for temporary freeform.");
@@ -211,6 +266,14 @@ namespace StationeersUIMod.UI.Hud
             EdgeFeather = cfg.Bind(S, "EdgeFeather", 1.25f,
                 new ConfigDescription("Anti-aliasing ramp width (px) on every HUD edge.",
                     new AcceptableValueRange<float>(0f, 4f)));
+            GlassSheen = cfg.Bind(S, "GlassSheen", 0f,
+                new ConfigDescription("Default glass sheen (the soft top-down light gradient) on " +
+                    "every panel. Elements whose own 'Glass sheen' is -1 inherit this.",
+                    new AcceptableValueRange<float>(0f, 1f)));
+            GlassEdge = cfg.Bind(S, "GlassEdge", 0f,
+                new ConfigDescription("Default glass edge light (the bright rim highlight) on every " +
+                    "panel. Elements whose own 'Glass edge light' is -1 inherit this.",
+                    new AcceptableValueRange<float>(0f, 1f)));
 
             FontName = cfg.Bind(S, "HudFontName", "",
                 "TMP font for all HUD text (substring match; empty = the game's default " +
@@ -246,8 +309,6 @@ namespace StationeersUIMod.UI.Hud
                 "the game's own CameraFilterPack shaders. Distorts the rendered VIEW during the " +
                 "transition (the overlay HUD is composited after the camera; a true HUD-only " +
                 "version needs the RenderTexture route).");
-            GlitchShader = cfg.Bind(S, "GlitchShader", "TV static",
-                "Which preloaded shader the glitch uses (see the F10 window's dropdown for the list).");
             GlitchDuration = cfg.Bind(S, "GlitchDuration", 1.1f,
                 new ConfigDescription("How long the glitch lasts, seconds.",
                     new AcceptableValueRange<float>(0.1f, 4f)));
@@ -258,6 +319,143 @@ namespace StationeersUIMod.UI.Hud
                 "Play the glitch when the suit powers down / is taken off (HUD collapses).");
             GlitchOnPowerUp = cfg.Bind(S, "GlitchOnPowerUp", true,
                 "Play the glitch when the suit powers on / boots up.");
+
+            // ---- 0.9.0 effect tiers. Defaults per FlorpyDorp (2026-07-13): Tier A ON,
+            // Tier B ON (auto-degrades when the bundle is missing), Tier C OFF (experimental). ----
+            const string FX = "11. HUD Effects (0.9.0)";
+            FxTierA = cfg.Bind(FX, "TierA_MeshEffects", true,
+                "Master switch for the mesh effects (hairline fades, edge light, pulse). Cheap; on by default.");
+            FxTierB = cfg.Bind(FX, "TierB_ShaderEffects", true,
+                "Master switch for the bundle-shader effects (shine sweep, dissolve reveal, iridescence, " +
+                "chromatic aberration). Requires uia_effects.bundle in the mod folder; silently degrades " +
+                "to Tier A looks when missing.");
+            FxTierC = cfg.Bind(FX, "TierC_FrostedGlass_EXPERIMENTAL", false,
+                "Master switch for the frosted-glass backdrop (blur+tint of the world behind panels). " +
+                "EXPERIMENTAL: costs a scene capture + blur per frame. Flat/VertexWarp curvature only.");
+            FxHairlinesOn = cfg.Bind(FX, "HairlinesOn", true, "Sub-1px lines fade by coverage instead of vanishing.");
+            FxEdgeLightOn = cfg.Bind(FX, "EdgeLightOn", true, "Directional edge light on borders and drawn lines.");
+            FxPulseOn = cfg.Bind(FX, "PulseOn", true, "Allow the per-element breathing pulse (elements still opt in individually).");
+            FxShineOn = cfg.Bind(FX, "ShineOn", true, "The travelling light sweep (Tier B).");
+            FxIridOn = cfg.Bind(FX, "IridescenceOn", true, "The thin-film rainbow on rims (Tier B).");
+            FxChromaOn = cfg.Bind(FX, "ChromaticAberrationOn", true, "Colour fringing of the frosted backdrop (needs Tier C).");
+            FxHairlineMin = cfg.Bind(FX, "HairlineMinWidth", 0.15f,
+                new ConfigDescription("Thinnest drawable line width in px. Below 1px lines render 1px wide " +
+                    "and FADE by coverage instead of vanishing (phone-wire AA).",
+                    new AcceptableValueRange<float>(0.05f, 1f)));
+            FxEdgeLight = cfg.Bind(FX, "EdgeLightStrength", 0.55f,
+                new ConfigDescription("Directional edge-light on drawn lines: brighter where the stroke " +
+                    "faces the key light, matching the panel borders. 0 = flat strokes.",
+                    new AcceptableValueRange<float>(0f, 2f)));
+            FxEdgeRipple = cfg.Bind(FX, "EdgeRipple", 0.45f,
+                new ConfigDescription("Irregular light/dark shimmer ALONG borders and lines (the concept art's " +
+                    "'random glowy' look). 0 = the smooth single-light run. Above ~1.4 the shimmer " +
+                    "overdrives: dark troughs clip to fully dark and bright crests overshoot.",
+                    new AcceptableValueRange<float>(0f, 2.5f)));
+            FxEdgeRippleFreq = cfg.Bind(FX, "EdgeRippleFrequency", 2f,
+                new ConfigDescription("Shimmer frequency — higher = light/dark repeats more often along the edge.",
+                    new AcceptableValueRange<float>(0.5f, 8f)));
+            FxBorderFadeOn = cfg.Bind(FX, "BorderFadeOn", true, "Unlit border sections dissolve away.");
+            FxSoftEdgeOn = cfg.Bind(FX, "SoftEdgeOn", true, "Panel fills melt softly outward.");
+            FxGlowOn = cfg.Bind(FX, "GlowOn", false,
+                "Luminous halo around frames. OFF by default: halos of overlapping elements stack, " +
+                "so it reads best enabled per-element (or globally on sparse layouts) at low strength.");
+            FxBorderFade = cfg.Bind(FX, "BorderFade", 0.35f,
+                new ConfigDescription("How much unlit border sections DISSOLVE: 0 = solid outline everywhere, " +
+                    "1 = only the lit parts of the frame exist (concept-art look).",
+                    new AcceptableValueRange<float>(0f, 1f)));
+            FxSoftEdge = cfg.Bind(FX, "SoftEdgePx", 0f,
+                new ConfigDescription("Soft outer fade of panel fills, px — boxes melt into each other " +
+                    "instead of ending crisply. 0 = classic crisp AA edge.",
+                    new AcceptableValueRange<float>(0f, 48f)));
+            FxGlow = cfg.Bind(FX, "GlowStrength", 0.3f,
+                new ConfigDescription("Luminous halo OUTSIDE frames, tinted by each element's own accent — " +
+                    "warning chips bleed their colour onto the glass around them.",
+                    new AcceptableValueRange<float>(0f, 2f)));
+            FxGlowInner = cfg.Bind(FX, "GlowInnerStrength", 0.25f,
+                new ConfigDescription("The same glow mirrored INTO the box: the frame's light bleeds " +
+                    "onto the glass inside it (the concept art's lines that glow both ways). " +
+                    "Independent of the outward strength.",
+                    new AcceptableValueRange<float>(0f, 2f)));
+            FxGlowWidth = cfg.Bind(FX, "GlowWidthPx", 14f,
+                new ConfigDescription("Halo width in px. Wide halos on adjacent elements merge into " +
+                    "grey wash — keep modest on dense layouts.", new AcceptableValueRange<float>(6f, 160f)));
+            FxGlowDiffuse = cfg.Bind(FX, "GlowDiffuse", 0.5f,
+                new ConfigDescription("How DIFFUSE the halo is: 0 hugs the frame as a tight rim glow, " +
+                    "1 spreads it into a wide soft haze — dimmer at the frame, reaching further out, " +
+                    "wrapping more of the perimeter, and free of the ripple's radial streaks. " +
+                    "Pair high values with a larger GlowWidthPx.",
+                    new AcceptableValueRange<float>(0f, 1f)));
+            FxPulseSpeed = cfg.Bind(FX, "PulseSpeedHz", 0.5f,
+                new ConfigDescription("Breathing-pulse rate for elements that opt in, cycles per second.",
+                    new AcceptableValueRange<float>(0.05f, 3f)));
+            FxPulseDepth = cfg.Bind(FX, "PulseDepth", 0.25f,
+                new ConfigDescription("How deep the dim half of the pulse goes (0 = imperceptible, 1 = to black).",
+                    new AcceptableValueRange<float>(0f, 1f)));
+            FxShine = cfg.Bind(FX, "ShineStrength", 0.6f,
+                new ConfigDescription("Global strength of the light sweep that travels across panels.",
+                    new AcceptableValueRange<float>(0f, 2f)));
+            FxShinePeriod = cfg.Bind(FX, "ShinePeriodSeconds", 9f,
+                new ConfigDescription("Seconds between shine sweeps.",
+                    new AcceptableValueRange<float>(2f, 60f)));
+            FxIridescence = cfg.Bind(FX, "IridescenceStrength", 0.25f,
+                new ConfigDescription("Subtle thin-film rainbow on glass edges. Keep low — it's a whisper.",
+                    new AcceptableValueRange<float>(0f, 1f)));
+            FxChroma = cfg.Bind(FX, "ChromaticAberration", 0.3f,
+                new ConfigDescription("Colour fringing toward panel rims (0 = off).",
+                    new AcceptableValueRange<float>(0f, 1f)));
+            FxDissolveBoot = cfg.Bind(FX, "DissolveOnBoot", true,
+                "Elements power on with a travelling dissolve frontier during boot/power transitions " +
+                "(needs the shader bundle; falls back to the classic flicker otherwise).");
+            FrostDownsample = cfg.Bind(FX, "FrostDownsample", 4f,
+                new ConfigDescription("Frost blur RT divisor: 4 = quarter resolution (cheapest good look).",
+                    new AcceptableValueList<float>(2f, 4f, 8f)));
+            FrostUpdateEveryN = cfg.Bind(FX, "FrostUpdateEveryNFrames", 2,
+                new ConfigDescription("Re-blur the backdrop every N frames (the world changes slowly).",
+                    new AcceptableValueRange<int>(1, 8)));
+            FrostDarken = cfg.Bind(FX, "FrostDarken", 0.75f,
+                new ConfigDescription("How much the world behind glass panels darkens (0..1).",
+                    new AcceptableValueRange<float>(0f, 1f)));
+            FrostTint = cfg.Bind(FX, "FrostTint", "#B6BCC2",
+                "Tint of the frosted backdrop, #RRGGBB. Default is a cool GRAY (FlorpyDorp: grayer " +
+                "than the concept art's blue-black); edit freely.");
+
+            FxBloomOn = cfg.Bind(FX, "BloomOn", false,
+                "HUD light bleed — bright borders/text/chips glow onto neighbouring elements; routes " +
+                "the HUD through a render texture. Works in every curvature mode (flat/vertex-warp " +
+                "are forced onto the RT path while it is on).");
+            FxBloomStrength = cfg.Bind(FX, "BloomStrength", 0.8f,
+                new ConfigDescription("How strongly the extracted glow is added back onto the HUD.",
+                    new AcceptableValueRange<float>(0f, 3f)));
+            FxBloomThreshold = cfg.Bind(FX, "BloomThreshold", 0.55f,
+                new ConfigDescription("Brightness (max of R/G/B) a HUD pixel must exceed to bloom. " +
+                    "Lower = more of the HUD glows; higher = only the brightest accents.",
+                    new AcceptableValueRange<float>(0f, 1.5f)));
+            FxBloomKnee = cfg.Bind(FX, "BloomKnee", 0.5f,
+                new ConfigDescription("Soft-knee width as a fraction of the threshold: 0 = a hard " +
+                    "cutoff, 1 = a wide smooth ramp so edges fade into bloom instead of popping.",
+                    new AcceptableValueRange<float>(0f, 1f)));
+            FxBloomBlurSteps = cfg.Bind(FX, "BloomBlurSteps", 3,
+                new ConfigDescription("Blur pyramid depth: higher = a wider, softer, more expensive " +
+                    "halo. Each step DOUBLES the reach (it halves the resolution once more) — for " +
+                    "fine width control between steps use BloomSpread, which is continuous.",
+                    new AcceptableValueRange<int>(1, 5)));
+            FxBloomFineDetail = cfg.Bind(FX, "BloomFineDetail", true,
+                "Thin borders and drawn LINES survive into the bloom: the bright-pass runs at half " +
+                "resolution instead of quarter, so 1-2px features aren't averaged below the " +
+                "threshold before extraction (play-test: 'border edges of boxes don't get bloom'). " +
+                "Slightly more expensive; the glow's reach also tightens — add a blur step to match.");
+            FxBloomSpread = cfg.Bind(FX, "BloomSpread", 1.5f,
+                new ConfigDescription("Continuous glow width WITHIN a step count (the blur's sample " +
+                    "spread): the fine-adjust between the doubling jumps of BloomBlurSteps. Above ~2.2 " +
+                    "on few steps the blur can shimmer slightly on thin lines.",
+                    new AcceptableValueRange<float>(0.5f, 3f)));
+            FxBloomSaturation = cfg.Bind(FX, "BloomSaturation", 1f,
+                new ConfigDescription("Glow colour: 0 = white-hot monochrome halo, 1 = the HUD's own " +
+                    "hues, up to 2 = oversaturated neon.",
+                    new AcceptableValueRange<float>(0f, 2f)));
+            FxBloomTint = cfg.Bind(FX, "BloomTint", "#FFFFFF",
+                "Tint multiplied into the glow, #RRGGBB. White = untinted; try a pale cyan for a " +
+                "hologram cast.");
 
             HudPalette.Bind(cfg);
         }

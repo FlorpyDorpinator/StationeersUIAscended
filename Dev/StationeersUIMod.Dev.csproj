@@ -33,8 +33,11 @@
   <ItemGroup>
     <!-- The real mod sources (same set Unity's asmdef compiles) -->
     <Compile Include="..\Assets\Scripts\StationeersUIMod\**\*.cs" />
-    <!-- Dev-only ScriptEngine bridge; never part of the Unity/SLP build -->
-    <Compile Include="ScriptEngineLoader.cs" />
+    <!-- Dev-only ScriptEngine bridge — DEBUG BUILDS ONLY. The 0.8.0 zip shipped a DLL with
+         this shim compiled in, and under SLP the shim's Awake initialized the mod FIRST with
+         an empty prefab list + its own config file, swallowing SLP's proper DefaultEntrypoint
+         call (adversarial audit 2026-07-13). Release builds are the shippable SLP DLL. -->
+    <Compile Include="ScriptEngineLoader.cs" Condition="'$(Configuration)' == 'Debug'" />
   </ItemGroup>
 
   <ItemGroup>
@@ -71,6 +74,10 @@
     <Reference Include="UnityEngine.ImageConversionModule" Private="false">
       <HintPath>$(Managed)\UnityEngine.ImageConversionModule.dll</HintPath>
     </Reference>
+    <!-- HudShaderStore: the uia_effects.bundle (Tier B/C shaders) loads via AssetBundle -->
+    <Reference Include="UnityEngine.AssetBundleModule" Private="false">
+      <HintPath>$(Managed)\UnityEngine.AssetBundleModule.dll</HintPath>
+    </Reference>
     <!-- Procedural UGUI radial: MaskableGraphic / Image / Canvas + TMP labels -->
     <Reference Include="UnityEngine.UI" Private="false">
       <HintPath>$(Managed)\UnityEngine.UI.dll</HintPath>
@@ -99,10 +106,20 @@
     </Reference>
   </ItemGroup>
 
-  <!-- Deploy to ScriptEngine's watch folder for F6 / auto hot reload -->
+  <!-- Deploy to ScriptEngine's watch folder for F6 / auto hot reload.
+       TWO installs get the DLL: the Steam beta (primary) and the Desktop copy FlorpyDorp
+       keeps for when the RW dev server lags the latest beta. The second copy is guarded by
+       Exists() so builds never fail if that install moves/disappears. -->
+  <PropertyGroup>
+    <GameDir2>C:\Users\<user>\Desktop\Stationeers_beta</GameDir2>
+  </PropertyGroup>
   <Target Name="HotReload" AfterTargets="Build" Condition="'$(Configuration)' == 'Debug'">
     <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(GameDir)\BepInEx\scripts" />
     <Message Text="Hot-reload: $(TargetPath) -> $(GameDir)\BepInEx\scripts (press F6 in game)" Importance="high" />
+    <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(GameDir2)\BepInEx\Scripts"
+          Condition="Exists('$(GameDir2)\BepInEx')" />
+    <Message Text="Hot-reload: $(TargetPath) -> $(GameDir2)\BepInEx\Scripts (2nd install)"
+             Importance="high" Condition="Exists('$(GameDir2)\BepInEx')" />
   </Target>
 
 </Project>

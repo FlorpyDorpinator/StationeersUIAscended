@@ -34,6 +34,20 @@ namespace StationeersUIMod.UI
         private static TextMeshProUGUI _pageSat;
         private static float _openAnim;
 
+        // --- 0.9.0 radial glass FX (frosted backdrop + sheen/edge-light). Resolved once per
+        // Render, pushed onto every wedge and the close band. Statics so the nested RingView and
+        // UpdateCloseButton read one consistent frame's state.
+        private static bool _fxFrostActive;    // assign the shared glass material to wedges this frame
+        private static float _fxFrostStrength; // uv0.x volume when active, else 0
+        private static float _fxSheen;
+        private static float _fxEdgeLight;
+        private static bool _fxDemand;         // a frost-enabled radial is visible (backdrop demand)
+
+        /// <summary>True while a frost-enabled radial is on screen and the HUD's Tier C master is on.
+        /// HudSystem folds this into its backdrop gate so the blurred-screen capture keeps running for
+        /// the radial even when the HUD's own elements wouldn't ask for it. Cleared on Hide/Shutdown.</summary>
+        public static bool RadialFrostWanted => _fxDemand;
+
         // ---------- public API ----------
 
         public static void Render(Vector2 center, float innerR, float outerR,
@@ -47,6 +61,7 @@ namespace StationeersUIMod.UI
             EnsureCanvas();
             _group.alpha = 1f;
             _canvas.gameObject.SetActive(true);
+            UpdateRadialFx();
             UpdateCloseButton(center, innerR, closeHovered);
             UpdatePageLabel(_pageMain, pageText, center, outerR + 24f);
             UpdatePageLabel(_pageSat, satPageText, satCenter ?? center, satOuterR + 18f);
@@ -83,9 +98,15 @@ namespace StationeersUIMod.UI
 
         public static void Hide()
         {
+            _fxDemand = false; // no visible radial ⇒ drop backdrop demand (HudSystem stands it down)
             if (_canvas == null) return;
             _canvas.gameObject.SetActive(false);
             _openAnim = 0f;
+            // Hand every wedge back to the stock UI material so a pooled wedge never keeps the glass
+            // material while hidden (idempotent; a no-op when nothing was assigned).
+            _main?.ClearFx();
+            _satellite?.ClearFx();
+            Hud.HudFxMaterials.Unassign(_closeBand);
         }
 
         /// <summary>Full teardown — required for clean ScriptEngine hot reloads.</summary>
@@ -106,6 +127,49 @@ namespace StationeersUIMod.UI
             _font = null;
             _fontFor = null;
             _openAnim = 0f;
+            _fxDemand = false;
+            _fxFrostActive = false;
+            _fxFrostStrength = 0f;
+        }
+
+        // ---------- 0.9.0 glass FX ----------
+
+        /// <summary>Resolve this frame's radial glass-FX state from config + Tier C availability, and
+        /// declare backdrop demand. Cheap (a handful of reads); called once per Render.</summary>
+        private static void UpdateRadialFx()
+        {
+            _fxSheen = UIAConfig.RadialSheen != null ? UIAConfig.RadialSheen.Value : 0f;
+            _fxEdgeLight = UIAConfig.RadialEdgeLight != null ? UIAConfig.RadialEdgeLight.Value : 0f;
+
+            // Demand = the user wants frost AND the HUD's Tier C master is on. Set true even before
+            // the backdrop is running so HudSystem's gate spins the capture up for us; the material
+            // assignment below then engages once it is Active + the bundle resolved.
+            bool frostCfg = UIAConfig.RadialFrost != null && UIAConfig.RadialFrost.Value
+                && Hud.HudConfig.FxTierC != null && Hud.HudConfig.FxTierC.Value;
+            _fxDemand = frostCfg;
+
+            _fxFrostActive = frostCfg && Hud.HudBackdrop.Active
+                && HudShaderStore.TierBAvailable && Hud.HudFxMaterials.Available;
+            _fxFrostStrength = _fxFrostActive
+                ? (UIAConfig.RadialFrostStrength != null ? UIAConfig.RadialFrostStrength.Value : 0.85f)
+                : 0f;
+        }
+
+        /// <summary>Push this frame's glass FX onto one wedge (or the close band): sheen/edge-light are
+        /// pure vertex colour (always applied, default 0 = the flat look), the shared glass material is
+        /// assigned only while frost is active. Idempotent + per-frame cheap — the setters are
+        /// dirty-guarded and Assign/Unassign are dictionary lookups.</summary>
+        private static void ApplyWedgeFx(RadialWedgeGraphic w)
+        {
+            if (w == null) return;
+            w.Sheen = _fxSheen;
+            w.EdgeLight = _fxEdgeLight;
+            w.FxStrength = _fxFrostStrength;
+            if (_fxFrostActive)
+            {
+                if (!Hud.HudFxMaterials.Assign(w, "glass")) Hud.HudFxMaterials.Unassign(w);
+            }
+            else Hud.HudFxMaterials.Unassign(w);
         }
 
         // ---------- infrastructure ----------
@@ -206,6 +270,7 @@ namespace StationeersUIMod.UI
             _closeBand.BorderColor = RadialPalette.HubBorder.Value;
             _closeBand.color = hovered ? RadialPalette.HubCloseHover.Value : RadialPalette.HubCloseFill.Value;
             _closeBand.RimHighlight = 0f;
+            ApplyWedgeFx(_closeBand);
             _closeBand.RefreshGeometry();
 
             SyncFont(_closeLabel);
@@ -342,6 +407,13 @@ namespace StationeersUIMod.UI
 
             public void Hide() => _root.gameObject.SetActive(false);
 
+            /// <summary>Hand every pooled wedge back to the stock UI material (radial closed).</summary>
+            public void ClearFx()
+            {
+                for (int i = 0; i < _wedges.Count; i++)
+                    Hud.HudFxMaterials.Unassign(_wedges[i]);
+            }
+
             public void Render(Vector2 center, float innerR, float outerR,
                 IList<RadialEntry> entries, int hovered, float openAnim, bool dimmed,
                 DynamicThing dragging)
@@ -373,7 +445,7 @@ namespace StationeersUIMod.UI
                     _states[i].gameObject.SetActive(used);
                     _triUp[i].gameObject.SetActive(used);
                     _triDown[i].gameObject.SetActive(used);
-                    if (!used) { _swipe[i].gameObject.SetActive(false); _hotkey[i].gameObject.SetActive(false); continue; }
+                    if (!used) { _swipe[i].gameObject.SetActive(false); _hotkey[i].gameObject.SetActive(false); Hud.HudFxMaterials.Unassign(_wedges[i]); continue; }
 
                     var entry = entries[i];
                     var wedge = _wedges[i];
@@ -431,6 +503,10 @@ namespace StationeersUIMod.UI
                     float shineTarget = (isHovered ? 0.55f : 0.10f) * shineIntensity;
                     wedge.RimHighlight = Mathf.Lerp(wedge.RimHighlight, shineTarget, dt * AnimSpeed);
 
+                    // 0.9.0 glass FX (frost material + sheen/edge-light) — set before the rebuild
+                    // below bakes sheen/edge-light/FxStrength into the mesh.
+                    ApplyWedgeFx(wedge);
+
                     // Any geometry property (bulge/border/rim) changed -> rebuild mesh this frame
                     wedge.RefreshGeometry();
 
@@ -466,20 +542,30 @@ namespace StationeersUIMod.UI
                         sw.SetVerticesDirty();
                     }
 
-                    // #4: the bound hotkey letter, badged near the HUB (inner) side of a
-                    // setting wedge. Set before the scroll-wedge early-return so scroll
+                    // The bound-hotkey badge near the HUB (inner) side of a wedge: a device
+                    // SETTING wedge shows its bound LETTER (#4); a bindable BAG shows its
+                    // Ctrl+digit as "^N" (#3). Set before the scroll-wedge early-return so scroll
                     // settings (suit pressure/temp) show their letter too.
                     var hk = _hotkey[i];
-                    char letter = entry.CanHotkey ? Core.WedgeHotkeys.LetterFor(entry.HotkeyInteractable) : '\0';
-                    bool showHk = letter != '\0';
+                    string badge = null;
+                    if (entry.CanHotkey)
+                    {
+                        char letter = Core.WedgeHotkeys.LetterFor(entry.HotkeyInteractable);
+                        if (letter != '\0') badge = letter.ToString();
+                    }
+                    else if (entry.BindableBag != null)
+                    {
+                        int digit = global::StationeersUIMod.Features.BagHotkeyStore.DigitForBag(entry.BindableBag);
+                        if (digit >= 0) badge = "^" + digit; // ^ = Ctrl
+                    }
+                    bool showHk = badge != null;
                     hk.gameObject.SetActive(showHk);
                     if (showHk)
                     {
                         hk.rectTransform.anchoredPosition = dir * (innerR + 11f);
                         var hkc = RadialPalette.TextPrimary.Value; hkc.a *= (dimmed ? 0.5f : 1f);
                         hk.color = hkc;
-                        string ls = letter.ToString();
-                        if (hk.text != ls) hk.text = ls;
+                        if (hk.text != badge) hk.text = badge;
                     }
 
                     // Icons scale WITH the wedge: bounded by the band's thickness and by the
@@ -547,10 +633,31 @@ namespace StationeersUIMod.UI
                     float chord = 2f * midR * Mathf.Sin(halfAngle);
                     float boxW = Mathf.Clamp(Mathf.Abs(Mathf.Cos(aMid)) * ringWidth + Mathf.Abs(Mathf.Sin(aMid)) * chord - 6f,
                                              42f, ringWidth * 2.5f);
+                    label.rectTransform.localEulerAngles = Vector3.zero; // pooled label: clear prior rotation
+                    label.enableWordWrapping = true;                    // ...and prior no-wrap
                     if (sprite == null)
                     {
-                        // Text-only wedge (STOW, controls): the label owns the middle of the band.
-                        label.rectTransform.sizeDelta = new Vector2(boxW, ringWidth * 0.5f);
+                        // #5: a long control label ("STABILIZER OFF") overflows a narrow wedge when
+                        // drawn flat. Angle it along the wedge's radial spoke (kept upright, one line)
+                        // so it runs down the band's length instead of clipping out the sides. Gated
+                        // on a genuinely long label and a not-very-wide wedge (few-wedge rings, where
+                        // the label already fits, stay flat).
+                        float radialLen = ringWidth + (isHovered ? HoverBulge : 0f);
+                        bool rotate = (UIAConfig.RadialRotateLongLabels == null || UIAConfig.RadialRotateLongLabels.Value)
+                            && WedgeText(entry.Label).Length >= 10
+                            && boxW < ringWidth * 1.5f;
+                        if (rotate)
+                        {
+                            float angDeg = Mathf.Atan2(dir.y, dir.x) * Mathf.Rad2Deg;
+                            if (angDeg > 90f) angDeg -= 180f; else if (angDeg < -90f) angDeg += 180f;
+                            label.rectTransform.localEulerAngles = new Vector3(0f, 0f, angDeg);
+                            label.rectTransform.sizeDelta = new Vector2(radialLen * 1.05f, ringWidth * 0.42f);
+                            label.enableWordWrapping = false; // run as one line down the spoke
+                        }
+                        else
+                        {
+                            label.rectTransform.sizeDelta = new Vector2(boxW, ringWidth * 0.5f);
+                        }
                         label.rectTransform.anchoredPosition = slot;
                         label.alignment = TextAlignmentOptions.Center;
                     }
@@ -651,6 +758,7 @@ namespace StationeersUIMod.UI
                 Color border = !entry.Enabled
                     ? RadialPalette.WedgeDisabled.Value
                     : entry.GroupStyle ? RadialPalette.GroupWedgeBorder.Value
+                    : entry.DeviceSlotStyle && !hovered ? RadialPalette.DeviceSlotBorderColor.Value
                     : hovered ? RadialPalette.WedgeBorderHover.Value
                               : RadialPalette.WedgeBorder.Value;
                 if (dimmed) border.a *= 0.55f;
@@ -800,6 +908,22 @@ namespace StationeersUIMod.UI
                 float s = Mathf.Clamp(innerR / 110f, 0.45f, 1f);
 
                 SyncFont(_title); SyncFont(_verb); SyncFont(_label); SyncFont(_sub); SyncFont(_warn);
+
+                // #5: each of the five readout lines is sized separately (line 1 bold), applied to
+                // BOTH the main hub and the child (satellite) readout. When dynamic-text is on, the
+                // sizes scale with the hub (s) so a small child hub never overlaps its lines while
+                // the big main hub stays full-size; off = fixed sizes everywhere.
+                float textScale = (UIAConfig.RadialDynamicReadoutText == null || UIAConfig.RadialDynamicReadoutText.Value) ? s : 1f;
+                float tSz = (UIAConfig.RadialHubTitleSize != null ? UIAConfig.RadialHubTitleSize.Value : 18f) * textScale;
+                float vSz = (UIAConfig.RadialTextVerb != null ? UIAConfig.RadialTextVerb.Value : 15f) * textScale;
+                float lSz = (UIAConfig.RadialTextLabel != null ? UIAConfig.RadialTextLabel.Value : 15f) * textScale;
+                float sSz = (UIAConfig.RadialTextSub != null ? UIAConfig.RadialTextSub.Value : 12f) * textScale;
+                float wSz = (UIAConfig.RadialTextWarn != null ? UIAConfig.RadialTextWarn.Value : 12f) * textScale;
+                _title.fontSizeMax = tSz; _title.fontSizeMin = Mathf.Min(8f, tSz); _title.fontStyle = WedgeFontStyle();
+                _verb.fontSizeMax = vSz; _verb.fontSizeMin = Mathf.Min(8f, vSz);
+                _label.fontSizeMax = lSz; _label.fontSizeMin = Mathf.Min(8f, lSz);
+                _sub.fontSizeMax = sSz; _sub.fontSizeMin = Mathf.Min(8f, sSz);
+                _warn.fontSizeMax = wSz; _warn.fontSizeMin = Mathf.Min(8f, wSz);
 
                 if (_hubBacking != null)
                 {

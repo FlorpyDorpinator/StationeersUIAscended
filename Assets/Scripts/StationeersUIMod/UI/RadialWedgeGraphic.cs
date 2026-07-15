@@ -12,7 +12,7 @@ namespace StationeersUIMod.UI
     /// on every free edge IS the anti-aliasing.
     /// </summary>
     [RequireComponent(typeof(CanvasRenderer))]
-    public sealed class RadialWedgeGraphic : MaskableGraphic, ICanvasRaycastFilter
+    public sealed class RadialWedgeGraphic : MaskableGraphic, ICanvasRaycastFilter, Hud.IHudFxGraphic
     {
         private float _innerR = 90f;
         private float _outerR = 200f;
@@ -28,6 +28,53 @@ namespace StationeersUIMod.UI
         public Color BorderColor { get; set; } = Color.clear;
 
         public float RimHighlight { get; set; } = 0f;
+
+        // ── 0.9.0 glass FX (mirrors PanelGraphic). All default 0 → the exact pre-0.9.0 vertex
+        // output, so a rebuild at defaults is byte-identical (uv0.x stays 0, unread by the stock
+        // UI material; sheen/edge-light helpers early-return).
+        private float _fxStrength;
+        private float _sheen;
+        private float _edgeLight;
+
+        /// <summary>0..1 per-element effect strength baked into uv0.x on every vertex (see
+        /// <see cref="Hud.IHudFxGraphic"/>). 0 leaves uv0.x at 0, which the stock UI material never
+        /// samples, so the wedge renders identically until the shared glass FX material (the frosted
+        /// backdrop) is assigned and reads the channel.</summary>
+        public float FxStrength
+        {
+            get => _fxStrength;
+            set
+            {
+                value = float.IsNaN(value) ? 0f : Mathf.Clamp01(value);
+                if (!Mathf.Approximately(_fxStrength, value)) { _fxStrength = value; SetVerticesDirty(); }
+            }
+        }
+
+        /// <summary>0..1 — milky whitening baked into the fill toward the OUTER rim (like
+        /// <c>PanelGraphic.FillAt</c> whitens toward the top): the wedge reads as smoked glass
+        /// catching light. Pure vertex colour — warps/fades/batches like the flat wedge. 0 = off.</summary>
+        public float Sheen
+        {
+            get => _sheen;
+            set
+            {
+                value = float.IsNaN(value) ? 0f : Mathf.Clamp01(value);
+                if (!Mathf.Approximately(_sheen, value)) { _sheen = value; SetVerticesDirty(); }
+            }
+        }
+
+        /// <summary>0..1 — directional rim brightening where a wedge's outward direction faces the
+        /// PanelGraphic key light (upper-left): the rim/border whitens toward the light, matching the
+        /// HUD panels' edge light. Pure vertex colour, gated to the rim by the uv0.y marker. 0 = off.</summary>
+        public float EdgeLight
+        {
+            get => _edgeLight;
+            set
+            {
+                value = float.IsNaN(value) ? 0f : Mathf.Clamp01(value);
+                if (!Mathf.Approximately(_edgeLight, value)) { _edgeLight = value; SetVerticesDirty(); }
+            }
+        }
 
         /// <summary>Draw the border along the straight side edges too (full wedge outline).</summary>
         public bool SideBorders { get; set; }
@@ -91,6 +138,11 @@ namespace StationeersUIMod.UI
                 outerFill.a = fill.a;
             }
 
+            // Sheen: whiten the fill toward the OUTER rim (mirrors PanelGraphic.FillAt toward the
+            // top). The inner stop keeps the base fill; whitening only the outer fill leaves a linear
+            // gradient across the band that reads as glass catching light. No-op at Sheen 0.
+            outerFill = SheenAt(outerFill, 1f);
+
             // ---- radial stops, inner -> outer, each with its colour ----
             // Both sides of the border band ramp: an alpha-0 fringe outside, and a colour
             // ramp from the fill on the inside (a zero-width jump from translucent navy to
@@ -112,6 +164,13 @@ namespace StationeersUIMod.UI
                 _stopR[stops] = outer;      _stopC[stops++] = outerFill;
                 _stopR[stops] = outer + f;  _stopC[stops++] = Fade(outerFill);
             }
+
+            // uv0.y rim marker per stop (0 = inner/fill … 1 = outer rim/border), baked next to
+            // FxStrength in uv0. Gates the shared glass material's shader rim effects (shine /
+            // iridescence) AND the local EdgeLight so only the rim/border brightens.
+            float ringSpan = Mathf.Max(1f, outer - inner);
+            for (int s = 0; s < stops; s++)
+                _stopM[s] = Mathf.Clamp01((_stopR[s] - inner) / ringSpan);
 
             // ---- angular columns, a0 -> a1 ----
             // Side lines are TRUE PIXEL widths: the border/fill boundary sits at angular
@@ -168,8 +227,9 @@ namespace StationeersUIMod.UI
                         bc.a = c.a <= 0.001f ? 0f : border.a;
                         c = Color.Lerp(bc, c, blend);
                     }
+                    c = EdgeLit(c, EdgeLightWeight(dir), _stopM[s]);
                     c.a *= alphaMul;
-                    vh.AddVert(dir * _stopR[s], c, new Vector2(0f, s));
+                    vh.AddVert(dir * _stopR[s], c, new Vector2(_fxStrength, _stopM[s]));
                 }
                 colCount++;
             }
@@ -211,13 +271,54 @@ namespace StationeersUIMod.UI
 
         private static readonly float[] _stopR = new float[6];
         private static readonly Color[] _stopC = new Color[6];
+        private static readonly float[] _stopM = new float[6];   // uv0.y rim markers (0 inner … 1 rim)
 
         private static Color Fade(Color c) { c.a = 0f; return c; }
 
-        private static void EmitColumn(VertexHelper vh, float angle, float blend, float alphaMul,
+        /// <summary>Sheen whitening at radial fraction t (0 inner … 1 rim), mirroring
+        /// <c>PanelGraphic.FillAt</c>: quadratic so the inner body stays dark. No-op at Sheen 0.</summary>
+        private Color SheenAt(Color c, float t)
+        {
+            if (_sheen <= 0.004f) return c;
+            float w = _sheen * 0.30f * t * t;
+            c.r += (1f - c.r) * w;
+            c.g += (1f - c.g) * w;
+            c.b += (1f - c.b) * w;
+            c.a = Mathf.Min(1f, c.a * (1f + 0.30f * _sheen * t * t));
+            return c;
+        }
+
+        /// <summary>Directional key-light weight for an outward direction, using the SAME key light
+        /// as the HUD panels (<c>PanelGraphic.LightX/LightY</c>, upper-left): a cubic key-light catch
+        /// plus a faint opposing rim. 0 when EdgeLight is off (keeps the default path allocation-free).</summary>
+        private float EdgeLightWeight(Vector2 dir)
+        {
+            if (_edgeLight <= 0.004f) return 0f;
+            float dot = dir.x * Hud.PanelGraphic.LightX + dir.y * Hud.PanelGraphic.LightY;
+            float k1 = Mathf.Max(0f, dot);
+            float k2 = Mathf.Max(0f, -dot);
+            return k1 * k1 * k1 + 0.125f * k2 * k2 * k2;
+        }
+
+        /// <summary>Whiten a rim colour by the edge-light weight, gated by the uv0.y marker so only
+        /// the rim/border brightens (mirrors <c>PanelGraphic.BorderAt</c>'s spec run). A fully
+        /// transparent stop (the alpha-0 fringe) is left untouched so the AA fade never re-solidifies.</summary>
+        private Color EdgeLit(Color c, float lw, float marker)
+        {
+            if (lw <= 0f || _edgeLight <= 0.004f || c.a <= 0.001f) return c;
+            float ws = Mathf.Clamp01(lw * _edgeLight * 1.6f) * marker;
+            c.r += (1f - c.r) * ws;
+            c.g += (1f - c.g) * ws;
+            c.b += (1f - c.b) * ws;
+            c.a += (1f - c.a) * ws * 0.85f;
+            return c;
+        }
+
+        private void EmitColumn(VertexHelper vh, float angle, float blend, float alphaMul,
             int stops, Color border)
         {
             var dir = new Vector2(Mathf.Cos(angle), -Mathf.Sin(angle));
+            float lw = EdgeLightWeight(dir);
             for (int s = 0; s < stops; s++)
             {
                 Color c = _stopC[s];
@@ -229,8 +330,9 @@ namespace StationeersUIMod.UI
                     bc.a = c.a <= 0.001f ? 0f : border.a;
                     c = Color.Lerp(bc, c, blend);
                 }
+                c = EdgeLit(c, lw, _stopM[s]);
                 c.a *= alphaMul;
-                vh.AddVert(dir * _stopR[s], c, new Vector2(0f, s));
+                vh.AddVert(dir * _stopR[s], c, new Vector2(_fxStrength, _stopM[s]));
             }
         }
 

@@ -26,9 +26,33 @@ namespace StationeersUIMod.Windows
         private static string _lastHotSig = "";
         private static Dictionary<string, string> _frameSnapshot;
         private static Dictionary<string, string> _pendingUndo;
+        // Bloom-tint swatch cache: config stores a #RRGGBB string, the wheel wants a vector.
+        private static string _bloomTintStr;
+        private static Vector3 _bloomTintVec = Vector3.one;
+
+        /// <summary>Keep the CURRENT ImGui window on screen: a window resized/dragged past the
+        /// bottom edge became unreachable (play-test) — clamp size to the screen and keep the
+        /// title bar grabbable. Call first thing inside DrawContent (we're inside Begin here,
+        /// so SetWindowSize/Pos with no name act on the current window).</summary>
+        internal static void ClampWindowToScreen()
+        {
+            var sz = ImGui.GetWindowSize();
+            var pos = ImGui.GetWindowPos();
+            float maxW = Screen.width * 0.95f, maxH = Screen.height * 0.92f;
+            if (sz.x > maxW || sz.y > maxH)
+            {
+                sz = new Vector2(Mathf.Min(sz.x, maxW), Mathf.Min(sz.y, maxH));
+                ImGui.SetWindowSize(sz);
+            }
+            float maxX = Mathf.Max(0f, Screen.width - sz.x);
+            float maxY = Mathf.Max(0f, Screen.height - 40f); // keep at least the title bar reachable
+            if (pos.x < 0f || pos.y < 0f || pos.x > maxX || pos.y > maxY)
+                ImGui.SetWindowPos(new Vector2(Mathf.Clamp(pos.x, 0f, maxX), Mathf.Clamp(pos.y, 0f, maxY)));
+        }
 
         public override void DrawContent()
         {
+            ClampWindowToScreen();
             ImGui.TextColored(new Vector4(0.25f, 0.85f, 0.93f, 1f), "VISOR HUD EDITOR");
             ImGui.TextDisabled("Click any HUD element on screen to edit it in place.");
             ImGui.TextDisabled("Hover an element - its colours light up ORANGE below.");
@@ -99,6 +123,105 @@ namespace StationeersUIMod.Windows
                 ImGui.TextDisabled("'Effects' section (also controls Death collapse and Warp).");
             }
 
+            if (ImGui.CollapsingHeader("Effects (global) — 0.9.0"))
+            {
+                ImGui.TextColored(new Vector4(0.25f, 0.85f, 0.93f, 1f), "TIER A — mesh effects (cheap)");
+                Toggle(HudConfig.FxTierA, "Enable Tier A (all mesh effects)");
+                Toggle(HudConfig.FxHairlinesOn, "Hairlines (sub-1px lines fade, not vanish)");
+                FloatSlider(HudConfig.FxHairlineMin, "  thinnest line (px)", 0.05f, 1f);
+                Toggle(HudConfig.FxEdgeLightOn, "Edge light (borders + lines)");
+                FloatSlider(HudConfig.FxEdgeLight, "  edge-light strength", 0f, 2f);
+                FloatSlider(HudConfig.FxEdgeRipple, "  ripple (irregular shimmer)", 0f, 2.5f);
+                FloatSlider(HudConfig.FxEdgeRippleFreq, "  ripple frequency", 0.5f, 8f);
+                Toggle(HudConfig.FxPulseOn, "Pulse (elements still opt in individually)");
+                FloatSlider(HudConfig.FxPulseSpeed, "  pulse speed (Hz)", 0.05f, 3f);
+                FloatSlider(HudConfig.FxPulseDepth, "  pulse depth", 0f, 1f);
+                ImGui.TextDisabled("The concept-art look (global defaults; per-element overrides in each popup):");
+                Toggle(HudConfig.FxBorderFadeOn, "Border fade (unlit sections dissolve)");
+                FloatSlider(HudConfig.FxBorderFade, "  border fade amount", 0f, 1f);
+                Toggle(HudConfig.FxSoftEdgeOn, "Soft edge (boxes melt together)");
+                FloatSlider(HudConfig.FxSoftEdge, "  soft edge width (px)", 0f, 48f);
+                Toggle(HudConfig.FxGlowOn, "Glow halo");
+                FloatSlider(HudConfig.FxGlow, "  glow outward strength", 0f, 2f);
+                FloatSlider(HudConfig.FxGlowInner, "  glow inward strength (into the box)", 0f, 2f);
+                FloatSlider(HudConfig.FxGlowWidth, "  glow width (px)", 6f, 160f);
+                FloatSlider(HudConfig.FxGlowDiffuse, "  glow diffuseness (haze)", 0f, 1f);
+
+                ImGui.Separator();
+                ImGui.TextColored(new Vector4(0.25f, 0.85f, 0.93f, 1f),
+                    Core.HudShaderStore.TierBAvailable
+                        ? "TIER B — shader effects"
+                        : "TIER B — shader effects (bundle not loaded — inactive)");
+                Toggle(HudConfig.FxTierB, "Enable Tier B (all shader effects)");
+                Toggle(HudConfig.FxShineOn, "Shine sweep");
+                FloatSlider(HudConfig.FxShine, "  shine strength", 0f, 2f);
+                FloatSlider(HudConfig.FxShinePeriod, "  shine period (seconds)", 2f, 60f);
+                Toggle(HudConfig.FxIridOn, "Iridescence (rim rainbow)");
+                FloatSlider(HudConfig.FxIridescence, "  iridescence strength", 0f, 1f);
+                Toggle(HudConfig.FxChromaOn, "Chromatic aberration (needs Tier C frost)");
+                FloatSlider(HudConfig.FxChroma, "  chroma strength", 0f, 1f);
+                Toggle(HudConfig.FxDissolveBoot, "Dissolve reveal on boot/power transitions");
+
+                ImGui.Separator();
+                ImGui.TextColored(new Vector4(1f, 0.72f, 0.25f, 1f), "TIER C — frosted glass (EXPERIMENTAL)");
+                Toggle(HudConfig.FxTierC, "Enable frosted-glass backdrop (Flat/Warp curvature only)");
+                FloatSlider(HudConfig.FrostDarken, "Frost darkening", 0f, 1f);
+                IntSliderCfg(HudConfig.FrostUpdateEveryN, "Re-blur every N frames", 1, 8);
+                ImGui.TextDisabled("Downsample + tint live in the config (F10) / cfg file.");
+
+                ImGui.Separator();
+                ImGui.TextColored(new Vector4(0.25f, 0.85f, 0.93f, 1f),
+                    HudBloomFx.Available
+                        ? "HUD BLOOM — elements light each other"
+                        : "HUD BLOOM — elements light each other (bundle not loaded — inactive)");
+                Toggle(HudConfig.FxBloomOn, "Enable HUD bloom (routes the HUD through a render texture)");
+                FloatSlider(HudConfig.FxBloomStrength, "  bloom strength", 0f, 3f);
+                FloatSlider(HudConfig.FxBloomThreshold, "  bright threshold", 0f, 1.5f);
+                FloatSlider(HudConfig.FxBloomKnee, "  soft knee", 0f, 1f);
+                IntSliderCfg(HudConfig.FxBloomBlurSteps, "  blur steps (reach doubles per step)", 1, 5);
+                FloatSlider(HudConfig.FxBloomSpread, "  spread (continuous width fine-adjust)", 0.5f, 3f);
+                Toggle(HudConfig.FxBloomFineDetail, "  fine-detail bloom (thin borders + lines glow too)");
+                FloatSlider(HudConfig.FxBloomSaturation, "  glow saturation (0 white-hot, 1 own hues)", 0f, 2f);
+                // Glow tint: the standard hue-wheel swatch (same control as the palette rows).
+                // Stored as #RRGGBB in the cfg so the file stays hand-editable; the cache keeps
+                // the per-frame path parse-free while the header is open.
+                if (HudConfig.FxBloomTint != null)
+                {
+                    string ts = HudConfig.FxBloomTint.Value ?? "#FFFFFF";
+                    if (!ReferenceEquals(ts, _bloomTintStr))
+                    {
+                        _bloomTintStr = ts;
+                        Color tc;
+                        if (!ColorUtility.TryParseHtmlString(ts, out tc)) tc = Color.white;
+                        _bloomTintVec = new Vector3(tc.r, tc.g, tc.b);
+                    }
+                    if (ImGui.ColorEdit3("  glow tint", ref _bloomTintVec, ImGuiColorEditFlags.PickerHueWheel))
+                    {
+                        string hex = "#" + ColorUtility.ToHtmlStringRGB(
+                            new Color(_bloomTintVec.x, _bloomTintVec.y, _bloomTintVec.z, 1f));
+                        HudConfig.FxBloomTint.Value = hex;
+                        _bloomTintStr = hex;
+                    }
+                }
+
+                ImGui.TextDisabled("Measure any of this with the Profiler below (uiaprof ab <effect>).");
+                if (ImGui.Button("Reset ALL per-element effect overrides"))
+                    HudEditorMode.ResetAllElementEffects();
+                ImGui.TextDisabled("Removes every element's own fx settings (one undo step).");
+            }
+
+            if (ImGui.CollapsingHeader("Profiler"))
+            {
+                bool vis = Profiling.ProfilicusUniversalis.IsVisible;
+                if (ImGui.Button(vis ? "Hide profiler window" : "Show profiler window"))
+                    Profiling.ProfilicusUniversalis.SetVisible(!vis);
+                ImGui.SameLine();
+                if (ImGui.Button("Snapshot##prof"))
+                    Profiling.ProfilicusUniversalis.SaveSnapshot();
+                ImGui.TextDisabled("Console: uiaprof [on|off|clear|save|ab <effect>] — ab measures an");
+                ImGui.TextDisabled("effect's real frame cost (ON vs OFF) and prints the delta.");
+            }
+
             if (HudSystem.DocumentMode)
             {
                 if (ImGui.CollapsingHeader("Global style"))
@@ -107,6 +230,12 @@ namespace StationeersUIMod.Windows
                     FloatSlider(HudConfig.CornerRadius, "Default corner rounding (px)", 0f, 28f);
                     FloatSlider(HudConfig.BorderWidth, "Default line thickness (px)", 0f, 6f);
                     FloatSlider(HudConfig.EdgeFeather, "Edge softness / AA (px)", 0f, 4f);
+                    FloatSlider(HudConfig.GlassSheen, "Default glass sheen", 0f, 1f);
+                    FloatSlider(HudConfig.GlassEdge, "Default glass edge light", 0f, 1f);
+                    ImGui.TextDisabled("Per-element glass overrides this (set it to -1 to follow these).");
+                    if (ImGui.Button("Make ALL elements follow global glass"))
+                        HudEditorMode.ResetAllGlassToGlobal();
+                    ImGui.TextDisabled("Clears every element's own sheen/edge (colours & layout untouched).");
                 }
             }
             else if (ImGui.CollapsingHeader("Layout & sizes"))
@@ -127,6 +256,8 @@ namespace StationeersUIMod.Windows
                 FloatSlider(HudConfig.CornerRadius, "Panel corner rounding (px)", 0f, 28f);
                 FloatSlider(HudConfig.BorderWidth, "Panel line thickness (px)", 0f, 6f);
                 FloatSlider(HudConfig.EdgeFeather, "Edge softness / AA (px)", 0f, 4f);
+                FloatSlider(HudConfig.GlassSheen, "Default glass sheen", 0f, 1f);
+                FloatSlider(HudConfig.GlassEdge, "Default glass edge light", 0f, 1f);
             }
 
             if (ImGui.CollapsingHeader("Text"))
@@ -752,6 +883,12 @@ namespace StationeersUIMod.Windows
         {
             float v = entry.Value;
             if (ImGui.SliderFloat(label, ref v, min, max)) entry.Value = v;
+        }
+
+        private static void IntSliderCfg(ConfigEntry<int> entry, string label, int min, int max)
+        {
+            int v = entry.Value;
+            if (ImGui.SliderInt(label, ref v, min, max)) entry.Value = v;
         }
     }
 }

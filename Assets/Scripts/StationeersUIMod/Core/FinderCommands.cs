@@ -90,8 +90,10 @@ namespace StationeersUIMod.Core
         }
     }
 
-    /// <summary>Intercepts our finder commands before vanilla parsing (so no "unknown command");
-    /// everything else passes straight through.</summary>
+    /// <summary>Intercepts our console commands before vanilla parsing (so no "unknown command");
+    /// everything else passes straight through. This prefix is also WHY we never use the game's
+    /// CommandLine.AddCommand: its static _commandsMap survives an F6 hot reload, rejects
+    /// duplicate registration, and has no Remove — a stale entry would drive a dead assembly.</summary>
     [HarmonyPatch(typeof(Util.Commands.CommandLine), "Process", new[] { typeof(string) })]
     internal static class Patch_CommandLine_Process
     {
@@ -103,9 +105,34 @@ namespace StationeersUIMod.Core
                 string cmd = input.TrimStart();
                 if (Matches(cmd, "finddead")) { FinderCommands.FindDead(cmd); return false; }
                 if (Matches(cmd, "findlargebox")) { FinderCommands.FindLargeBox(cmd); return false; }
+                if (Matches(cmd, "uiaprof")) { UiaProfCommand(cmd); return false; }
             }
             catch { }
             return true;
+        }
+
+        /// <summary>`uiaprof [on|off|clear|save|ab &lt;effect&gt;]` — the vendored profiler + the
+        /// A/B cost driver. Read-only diagnostics; the ab subcommand toggles CONFIG values
+        /// (client-side cosmetics only) and restores them when the run completes.</summary>
+        private static void UiaProfCommand(string cmd)
+        {
+            var parts = cmd.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+            string sub = parts.Length >= 2 ? parts[1].ToLowerInvariant() : "toggle";
+            switch (sub)
+            {
+                case "on": ConsoleWindow.Print(Profiling.ProfilicusUniversalis.SetVisible(true), ConsoleColor.Cyan); break;
+                case "off": ConsoleWindow.Print(Profiling.ProfilicusUniversalis.SetVisible(false), ConsoleColor.Cyan); break;
+                case "toggle": ConsoleWindow.Print(Profiling.ProfilicusUniversalis.Toggle(), ConsoleColor.Cyan); break;
+                case "clear": Profiling.ProfilicusUniversalis.Clear(); ConsoleWindow.Print("profiler window cleared.", ConsoleColor.Cyan); break;
+                case "save": ConsoleWindow.Print(Profiling.ProfilicusUniversalis.SaveSnapshot(), ConsoleColor.Cyan); break;
+                case "ab":
+                    if (parts.Length >= 3) UiaAbDriver.Start(parts[2]);
+                    else ConsoleWindow.Print("usage: uiaprof ab <effect>  —  effects: " + UiaAbDriver.KnownEffects, ConsoleColor.Yellow);
+                    break;
+                default:
+                    ConsoleWindow.Print("usage: uiaprof [on|off|clear|save|ab <effect>]", ConsoleColor.Yellow);
+                    break;
+            }
         }
 
         private static bool Matches(string cmd, string name)

@@ -1,0 +1,51 @@
+Ok. I think I am ready for us to attempt to do this but first I will go through each element and describe what I want it to look like and how I want it to function. Then I will give you a chance to build all of it in a new Glassy 2.0 default. This is going to be a very large prompt but I am hopeful that if I give you the opportunity we will be able to build all this properly in one go. 
+
+I am going to break it down element by element and you need to create an md where will track everything and make sure that we are succeeding on each individual element and we will iterate until everything is looking good.
+
+1. The top bar
+  a. Right not the shape isn't right. It need to have angled sides and it needs to stretch across the whole screen. So top right left and top right corner should be wider than the bottom left and bottom right corner and there should be a nice smooth line connecting the corners like in that screenshot I gave you of the art render. That screenshot is in this prompt as well.
+  b. The Top bar should show everything in this order Time | External Pressure 101kpa (with the vanilla presure bar represented horizontally under this here. The vanilla pressure bar should be underneath the External Pressure 101kpa terxt up in that top visor bar) then we have the compass. The compass shouldn't have a box around it. It shoudl just be the compass represented in the middle there fading right into the background of that top bar. th degrees synbol should be underneath the compass but still be inside the top bar | then we have External Temp 20c. (In the vanilla game it shows a little icon like a cold symbol or a hot symbold if it is hot or cold. Steal that function and the icons it uses. It should be External Temperature, then it should show that little icon if it is warranted, then it should show -46 (degree symbol) C) | thjen on the far right we have Day # and thats it. 
+  c. To be clear the shape of thiis bar should be like this below but with curves at the corners  
+  __________________________________________
+  \                                       /
+   \_____________________________________/
+    
+2. Moodlet Bar
+ a. The moodlet bar should be a shape like this \_______________________________________/ very sutble underneath the top bar. It doesn't even need a line that is particularly visible. It should be just lightly visible. The moodlets should be the vanilla moodlet icons.
+ b. there is currently a bug where if the moodlet icon for "suit power low" shows then the moodlet icon for power critical and power low will show. We don't want that. We just want the one icon that the game would show to show. The icon should be much much larger and the text should be smaller and we should be able to control the size of the icon in the f9 editor and control the size of the text and how the text is layered. Like if it is "Power Critical" Power should probably be on top of critiacl to save horizontal space. If the moodlets get too far to the right or left they shouyld start stacking. I want to be able to control the width of this moodlet bar and have these moodlets dynamically respond/
+3. Bottom boxes (hands and 1-6 items)
+ a. Right now these are ok except the number inside each of the 1-6 slots currently is clipping the edge of the box. Please just move it down a bit and to the right a bit. Also make the numbers on that more grey so it isn't so bright.
+ b. We need to have some sort of asset here like:
+  ____________
+ /            \
+   that is over this. It should like fade out on the ends like the screenshot. This is showcasing like the bottom of the visor. I am not confident you can draw that programatically it might have to be a prefab.
+4. Bottom right stuff
+ Preface: This is the big one. We have an incredibl number of issues inside this so lets be really careful here.
+ a. First the 3d guy in the bottom right. Right now he is a circle which is good but he is way too zoomed in. Please make a menu addition in F9 where I can control how close or far that camera is and what the FOV is of that 3d image of our character. 
+ b. Jetpack Box: So the jetpack box should have the same green icon as the current vanilla version. It has (icon) 5709kpa. Above that it says Thrust (#) which represents the target thrust of the jetback. So our box should basically do the same exact thing just using our font and our box. So it will say jetpack at the top, then it will say Thrust # under and then to the right of thurst # it should say #### kpa. with the green canister icon from the vanilla box  it is called "symbol pressure delta" in the code. 
+ c. 3 Icons for on/off: We have the jetpack icon, the light icon, ahd the helmet icon. The game renders these as tiny little pngs that turn on and off when you press I L or J. I want those three all next to each other above the head of the guy. I don't want you to draw them. I want them to be the ones the game uses and the same progamattic situation as wha the game does for those three. They should be in 3 boxes all right up against each other over the 3d guys head. 
+ d. Interal KPA: So for internal Kpa we need it to be titled Interal Pressure and then it should underneath ahve Target ### and then underneath that it should have ###kpa and then it should have under that the vanilla pressure bar programmed the exact same way. All inside its own box. 
+ e. Internal Temp: should say internal temp at the top and then target ## and the under that ## degeree symbol C. To the left of the temp if it is very cold or very hot the hot or cold symbol should show up or fire symbol same as in vanilla. review that code you you do it accurately. 
+ d. Vitals: I want the vitals box to be largely the same as vanilla. So it can show hunger, water, toilet (if needed), health (if needed) and conciousness (if needed). They should be all set up the same way as in vanilla with teh same vanilla icons. If I want to make different Pngs for these I will get them to you in the future but right now use the same. Hunger shows a cheeseburger with 1234 starts depending on food quality. other than food and water these don't show up, so the box needs to be able to dynamically size depending on which icons show up just like the vanilla one does. We are only going ot have the icons and the percentages no bars here. 
+ e. Player speed. Please use the same player speed icon and put it in its on box: player speed icon 0m/s. 
+ f. The player body map: Use the vanilla one, just place it in a box instead of the vanilla background. remember it only pops up if you are injured. But lets use the vanilla one other than the body background that it uses. Not sure where we put it but maybe to the left of vitals like in vanilla. 
+
+ 5. If the suit comes off
+  a. if the suit power is off or the suit comes off we should get rid of the top bar, and the boxes should change to not be curved anymore and everything should suddenly be flat. The right side should keep the icons for the vitals stuff but instead of percentages it will say words. The box that all the vitals are in should not have a border anymore and just be like a gray transparent panel everything is living on with curved edges. This should be a panel that has the same properties as the vitals panel but it should say words instead of percentages now as we had previously discussed. 
+  b. There should be a pressure box now inside that vitals with the in game pressure symbol instead of you know the hunger or water symbol and to the right it should say something that represnts whether the air is high or low pressure with words. You think of the words. 
+  b. Temperature should also be represented by the little thermometer symbol the game shows and to the right say cold hot etc. etc. it can change the color of the word depending on how hot or cold (red blue)
+
+
+Bugs and issues with f9 editor:
+Right now the curvature settings aren't good. I think everything is too close to the screen so if you try to curve it everything gets cut off. Also the top bar's internals dont curve with the edges of it. same with the compass's internal backgorund. Like the transluscent background isn't curving in vertex mode. 
+
+When I click an asset the editor window for that asset appears in the bottom right. Please have it appear in the center of the screen 
+
+The child asset editors don't let me size them bigger or smaller beyond a certain point they seem locked to some sort of box size cutting off some stuff in them.
+
+
+So these are some massive changes. I want you to implement them all right now. If we can get this working then this solves the major issues and we can decide then if we need some prefabs.
+
+Please keep track of the changes in an .md so we can review what we did. Also give me a final report. 
+
+Please use claude 4.8 for the adversarial review at the end but please use fable 5 for building and adjusting these things. 

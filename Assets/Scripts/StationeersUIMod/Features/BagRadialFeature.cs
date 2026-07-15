@@ -136,6 +136,7 @@ namespace StationeersUIMod.Features
                 entry.Sublabel = role + " - " + used + "/" + occ.Slots.Count;
                 entry.DropResolver = dragged => ItemMenuBuilder.FirstFreeSlot(thing, dragged);
             }
+            if (ItemMenuBuilder.IsBindableBag(occ)) entry.BindableBag = thing; // e.g. worn backpack (#3)
             entries.Add(entry);
         }
 
@@ -254,6 +255,14 @@ namespace StationeersUIMod.Features
                                  .OrderBy(g => (int)g.Key))
                     {
                         var slots = group.ToList();
+                        // A category of ONE is redundant — a "group" you'd never need to open —
+                        // so show that single item straight on the ring instead of a group wedge.
+                        if (slots.Count == 1)
+                        {
+                            var single = ItemEntry(bag, slots[0]);
+                            if (single != null) entries.Add(single);
+                            continue;
+                        }
                         var first = slots[0].Get();
                         entries.Add(new RadialEntry
                         {
@@ -273,6 +282,13 @@ namespace StationeersUIMod.Features
                                  .OrderBy(g => (int)g.Key))
                     {
                         var slots = group.ToList();
+                        // A category of ONE is redundant — show the single item directly.
+                        if (slots.Count == 1)
+                        {
+                            var single = ItemEntry(bag, slots[0]);
+                            if (single != null) entries.Add(single);
+                            continue;
+                        }
                         var first = slots[0].Get();
                         entries.Add(new RadialEntry
                         {
@@ -294,6 +310,11 @@ namespace StationeersUIMod.Features
                     if (e != null) entries.Add(e);
                 }
             }
+
+            // #6: vanilla's Sort/organise button, surfaced as a wedge (bags/boxes/crates/ore belts —
+            // any container with generic None/Ore storage and 2+ items, matching the vanilla gate).
+            var sortEntry = ItemMenuBuilder.BuildSortEntry(bag);
+            if (sortEntry != null) entries.Add(sortEntry);
 
             // Free space presentation (Option A, playtest dropdown): individual empty-slot
             // STOW wedges, an aggregate STOW wedge, or both. The aggregate one doubles as
@@ -369,6 +390,7 @@ namespace StationeersUIMod.Features
                     Sublabel = occ.Slots.Count(s => s?.Get() != null) + "/" + occ.Slots.Count,
                     Icon = occ.GetThumbnail(),
                     ChildProvider = () => BuildBagLevel(thing),
+                    BindableBag = ItemMenuBuilder.IsBindableBag(occ) ? thing : null, // Ctrl+number (#3)
                 };
                 if (UIAConfig.IsA)
                 {
@@ -382,6 +404,7 @@ namespace StationeersUIMod.Features
             }
 
             bool hasInnards = ItemMenuBuilder.HasInnards(occ);
+            bool canSlideOut = hasInnards || ItemMenuBuilder.CanSplit(occ); // a stack swipes to its splits
             return new RadialEntry
             {
                 Label = occ.DisplayName,
@@ -391,10 +414,11 @@ namespace StationeersUIMod.Features
                 Icon = occ.GetThumbnail(),
                 DragSource = source,
                 OnSelect = () => TakeAndRemember(source),
-                SlideOutProvider = hasInnards
+                SlideOutProvider = canSlideOut
                     ? () => ItemMenuBuilder.BuildManageEntries(thing, slot, includeTakeEntry: false)
                     : (System.Func<List<RadialEntry>>)null,
-                SlideOutLabel = "Open",
+                SlideOutLabel = hasInnards ? "Open" : "Split",
+                BindableBag = ItemMenuBuilder.IsBindableBag(occ) ? thing : null, // small boxes/crates (#3)
             };
         }
 

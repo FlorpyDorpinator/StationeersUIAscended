@@ -81,7 +81,7 @@ namespace StationeersUIMod.Features
                         DragSource = source,
                         OnSelect = () => ItemActions.EquipToActiveHand(source),
                         SlideOutProvider = () => ItemMenuBuilder.BuildManageEntries(thing, slot, includeTakeEntry: false),
-                        SlideOutLabel = "Open",
+                        SlideOutLabel = ItemMenuBuilder.HasInnards(occ) ? "Open" : "Split", // a stack swipes to its splits
                     });
                 }
                 else if (UIAConfig.ToolbeltShowStowEntries.Value)

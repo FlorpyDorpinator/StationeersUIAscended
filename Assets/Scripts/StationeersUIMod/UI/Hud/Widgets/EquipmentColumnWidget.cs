@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using Assets.Scripts.Objects;
 using Assets.Scripts.Objects.Entities;
+using StationeersUIMod.Core;
 using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
@@ -119,8 +120,17 @@ namespace StationeersUIMod.UI.Hud.Widgets
                 // Empty slots read as dim — spec's alpha lift would erase that cue, so
                 // only occupied boxes catch the edge light. Set once (not ApplyGlass-
                 // then-override: a per-frame flip-flop would defeat the dirty-guard).
-                b.Panel.Sheen = Def.GetF("sheen", 0f);
-                b.Panel.Spec = filled ? Def.GetF("spec", 0f) : 0f;
+                b.Panel.Sheen = GlassSheenFor();
+                b.Panel.Spec = filled ? GlassEdgeFor() : 0f;
+                ApplyMeshFx(b.Panel); // full 0.9.0 push (trio + ripple + uv0 + material) — sheen/spec above stay custom
+
+                // #4: drop cue — light this equipment box while a dragged item is over it and fits.
+                if (HudDropCue.Active && ReferenceEquals(HudDropCue.HoveredSlot, slot) && HudDropCue.Accepts(slot))
+                {
+                    var hi = DropHighlightColor();
+                    if (DropWholeBox()) b.Panel.color = hi;
+                    else { b.Panel.BorderColor = hi; b.Panel.BorderWidth = BorderWidthFor() * 2f; }
+                }
 
                 HudText.Sync(b.Number);
                 b.Number.fontSize = HudText.Size(11f * Def.FontScale) * scale;
@@ -154,6 +164,7 @@ namespace StationeersUIMod.UI.Hud.Widgets
             into.Add(HudProp.Bool("Show labels", () => d.GetB("labels", true), v => d.SetB("labels", v)));
             into.Add(HudProp.I("First slot (0=helmet)", () => d.GetI("first", 0), v => d.SetI("first", Mathf.Clamp(v, 0, 5)), 0, 5));
             into.Add(HudProp.I("Slot count", () => d.GetI("count", 6), v => d.SetI("count", Mathf.Clamp(v, 1, 6)), 1, 6));
+            AddDropHighlightProps(into); // #4: drag-over drop cue mode + colour
         }
 
         /// <summary>Each equipment box takes chip drops for ITS worn slot (0.6.2): drop a

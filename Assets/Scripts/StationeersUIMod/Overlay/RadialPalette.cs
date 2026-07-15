@@ -61,6 +61,10 @@ namespace StationeersUIMod.Overlay
         public static Entry GroupWedgeFill;
         public static Entry GroupWedgeBorder;
 
+        // DEVICE-SLOT wedges: an item that is installed in a device's functional slot (the
+        // propellant canister in a jetpack, a battery in a tool) rather than just stored.
+        public static Entry DeviceSlotBorderColor;
+
         // Hub (the circle in the middle)
         public static Entry HubFill;
         public static Entry HubBorder;
@@ -105,6 +109,12 @@ namespace StationeersUIMod.Overlay
                 "Fill of a sorting-class GROUP wedge (crowded bags grouped by category). Defaults to the normal wedge fill.");
             GroupWedgeBorder = Add(cfg, "GroupWedgeBorder", "5AA0F0E6",
                 "Edge of a sorting-class GROUP wedge. A lighter blue so category wedges stand out.");
+
+            // An item installed in a device's functional slot (jetpack propellant, tool battery)
+            // rather than merely stored — its wedge wears this edge so 'in use by the device' reads
+            // at a glance. Default blue.
+            DeviceSlotBorderColor = Add(cfg, "DeviceSlotBorderColor", "3D7BE6FF",
+                "Edge of a wedge for an item installed in a DEVICE slot (propellant canister, battery, filter). Default blue.");
 
             HubFill = Add(cfg, "HubFill", "D91A3400",
                 "Centre circle background (alpha 0 = invisible by default).");

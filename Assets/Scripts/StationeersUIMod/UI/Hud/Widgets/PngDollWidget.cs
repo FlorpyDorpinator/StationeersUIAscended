@@ -44,6 +44,9 @@ namespace StationeersUIMod.UI.Hud.Widgets
         private readonly Part[] _parts = new Part[7];
         private PanelGraphic _box;
 
+        // The doll's background box takes the trapezoid insets (base supplies the sliders).
+        protected override bool SupportsTrapezoid => true;
+
         protected override void BuildContent(RectTransform root)
         {
             _box = MakePanel(root, "Box");
@@ -77,7 +80,8 @@ namespace StationeersUIMod.UI.Hud.Widgets
             var c = CenterFor(scale);
             var s = SizeFor(scale);
             ((RectTransform)_box.transform).anchoredPosition = c;
-            _box.SetShape(s.x, s.y, Radius(Def.RTL), Radius(Def.RTR), Radius(Def.RBR), Radius(Def.RBL));
+            _box.SetShape(s.x, s.y, Radius(Def.RTL), Radius(Def.RTR), Radius(Def.RBR), Radius(Def.RBL),
+                InsetTop(scale), InsetBottom(scale));
         }
 
         public override void UpdatePanel(HudSnapshot snap, float scale)

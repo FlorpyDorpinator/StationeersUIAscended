@@ -56,6 +56,21 @@ namespace StationeersUIMod.Core
             return true;
         }
 
+        /// <summary>True when a VANILLA full-attention menu is up that must render ABOVE the mod's
+        /// overlay (start/escape menu, Stationpedia, the IC/logic script editor & other input
+        /// windows, the console, the creative spawn menu). The mod HUD stays VISIBLE but drops its
+        /// overlay sort order far below the menu while one is front (#7). Deliberate MOD menus
+        /// (F9/F10 editors) are not included.</summary>
+        public static bool VanillaMenuWantsFront()
+        {
+            if (WorldManager.IsGamePaused) return true;       // escape / start / options menu
+            if (ConsoleWindow.IsOpen) return true;
+            if (InputWindowBase.IsInputWindow) return true;   // IC/logic editor, naming windows, dialogs
+            if (Stationpedia.IsOpenAndLocked) return true;
+            if (ImguiCreativeSpawnMenu.Show) return true;
+            return false;
+        }
+
         /// <summary>True while an OPEN radial may stay open (cursor is intentionally free).</summary>
         public static bool CanKeepRadialOpen()
         {

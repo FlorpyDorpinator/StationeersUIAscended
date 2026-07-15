@@ -18,8 +18,8 @@ namespace StationeersUIMod
     /// </summary>
     public sealed class StationeersUIMod : MonoBehaviour
     {
-        public const string ModVersion = "0.8.0";
-        public const string VersionDisplay = "0.8.0 Alpha";
+        public const string ModVersion = "0.9.0";
+        public const string VersionDisplay = "0.9.0 Experimental";
         public const string ModGuid = "com.stationeersuimod.ui";
 
         public static StationeersUIMod Instance { get; private set; }
@@ -39,11 +39,18 @@ namespace StationeersUIMod
             = new List<EquipmentKeyRadialFeature>();
         private int _drawExceptions;
 
+        /// <summary>The mod's install folder under SLP (local or Workshop), from the injected
+        /// ModData. NULL under the F6 ScriptEngine dev flow (no mod folder — the dev shim passes
+        /// no ModData); consumers (HudShaderStore) must fall back to a config-supplied path.</summary>
+        public static string ModDirectory { get; private set; }
+
         /// <summary>
         /// SLP / LaunchPadBooster entry point. prefabs may be null or empty for pure UI mods.
-        /// config is the BepInEx-backed config that SLP renders in its mod panel.
+        /// config is the BepInEx-backed config that SLP renders in its mod panel. modData is
+        /// SLP's DefaultEntrypoint injection (parameter-type matched; optional so the dev shim's
+        /// two-arg call still compiles) — it carries DirectoryPath, our bundle root.
         /// </summary>
-        public void OnLoaded(List<GameObject> prefabs, ConfigFile config)
+        public void OnLoaded(List<GameObject> prefabs, ConfigFile config, ModData modData = null)
         {
             if (_loaded)
             {
@@ -53,6 +60,7 @@ namespace StationeersUIMod
             _loaded = true;
 
             Instance = this;
+            try { ModDirectory = modData != null ? modData.DirectoryPath : null; } catch { ModDirectory = null; }
 
 #if DEVELOPMENT_BUILD
             Debug.Log("[StationeersUIMod] DEVELOPMENT BUILD");
@@ -64,6 +72,26 @@ namespace StationeersUIMod
                 // If we were loaded as BepInEx plugin too, the old Awake may have run; guard below.
                 UIALog.Info("OnLoaded entry for StationeersUIMod.");
 
+                // One-time config migration: pre-0.9.0 packages shipped the DEV shim, so all user
+                // settings live in its cfg. Now that SLP's DefaultEntrypoint owns init, the cfg
+                // name changed — seed the new file from the legacy one so nobody loses settings.
+                // (Under the dev shim both paths are the same file and this no-ops.)
+                try
+                {
+                    string newCfg = config.ConfigFilePath;
+                    string legacyCfg = System.IO.Path.Combine(
+                        BepInEx.Paths.ConfigPath, "com.stationeersuimod.ui.scriptengine.cfg");
+                    if (!string.Equals(newCfg, legacyCfg, StringComparison.OrdinalIgnoreCase)
+                        && System.IO.File.Exists(legacyCfg)
+                        && (!System.IO.File.Exists(newCfg) || new System.IO.FileInfo(newCfg).Length == 0))
+                    {
+                        System.IO.File.Copy(legacyCfg, newCfg, true);
+                        config.Reload();
+                        UIALog.Info("Migrated settings from the legacy dev-shim cfg to " + System.IO.Path.GetFileName(newCfg) + ".");
+                    }
+                }
+                catch (Exception mig) { UIALog.Warn("Config migration skipped: " + mig.Message); }
+
                 UIAConfig.Bind(config);
 
                 if (GameManager.IsBatchMode)
@@ -72,7 +100,17 @@ namespace StationeersUIMod
                     return;
                 }
 
+                // Profiler (vendored Profilicus, Jackson's — permission on record 2026-07-13).
+                // Runtime-off by default: hidden = one static bool per probe, zero alloc.
+                // (folder arg = the LEAF under BepInEx/config/StationeersUIMod/ — passing the mod
+                // name here doubled the path to .../StationeersUIMod/StationeersUIMod; play-test)
+                Profiling.ProfilicusUniversalis.Configure("UIA Profiler", "ProfilerSnapshots");
+
                 BagProfileStore.LoadProfiles();
+                // Shipped HUD profiles (zip: StationeersUIMod/HudProfiles/) land in config on
+                // first run — required for the shipped default ("Smaller Test") to exist on a
+                // fresh install. No-overwrite, fail-soft; inert under F6 (ModDirectory null).
+                Features.HudProfileStore.ImportShipped(ModDirectory);
 
                 _toolRadial = new ToolRadialFeature();
                 _bagRadial = new BagRadialFeature();
@@ -179,10 +217,22 @@ namespace StationeersUIMod
                 if (!_radials.IsRadialOpen && Guards.CanAcceptGameplayInput())
                     Core.WedgeHotkeys.TickExecute();
 
+                // Frame.Total baseline: recorded from Update (NOT the ImGui hook — F1-hiding
+                // ImGui must not stop A/B captures; adversarial review 2026-07-13). Every
+                // effect's cost is judged as a delta against this row.
+                if (Profiling.ProfilicusUniversalis.Enabled)
+                    Profiling.ProfilicusUniversalis.Record("Frame.Total", Time.unscaledDeltaTime * 1000.0);
+                // GC telemetry (Dean Hall's critique of timing-only profilers: on old mono,
+                // allocations ARE the performance story): alloc KB/frame + gen0 collections/s.
+                Profiling.UiaGcMonitor.Tick();
+
                 // The visor HUD is pure UGUI — it runs off Update, not the ImGui hook
                 // (which stops over loading screens; Update keeps running and hides it).
-                UI.Hud.HudSystem.Update(Windows.HudEditorMode.Active);
+                using (Profiling.ProfilicusUniversalis.Time("Hud.Update.Total"))
+                    UI.Hud.HudSystem.Update(Windows.HudEditorMode.Active);
                 if (Windows.HudEditorMode.Active) Windows.HudEditorMode.Update();
+
+                Core.UiaAbDriver.Tick(); // A/B capture state machine (inert unless a run is active)
 
                 if (Input.GetKeyDown(UIAConfig.SettingsWindowKey.Value) && Guards.CanToggleMenus()
                     && !_radials.IsRadialOpen)
@@ -208,6 +258,10 @@ namespace StationeersUIMod
             try
             {
                 Overlay.Toast.Draw();
+
+                // Profiler window rides the game's ImGui frame (visible = user toggled it on
+                // via F9's Profiler section or `uiaprof on`). Draw() is a no-op when hidden.
+                Profiling.ProfilicusUniversalis.Draw();
 
                 if (!Guards.CanDraw())
                 {
@@ -318,6 +372,12 @@ namespace StationeersUIMod
             {
                 _radials?.ShutdownImmediate();
                 Core.WedgeHotkeys.Clear();
+                Core.UiaAbDriver.Reset();
+                // Profiler: hide + drop the sample window before unpatching (its Draw rides our
+                // ImGui postfix, which UnpatchSelf removes). Statics hold no Unity objects.
+                Profiling.ProfilicusUniversalis.SetVisible(false);
+                Profiling.ProfilicusUniversalis.Clear();
+                Profiling.UiaGcMonitor.Reset();
                 if (_settingsWindow != null && _settingsWindow.IsShowing) ImGuiWindowManager.Close(_settingsWindow);
                 if (_profileEditor != null && _profileEditor.IsShowing) ImGuiWindowManager.Close(_profileEditor);
                 if (_hudEditorWindow != null && _hudEditorWindow.IsShowing) ImGuiWindowManager.Close(_hudEditorWindow);

@@ -92,3 +92,6 @@ Dev/obj/
 StationeersUIAscended/bin/
 StationeersUIAscended/obj/
 !StationeersUIAscended/**/*.csproj
+
+# Release zips at the repo root are build artifacts (rebuilt per release, shared directly)
+/StationeersUIMod-*.zip

@@ -37,6 +37,9 @@ namespace StationeersUIMod.UI.Hud.Widgets
         private TextMeshProUGUI _degrees;
         private Vector2 _center; // element centre captured in Layout (for per-frame warp)
 
+        // The backing strip takes the trapezoid insets (base supplies the sliders).
+        protected override bool SupportsTrapezoid => true;
+
         /// <summary>Place a ribbon child at the given LOCAL offset from the element centre,
         /// bent onto the visor curve. The ribbon moves every frame, so its mesh is never
         /// re-warped by VisorWarp — instead we warp its POSITION here: the barrel modes bend
@@ -102,7 +105,8 @@ namespace StationeersUIMod.UI.Hud.Widgets
             _center = c;
 
             ((RectTransform)_back.transform).anchoredPosition = c;
-            _back.SetShape(w, h, Mathf.Min(Radius(Def.RTL), h * 0.4f));
+            _back.SetShape(w, h, Mathf.Min(Radius(Def.RTL), h * 0.4f),
+                InsetTop(scale), InsetBottom(scale));
 
             // The mask stays at the (unwarped) centre; its children are individually bent
             // onto the curve every frame. Taller than the strip so a bent tick isn't clipped.

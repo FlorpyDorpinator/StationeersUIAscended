@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using Assets.Scripts;
+using Assets.Scripts.Objects;
 using StationeersUIMod.Core;
 using StationeersUIMod.Overlay;
 using UnityEngine;
@@ -39,6 +40,11 @@ namespace StationeersUIMod.Features
         private float _pendingSince;
         private IRadialFeature _active;    // radial open
         private KeyCode _releaseKey;       // key to wait out during a deferred modal release
+
+        // #3: Ctrl tap (swap toolbelt<->backpack) vs Ctrl+number (open a bound bag) disambiguation.
+        private float _ctrlDownAt = -1f;
+        private bool _ctrlConsumed;
+        private const float CtrlTapSec = 0.35f;
 
         public bool IsRadialOpen => _menu.IsOpen;
         public IRadialFeature ActiveFeature => _active;
@@ -91,6 +97,13 @@ namespace StationeersUIMod.Features
             }
 
             if (!Guards.CanAcceptGameplayInput())
+            {
+                _pending = null;
+                return;
+            }
+
+            // #3: Ctrl+number opens a bound bag straight from gameplay (before the 1–6 feature keys).
+            if (TryOpenBoundBagFromGameplay())
             {
                 _pending = null;
                 return;
@@ -195,6 +208,10 @@ namespace StationeersUIMod.Features
                     _menu.NextPage();
             }
 
+            // #3: Ctrl-swap / 1–6 equipment jump / Ctrl+number bag-open / number-key bag bind.
+            // Runs every frame (tracks the Ctrl tap); returns true when it changed the radial.
+            if (UpdateRadialShortcuts()) return;
+
             // Keep the vanilla active-hand ring alive. Unlocking the cursor flips
             // InputMouse.IsMouseControl, whose RefreshAnimation clause hides the ring
             // (SlotDisplayButton.cs:319). Re-asserting the public state each frame is
@@ -209,8 +226,6 @@ namespace StationeersUIMod.Features
 
             if (!_menu.IsSticky)
             {
-                if (Input.GetMouseButtonDown(0))
-                    UIALog.Warn($"[HOLD-DBG] controller NON-STICKY branch active={(_active != null ? _active.Title : "null")} keyHeld={(_active != null && Input.GetKey(_active.Key))}");
                 // Option A hold mode: same drag behaviour as the tapped radial — move the
                 // radial (hub drag), drag items off wedges, Alt-grab from the world, drop,
                 // click-select (self-gates to Option A). A click-select/close tears down here.
@@ -242,8 +257,6 @@ namespace StationeersUIMod.Features
             }
             else
             {
-                if (Input.GetMouseButtonDown(0))
-                    UIALog.Warn($"[HOLD-DBG] controller STICKY branch active={(_active != null ? _active.Title : "null")}");
                 bool wasOpen = _menu.IsOpen;
                 // While the search panel is typing, raw key presses are TEXT — the re-press
                 // and MMB dismiss gestures must not fire (the panel handles its own exits).
@@ -310,6 +323,151 @@ namespace StationeersUIMod.Features
             }
         }
 
+        // ---------- #3: radial switching + bag hotkeys ----------
+
+        /// <summary>While a radial is open: Ctrl-tap swaps toolbelt&lt;-&gt;backpack, plain 1–6 jumps to
+        /// that equipment radial, hovering a bindable bag + a number BINDS it to Ctrl+&lt;number&gt;, and
+        /// Ctrl+&lt;number&gt; opens the bound bag. Returns true when it changed the open radial or bound a
+        /// bag, so the caller stops for this frame. Search mode owns its own keys.</summary>
+        private bool UpdateRadialShortcuts()
+        {
+            if (_menu.IsSearchOpen) return false;
+            bool ctrl = Input.GetKey(KeyCode.LeftControl) || Input.GetKey(KeyCode.RightControl);
+
+            if (Input.GetKeyDown(KeyCode.LeftControl) || Input.GetKeyDown(KeyCode.RightControl))
+            {
+                _ctrlDownAt = Time.unscaledTime;
+                _ctrlConsumed = false;
+            }
+
+            for (int slot = 0; slot < BagHotkeyStore.SlotCount; slot++)
+            {
+                if (!Input.GetKeyDown(BagHotkeyStore.KeyForSlot(slot))) continue;
+
+                if (ctrl)
+                {
+                    _ctrlConsumed = true; // a combo, not a tap — so the release won't also swap
+                    var bag = BagHotkeyStore.ResolveBag(slot);
+                    if (bag != null) OpenBagRadial(bag);
+                    else UIAudioManager.Play(UIAudioManager.ActionFailHash);
+                    return true;
+                }
+
+                // Hovering a bindable bag: bind it to Ctrl+<this digit>.
+                var hov = _menu.HoveredEntry();
+                if (hov != null && hov.BindableBag != null)
+                {
+                    BagHotkeyStore.Bind(slot, hov.BindableBag);
+                    UIAudioManager.Play(UIAudioManager.ClickLightHash);
+                    _menu.RefreshAll(); // repaint the digit badge
+                    return true;
+                }
+
+                // Plain 1–6: switch straight to that equipment's radial.
+                int digit = BagHotkeyStore.DisplayDigit(slot);
+                if (digit >= 1 && digit <= 6)
+                {
+                    var eq = EquipFeatureForDigit(digit);
+                    if (eq != null) { SwitchToFeature(eq); return true; }
+                }
+                return true; // a number press is always consumed while a radial is open
+            }
+
+            // Ctrl released with no number pressed during the hold = a tap = swap.
+            if (Input.GetKeyUp(KeyCode.LeftControl) || Input.GetKeyUp(KeyCode.RightControl))
+            {
+                bool tap = !_ctrlConsumed && _ctrlDownAt >= 0f && Time.unscaledTime - _ctrlDownAt < CtrlTapSec;
+                _ctrlDownAt = -1f;
+                if (tap) return SwapToolbeltBackpack();
+            }
+            return false;
+        }
+
+        /// <summary>Ctrl+&lt;number&gt; from normal gameplay (no radial open) opens the bound bag. Consumes
+        /// the press so it never falls through to a vanilla/equipment 1–6 action. Returns true when the
+        /// combo was handled.</summary>
+        private bool TryOpenBoundBagFromGameplay()
+        {
+            if (!(Input.GetKey(KeyCode.LeftControl) || Input.GetKey(KeyCode.RightControl))) return false;
+            for (int slot = 0; slot < BagHotkeyStore.SlotCount; slot++)
+            {
+                if (!Input.GetKeyDown(BagHotkeyStore.KeyForSlot(slot))) continue;
+                var bag = BagHotkeyStore.ResolveBag(slot);
+                if (bag != null) OpenBagRadial(bag);
+                // Ctrl+digit belongs to bag hotkeys either way — consume it silently so an
+                // unbound slot never falls through to the equipment 1–6 keys.
+                return true;
+            }
+            return false;
+        }
+
+        /// <summary>Swap the OPEN radial between the toolbelt and the backpack-slot container. Only
+        /// acts when the current radial is one of those two (the hub / others do nothing, per design).
+        /// Returns true when it swapped.</summary>
+        private bool SwapToolbeltBackpack()
+        {
+            if (_active is ToolbeltRadialFeature)
+            {
+                var back = EquipFeatureForDigit(4); // BackSlot
+                if (back != null) { SwitchToFeature(back); return true; }
+            }
+            else if (_active is EquipmentKeyRadialFeature e && e.ButtonName == "BackSlot")
+            {
+                var tb = ToolbeltFeature();
+                if (tb != null) { SwitchToFeature(tb); return true; }
+            }
+            return false;
+        }
+
+        /// <summary>Reopen the (sticky) radial on another feature's root, keeping the modal — the
+        /// switch used by Ctrl-swap and 1–6.</summary>
+        private void SwitchToFeature(IRadialFeature f)
+        {
+            if (f == null || !f.Enabled || !f.CanOpen())
+            {
+                UIAudioManager.Play(UIAudioManager.ActionFailHash);
+                return;
+            }
+            _active = f;
+            if (!_modal.IsOpen) _modal.Open();
+            _menu.Open(f.Title, f.BuildRoot, sticky: true);
+            UIAudioManager.Play(UIAudioManager.ClickLightHash);
+        }
+
+        /// <summary>Open a specific bag's radial (Ctrl+number activation), opening the modal if needed.</summary>
+        private void OpenBagRadial(DynamicThing bag)
+        {
+            if (bag == null) return;
+            var b = bag;
+            _active = BagFeature(); // owner key = Tab, for close/re-press (null-safe)
+            if (!_modal.IsOpen) _modal.Open();
+            _menu.Open(b.DisplayName, () => BagRadialFeature.BuildBagLevel(b), sticky: true);
+            UIAudioManager.Play(UIAudioManager.ClickLightHash);
+        }
+
+        private EquipmentKeyRadialFeature EquipFeatureForDigit(int digit)
+        {
+            if (digit < 1 || digit > 6) return null;
+            string name = EquipmentKeyRadialFeature.ButtonNames[digit - 1];
+            foreach (var f in _features)
+                if (f is EquipmentKeyRadialFeature e && e.ButtonName == name) return e;
+            return null;
+        }
+
+        private IRadialFeature ToolbeltFeature()
+        {
+            foreach (var f in _features)
+                if (f is ToolbeltRadialFeature) return f;
+            return null;
+        }
+
+        private IRadialFeature BagFeature()
+        {
+            foreach (var f in _features)
+                if (f is BagRadialFeature) return f;
+            return null;
+        }
+
         public void Draw()
         {
             if (_menu.IsOpen)
@@ -343,6 +501,7 @@ namespace StationeersUIMod.Features
             UI.ParkedItemsView.Shutdown();
             UI.SearchPanelView.Shutdown();
             Windows.RadialEditorMode.Shutdown();
+            BagHotkeyStore.Reset(); // drop in-memory binds; the per-save file is untouched
             _active = null;
             _pending = null;
         }

@@ -72,6 +72,7 @@ namespace StationeersUIMod.UI.Hud
         // Equipment / hands
         public static Entry SlotNumber;
         public static Entry ActiveHandAccent;
+        public static Entry DropHighlight;
 
         // Screen dressing
         public static Entry Vignette;
@@ -188,6 +189,9 @@ namespace StationeersUIMod.UI.Hud
                 "The 1-6 key numbers on the equipment column.");
             ActiveHandAccent = Add(cfg, "HudActiveHand", "FF8C29E6",
                 "Border/edge accent marking the ACTIVE hand box.");
+            DropHighlight = Add(cfg, "HudDropHighlight", "4CE07AF0",
+                "Highlight on a hand / 1-6 equipment box while a dragged item is hovering it and " +
+                "can be dropped there. Per-element you can pick border-only vs whole-box in F9.");
 
             Vignette = Add(cfg, "HudVignette", "01070AB8",
                 "Darkening around the screen edges — the visor rim shadow.");

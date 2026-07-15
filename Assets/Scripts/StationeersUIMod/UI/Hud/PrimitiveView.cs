@@ -25,6 +25,10 @@ namespace StationeersUIMod.UI.Hud
         private static readonly List<Vector2> _pointScratch = new List<Vector2>(16);
         private static readonly List<Vector2> _curveScratch = new List<Vector2>(128); // smoothed spline
 
+        // Only the Box primitive draws a framed panel the trapezoid insets can shape (Label/
+        // Polyline/Icon have no background box); the base supplies the two sliders for it.
+        protected override bool SupportsTrapezoid => Def.Type == HudElementType.Box;
+
         protected override void BuildContent(RectTransform root)
         {
             switch (Def.Type)
@@ -100,7 +104,7 @@ namespace StationeersUIMod.UI.Hud
                 // makes the visor-bar trapezoid (top edge wider, angled sides).
                 _box.SetShape(s.x, s.y,
                     Radius(Def.RTL), Radius(Def.RTR), Radius(Def.RBR), Radius(Def.RBL),
-                    Def.GetF("insetTop", 0f) * scale, Def.GetF("insetBottom", 0f) * scale);
+                    InsetTop(scale), InsetBottom(scale));
             }
             if (_text != null)
             {
@@ -131,7 +135,10 @@ namespace StationeersUIMod.UI.Hud
                 {
                     _line.SetPoints(_pointScratch, closed);
                 }
-                _line.Width = Mathf.Max(0.5f, Def.GetF("width", 2f) * scale);
+                // Hairlines: the floor is the global knob (default 0.15px) — below 1px the
+                // renderer holds 1px and fades alpha by coverage instead of vanishing.
+                float minW = HudConfig.FxHairlineMin != null ? HudConfig.FxHairlineMin.Value : 0.15f;
+                _line.Width = Mathf.Max(minW, Def.GetF("width", 2f) * scale);
                 _line.FadeEnds = Def.GetF("fadeEnds", 0f);
             }
             if (_sprite != null)
@@ -161,6 +168,11 @@ namespace StationeersUIMod.UI.Hud
                 _box.color = fill;
                 _box.BorderColor = border;
                 _box.BorderWidth = BorderWidthFor();
+                // Per-side border visibility ("make one of the 4 sides transparent"): bits
+                // 1=Top 2=Right 4=Bottom 8=Left; a disabled side melts away around its corners.
+                int sides = (Def.GetB("bTop", true) ? 1 : 0) | (Def.GetB("bRight", true) ? 2 : 0)
+                          | (Def.GetB("bBottom", true) ? 4 : 0) | (Def.GetB("bLeft", true) ? 8 : 0);
+                _box.BorderSides = sides;
                 ApplyGlass(_box);
             }
             if (_text != null)
@@ -170,7 +182,18 @@ namespace StationeersUIMod.UI.Hud
                 _text.color = TextColor();
                 HudText.Set(_text, Def.Text ?? "");
             }
-            if (_line != null) _line.color = TextColor();
+            if (_line != null)
+            {
+                _line.color = TextColor();
+                // Directional edge-light (Tier A): global strength × the per-element master;
+                // the light direction is the shared panel key light, so lines and borders agree.
+                bool tierA = HudConfig.FxTierA != null && HudConfig.FxTierA.Value;
+                bool edgeOn = tierA && HudConfig.FxEdgeLightOn != null && HudConfig.FxEdgeLightOn.Value;
+                _line.EdgeLight = edgeOn && HudConfig.FxEdgeLight != null ? HudConfig.FxEdgeLight.Value : 0f;
+                _line.EdgeRipple = edgeOn && HudConfig.FxEdgeRipple != null ? HudConfig.FxEdgeRipple.Value : 0f;
+                _line.EdgeRippleFreq = HudConfig.FxEdgeRippleFreq != null ? HudConfig.FxEdgeRippleFreq.Value : 2f;
+                _line.FxStrength = FxStrengthFor();
+            }
             if (_sprite != null) _sprite.color = TextColor();
             if (_glyph != null)
             {
@@ -193,9 +216,13 @@ namespace StationeersUIMod.UI.Hud
             var d = Def;
             switch (d.Type)
             {
+                // Trapezoid insets come from the base (SupportsTrapezoid). Box's own extras:
+                // per-side border visibility ("make one of the 4 sides transparent").
                 case HudElementType.Box:
-                    into.Add(HudProp.F("Top inset (trapezoid)", () => d.GetF("insetTop", 0f), v => d.SetF("insetTop", Mathf.Max(0f, v)), 0f, 400f));
-                    into.Add(HudProp.F("Bottom inset (trapezoid)", () => d.GetF("insetBottom", 0f), v => d.SetF("insetBottom", Mathf.Max(0f, v)), 0f, 400f));
+                    into.Add(HudProp.Bool("Border: top", () => d.GetB("bTop", true), v => d.SetB("bTop", v)));
+                    into.Add(HudProp.Bool("Border: right", () => d.GetB("bRight", true), v => d.SetB("bRight", v)));
+                    into.Add(HudProp.Bool("Border: bottom", () => d.GetB("bBottom", true), v => d.SetB("bBottom", v)));
+                    into.Add(HudProp.Bool("Border: left", () => d.GetB("bLeft", true), v => d.SetB("bLeft", v)));
                     break;
                 case HudElementType.Label:
                     into.Add(HudProp.Text("Text", () => d.Text ?? "", v => d.Text = v));
@@ -205,7 +232,7 @@ namespace StationeersUIMod.UI.Hud
                     into.Add(HudProp.Bool("Wrap text", () => d.GetB("wrap", true), v => d.SetB("wrap", v)));
                     break;
                 case HudElementType.Polyline:
-                    into.Add(HudProp.F("Line width", () => d.GetF("width", 2f), v => d.SetF("width", Mathf.Max(0.5f, v)), 0.5f, 24f));
+                    into.Add(HudProp.F("Line width", () => d.GetF("width", 2f), v => d.SetF("width", Mathf.Max(0.05f, v)), 0.05f, 24f));
                     into.Add(HudProp.Bool("Closed loop", () => d.GetB("closed", false), v => d.SetB("closed", v)));
                     into.Add(HudProp.F("Fade ends (0=off)", () => d.GetF("fadeEnds", 0f), v => d.SetF("fadeEnds", Mathf.Clamp(v, 0f, 0.49f)), 0f, 0.49f));
                     into.Add(HudProp.Bool("Smooth (curved)", () => d.GetB("smooth", false), v => d.SetB("smooth", v)));

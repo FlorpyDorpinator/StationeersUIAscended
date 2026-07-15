@@ -51,6 +51,9 @@ namespace StationeersUIMod.UI.Hud.Widgets
         private Vector2 _nativeSize = new Vector2(100f, 100f);
         private float _appliedScale = -1f;
 
+        // The borrowed doll's background box takes the trapezoid insets (base supplies the sliders).
+        protected override bool SupportsTrapezoid => true;
+
         protected override void BuildContent(RectTransform root)
         {
             _box = MakePanel(root, "DamageDollBox");
@@ -69,7 +72,8 @@ namespace StationeersUIMod.UI.Hud.Widgets
 
             ((RectTransform)_box.transform).anchoredPosition = c;
             _box.SetShape(s.x, s.y,
-                Radius(Def.RTL), Radius(Def.RTR), Radius(Def.RBR), Radius(Def.RBL));
+                Radius(Def.RTL), Radius(Def.RTR), Radius(Def.RBR), Radius(Def.RBL),
+                InsetTop(scale), InsetBottom(scale));
 
             _holder.anchoredPosition = c;
             _holder.sizeDelta = s;

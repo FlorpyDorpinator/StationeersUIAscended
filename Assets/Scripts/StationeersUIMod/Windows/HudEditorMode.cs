@@ -601,6 +601,45 @@ namespace StationeersUIMod.Windows
             Features.HudProfileStore.MarkChanged();
         }
 
+        /// <summary>Clear the per-element glass overrides on EVERY element (set "sheen"/"spec" to
+        /// -1), so the whole HUD follows the global glass sliders (HudConfig.GlassSheen/GlassEdge).
+        /// The one-click "make all glass match the global" — colours and layout are left untouched.
+        /// One undo step; glass applies next frame (read live in ApplyGlass).</summary>
+        public static void ResetAllGlassToGlobal()
+        {
+            var doc = Features.HudProfileStore.Active;
+            if (doc == null || doc.Elements == null) return;
+            PushUndoNow();
+            foreach (var e in doc.Elements)
+            {
+                if (e == null) continue;
+                e.SetF("sheen", -1f);
+                e.SetF("spec", -1f);
+            }
+            Features.HudProfileStore.MarkChanged();
+        }
+
+        /// <summary>Clear every element's per-element 0.9.0 effect overrides (remove the fx*
+        /// params, so all rows return to their defaults = the global masters govern). One undo
+        /// step; Set(key, null) REMOVES the key rather than writing a redundant default.</summary>
+        public static void ResetAllElementEffects()
+        {
+            var doc = Features.HudProfileStore.Active;
+            if (doc == null || doc.Elements == null) return;
+            PushUndoNow();
+            string[] keys =
+            {
+                "fxPulse", "fxPulseAmt", "fxShine", "fxShineAmt", "fxIrid", "fxIridAmt",
+                "fxDissolve", "fxFrost", "fxFrostAmt",
+            };
+            foreach (var e in doc.Elements)
+            {
+                if (e == null) continue;
+                for (int i = 0; i < keys.Length; i++) e.Set(keys[i], null);
+            }
+            Features.HudProfileStore.MarkChanged();
+        }
+
         /// <summary>Add a fresh element of the given type at screen centre, selected.</summary>
         public static void AddElement(UI.Hud.HudElementType type)
         {

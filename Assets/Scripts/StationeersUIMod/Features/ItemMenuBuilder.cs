@@ -43,7 +43,16 @@ namespace StationeersUIMod.Features
                 });
             }
 
-            // A stack of more than one gets a SPLIT branch (peel items off into a hand).
+            // A PLAIN stack (no storage slots) has nothing to manage but splitting — put the
+            // split choices straight on the ring (Split one / half / count) instead of an extra
+            // "Split" branch you'd have to click through. Swiping a stack lands on them directly.
+            if (IsPlainStack(thing))
+            {
+                entries.AddRange(BuildSplitLevel(thing));
+                return entries;
+            }
+
+            // A stack that ALSO has storage keeps a SPLIT branch alongside its slots.
             if (CanSplit(thing))
             {
                 var stackThing = thing;
@@ -83,6 +92,8 @@ namespace StationeersUIMod.Features
                 entries.AddRange(controls);
             }
             entries.AddRange(slotEntries);
+            var sort = BuildSortEntry(thing); // #6: Sort wedge for a jetpack/backpack's storage
+            if (sort != null) entries.Add(sort);
             return entries;
         }
 
@@ -235,6 +246,10 @@ namespace StationeersUIMod.Features
                 Icon = occ.GetThumbnail(),
                 DragSource = source,
                 Tag = slot,
+                // A TYPED slot (propellant canister, battery, filter, cartridge…) is a device's
+                // functional slot, not generic storage — its occupant is "in use by the device",
+                // so the wedge wears the DeviceSlotBorderColor edge. Generic (None) storage stays plain.
+                DeviceSlotStyle = slot.Type != Slot.Class.None || slot.SpecificTypePrefabHash != -1,
             };
 
             if (LooksLikeContainer(occ))
@@ -247,15 +262,16 @@ namespace StationeersUIMod.Features
                 entry.SlideOutProvider = () => BuildTakeOrStowEntries(thing, source);
                 entry.SlideOutLabel = "More";
                 entry.DropResolver = dragged => FirstFreeSlot(thing, dragged);
+                if (IsBindableBag(occ)) entry.BindableBag = thing; // Ctrl+number bindable (#3)
             }
             else
             {
                 entry.ActionText = "Take to hand";
                 entry.OnSelect = () => { if (ItemActions.EquipToActiveHand(source)) RetrievalMemory.Record(thing); };
                 // Swipe over a slotted component (battery, canister, cartridge, tool...):
-                // TAKE / REPLACE (+ its settings, per the settings-wedge rule).
+                // TAKE / REPLACE (+ its settings). A stack instead swipes to its split choices.
                 entry.SlideOutProvider = () => BuildComponentSatellite(thing, source);
-                entry.SlideOutLabel = "Options";
+                entry.SlideOutLabel = IsPlainStack(occ) ? "Split" : "Options";
             }
             return entry;
         }
@@ -300,6 +316,12 @@ namespace StationeersUIMod.Features
         /// </summary>
         public static List<RadialEntry> BuildComponentSatellite(DynamicThing thing, ScannedSlot source)
         {
+            // A stack sitting in a slot (a cable coil on the toolbelt, sheets in a locker) manages
+            // by SPLITTING, not Take/Replace/settings — swiping it lands straight on the split
+            // choices. (Taking the whole stack is still the wedge's own click action.)
+            if (IsPlainStack(thing))
+                return BuildSplitLevel(thing);
+
             var entries = new List<RadialEntry>
             {
                 new RadialEntry
@@ -311,14 +333,25 @@ namespace StationeersUIMod.Features
                     DragSource = source,
                     OnSelect = () => { if (ItemActions.EquipToActiveHand(source)) RetrievalMemory.Record(thing); },
                 },
-                new RadialEntry
+            };
+
+            // REPLACE (swap with a like-of-kind component) only belongs to a DEVICE slot — a typed
+            // functional socket (canister, battery, filter, cartridge). A generic None storage slot
+            // is NOT a component socket, and its candidate list would be your whole reachable
+            // inventory (right down to the player's brain/lungs). So offer Replace for typed slots
+            // only; a stored item just gets Take (+ its own settings/slots).
+            var slot = source.Slot;
+            bool deviceSlot = slot != null && (slot.Type != Slot.Class.None || slot.SpecificTypePrefabHash != -1);
+            if (deviceSlot)
+            {
+                entries.Add(new RadialEntry
                 {
                     Label = "Replace",
                     ActionText = "Replace",
                     Sublabel = "swap with another",
-                    ChildProvider = () => BuildSlotCandidateEntries(source.Slot),
-                },
-            };
+                    ChildProvider = () => BuildSlotCandidateEntries(slot),
+                });
+            }
 
             var controls = BuildControlsList(thing);
             bool hasOwnSlots = thing.Slots != null && thing.Slots.Count > 0;
@@ -503,12 +536,23 @@ namespace StationeersUIMod.Features
             return s != null && s.Quantity > 1;
         }
 
+        /// <summary>A stack whose ONLY management is splitting — splittable, with no storage slots of
+        /// its own. Anywhere one is swiped/opened it should land straight on the split choices, never
+        /// a Take/Replace/settings satellite (a cable coil is not a device component).</summary>
+        public static bool IsPlainStack(DynamicThing thing)
+            => CanSplit(thing) && (thing?.Slots == null || thing.Slots.Count == 0);
+
         /// <summary>The split level: SPLIT ONE and SPLIT HALF (both vanilla's own MP-safe
         /// interactions), plus — host/single-player only — SPLIT COUNT with a scroll wheel
         /// that sets how many to peel off. Scrolling only changes the number between the
         /// triangles; the CLICK does the split. (Arbitrary count has no networked vanilla
         /// path, so the count wedge is hidden on multiplayer clients — never a client-side
         /// Quantity mutation.)</summary>
+        /// <summary>The scroll-chosen split amount, kept OUTSIDE the entry so it survives the
+        /// sticky radial's periodic rebuild (a fresh local counter reset to the default every
+        /// refresh, so the number you scrolled to was lost by the time you clicked).</summary>
+        private static int _splitCount = 1;
+
         public static List<RadialEntry> BuildSplitLevel(DynamicThing thing)
         {
             var entries = new List<RadialEntry>();
@@ -516,12 +560,13 @@ namespace StationeersUIMod.Features
             if (s == null) return entries;
             var t = thing;
 
+            // Text-only wedges — the SPLIT level names the actions ("SPLIT ONE" / "SPLIT HALF" /
+            // "SPLIT COUNT"), it doesn't re-show the item you're already splitting.
             entries.Add(new RadialEntry
             {
                 Label = "Split one",
                 ActionText = "Take 1 to hand",
                 Sublabel = "peel one off",
-                Icon = t.GetThumbnail(),
                 OnSelect = () => ItemActions.SplitStack(t, half: false),
             });
             entries.Add(new RadialEntry
@@ -529,24 +574,40 @@ namespace StationeersUIMod.Features
                 Label = "Split half",
                 ActionText = "Take half to hand",
                 Sublabel = "split the stack in two",
-                Icon = t.GetThumbnail(),
                 OnSelect = () => ItemActions.SplitStack(t, half: true),
             });
             if (ItemActions.CanSplitCount(t))
             {
                 int max = System.Math.Max(1, s.Quantity - 1);
-                var box = new int[] { UnityEngine.Mathf.Clamp(max / 2, 1, max) };
+                _splitCount = UnityEngine.Mathf.Clamp(_splitCount, 1, max);
                 entries.Add(new RadialEntry
                 {
                     Label = "Split count",
                     ActionText = "Split off this many",
                     Sublabel = "scroll to choose",
-                    OnScroll = d => box[0] = UnityEngine.Mathf.Clamp(box[0] + d, 1, max),
-                    ValueText = () => box[0].ToString(),
-                    OnSelect = () => ItemActions.SplitStackCount(t, box[0]),
+                    OnScroll = d => _splitCount = UnityEngine.Mathf.Clamp(_splitCount + d, 1, max),
+                    ValueText = () => _splitCount.ToString(),
+                    OnSelect = () => ItemActions.SplitStackCount(t, _splitCount),
                 });
             }
             return entries;
+        }
+
+        /// <summary>#6: the vanilla Sort/organise button as a wedge, for a container vanilla would
+        /// let you sort (generic None/Ore storage with 2+ items) — bags, boxes, crates, ore belts,
+        /// jetpack/backpack storage. Null when it doesn't qualify.</summary>
+        public static RadialEntry BuildSortEntry(DynamicThing container)
+        {
+            if (!ItemActions.CanSortContainer(container)) return null;
+            var c = container;
+            return new RadialEntry
+            {
+                Label = "Sort",
+                ActionText = "Sort contents",
+                Sublabel = "organise",
+                AccentOverride = Theme.Accent,
+                OnSelect = () => ItemActions.SortContainer(c),
+            };
         }
 
         /// <summary>Heuristic: bags are navigated (click enters), devices are taken (click) and opened (slide-out).</summary>
@@ -555,6 +616,13 @@ namespace StationeersUIMod.Features
             if (thing?.Slots == null) return false;
             return thing.Slots.Count >= 4 && thing.InteractOnOff == null;
         }
+
+        /// <summary>A storage container the player may bind to a Ctrl+number hotkey (#3): it has
+        /// slots and NO device controls (on/off, mode) — bags, boxes, crates, backpacks, but not
+        /// tools or jetpacks. Broader than <see cref="LooksLikeContainer"/> (no 4-slot floor).</summary>
+        public static bool IsBindableBag(DynamicThing thing)
+            => thing?.Slots != null && thing.Slots.Count > 0
+               && thing.InteractOnOff == null && thing.InteractMode == null;
     }
 
     /// <summary>Session memory of the last item type retrieved, powering "Grab another: X".</summary>

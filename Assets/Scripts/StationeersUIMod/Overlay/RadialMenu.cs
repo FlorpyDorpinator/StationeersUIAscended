@@ -32,6 +32,8 @@ namespace StationeersUIMod.Overlay
         public Sprite HoverIcon;            // swapped in while hovered (STOW wedges preview the held item)
         public bool StowStyle;              // schema A stow wedge: neutral fill, orange only on hover
         public bool GroupStyle;             // sorting-class GROUP wedge: distinct edge/fill palette
+        public bool DeviceSlotStyle;        // item installed in a device's functional slot: distinct edge
+        public DynamicThing BindableBag;    // storage container this wedge represents — Ctrl+1..0 bindable (#3)
         public Action<int> OnScroll;        // scroll-wheel value adjust (+1 / -1 per notch)
         public Func<string> ValueText;      // live value between the scroll triangles
         public Core.ScannedSlot DragSource; // parking: where this item physically lives
@@ -199,6 +201,15 @@ namespace StationeersUIMod.Overlay
         public bool IsOpen => _stack.Count > 0;
         public bool IsSticky => _sticky;
         public bool IsParking => _parking.Active;
+
+        /// <summary>The entry under the cursor (satellite ring first, then main), or null — used
+        /// by the controller for number-key bag binding (#3).</summary>
+        public RadialEntry HoveredEntry()
+        {
+            if (_satellite != null && _satHovered >= 0) return SatEntry(_satHovered);
+            if (_hovered >= 0) return MainEntry(_hovered);
+            return null;
+        }
         /// <summary>The search panel owns ALL input while open — the controller must not act
         /// on raw key presses (radial-key re-press, MMB dismiss) that are really typing.</summary>
         public bool IsSearchOpen => _searchOpen;
@@ -277,6 +288,7 @@ namespace StationeersUIMod.Overlay
             _closeHovered = false;
             _branchEnteredAt = -999f;
             _dwellIndex = -1;
+            HudDropCue.Clear(); // #4: no drag in flight once the radial is gone
             UI.SearchPanelView.Hide();
         }
 
@@ -875,27 +887,38 @@ namespace StationeersUIMod.Overlay
         /// non-sticky branch; self-gates to Option A (B hold mode dives branches on LMB).</summary>
         public void UpdateHoldInteractiveA()
         {
-            bool dbgDown = Input.GetMouseButtonDown(0);
-            if (!IsOpen || _sticky || _searchOpen)
-            {
-                if (dbgDown) UIALog.Warn($"[HOLD-DBG] early-out open={IsOpen} sticky={_sticky} search={_searchOpen}");
-                return;
-            }
-            if (!UIAConfig.IsA || UIAConfig.IsB)
-            {
-                if (dbgDown) UIALog.Warn($"[HOLD-DBG] schema-gated IsA={UIAConfig.IsA} IsB={UIAConfig.IsB}");
-                return;
-            }
+            if (!IsOpen || _sticky || _searchOpen) return;
+            if (!UIAConfig.IsA || UIAConfig.IsB) return; // Option A only
             _parking.Prune();
-            if (dbgDown)
-                UIALog.Warn($"[HOLD-DBG] down mainDist={_mainDist:0} hubR={_lastInnerR - 6f:0} outerR={_lastOuterR:0} hovered={_hovered} close={_closeHovered} drag={_parking.Dragging != null}");
-            if (UpdateHubDrag())
-            {
-                if (dbgDown) UIALog.Warn($"[HOLD-DBG] hubdrag consumed (hubDragging={_hubDragging})");
-                return;
-            }
+
+            // Starting a mouse interaction while holding the key LATCHES the radial open
+            // (sticky), so hold-<key> gains the full tap-<key> feature set — drag items off
+            // wedges, move the hub, world-grab, drop, click-select. The hold radial is otherwise
+            // transient (built for flick-release), and flick-release still works: releasing the
+            // key WITHOUT ever clicking never promotes, so the key-up still selects the hovered
+            // wedge. We process this same frame's press below, then the controller's sticky
+            // branch drives every following frame.
+            if (Input.GetMouseButtonDown(0))
+                _sticky = true;
+
+            if (UpdateHubDrag()) return;
             UpdateStickyOptionA();
-            if (dbgDown) UIALog.Warn($"[HOLD-DBG] after stickyA press={(_press == null ? "null" : _press.Label + " canDrag=" + _press.CanDrag)}");
+        }
+
+        /// <summary>Stack-merge a dragged stackable onto a wedge already showing a COMPATIBLE
+        /// stack (the vanilla "drop 20 sheets onto 10" behaviour), through Thing.Merge —
+        /// server-authoritative and gated by Slot.CanMerge. Returns true when a merge ran.
+        /// The wedge's slot comes from its Tag (device/tool slots) or its DragSource (bag item
+        /// wedges); dropping a stack back onto itself is a no-op.</summary>
+        private bool TryStackMerge(RadialEntry target, DynamicThing item)
+        {
+            if (target == null || item == null) return false;
+            Slot slot = (target.Tag as Slot) ?? target.DragSource?.Slot;
+            DynamicThing occ = slot?.Get();
+            if (occ == null || ReferenceEquals(occ, item)) return false;
+            if (!(occ is IMergeable dst) || !(item is IMergeable src)) return false;
+            try { if (!Slot.CanMerge(item, slot)) return false; } catch { return false; }
+            return ItemActions.MergeInto(dst, src);
         }
 
         /// <summary>Mouse released while dragging an item: drop it into the wedge under the
@@ -923,6 +946,20 @@ namespace StationeersUIMod.Overlay
             RadialEntry target = _satellite != null && _satHovered >= 0 ? SatEntry(_satHovered)
                                : _hovered >= 0 && _mainDist <= _lastOuterR * 1.2f ? MainEntry(_hovered)
                                : null;
+
+            // Stacking: dropping a stack onto a wedge that already shows a COMPATIBLE stack
+            // merges them (drag 20 sheets onto 10 → 30) via vanilla's own Thing.Merge funnel,
+            // gated by Slot.CanMerge. Checked before the swap/insert path — an item wedge is
+            // otherwise not a drop target, so nothing happened before.
+            if (target != null && TryStackMerge(target, item))
+            {
+                _satellite = null;
+                Top().Refresh();
+                _hovered = -1;
+                _pendingRefreshAt = Time.unscaledTime + 0.6f;
+                return;
+            }
+
             if (target != null && target.AcceptsDrop)
             {
                 Slot dest = target.ResolveDrop(item);
@@ -1231,7 +1268,7 @@ namespace StationeersUIMod.Overlay
                 Entries = entries,
                 Center = mainCenter + dir * (mainOuterR + outer * 0.75f + 16f),
                 OuterR = outer,
-                InnerR = outer * 0.34f,
+                InnerR = outer * (UIAConfig.RadialSatelliteHubRatio != null ? UIAConfig.RadialSatelliteHubRatio.Value : 0.34f),
                 SourceIndex = sourceIndex,
             };
             _satHovered = -1;
@@ -1265,6 +1302,10 @@ namespace StationeersUIMod.Overlay
         public void Draw()
         {
             if (!IsOpen) return;
+
+            // #4: publish the dragged item so the visor HUD can light up a hand / equipment box
+            // the cursor is over (cleared in Close()).
+            HudDropCue.Dragging = _parking.Dragging?.Item;
 
             var center = DrawUtil.ScreenCenter + _centerOffset;
             float outerR = UIAConfig.RadialOuterRadius.Value;

@@ -21,6 +21,7 @@ namespace StationeersUIMod.Windows
 
         public override void DrawContent()
         {
+            HudEditorWindow.ClampWindowToScreen(); // never let the window escape the screen
             if (RadialEditorMode.Active)
             {
                 DrawEditorPanel();
@@ -63,6 +64,11 @@ namespace StationeersUIMod.Windows
             if (ImGui.CollapsingHeader("Radial Colours"))
             {
                 DrawColourControls();
+            }
+
+            if (ImGui.CollapsingHeader("Radial Effects (0.9.0)"))
+            {
+                DrawEffectControls();
             }
 
             if (ImGui.CollapsingHeader("SmartStow+", ImGuiTreeNodeFlags.DefaultOpen))
@@ -129,8 +135,40 @@ namespace StationeersUIMod.Windows
             if (ImGui.CollapsingHeader("Layout & sizes", ImGuiTreeNodeFlags.DefaultOpen))
                 DrawVisualControls();
 
+            if (ImGui.CollapsingHeader("Effects (0.9.0)", ImGuiTreeNodeFlags.DefaultOpen))
+                DrawEffectControls();
+
             if (ImGui.CollapsingHeader("Colours", ImGuiTreeNodeFlags.DefaultOpen))
                 DrawColourControls();
+        }
+
+        /// <summary>The 0.9.0 radial effect controls (frosted-glass backdrop + glass mesh look),
+        /// shared by the main window and the editor panel so the two can never drift. Mirrors the
+        /// HUD editor's "(inactive)" language so it's obvious WHY frost isn't showing.</summary>
+        private static void DrawEffectControls()
+        {
+            bool tierC = UI.Hud.HudConfig.FxTierC != null && UI.Hud.HudConfig.FxTierC.Value;
+            bool bundle = Core.HudShaderStore.TierBAvailable;
+
+            Toggle(UIAConfig.RadialFrost, "Frosted glass behind wedges (blurred screen)");
+            FloatSlider(UIAConfig.RadialFrostStrength, "  frost strength", 0f, 1f);
+            if (UIAConfig.RadialFrost.Value)
+            {
+                var warn = new Vector4(1f, 0.72f, 0.25f, 1f);
+                if (!tierC)
+                    ImGui.TextColored(warn, "Frost inactive: turn ON HUD Tier C (F9 > Effects / Visor HUD editor).");
+                else if (!bundle)
+                    ImGui.TextColored(warn, "Frost inactive: shader bundle not loaded (restart the game after a rebuild).");
+                else if (!UI.Hud.HudBackdrop.Active)
+                    ImGui.TextColored(warn, "Frost warming up: needs Flat/VertexWarp HUD curvature + the Visor HUD running.");
+                else
+                    ImGui.TextDisabled("Frost active.");
+            }
+
+            ImGui.Spacing();
+            ImGui.TextDisabled("Glass look (pure vertex colour — works without frost):");
+            FloatSlider(UIAConfig.RadialSheen, "Glass sheen (whiten toward the rim)", 0f, 1f);
+            FloatSlider(UIAConfig.RadialEdgeLight, "Edge light (rim faces the key light)", 0f, 1f);
         }
 
         /// <summary>Every live-tunable visual: shared between the normal Radials section and
@@ -154,6 +192,14 @@ namespace StationeersUIMod.Windows
             Toggle(UIAConfig.RadialUppercaseLabels, "ALL CAPS wedge labels");
             Toggle(UIAConfig.RadialShowStateText, "State under icons (battery %, kPa, counts)");
             Toggle(UIAConfig.RadialShowWedgeLabels, "Show item name under each icon");
+            FloatSlider(UIAConfig.RadialHubTitleSize, "Readout 1: title (bold)", 9f, 32f);
+            FloatSlider(UIAConfig.RadialTextVerb, "Readout 2: action verb", 8f, 26f);
+            FloatSlider(UIAConfig.RadialTextLabel, "Readout 3: item name", 8f, 26f);
+            FloatSlider(UIAConfig.RadialTextSub, "Readout 4: detail / location", 8f, 24f);
+            FloatSlider(UIAConfig.RadialTextWarn, "Readout 5: stat / warning", 8f, 24f);
+            Toggle(UIAConfig.RadialRotateLongLabels, "Angle long wedge labels so they fit");
+            FloatSlider(UIAConfig.RadialSatelliteHubRatio, "Child radial hub ratio", 0.2f, 0.6f);
+            Toggle(UIAConfig.RadialDynamicReadoutText, "Dynamic child-hub text (no overlap)");
             FontCombo();
             Toggle(UIAConfig.UseUnityRadial, "Unity UGUI renderer (procedural wedges, TMP, animations)");
         }

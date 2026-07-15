@@ -28,6 +28,13 @@ namespace StationeersUIMod.UI.Hud
         private const int HudLayerDome = 6;   // verified unused in 27701 (no objects, no masks)
         private const int HudLayerUi = 5;     // in both runtime culling masks (world canvas)
 
+        // Overlay sort order: above the vanilla HUD (0), under the radials (5000). #7 drops the HUD
+        // far below every vanilla canvas while a full-attention menu is up, so the menu draws over
+        // it while the HUD stays visible behind (a ScreenSpaceOverlay canvas still renders over the
+        // 3D world at any sort order — the value only orders overlay-vs-overlay).
+        private const int HudCanvasOrder = 3800;
+        private const int HudMenuBackOrder = -10000;
+
         private static Canvas _canvas;
         private static CanvasGroup _rootGroup;
         private static Canvas _domeCanvas;
@@ -120,7 +127,7 @@ namespace StationeersUIMod.UI.Hud
             go.layer = HudLayerUi;
             _canvas = go.AddComponent<Canvas>();
             _canvas.renderMode = RenderMode.ScreenSpaceOverlay;
-            _canvas.sortingOrder = 3800; // above vanilla HUD (0), under radials (5000)
+            _canvas.sortingOrder = HudCanvasOrder; // above vanilla HUD (0), under radials (5000)
             // A raycaster so BORROWED vanilla widgets (the moodlet strip) can still receive
             // their own hover tooltips. Only graphics with raycastTarget=true are hit, and
             // the root CanvasGroup blocks raycasts by default — a subtree opts back in with
@@ -440,8 +447,15 @@ namespace StationeersUIMod.UI.Hud
                     ? HudLayerDome : HudLayerUi);
             // Mode C swaps every Graphic's material at apply time — views built AFTER
             // that would render with stock materials (z-fight into the world) unless
-            // the swap is re-run over the fresh subtree.
-            if (_appliedMode == HudCurvature.CurvedWorldCanvas) ApplyWorldMaterials();
+            // the swap is re-run over the fresh subtree. LATENT BUG FIXED (adversarial
+            // audit 2026-07-13): ApplyWorldMaterials early-returns while _worldMatsApplied
+            // is still true, so this call was a guarded NO-OP — structural edits in mode C
+            // left new elements unswapped. Reset the flag so the re-apply is real.
+            if (_appliedMode == HudCurvature.CurvedWorldCanvas)
+            {
+                _worldMatsApplied = false;
+                ApplyWorldMaterials();
+            }
             _hasPrev = false; // fresh views must snap to visibility, not flicker in
             RelayoutAll();
         }
@@ -814,6 +828,10 @@ namespace StationeersUIMod.UI.Hud
                 if (m != null) UnityEngine.Object.Destroy(m);
             _overlayFontMats.Clear();
             _tmpOriginalMats.Clear();
+            HudFxMaterials.Shutdown();   // Tier B/C shared materials + mode-C clones
+            HudBackdrop.Shutdown();      // Tier C capture component + blur RT chain
+            HudBloomFx.Shutdown();       // Stage 2 bloom pyramid RTs + materials
+            Core.HudShaderStore.Shutdown(); // the uia_effects.bundle (unload or F6 double-loads)
             HudGlitch.Shutdown(); // kill any camera image-effect + material before the reload
             HudText.Shutdown();
             HudWarp.Active = HudWarp.Kind.None;
@@ -857,6 +875,9 @@ namespace StationeersUIMod.UI.Hud
                     _canvas.gameObject.SetActive(false);
                     if (_domeCanvas != null) _domeCanvas.gameObject.SetActive(false);
                 }
+                // Tier C must never keep a capture component on the vanilla camera across a
+                // world unload (dead-assembly failure class; audit 2026-07-13).
+                if (HudBackdrop.Active) HudBackdrop.StandDown();
                 // Never pin the last world's Human across unloads / hot reloads.
                 LastSnapshot = null;
                 HudSampler.Clear();
@@ -876,7 +897,20 @@ namespace StationeersUIMod.UI.Hud
 
             EnsureBuilt();
             _canvas.gameObject.SetActive(true);
+
+            // #7: a vanilla full-attention menu (pause/start, Stationpedia, IC editor, console,
+            // creative) must render ABOVE our overlay — but the HUD should stay VISIBLE behind it,
+            // not vanish. So we DROP our overlay sorting order far below any vanilla canvas while a
+            // menu is front (the HUD still draws over the world, just under the menu) and restore it
+            // the instant the menu closes. The F9/F10 mod editors set editorActive → never demoted.
+            int wantOrder = (!editorActive && Guards.VanillaMenuWantsFront()) ? HudMenuBackOrder : HudCanvasOrder;
+            if (_canvas.sortingOrder != wantOrder) _canvas.sortingOrder = wantOrder;
+
             SyncVanillaVisibility();
+
+            // #4: while the radial drag-layer carries an item, resolve which HUD box the cursor is
+            // over so the box widgets can light it up as they paint below.
+            Core.HudDropCue.HoveredSlot = Core.HudDropCue.Active ? ZoneAt()?.Slot : null;
 
             if (DocumentMode)
             {
@@ -908,7 +942,9 @@ namespace StationeersUIMod.UI.Hud
             if (dbgAll) ForceAllMoodlets();
             else if (_forcedMoodlets.Count > 0) ClearForcedMoodlets(); // flag cleared → hide them
 
-            var snap = HudSampler.Sample();
+            HudSnapshot snap;
+            using (Profiling.ProfilicusUniversalis.Time("Hud.Sample"))
+                snap = HudSampler.Sample();
             LastSnapshot = snap;
             if (!snap.Valid) return;
 
@@ -965,6 +1001,7 @@ namespace StationeersUIMod.UI.Hud
                 {
                     _animator.BootUp(BootEligible);
                     HudGlitch.Trigger(powerDown: false); // suit powered on / booted
+                    TriggerBootDissolve();               // Tier B dissolve frontier (no-op w/o bundle)
                 }
             }
             _prevTier = tier;
@@ -995,30 +1032,86 @@ namespace StationeersUIMod.UI.Hud
 
             // --- layout / curvature ---
             float scale = HudConfig.HudScale.Value;
-            float hash = LayoutHash(scale);
-            if (!Mathf.Approximately(hash, _layoutHash) || _screenW != Screen.width || _screenH != Screen.height)
+            using (Profiling.ProfilicusUniversalis.Time("Hud.Relayout"))
             {
-                _layoutHash = hash;
-                _screenW = Screen.width;
-                _screenH = Screen.height;
-                RelayoutAll();
+                float hash = LayoutHash(scale);
+                if (!Mathf.Approximately(hash, _layoutHash) || _screenW != Screen.width || _screenH != Screen.height)
+                {
+                    _layoutHash = hash;
+                    _screenW = Screen.width;
+                    _screenH = Screen.height;
+                    RelayoutAll();
+                }
+                ApplyCurvature();
             }
-            ApplyCurvature();
+
+            // --- Tier C backdrop (frosted glass) ---
+            // Screen-space curvature only (Flat/VertexWarp): modes B/D composite the HUD
+            // through their own RT and mode C is world-space (plan §5.4). Running this check
+            // every frame IS the §12.7 curvature-switch teardown: the frame after
+            // _appliedMode flips away, frost stands down (capture removed, RTs released).
+            // Frost + bloom COEXIST on the bloom-forced flat route (play-test ask): the forced
+            // route presents the RT 1:1, so the glass shader's screen-space _UiaBlurTex sample
+            // still lands exactly where the pixel shows — same alignment as the direct modes.
+            // TRUE dome/curved (user-selected B/D) stay excluded: their warped presentation
+            // moves pixels after sampling, which would visibly shear the frost.
+            bool bloomForcedFlat = BloomActive()
+                && (HudConfig.Curvature.Value == HudCurvature.Flat
+                    || HudConfig.Curvature.Value == HudCurvature.VertexWarp);
+            bool frostCurveOk = _appliedMode == HudCurvature.Flat
+                || _appliedMode == HudCurvature.VertexWarp || bloomForcedFlat;
+            bool frostWanted = HudConfig.FxTierC != null && HudConfig.FxTierC.Value && frostCurveOk;
+            // A visible, frost-enabled radial menu keeps the SAME backdrop alive even when the HUD's
+            // own elements wouldn't ask for it (the radial draws on its own always-screen-space overlay
+            // and samples the global blur texture). Held to the same curvature set as the HUD frost, so
+            // a true dome/curved HUD is never forced to spin up a screen-space capture its own panels
+            // would then sample warped. RadialFrostWanted already requires the Tier C master, so this
+            // never runs the capture with Tier C off.
+            bool radialFrostWanted = frostCurveOk && global::StationeersUIMod.UI.UnityRadialView.RadialFrostWanted;
+            // The bundle loads when ANY shader consumer wants it (Tier B, Tier C frost, radial frost,
+            // or Stage 2 bloom — each is independent). Idempotent + fail-soft. Bloom uses it to resolve
+            // BloomShader/BlurShader; until then BloomActive() stays false and the HUD renders direct
+            // (routing to the RT waits one frame for the load — invisible, flat-direct == flat-RT 1:1).
+            if (frostWanted || radialFrostWanted || (HudConfig.FxTierB != null && HudConfig.FxTierB.Value)
+                || (HudConfig.FxBloomOn != null && HudConfig.FxBloomOn.Value))
+                Core.HudShaderStore.EnsureLoaded();
+            if (frostWanted || radialFrostWanted)
+            {
+                HudBackdrop.Tick();
+            }
+            else if (HudBackdrop.Active)
+            {
+                HudBackdrop.StandDown();
+            }
+
+            // --- Tier B global clocks: per-frame uniforms on the SHARED materials (one
+            // SetFloat each — all elements share the phase; per-element volume is uv0.x).
+            UpdateFxUniforms();
 
             // --- content ---
             _vignette.color = HudPalette.Vignette.Value;
-            foreach (var p in _panels)
+            using (Profiling.ProfilicusUniversalis.Time("Hud.Content"))
             {
-                if (p.Group != null && p.Group.gameObject.activeSelf)
+                foreach (var p in _panels)
                 {
-                    try { p.UpdatePanel(snap, scale); }
-                    catch (Exception e)
+                    if (p.Group != null && p.Group.gameObject.activeSelf)
                     {
-                        // Fail soft, but never spam: a persistently-throwing panel would
-                        // otherwise log (and allocate) every frame.
-                        if (++p.UpdateFailures <= 3)
-                            UIALog.Warn("HUD panel " + p.Id + " update failed: " + e.Message
-                                + (p.UpdateFailures == 3 ? " (further errors suppressed)" : ""));
+                        try
+                        {
+                            p.UpdatePanel(snap, scale);
+                            // Breathing pulse: a uniform CanvasRenderer tint on the element's
+                            // OWN (IHudFxGraphic-marked) graphics — never CanvasGroup.alpha
+                            // (the animator owns it) and never a re-mesh (review 2026-07-13).
+                            if (p is HudElementView pev) pev.ApplyPulse();
+                        }
+                        catch (Exception e)
+                        {
+                            // Fail soft, but never spam: a persistently-throwing panel would
+                            // otherwise log (and allocate) every frame.
+                            if (++p.UpdateFailures <= 3)
+                                UIALog.Warn("HUD panel " + p.Id + " update failed: " + e.Message
+                                    + (p.UpdateFailures == 3 ? " (further errors suppressed)" : ""));
+                        }
                     }
                 }
             }
@@ -1026,15 +1119,89 @@ namespace StationeersUIMod.UI.Hud
             // --- animations ---
             float now = Time.unscaledTime;
             float animDt = Mathf.Min(Time.unscaledDeltaTime, 0.1f);
-            _animator.Update(animDt, now);
-            HudGlitch.ApplyToPanels(_panels); // HUD-only tear/jitter on power transitions
-            _rootGroup.alpha = _animator.DropoutMultiplier(snap.LowPower && tier != HudTier.Bare, now);
+            using (Profiling.ProfilicusUniversalis.Time("Hud.Anim"))
+            {
+                _animator.Update(animDt, now);
+                HudGlitch.ApplyToPanels(_panels); // HUD-only tear/jitter on power transitions
+                _rootGroup.alpha = _animator.DropoutMultiplier(snap.LowPower && tier != HudTier.Bare, now);
+            }
 
-            // --- dome / curved-RT render (modes B and D both drive the off-screen camera) ---
+            // --- dome / curved-RT render (modes B and D both drive the off-screen camera; a
+            // bloom-forced flat/vertex-warp mode is routed through DomeProjection too) ---
             if ((_appliedMode == HudCurvature.DomeProjection || _appliedMode == HudCurvature.CurvedRt)
                 && _rtCam != null)
             {
-                try { _rtCam.Render(); } catch { }
+                using (Profiling.ProfilicusUniversalis.Time("RtCam.Render"))
+                    try { _rtCam.Render(); } catch { }
+
+                // Bloom lives INSIDE the HUD RT: bright HUD pixels light their neighbours, and every
+                // presentation (dome grid, curved flat, forced flat) then carries the glow, warped
+                // consistently with the HUD. One dispatch covers ALL RT-routed modes. _rt is
+                // guaranteed non-MSAA here (see UpdateRtCurve/UpdateRtFlat) so the additive blit-back
+                // onto it is safe.
+                if (BloomActive() && _rt != null)
+                    HudBloomFx.Dispatch(_rt);
+            }
+        }
+
+        // Boot-dissolve envelope: while > 0, panels carrying the edgefx material dissolve IN
+        // (frontier sweeps as _DissolveAmt falls 1 -> 0). Globally synchronized by design for
+        // 0.9.0 — the per-element staggered variant needs the transient clone pool (plan
+        // §12.3) and is deferred; this reads great and costs one uniform.
+        private static float _dissolveUntil;
+        private const float DissolveSeconds = 1.2f;
+
+        /// <summary>Kick the boot-dissolve envelope (called from the power-up transition).</summary>
+        internal static void TriggerBootDissolve()
+        {
+            if (HudConfig.FxDissolveBoot != null && HudConfig.FxDissolveBoot.Value
+                && Core.HudShaderStore.TierBAvailable)
+                _dissolveUntil = Time.unscaledTime + DissolveSeconds;
+        }
+
+        /// <summary>Per-frame Tier B uniforms on the shared materials (plan §12.3: global
+        /// clock = shared uniform; per-element strength = uv0.x; nothing per-element here).</summary>
+        private static void UpdateFxUniforms()
+        {
+            // Effective strengths after the per-effect checkboxes (play-test: each feature
+            // individually toggleable, not just the tier masters).
+            bool tierB = HudConfig.FxTierB != null && HudConfig.FxTierB.Value;
+            float shine = tierB && HudConfig.FxShineOn != null && HudConfig.FxShineOn.Value
+                && HudConfig.FxShine != null ? HudConfig.FxShine.Value : 0f;
+            float irid = tierB && HudConfig.FxIridOn != null && HudConfig.FxIridOn.Value
+                && HudConfig.FxIridescence != null ? HudConfig.FxIridescence.Value : 0f;
+            float period = HudConfig.FxShinePeriod != null ? Mathf.Max(2f, HudConfig.FxShinePeriod.Value) : 9f;
+            // The band spends ~1.2s crossing, then rests off-screen for the rest of the period.
+            float t = (Time.unscaledTime % period) / 1.2f;
+            float shinePos = t <= 1f ? Mathf.Lerp(-0.2f, 1.2f, t) : -10f;
+            float dis = _dissolveUntil > Time.unscaledTime
+                ? Mathf.Clamp01((_dissolveUntil - Time.unscaledTime) / DissolveSeconds) : 0f;
+
+            var edgeFx = HudFxMaterials.Get("edgefx");
+            if (edgeFx != null)
+            {
+                edgeFx.SetFloat("_ShinePos", shinePos);
+                edgeFx.SetFloat("_ShineStrength", shine);
+                edgeFx.SetFloat("_IridStrength", irid);
+                edgeFx.SetFloat("_DissolveAmt", dis);
+            }
+            var glass = HudFxMaterials.Get("glass");
+            if (glass != null)
+            {
+                glass.SetFloat("_FrostStrength", 1f); // element volume is uv0.x; this is the global gate
+                glass.SetFloat("_FrostDarken", HudConfig.FrostDarken != null ? HudConfig.FrostDarken.Value : 0.75f);
+                Color tint;
+                if (!ColorUtility.TryParseHtmlString(
+                        HudConfig.FrostTint != null ? HudConfig.FrostTint.Value : "#B6BCC2", out tint))
+                    tint = new Color(0.714f, 0.737f, 0.761f);
+                glass.SetColor("_FrostTint", tint);
+                glass.SetFloat("_ChromaStrength",
+                    HudConfig.FxChromaOn != null && HudConfig.FxChromaOn.Value
+                    && HudConfig.FxChroma != null ? HudConfig.FxChroma.Value : 0f);
+                // Tier B layers over the glass too (play-test: frost used to REPLACE shine/irid).
+                glass.SetFloat("_ShinePos", shinePos);
+                glass.SetFloat("_ShineStrength", shine);
+                glass.SetFloat("_IridStrength", irid);
             }
         }
 
@@ -1077,10 +1244,33 @@ namespace StationeersUIMod.UI.Hud
 
         // ------------------------------------------------------------------ curvature
 
+        /// <summary>Bloom should post-process the HUD RT this frame: enabled and both shaders present.
+        /// Also gates forcing flat/vertex-warp onto the RT path and dropping mode-D MSAA (the additive
+        /// blit-back wants a plain, non-MSAA target).</summary>
+        private static bool BloomActive()
+        {
+            return HudConfig.FxBloomOn != null && HudConfig.FxBloomOn.Value && HudBloomFx.Available;
+        }
+
         private static void ApplyCurvature()
         {
-            var mode = HudConfig.Curvature.Value;
+            var userMode = HudConfig.Curvature.Value;
             float strength = HudConfig.CurveStrength.Value;
+
+            // Bloom needs the HUD in an RT. The dome (B) and curved-RT (D) modes are already RT-routed;
+            // the DIRECT modes (Flat / VertexWarp) are hijacked onto the dome RT rig — the canvas renders
+            // ScreenSpaceCamera 1:1 into _rt (exactly as mode B fills it) and is presented FLAT full-screen
+            // (UpdateRtFlat), so it stays pixel-identical to the overlay while living in a texture the bloom
+            // pass can read+write. The HUD keeps its OWN warp (None for Flat, Barrel for VertexWarp).
+            // Mode C (CurvedWorldCanvas, the deprecated world-space one) is NOT forced — it renders through
+            // the main camera and cannot be captured this way; use mode D for the same look with bloom.
+            bool bloomForce = BloomActive()
+                && (userMode == HudCurvature.Flat || userMode == HudCurvature.VertexWarp);
+            // The render PATH we actually build. Reusing DomeProjection's ScreenSpaceCamera plumbing
+            // (which needs NO world-material swaps, unlike the WorldSpace modes C/D) is the whole reason
+            // the forced flat path is cheap and input-safe.
+            var mode = bloomForce ? HudCurvature.DomeProjection : userMode;
+
             HudWarp.Direction = HudConfig.CurveInvert.Value ? -1f : 1f;
             // Modes C and D's natural visor is the INVERTED cylinder (edges bulging toward the
             // camera approximate a shell around your head; the outward bend reads inside-out
@@ -1135,6 +1325,23 @@ namespace StationeersUIMod.UI.Hud
                 }
                 _appliedMode = mode;
                 DirtyAllMeshes();
+            }
+
+            if (bloomForce)
+            {
+                // Forced-flat-into-RT: keep the user's OWN warp, render 1:1 through the RT rig,
+                // present FLAT full-screen. Pixel-identical to the direct overlay, but bloomable.
+                if (userMode == HudCurvature.VertexWarp)
+                {
+                    HudWarp.Active = HudWarp.Kind.Barrel;
+                    HudWarp.Strength = strength;
+                }
+                else
+                {
+                    HudWarp.Active = HudWarp.Kind.None;
+                }
+                UpdateRtFlat();
+                return;
             }
 
             switch (mode)
@@ -1223,6 +1430,7 @@ namespace StationeersUIMod.UI.Hud
             _rtCam.orthographic = true;               // mode D leaves it perspective — restore
             _domeDisplay.enabled = true;              // show the dome grid, hide mode D's flat RT
             if (_rtFlat != null) _rtFlat.enabled = false;
+            if (_domeScan != null) _domeScan.enabled = true; // bloom-forced-flat leaves this off — restore
             if (_rt == null || _rt.width != Screen.width || _rt.height != Screen.height)
             {
                 if (_rt != null) { _rt.Release(); UnityEngine.Object.Destroy(_rt); }
@@ -1251,6 +1459,38 @@ namespace StationeersUIMod.UI.Hud
             // over HUD pixels, not across the whole screen (the mode-B complaint).
             if (_domeScan.MaskTex != _rt) { _domeScan.MaskTex = _rt; _domeScan.Refresh(); }
             if (_domeScan.color != scan) { _domeScan.color = scan; _domeScan.Refresh(); }
+        }
+
+        /// <summary>Bloom-forced flat: render the direct (Flat/VertexWarp) HUD through the dome RT rig
+        /// ORTHOGRAPHICALLY (pixel-1:1, exactly as mode B fills _rt) but present it FLAT full-screen via
+        /// _rtFlat instead of the warped dome grid — visually identical to the ScreenSpaceOverlay HUD,
+        /// only now living in _rt so HudBloomFx can post-process it. No scanlines (those are a dome/curve
+        /// aesthetic). Uses mode B's exact RT (24-bit depth for the portrait's UGUI stencil mask, no MSAA
+        /// so the bloom additive blit-back is safe).</summary>
+        private static void UpdateRtFlat()
+        {
+            if (_rtCam == null || _rtFlat == null) return;
+            _rtCam.orthographic = true;
+            _rtCam.allowMSAA = false; // mode D may have turned this on; the flat render needs none
+            if (_rt == null || _rt.width != Screen.width || _rt.height != Screen.height
+                || _rt.antiAliasing != 1)
+            {
+                if (_rt != null) { _rt.Release(); UnityEngine.Object.Destroy(_rt); }
+                // 24-bit depth => an 8-bit stencil for UI Mask (the round portrait), same as mode B.
+                _rt = new RenderTexture(Screen.width, Screen.height, 24, RenderTextureFormat.ARGB32)
+                {
+                    filterMode = FilterMode.Bilinear,
+                };
+                _rtCam.targetTexture = _rt;
+            }
+            _rtCam.orthographicSize = Screen.height * 0.5f;
+
+            // Present flat + full-screen; hide the dome grid and the scanlines (keep it 1:1 with overlay).
+            _rtFlat.texture = _rt;
+            _rtFlat.color = Color.white;
+            _rtFlat.enabled = true;
+            if (_domeDisplay != null) _domeDisplay.enabled = false;
+            if (_domeScan != null) _domeScan.enabled = false;
         }
 
         /// <summary>A screen-sized RT is real memory — hand it back when leaving mode B or D.</summary>
@@ -1287,7 +1527,10 @@ namespace StationeersUIMod.UI.Hud
             // anti-aliases the curved mesh edges — without it the off-screen render looks rougher
             // than the direct-to-screen modes (mode B could get away without it because its dome
             // grid resamples). 4x is a good quality/memory balance for a screen-sized RT.
-            const int msaa = 4;
+            // BLOOM: the bloom pass composites additively back INTO _rt, and blitting into an MSAA
+            // target is GPU-flaky (Built-in RP) — so drop MSAA while bloom runs (the glow softens
+            // edges anyway; the HUD graphics carry their own feather AA).
+            int msaa = BloomActive() ? 1 : 4;
             if (_rt == null || _rt.width != Screen.width || _rt.height != Screen.height
                 || _rt.antiAliasing != msaa)
             {
@@ -1342,6 +1585,7 @@ namespace StationeersUIMod.UI.Hud
             var scan = HudPalette.Scanline.Value;
             if (_domeScan != null)
             {
+                _domeScan.enabled = true; // bloom-forced-flat leaves this off — restore for mode D
                 if (_domeScan.MaskTex != _rt) { _domeScan.MaskTex = _rt; _domeScan.Refresh(); }
                 if (_domeScan.color != scan) { _domeScan.color = scan; _domeScan.Refresh(); }
             }
@@ -1449,6 +1693,10 @@ namespace StationeersUIMod.UI.Hud
                     // is getting clipped by the circle in C mode").
                     if (g.GetComponentInParent<UnityEngine.UI.Mask>() != null) continue;
 
+                    // Tier B/C effect materials manage their own world-space ZTest clone;
+                    // the blind _ztestMat overwrite would strip the effect (audit 2026-07-13).
+                    if (HudFxMaterials.HandleWorldSwap(g)) continue;
+
                     var tmp = g as TextMeshProUGUI;
                     if (tmp != null)
                     {
@@ -1490,7 +1738,11 @@ namespace StationeersUIMod.UI.Hud
                 if (_canvas != null)
                     foreach (var g in _canvas.GetComponentsInChildren<Graphic>(true))
                         if (!(g is TextMeshProUGUI))
+                        {
+                            // Ours get their SHARED effect material back, not null (audit 2026-07-13).
+                            if (HudFxMaterials.HandleWorldRestore(g)) continue;
                             g.material = null;
+                        }
             }
             catch { }
         }

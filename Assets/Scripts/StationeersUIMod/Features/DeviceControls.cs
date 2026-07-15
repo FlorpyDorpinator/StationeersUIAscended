@@ -125,6 +125,11 @@ namespace StationeersUIMod.Features
         private static void AddScrollPairs(List<RadialEntry> entries, DynamicThing thing,
             HashSet<Interactable> consumed)
         {
+            // A Stackable's Button1/Button2 ARE its split-one / split-half interactions — they
+            // belong to the SPLIT wedges, never a generic device "scroll" control (which showed
+            // a bogus "Split One" scroll wedge on materials). Materials have no stepped settings.
+            if (thing is Assets.Scripts.Objects.Items.Stackable) return;
+
             var b1 = thing.InteractButton1;
             var b2 = thing.InteractButton2;
             var b3 = thing.InteractButton3;

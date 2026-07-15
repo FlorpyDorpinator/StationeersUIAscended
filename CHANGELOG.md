@@ -2,6 +2,97 @@
 
 All notable changes to the mod. Detailed engineering write-ups live in `Changes Reports/`.
 
+## 0.9.0 Experimental — 2026-07-13 — EFFECTS + THE PROFILER
+
+Three tiers of new HUD effects — every one togglable **globally** (F9 → "Effects (global)") and
+**per element** (each element's popup) — plus a built-in profiler to prove none of it hurts the
+game. Planned and adversarially verified against the codebase, TheRealBeef's shader mods, the
+StationeersLaunchPad source, and Jackson's profiler (see `docs/UI Upgrade/Master-Plan-0.9.0.md`).
+
+### Tier A — mesh effects (on by default)
+- **Hairlines that fade**: lines below 1px render 1px wide and dim by coverage instead of
+  vanishing (draw down to 0.05px; phone-wire AA).
+- **Directional edge-light on drawn lines** — brighter where a stroke faces the key light,
+  matching the panel borders (shared light direction).
+- **Breathing pulse** (per-element opt-in) — a gentle glow oscillation with per-element phase
+  offsets; drives the CanvasRenderer tint, never fights the animator/glitch channels.
+
+### Tier B — shader effects (on when `uia_effects.bundle` is present; degrade to Tier A without it)
+- **Shine sweep** — a light band that travels across panels on a configurable period.
+- **Iridescent edges** — subtle thin-film shimmer (spectral_zucconi6, branchless).
+- **Dissolve reveal** — panels "power on" behind a travelling bright frontier on boot.
+- Shaders ship in an AssetBundle built from `Dev/UiaEffectsBundle` (own mini-project;
+  `build-bundle.bat`); loaded fail-soft from the mod folder (`ModData.DirectoryPath`), never
+  named `*.assets` (SLP auto-load safety), hot-reload-safe.
+
+### Tier C — frosted glass (EXPERIMENTAL, off by default; Flat/Warp curvature only)
+- Panels **blur, darken and tint the world behind them** — an OnRenderImage capture (pass-through
+  safe) into a ¼-res dual-Kawase pyramid, re-blurred every N frames, one shared blur texture for
+  every panel. Gray-leaning tint per FlorpyDorp; darkening/tint/throttle/downsample all config.
+- Stands down automatically on curvature switch, world unload, disable, and hot reload.
+
+### The profiler (Profilicus Universalis by JacksonTheMaster, vendored with permission)
+- F9 → **Profiler** or console **`uiaprof [on|off|clear|save]`** — rolling 10s per-metric table
+  (HUD phases, mesh rebuilds, blur dispatch, `Frame.Total`), Markdown snapshots to
+  `BepInEx/config/StationeersUIMod/ProfilerSnapshots/`.
+- **`uiaprof ab <effect>`** — measures an effect's real cost: toggles it ON/OFF around two
+  captured windows and prints the ms/frame delta (tiera/tierb/frost/shine/edgelight/irid/
+  chroma/pulse/dissolve).
+
+### HUD BLOOM — elements light each other (added 2026-07-15)
+- **True light bleed between elements**: any bright HUD pixel — borders, text, accent chips,
+  glow halos — blooms onto its neighbours. The HUD renders through a RenderTexture in every
+  curvature mode (flat/vertex-warp are routed onto the RT rig while bloom is on, pixel-1:1),
+  a soft-knee bright-pass extracts the light, the dual-Kawase chain blurs it, and it composites
+  additively back into the HUD image — so every presentation carries the glow consistently.
+- Full control set in F9: **strength / threshold / soft knee / blur steps (1–5, reach doubles
+  per step) / spread** (the *continuous* width fine-adjust between steps) / **fine-detail**
+  checkbox (thin borders + drawn lines survive into the bloom) / **saturation** (white-hot →
+  own hues → neon) / **tint** (hue-wheel picker).
+- Frosted glass and bloom **coexist** on flat/vertex-warp. Default off; fail-soft without the
+  shader bundle. Architecture verified against TheRealBeef's mods and the game's own bloom
+  (research write-ups in `Changes Reports/`).
+
+### The glow system, matured (2026-07-14/15 play-test rounds)
+- **Inner + outer glow, separately dialable** — frames glow *into* the glass and *out* of it
+  (the concept art's both-ways light), each 0–2, per-element overrides, shared width (to 160px)
+  and a **diffuseness** slider (tight rim glow → wide soft haze).
+- **Ripple overdrive** — the border shimmer now goes to 2.5: dark troughs clip to fully dark
+  (the line visibly breaks up) and bright crests overshoot into the specular and the glow.
+- A long artifact hunt, all fixed: Mach-banded halo falloff (8-stop C¹-smooth curve), radial
+  spokes (ripple aliasing — mesh columns now sample the shimmer densely enough; the halo keeps
+  only a fraction of it), corner rays (fan density scales with the glow skirt), inner-glow
+  corner X-pattern (bands now miter on the corner bisector with zero double-draw, compressing
+  their falloff instead of truncating it), and glow escaping through trapezoid slants (the
+  miter now respects each corner's true interior angle).
+- **Hand boxes and the 1–6 column receive every mesh effect** (they styled their glass by hand
+  and silently skipped the new-effects push).
+
+### Radial glass (F10, added 2026-07-15)
+- The radial menus join the effects system: **frosted-glass wedges** (shares the HUD's blur —
+  needs Tier C + flat/vertex-warp), plus **sheen** and **edge light** on wedge rims under the
+  same key light as the panels. New "Effects (0.9.0)" section in the radial editor; the menu
+  says why frost is inactive instead of silently doing nothing.
+
+### Fixes & plumbing
+- **Frost no longer X-rays the first-person helmet**: the backdrop capture moved from the main
+  camera to the game's foreground (helmet) camera, so frosted panels blur the visor frame like
+  everything else (the helmet is a separate camera's layer the main camera never draws).
+- **Profiler measures memory now** (Dean Hall's critique answered): allocation KB/frame +
+  gen0 collections in the live table, and `uiaprof ab` prints the allocation delta alongside
+  ms/frame. Steady state: zero mesh rebuilds, ~0 added alloc.
+- **Packaging**: releases no longer ship the dev hot-reload shim (it self-initialized the mod
+  under SLP with an empty prefab list and the wrong cfg); settings migrate automatically to the
+  new SLP config identity (`<ModID>` added). The inert `stationeersmods` marker file is gone.
+- **Shipped HUD profiles now import on first run** (0.8.0 shipped them inert in the zip);
+  the shipped default layout for the 0.9.0 play-test is **"Smaller Test"**.
+- **Latent mode-C bug fixed**: elements added/duplicated in the F9 editor while in curvature
+  mode C lost their world-space material (a guarded no-op re-apply) — now re-applied for real.
+- Effect materials are exempt from the mode-C material swap (they carry their own ZTest clones);
+  effect systems never touch borrowed vanilla graphics (marker-interface scoping).
+- Dev-only: the shader bundle loads from memory, so it can be rebuilt while the game runs.
+- Retired the dead `GlitchShader` config knob.
+
 ## 0.8.0 Alpha — 2026-07-13 — GLASSY + THE DESIGNER, DEEPER
 
 The HUD designer from 0.7.0 grows up: a full **"Glassy"** dashboard redesign as the shipped

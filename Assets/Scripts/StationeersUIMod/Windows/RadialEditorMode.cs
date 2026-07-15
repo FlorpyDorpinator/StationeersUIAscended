@@ -171,6 +171,13 @@ namespace StationeersUIMod.Windows
                     HotPalette.Add("GroupWedgeBorder");
                     HotPalette.Add("WedgeSelected");
                 }
+                else if (hoveredEntry.DeviceSlotStyle)
+                {
+                    HotPalette.Add("DeviceSlotBorderColor");
+                    HotPalette.Add("WedgeBackground");
+                    HotPalette.Add("WedgeSelected");
+                    HotPalette.Add("TextPrimary");
+                }
                 else
                 {
                     HotPalette.Add("WedgeBackground");
@@ -219,9 +226,10 @@ namespace StationeersUIMod.Windows
                 {
                     Label = "Canister",
                     ActionText = "Take to hand",
-                    Sublabel = "pressure readout",
+                    Sublabel = "in a device slot (blue edge)",
                     StateText = "5300<size=75%>kPa</size>",
                     Icon = icons.Count > 2 ? icons[2] : null,
+                    DeviceSlotStyle = true,
                 },
                 new RadialEntry
                 {

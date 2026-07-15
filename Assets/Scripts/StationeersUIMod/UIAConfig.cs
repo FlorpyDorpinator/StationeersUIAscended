@@ -130,6 +130,20 @@ namespace StationeersUIMod
         public static ConfigEntry<float> RadialSatelliteScale;
         public static ConfigEntry<float> RadialShineIntensity;
         public static ConfigEntry<float> ParkedChipRadius;
+        public static ConfigEntry<float> RadialHubTitleSize;   // line 1: item/menu title (bold)
+        public static ConfigEntry<float> RadialTextVerb;       // line 2: the action verb
+        public static ConfigEntry<float> RadialTextLabel;      // line 3: the item name
+        public static ConfigEntry<float> RadialTextSub;        // line 4: the detail / location
+        public static ConfigEntry<float> RadialTextWarn;       // line 5: the stat / warning
+        public static ConfigEntry<bool> RadialRotateLongLabels;
+        public static ConfigEntry<float> RadialSatelliteHubRatio;
+        public static ConfigEntry<bool> RadialDynamicReadoutText;
+
+        // --- Radial effects (0.9.0): frosted-glass backdrop + glass mesh look on wedges ---
+        public static ConfigEntry<bool> RadialFrost;
+        public static ConfigEntry<float> RadialFrostStrength;
+        public static ConfigEntry<float> RadialSheen;
+        public static ConfigEntry<float> RadialEdgeLight;
 
         public static void Bind(ConfigFile cfg)
         {
@@ -324,6 +338,50 @@ namespace StationeersUIMod
             RadialSatelliteScale = cfg.Bind("8. Radial Visuals", "SatelliteScale", 1.0f,
                 new ConfigDescription("Size multiplier for child (satellite) radials.",
                     new AcceptableValueRange<float>(0.5f, 1.6f)));
+            // The five hub/child readout lines, each sized separately (line 1 = bold title).
+            RadialHubTitleSize = cfg.Bind("8. Radial Visuals", "HubTitleSize", 18f,
+                new ConfigDescription("Readout line 1 — the BOLD title (open item/menu name).",
+                    new AcceptableValueRange<float>(9f, 32f)));
+            RadialTextVerb = cfg.Bind("8. Radial Visuals", "ReadoutVerbSize", 15f,
+                new ConfigDescription("Readout line 2 — the action verb (Take, Open, Turn Off…).",
+                    new AcceptableValueRange<float>(8f, 26f)));
+            RadialTextLabel = cfg.Bind("8. Radial Visuals", "ReadoutNameSize", 15f,
+                new ConfigDescription("Readout line 3 — the hovered item's name.",
+                    new AcceptableValueRange<float>(8f, 26f)));
+            RadialTextSub = cfg.Bind("8. Radial Visuals", "ReadoutDetailSize", 12f,
+                new ConfigDescription("Readout line 4 — the detail / location sub-line.",
+                    new AcceptableValueRange<float>(8f, 24f)));
+            RadialTextWarn = cfg.Bind("8. Radial Visuals", "ReadoutStatSize", 12f,
+                new ConfigDescription("Readout line 5 — the live stat / warning line.",
+                    new AcceptableValueRange<float>(8f, 24f)));
+            RadialRotateLongLabels = cfg.Bind("8. Radial Visuals", "RotateLongLabels", true,
+                "When a wedge's label is too long to fit horizontally (e.g. 'STABILIZER OFF'), angle it " +
+                "along the wedge so it reads without clipping out the sides instead of shrinking to nothing.");
+            RadialSatelliteHubRatio = cfg.Bind("8. Radial Visuals", "ChildHubRatio", 0.34f,
+                new ConfigDescription("Child (satellite) radial's HUB size as a fraction of its ring — " +
+                    "bigger = a roomier centre readout on child radials.", new AcceptableValueRange<float>(0.2f, 0.6f)));
+            RadialDynamicReadoutText = cfg.Bind("8. Radial Visuals", "DynamicReadoutText", true,
+                "Scale the hub readout text down on small (child) hubs so the lines never overlap, " +
+                "while keeping it full-size on the big main hub. Off = fixed sizes everywhere.");
+
+            // Radial effects (0.9.0): the same glass look the HUD panels wear, opted into per radial.
+            RadialFrost = cfg.Bind("8. Radial Visuals", "FrostedGlass", false,
+                "Frosted-glass blur behind radial wedges: wedge fills sample the same blurred-screen " +
+                "backdrop the HUD panels use in Tier C. Requires the HUD's Tier C frosted-glass master " +
+                "(F9 > Effects / Visor HUD editor) ON, the shader bundle present, and Flat/VertexWarp " +
+                "HUD curvature; silently falls back to the flat wedge look otherwise.");
+            RadialFrostStrength = cfg.Bind("8. Radial Visuals", "FrostStrength", 0.85f,
+                new ConfigDescription("How strongly the frosted backdrop shows through the wedge fill " +
+                    "(0 = none, 1 = full). Only matters while Frosted glass is on AND active.",
+                    new AcceptableValueRange<float>(0f, 1f)));
+            RadialSheen = cfg.Bind("8. Radial Visuals", "GlassSheen", 0f,
+                new ConfigDescription("Milky whitening baked into each wedge toward its OUTER rim " +
+                    "(smoked glass catching light). Pure vertex colour — works with or without frost. 0 = off.",
+                    new AcceptableValueRange<float>(0f, 1f)));
+            RadialEdgeLight = cfg.Bind("8. Radial Visuals", "GlassEdgeLight", 0f,
+                new ConfigDescription("Directional rim light on the wedge borders where they face the key " +
+                    "light (matching the HUD panels' edge light). Pure vertex colour. 0 = off.",
+                    new AcceptableValueRange<float>(0f, 1f)));
 
             // Every radial colour, live-editable from the F10 colour wheels.
             Overlay.RadialPalette.Bind(cfg);

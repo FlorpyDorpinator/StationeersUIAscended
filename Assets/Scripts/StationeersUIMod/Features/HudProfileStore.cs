@@ -29,6 +29,28 @@ namespace StationeersUIMod.Features
         /// <summary>Shareable profile folder — global (not per-save), mirrors BagProfileStore's roots.</summary>
         public static string Dir => Path.Combine(Paths.ConfigPath, "StationeersUIMod", "HudProfiles");
 
+        /// <summary>First-run import of the profile XMLs shipped INSIDE the mod folder (zip layout:
+        /// <c>StationeersUIMod/HudProfiles/*.xml</c>) into the live config folder. NEVER overwrites —
+        /// a player's edited copy of a shipped profile always wins over the shipped one. This is what
+        /// makes the shipped default ("Smaller Test") actually exist on disk for a fresh install:
+        /// the 0.8.0 zip carried the folder but nothing imported it, so it sat inert. Fail-soft.</summary>
+        public static void ImportShipped(string modDirectory)
+        {
+            try
+            {
+                if (string.IsNullOrEmpty(modDirectory)) return;
+                string src = Path.Combine(modDirectory, "HudProfiles");
+                if (!Directory.Exists(src)) return;
+                Directory.CreateDirectory(Dir);
+                foreach (string f in Directory.GetFiles(src, "*.xml"))
+                {
+                    string dst = Path.Combine(Dir, Path.GetFileName(f));
+                    if (!File.Exists(dst)) File.Copy(f, dst);
+                }
+            }
+            catch (Exception e) { UIALog.Warn("HudProfileStore.ImportShipped: " + e.Message); }
+        }
+
         // --- active document ---
 
         public static HudDocument Active { get; private set; }

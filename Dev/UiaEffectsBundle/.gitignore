@@ -1,0 +1,13 @@
+# Unity mini-project generated folders — never commit these.
+[Ll]ibrary/
+[Tt]emp/
+[Oo]bj/
+[Ll]ogs/
+[Bb]uild/
+[Uu]serSettings/
+*.csproj
+*.sln
+build.log
+
+# The built bundle is a generated artifact; rebuild via build-bundle.bat.
+Build/uia_effects.bundle

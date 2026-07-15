@@ -26,6 +26,10 @@ namespace StationeersUIMod.UI.Hud.Widgets
         private uint _dayVal = uint.MaxValue;
         private string _dayStr = "";
 
+        // Only the ActiveHandBadge draws a framed box; the plain text readouts (clock, world,
+        // day) have none, so the trapezoid sliders appear for the badge alone.
+        protected override bool SupportsTrapezoid => Def.Type == HudElementType.ActiveHandBadge;
+
         protected override void BuildContent(RectTransform root)
         {
             // Box first so the glyph renders on top of it (sibling order = draw order).
@@ -49,7 +53,8 @@ namespace StationeersUIMod.UI.Hud.Widgets
             {
                 ((RectTransform)_box.transform).anchoredPosition = c;
                 _box.SetShape(s.x, s.y,
-                    Radius(Def.RTL), Radius(Def.RTR), Radius(Def.RBR), Radius(Def.RBL));
+                    Radius(Def.RTL), Radius(Def.RTR), Radius(Def.RBR), Radius(Def.RBL),
+                    InsetTop(scale), InsetBottom(scale));
             }
 
             // A dated clock stacks two lines inside the rect; everything else is one centred line.

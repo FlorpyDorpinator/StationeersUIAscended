@@ -333,8 +333,31 @@ namespace StationeersUIMod.Core
                 ? (human.LeftHandSlot?.Get() == null ? human.LeftHandSlot
                  : human.RightHandSlot?.Get() == null ? human.RightHandSlot : null)
                 : null;
-            if (free == null) return Fail();            // no free hand to receive the split
-            try { s.SplitStack(count, free); UIAudioManager.Play(UIAudioManager.AddToInventoryHash); return true; }
+            try
+            {
+                if (free != null)
+                {
+                    s.SplitStack(count, free);      // peel the count off into the free hand
+                }
+                else
+                {
+                    // Both hands full → create the split ON THE GROUND at the player (host/SP only,
+                    // gated). This mirrors vanilla's own SplitStack(Interaction): create the new
+                    // stack at a WORLD position, set its quantity, then reduce the source. The old
+                    // SplitStack(count, null) spawned it at the world ORIGIN, which despawns — that's
+                    // why the split "vanished" instead of dropping.
+                    if (human == null) return Fail();
+                    var prefab = s.SourcePrefab;
+                    if (prefab == null) return Fail();
+                    var split = OnServer.Create<Assets.Scripts.Objects.Items.Stackable>(
+                        prefab, human.ThingTransformPosition, UnityEngine.Quaternion.identity);
+                    if (split == null) return Fail();
+                    split.Quantity = UnityEngine.Mathf.Min(count, split.MaxQuantity);
+                    s.Quantity -= count;            // vanilla reduces the source by the split amount
+                }
+                UIAudioManager.Play(UIAudioManager.AddToInventoryHash);
+                return true;
+            }
             catch { return Fail(); }
         }
 
@@ -344,6 +367,39 @@ namespace StationeersUIMod.Core
             var s = stackable as Assets.Scripts.Objects.Items.Stackable;
             if (s == null || s.Quantity < 2) return false;
             try { return Assets.Scripts.GameManager.RunSimulation; } catch { return false; }
+        }
+
+        /// <summary>Does vanilla offer a Sort button for this container? True when it has at least
+        /// one GENERIC storage slot (<see cref="Slot.IsSortable"/> = None/Ore type) and 2+ items to
+        /// reorder — i.e. bags, boxes, crates, ore belts, and a jetpack's/backpack's storage, but
+        /// not pure-device slots. The container must sit in a slot so SortContents has a handle.</summary>
+        public static bool CanSortContainer(DynamicThing thing)
+        {
+            if (thing?.Slots == null || thing.ParentSlot == null) return false;
+            bool sortable = false;
+            int occupied = 0;
+            foreach (var s in thing.Slots)
+            {
+                if (s == null) continue;
+                if (s.IsSortable) sortable = true;
+                if (s.Get() != null) occupied++;
+            }
+            return sortable && occupied >= 2;
+        }
+
+        /// <summary>Reorganise a bag's contents through vanilla's OWN sort funnel — Slot.SortContents
+        /// (host: OnServer.SortContents; client: a SortContentsMessage, Slot.cs:828-845). The bag
+        /// must sit in a slot within our carried inventory. One authoritative message; no client
+        /// slot shuffling.</summary>
+        public static bool SortContainer(DynamicThing bag)
+        {
+            if (bag == null) return Fail();
+            Slot slot = bag.ParentSlot;
+            if (slot == null || !IsCarriedByLocalPlayer(bag)) return Fail();
+            try { slot.SortContents(); }
+            catch { return Fail(); }
+            UIAudioManager.Play(UIAudioManager.ObjectPutHash);
+            return true;
         }
 
         /// <summary>Merge the held stackable into an existing stack (server-authoritative).</summary>
