@@ -233,6 +233,8 @@ namespace StationeersUIMod.UI.Hud.Widgets
             var d = Def;
             into.Add(HudProp.Bool("Backdrop box", () => d.GetB("box", true),
                 v => d.SetB("box", v)));
+            into[into.Count - 1].Group = HudPropGroup.Appearance;
+
             into.Add(HudProp.F("Compass FOV°", () => d.GetF("fov", 90f),
                 v => d.SetF("fov", Mathf.Clamp(v, 40f, 200f)), 40f, 200f));
             into.Add(HudProp.Bool("Show degrees", () => d.GetB("degrees", true),

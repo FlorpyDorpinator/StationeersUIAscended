@@ -26,6 +26,66 @@ namespace StationeersUIMod.UI.Hud
         private float _borderWidth = 1.4f;
         private Color _borderColor = Color.clear;
 
+        // Analytic SDF path. The public type deliberately remains PanelGraphic so every existing
+        // widget keeps its proven construction/styling code; when the optional shader bundle is
+        // available, HudElementView flips this graphic to a small warp-subdivided parameter mesh.
+        // A missing/failed bundle flips it back to PopulateMeshCore with no profile migration.
+        private bool _sdfMode;
+        private float _sdfSquircle = 2f;
+        private bool _sdfGaussianHalo;
+        private float _sdfEdgeFlowSpeed = 0.22f;
+        private float _sdfFrostAmount, _sdfFrostDepth = 1f, _sdfChromaAmount;
+        private float _sdfShineAmount, _sdfIridAmount;
+        private bool _sdfDissolve;
+        private float _sdfEdgeFadeX, _sdfEdgeFadeY;
+
+        /// <summary>True while this panel emits the analytic SDF parameter mesh. Read by the
+        /// edge-fade wiring so it can move that fade into fragment space instead of modifying
+        /// vertex alpha (the old source of the bowtie).</summary>
+        public bool SdfMode => _sdfMode;
+
+        /// <summary>Set the complete analytic-only style block in one dirty-guarded call. The HUD
+        /// invokes this every content tick, but an unchanged panel never rebuilds.</summary>
+        public void SetSdfStyle(bool enabled, float squircle, bool gaussianHalo,
+            float edgeFlowSpeed, float frostAmount, float frostDepth, float chromaAmount,
+            float shineAmount, float iridAmount, bool dissolve, float edgeFadeX, float edgeFadeY)
+        {
+            squircle = float.IsNaN(squircle) ? 2f : Mathf.Clamp(squircle, 2f, 8f);
+            edgeFlowSpeed = float.IsNaN(edgeFlowSpeed) ? 0f : Mathf.Clamp(edgeFlowSpeed, 0f, 4f);
+            frostAmount = float.IsNaN(frostAmount) ? 0f : Mathf.Clamp01(frostAmount);
+            frostDepth = float.IsNaN(frostDepth) ? 1f : Mathf.Clamp01(frostDepth);
+            chromaAmount = float.IsNaN(chromaAmount) ? 0f : Mathf.Clamp01(chromaAmount);
+            shineAmount = float.IsNaN(shineAmount) ? 0f : Mathf.Clamp(shineAmount, 0f, 2f);
+            iridAmount = float.IsNaN(iridAmount) ? 0f : Mathf.Clamp01(iridAmount);
+            edgeFadeX = float.IsNaN(edgeFadeX) ? 0f : Mathf.Clamp(edgeFadeX, 0f, 0.5f);
+            edgeFadeY = float.IsNaN(edgeFadeY) ? 0f : Mathf.Clamp(edgeFadeY, 0f, 0.5f);
+            if (_sdfMode == enabled
+                && Mathf.Approximately(_sdfSquircle, squircle)
+                && _sdfGaussianHalo == gaussianHalo
+                && Mathf.Approximately(_sdfEdgeFlowSpeed, edgeFlowSpeed)
+                && Mathf.Approximately(_sdfFrostAmount, frostAmount)
+                && Mathf.Approximately(_sdfFrostDepth, frostDepth)
+                && Mathf.Approximately(_sdfChromaAmount, chromaAmount)
+                && Mathf.Approximately(_sdfShineAmount, shineAmount)
+                && Mathf.Approximately(_sdfIridAmount, iridAmount)
+                && _sdfDissolve == dissolve
+                && Mathf.Approximately(_sdfEdgeFadeX, edgeFadeX)
+                && Mathf.Approximately(_sdfEdgeFadeY, edgeFadeY)) return;
+            _sdfMode = enabled;
+            _sdfSquircle = squircle;
+            _sdfGaussianHalo = gaussianHalo;
+            _sdfEdgeFlowSpeed = edgeFlowSpeed;
+            _sdfFrostAmount = frostAmount;
+            _sdfFrostDepth = frostDepth;
+            _sdfChromaAmount = chromaAmount;
+            _sdfShineAmount = shineAmount;
+            _sdfIridAmount = iridAmount;
+            _sdfDissolve = dissolve;
+            _sdfEdgeFadeX = edgeFadeX;
+            _sdfEdgeFadeY = edgeFadeY;
+            SetVerticesDirty();
+        }
+
         // Dirty-on-change (the HUD sets these every frame; only real changes may cost a
         // mesh rebuild — this graphic is ALWAYS on screen, unlike the radials).
         public float BorderWidth
@@ -328,8 +388,118 @@ namespace StationeersUIMod.UI.Hud
             // Profiler tripwire: rebuild storms (Calls/s, Max/frame) expose any effect that
             // carelessly re-dirties meshes per frame. Runs in Canvas.willRenderCanvases, so
             // samples attribute to the NEXT frame's flush — irrelevant for 10s averages.
-            using (Profiling.ProfilicusUniversalis.Time("Hud.Mesh.Panel"))
-                PopulateMeshCore(vh);
+            using (Profiling.ProfilicusUniversalis.Time(_sdfMode ? "Hud.Mesh.SdfPanel" : "Hud.Mesh.Panel"))
+            {
+                if (_sdfMode) PopulateSdfMesh(vh);
+                else PopulateMeshCore(vh);
+            }
+        }
+
+        /// <summary>
+        /// Emit a regular grid covering the panel plus its soft/glow skirt. The shader receives
+        /// local position and a compact, constant parameter block on every vertex; VisorWarp then
+        /// bends only POSITION, leaving the interpolated local field intact. A ~48px grid matches
+        /// the established warp fidelity without carrying any appearance tessellation.
+        /// </summary>
+        private void PopulateSdfMesh(VertexHelper vh)
+        {
+            vh.Clear();
+            float hw = _w * 0.5f;
+            float hh = _h * 0.5f;
+            if (hw < 0.3f || hh < 0.3f) return;
+
+            float feather = Mathf.Max(0.05f, Feather);
+            bool hasBorder = _borderWidth > 0.05f && _borderColor.a > 0.004f;
+            float baseOuter = hasBorder ? Mathf.Max(0f, _borderWidth) : 0f;
+            // Shader band contract is sequential: base edge -> Feather + SoftEdge -> GlowWidth.
+            // These widths must add; max() clips the outer halo whenever soft edge and glow coexist.
+            float skirt = baseOuter + feather + _softEdge;
+            if (_glow > 0.004f) skirt += _glowWidth;
+            skirt = Mathf.Max(2f, skirt);
+            float ex = hw + skirt, ey = hh + skirt;
+            int nx = Mathf.Clamp(Mathf.CeilToInt(ex * 2f / 48f), 1, 64);
+            int ny = Mathf.Clamp(Mathf.CeilToInt(ey * 2f / 48f), 1, 40);
+
+            // CSS-normalize radii exactly like the mesh fallback before packing them.
+            float rBL = Mathf.Clamp(_rBL, 0f, Mathf.Min(hw, hh));
+            float rBR = Mathf.Clamp(_rBR, 0f, Mathf.Min(hw, hh));
+            float rTR = Mathf.Clamp(_rTR, 0f, Mathf.Min(hw, hh));
+            float rTL = Mathf.Clamp(_rTL, 0f, Mathf.Min(hw, hh));
+            float rk = 1f;
+            rk = Mathf.Min(rk, _w / Mathf.Max(0.001f, rBL + rBR));
+            rk = Mathf.Min(rk, _w / Mathf.Max(0.001f, rTL + rTR));
+            rk = Mathf.Min(rk, _h / Mathf.Max(0.001f, rBL + rTL));
+            rk = Mathf.Min(rk, _h / Mathf.Max(0.001f, rBR + rTR));
+            if (rk < 1f) { rBL *= rk; rBR *= rk; rTR *= rk; rTL *= rk; }
+
+            int flags = _borderSides & 15;
+            if (_sdfGaussianHalo) flags |= 16;
+            if (_sdfDissolve) flags |= 32;
+
+            Vector4 uv1 = new Vector4(
+                Pack01(rBL / 1024f, rBR / 1024f),
+                Pack01(rTR / 1024f, rTL / 1024f),
+                Pack01(Mathf.Clamp(_topInset, 0f, 1024f) / 1024f,
+                    Mathf.Clamp(_bottomInset, 0f, 1024f) / 1024f),
+                Mathf.Clamp(_borderWidth, 0f, 15.99f) + flags * 16f);
+            Vector4 uv2 = new Vector4(_borderColor.r, _borderColor.g, _borderColor.b, _borderColor.a);
+            Vector4 uv3 = new Vector4(
+                feather,
+                Pack01(_sheen, _spec),
+                Pack01(_borderFade, _softEdge / 48f),
+                Pack01(_glow / 2f, _glowInner / 2f));
+            Vector3 normal = new Vector3(
+                Pack01(_glowWidth / 160f, _glowDiffuse),
+                Pack01(_edgeRipple / 2.5f, _edgeRippleFreq / 8f),
+                Pack01(_rippleSmooth, _sdfEdgeFlowSpeed / 4f));
+            Vector4 tangent = new Vector4(
+                Pack01(_sdfFrostAmount, _sdfFrostDepth),
+                Pack01(_sdfChromaAmount, (_sdfSquircle - 2f) / 6f),
+                Pack01(_sdfShineAmount / 2f, _sdfIridAmount),
+                Pack01(_sdfEdgeFadeX / 0.5f, _sdfEdgeFadeY / 0.5f));
+
+            Color32 fill = color;
+            for (int y = 0; y <= ny; y++)
+            {
+                float fy = y / (float)ny;
+                float py = Mathf.Lerp(-ey, ey, fy);
+                for (int x = 0; x <= nx; x++)
+                {
+                    float fx = x / (float)nx;
+                    float px = Mathf.Lerp(-ex, ex, fx);
+                    UIVertex v = UIVertex.simpleVert;
+                    v.position = new Vector3(px, py, 0f);
+                    v.color = fill;
+                    v.uv0 = new Vector4(px, py, hw, hh);
+                    v.uv1 = uv1;
+                    v.uv2 = uv2;
+                    v.uv3 = uv3;
+                    v.normal = normal;
+                    v.tangent = tangent;
+                    vh.AddVert(v);
+                }
+            }
+            int stride = nx + 1;
+            for (int y = 0; y < ny; y++)
+            for (int x = 0; x < nx; x++)
+            {
+                int a = y * stride + x;
+                int b = a + 1;
+                int c = a + stride;
+                int d = c + 1;
+                vh.AddTriangle(a, c, d);
+                vh.AddTriangle(a, d, b);
+            }
+        }
+
+        // Two independently quantized 12-bit normalized values in one exactly representable
+        // positive float integer (max 2^24-1). All vertices carry the same number, so interpolation
+        // cannot disturb the decode; this keeps the shared-material UGUI batch intact.
+        private static float Pack01(float a, float b)
+        {
+            int lo = Mathf.RoundToInt(Mathf.Clamp01(a) * 4095f);
+            int hi = Mathf.RoundToInt(Mathf.Clamp01(b) * 4095f);
+            return lo + hi * 4096f;
         }
 
         private void PopulateMeshCore(VertexHelper vh)

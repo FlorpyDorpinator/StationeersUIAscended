@@ -671,32 +671,45 @@ namespace StationeersUIMod.UI.Hud.Widgets
         {
             base.DescribeProps(into);
             var d = Def;
+
+            // Content: what this readout represents and which optional data it exposes.
             into.Add(HudProp.Enum("Source", () => (int)ParseSource(d),
                 v => d.Set("src", SourceNames[Mathf.Clamp(v, 0, SourceNames.Length - 1)]), SourceNames));
-            into.Add(HudProp.Bool("Wrap text (label/target)", () => d.GetB("wrap", true), v => d.SetB("wrap", v)));
-            into.Add(HudProp.Bool("Background box", () => d.GetB("box", true), v => d.SetB("box", v)));
-            into.Add(HudProp.Bool("Stacked layout", () => d.GetB("stack", false), v => d.SetB("stack", v)));
             into.Add(HudProp.Bool("Conditional temp icon", () => d.GetB("tempIcon", false), v => d.SetB("tempIcon", v)));
             into.Add(HudProp.Bool("Target line", () => d.GetB("target", SourceHasTarget(ParseSource(d))),
                 v => d.SetB("target", v)));
             into.Add(HudProp.Bool("Threshold bar", () => d.GetB("bar", true), v => d.SetB("bar", v)));
-            into.Add(HudProp.Bool("Vertical bar", () => d.GetB("barVertical", false), v => d.SetB("barVertical", v)));
-            into.Add(HudProp.Enum("Bar style", () => UseGameBar() ? 1 : 0,
-                v => d.Set("barStyle", v == 1 ? "game" : null), BarStyleNames));
-            if (!d.GetB("followGlobal", false)) // hidden while the element follows the global colours
-            {
-                into.Add(HudProp.Color("Bar fill", () => d.GetS("barFill", ""), v => d.Set("barFill", Empty(v))));
-                into.Add(HudProp.Color("Bar warn", () => d.GetS("barWarn", ""), v => d.Set("barWarn", Empty(v))));
-                into.Add(HudProp.Color("Bar crit", () => d.GetS("barCrit", ""), v => d.Set("barCrit", Empty(v))));
-                into.Add(HudProp.Color("Bar track", () => d.GetS("barTrack", ""), v => d.Set("barTrack", Empty(v))));
-                into.Add(HudProp.Color("Bar target", () => d.GetS("barTarget", ""), v => d.Set("barTarget", Empty(v))));
-            }
             into.Add(HudProp.Text("Label override", () => d.GetS("label", ""), v => d.Set("label", Empty(v))));
             // The icon slot is created at build time, so an icon change rebuilds the view.
             into.Add(HudProp.Text("Icon (game key/glyph/PNG)", () => d.Icon ?? "",
                 v => { d.Icon = Empty(v); HudSystem.RequestViewRebuild(); }));
+
+            int layoutStart = into.Count;
+            into.Add(HudProp.Bool("Wrap text (label/target)", () => d.GetB("wrap", true), v => d.SetB("wrap", v)));
+            into.Add(HudProp.Bool("Stacked layout", () => d.GetB("stack", false), v => d.SetB("stack", v)));
+            into.Add(HudProp.Bool("Vertical bar", () => d.GetB("barVertical", false), v => d.SetB("barVertical", v)));
+            for (int i = layoutStart; i < into.Count; i++) into[i].Group = HudPropGroup.Layout;
+
+            int appearanceStart = into.Count;
+            into.Add(HudProp.Bool("Background box", () => d.GetB("box", true), v => d.SetB("box", v)));
+            into.Add(HudProp.Enum("Bar style", () => UseGameBar() ? 1 : 0,
+                v => d.Set("barStyle", v == 1 ? "game" : null), BarStyleNames));
+            if (!FollowGlobal) // hidden for both legacy-follow and coherent Global style modes
+            {
+                into.Add(HudProp.Color("Bar fill", () => d.GetS("barFill", ""),
+                    v => d.Set("barFill", Empty(v)), () => HudPalette.Good.Value));
+                into.Add(HudProp.Color("Bar warn", () => d.GetS("barWarn", ""),
+                    v => d.Set("barWarn", Empty(v)), () => HudPalette.Warn.Value));
+                into.Add(HudProp.Color("Bar crit", () => d.GetS("barCrit", ""),
+                    v => d.Set("barCrit", Empty(v)), () => HudPalette.Critical.Value));
+                into.Add(HudProp.Color("Bar track", () => d.GetS("barTrack", ""),
+                    v => d.Set("barTrack", Empty(v)), () => HudPalette.PanelBorder.Value));
+                into.Add(HudProp.Color("Bar target", () => d.GetS("barTarget", ""),
+                    v => d.Set("barTarget", Empty(v)), () => HudPalette.TextValue.Value));
+            }
             into.Add(HudProp.F("Icon scale", () => d.GetF("iconScale", 1f), v => d.SetF("iconScale", Mathf.Clamp(v, 0.2f, 4f)), 0.2f, 4f));
             into.Add(HudProp.F("Text scale (× box-auto)", () => d.GetF("textScale", 1f), v => d.SetF("textScale", Mathf.Clamp(v, 0.3f, 3f)), 0.3f, 3f));
+            for (int i = appearanceStart; i < into.Count; i++) into[i].Group = HudPropGroup.Appearance;
         }
 
         /// <summary>Blank in the editor means "revert to the palette/auto default": stored as a

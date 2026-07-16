@@ -57,6 +57,10 @@ namespace StationeersUIMod.UI.Hud
 
         private static readonly int _idOffset = Shader.PropertyToID("_Offset");
         private static readonly int _idBlurTex = Shader.PropertyToID("_UiaBlurTex");
+        private static readonly int _idBlurTex0 = Shader.PropertyToID("_UiaBlurTex0");
+        private static readonly int _idBlurTex1 = Shader.PropertyToID("_UiaBlurTex1");
+        private static readonly int _idBlurTex2 = Shader.PropertyToID("_UiaBlurTex2");
+        private static readonly int _idBlurTex3 = Shader.PropertyToID("_UiaBlurTex3");
         private static readonly int _idFlip = Shader.PropertyToID("_UiaBlurTexFlip");
 
         // ---------------------------------------------------------------- public surface
@@ -144,8 +148,6 @@ namespace StationeersUIMod.UI.Hud
             _resolvedCam = null;
             ReleasePyramid();
             if (_mat != null) { try { UnityEngine.Object.DestroyImmediate(_mat); } catch { } _mat = null; }
-            // Stop any consuming frost material from sampling a destroyed RT.
-            try { Shader.SetGlobalTexture(_idBlurTex, null); } catch { }
         }
 
         /// <summary>
@@ -242,6 +244,12 @@ namespace StationeersUIMod.UI.Hud
                 // Publish globally. The frost shader derives screen UV from clip-space (NOT uv0) and
                 // reconciles orientation with _UiaBlurTexFlip (plan §12.5).
                 Shader.SetGlobalTexture(_idBlurTex, _result);
+                // Four-rung depth ladder for analytic panels. The legacy final texture above
+                // remains the contract for HudGlass and the F10 radial wedges.
+                Shader.SetGlobalTexture(_idBlurTex0, _down[0]);
+                Shader.SetGlobalTexture(_idBlurTex1, _down.Length > 1 ? _down[1] : _down[0]);
+                Shader.SetGlobalTexture(_idBlurTex2, _up.Length > 1 ? _up[1] : _result);
+                Shader.SetGlobalTexture(_idBlurTex3, _up.Length > 0 ? _up[0] : _result);
                 Shader.SetGlobalFloat(_idFlip, BlurTexFlip);
             }
         }
@@ -302,11 +310,28 @@ namespace StationeersUIMod.UI.Hud
 
         private static void ReleasePyramid()
         {
+            // Shader globals outlive the RT objects. Clear every binding BEFORE Release/Destroy so
+            // no consumer can sample a dangling native texture during a resize, stand-down, or F6.
+            ClearPublishedTextures();
             ReleaseArray(_down); _down = null;
             ReleaseArray(_up); _up = null;
             _result = null;
             _baseW = 0;
             _baseH = 0;
+        }
+
+        private static void ClearPublishedTextures()
+        {
+            try
+            {
+                Shader.SetGlobalTexture(_idBlurTex, null);
+                Shader.SetGlobalTexture(_idBlurTex0, null);
+                Shader.SetGlobalTexture(_idBlurTex1, null);
+                Shader.SetGlobalTexture(_idBlurTex2, null);
+                Shader.SetGlobalTexture(_idBlurTex3, null);
+                Shader.SetGlobalFloat(_idFlip, 0f);
+            }
+            catch { /* fail-soft during graphics teardown */ }
         }
 
         private static void ReleaseArray(RenderTexture[] arr)

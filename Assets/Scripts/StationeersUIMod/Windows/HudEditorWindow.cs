@@ -21,11 +21,17 @@ namespace StationeersUIMod.Windows
             new Vector2(470f, 640f)) { }
 
         public override void OnOpen() { }
-        public override void OnClose() { }
+        public override void OnClose()
+        {
+            FlushPendingElementEdit();
+            FlushPendingPaletteEdit();
+            _activeEditorTab = null;
+        }
 
         private static string _lastHotSig = "";
         private static Dictionary<string, string> _frameSnapshot;
         private static Dictionary<string, string> _pendingUndo;
+        private static string _activeEditorTab;
         // Bloom-tint swatch cache: config stores a #RRGGBB string, the wheel wants a vector.
         private static string _bloomTintStr;
         private static Vector3 _bloomTintVec = Vector3.one;
@@ -33,6 +39,8 @@ namespace StationeersUIMod.Windows
         private static Vector3 _bloom2TintVec = Vector3.one;
         private static string _edgeTintStr;
         private static Vector3 _edgeTintVec = Vector3.one;
+        private static string _frostTintStr;
+        private static Vector3 _frostTintVec = Vector3.one;
 
         /// <summary>Keep the CURRENT ImGui window on screen: a window resized/dragged past the
         /// bottom edge became unreachable (play-test) — clamp size to the screen and keep the
@@ -57,269 +65,147 @@ namespace StationeersUIMod.Windows
         public override void DrawContent()
         {
             ClampWindowToScreen();
-            ImGui.TextColored(new Vector4(0.25f, 0.85f, 0.93f, 1f), "VISOR HUD EDITOR");
-            ImGui.TextDisabled("Click any HUD element on screen to edit it in place.");
-            ImGui.TextDisabled("Hover an element - its colours light up ORANGE below.");
-            ImGui.Spacing();
-            if (ImGui.Button("Exit editor  (or press Escape)"))
-                StationeersUIMod.Instance?.ToggleHudEditor();
-            ImGui.Separator();
+            DrawEditorToolbar();
 
-            PreviewTierCombo();
-            if (ImGui.Button("Test power-death flicker"))
-                HudSystem.TestPowerDeath();
+            if (!ImGui.BeginTabBar("##UIAHudEditorTabs")) return;
+            if (ImGui.BeginTabItem("Build"))
+            {
+                ActivateEditorTab("Build");
+                ImGui.BeginChild("##UIAHudBuildTab", new Vector2(0f, 0f), false, ImGuiWindowFlags.None);
+                DrawBuildTab();
+                ImGui.EndChild();
+                ImGui.EndTabItem();
+            }
+            if (ImGui.BeginTabItem("Theme"))
+            {
+                ActivateEditorTab("Theme");
+                ImGui.BeginChild("##UIAHudThemeTab", new Vector2(0f, 0f), false, ImGuiWindowFlags.None);
+                DrawThemeTab();
+                ImGui.EndChild();
+                ImGui.EndTabItem();
+            }
+            if (ImGui.BeginTabItem("Effects"))
+            {
+                ActivateEditorTab("Effects");
+                ImGui.BeginChild("##UIAHudEffectsTab", new Vector2(0f, 0f), false, ImGuiWindowFlags.None);
+                DrawEffectsTab();
+                ImGui.EndChild();
+                ImGui.EndTabItem();
+            }
+            if (ImGui.BeginTabItem("View & Behavior"))
+            {
+                ActivateEditorTab("View & Behavior");
+                ImGui.BeginChild("##UIAHudViewTab", new Vector2(0f, 0f), false, ImGuiWindowFlags.None);
+                DrawViewBehaviorTab();
+                ImGui.EndChild();
+                ImGui.EndTabItem();
+            }
+            if (ImGui.BeginTabItem("Diagnostics"))
+            {
+                ActivateEditorTab("Diagnostics");
+                ImGui.BeginChild("##UIAHudDiagnosticsTab", new Vector2(0f, 0f), false, ImGuiWindowFlags.None);
+                DrawDiagnosticsTab();
+                ImGui.EndChild();
+                ImGui.EndTabItem();
+            }
+            ImGui.EndTabBar();
+        }
+
+        /// <summary>A colour picker can disappear without an ImGui deactivation event when its
+        /// top-level tab is changed. Commit that gesture before drawing the newly active tab so a
+        /// later picker cannot overwrite its pre-edit snapshot.</summary>
+        private static void ActivateEditorTab(string tab)
+        {
+            if (string.Equals(_activeEditorTab, tab, System.StringComparison.Ordinal)) return;
+            FlushPendingPaletteEdit();
+            _activeEditorTab = tab;
+        }
+
+        private void DrawEditorToolbar()
+        {
+            ImGui.TextColored(new Vector4(0.25f, 0.85f, 0.93f, 1f), "VISOR HUD DESIGNER");
             ImGui.SameLine();
-            if (ImGui.Button("Test boot sequence"))
-                HudSystem.TestBoot();
-            ImGui.Spacing();
+            if (Features.HudProfileStore.HasPendingSave)
+                ImGui.TextColored(new Vector4(1f, 0.72f, 0.25f, 1f), "PROFILE - Saving...");
+            else
+                ImGui.TextDisabled("PROFILE - Saved");
 
-            if (HudSystem.DocumentMode)
-                DrawDesignerSection();
+            DrawProfilesSection();
 
-            if (ImGui.CollapsingHeader("Curvature (A / B / C)", ImGuiTreeNodeFlags.DefaultOpen))
+            ImGui.TextDisabled("Preview:");
+            ImGui.SameLine();
+            ImGui.SetNextItemWidth(175f);
+            PreviewTierCombo();
+            ImGui.SameLine();
+            if (ImGui.Button("Undo##toolbar") && UI.Hud.HudDocumentHistory.CanUndo)
             {
-                CurvatureCombo();
-                FloatSlider(HudConfig.CurveStrength, "Curve strength (0 flat - 1 fishbowl)", 0f, 1f);
-                Toggle(HudConfig.CurveInvert, "Invert curve direction");
-                if (HudConfig.Curvature.Value == HudCurvature.CurvedWorldCanvas
-                    || HudConfig.Curvature.Value == HudCurvature.CurvedRt)
-                    FloatSlider(HudConfig.WorldCanvasDistance, "Visor distance (m)", 0.25f, 2f);
+                FlushPendingElementEdit();
+                HudEditorMode.DoUndo();
             }
-
-            if (ImGui.CollapsingHeader("Panels & behavior"))
+            ImGui.SameLine();
+            if (ImGui.Button("Redo##toolbar") && UI.Hud.HudDocumentHistory.CanRedo)
             {
-                Toggle(HudConfig.VisorHudEnabled, "Visor HUD enabled");
-                Toggle(HudConfig.UseDocumentHud, "Document HUD (the designer; off = legacy 0.5.0 panels)");
-                if (!HudSystem.DocumentMode)
-                {
-                    Toggle(HudConfig.ShowTopBar, "Top status bar");
-                    Toggle(HudConfig.ShowCompass, "Compass ribbon");
-                    Toggle(HudConfig.ShowEquipment, "Equipment column (1-6)");
-                    Toggle(HudConfig.ShowHands, "Hand boxes");
-                    Toggle(HudConfig.ShowVitals, "Vitals card / felt senses");
-                    Toggle(HudConfig.ShowHologram, "Player hologram in vitals card");
-                }
-                Toggle(HudConfig.ShowVignette, "Visor-edge vignette");
-                ImGui.Separator();
-                Toggle(HudConfig.DiegeticTiers, "Diegetic tiers (no suit power = words only)");
-                Toggle(HudConfig.FlickerAnimations, "Flicker animations (off/boot/death)");
-                Toggle(HudConfig.LowPowerDropouts, "Low-power dropout glitches");
-                FloatSlider(HudConfig.LowPowerThreshold, "Low-power threshold (%)", 0f, 40f);
-                ImGui.Separator();
-                ImGui.TextDisabled("Vanilla panels (hidden, never destroyed):");
-                Toggle(UIAConfig.HideVanillaHands, "Hide vanilla hands panel");
-                Toggle(UIAConfig.HideVanillaClothing, "Hide vanilla clothing panel");
-                Toggle(UIAConfig.HideVanillaStatus, "Hide vanilla status panel");
-                Toggle(UIAConfig.HideVanillaPlayerState, "Hide vanilla instrument cluster (bottom-right)");
-                Toggle(HudConfig.LegacyImGuiHud, "Use the legacy ImGui HUD instead");
+                FlushPendingElementEdit();
+                HudEditorMode.DoRedo();
             }
+            ImGui.SameLine();
+            if (ImGui.Button("Exit##toolbar"))
+                StationeersUIMod.Instance?.ToggleHudEditor();
+            if (UI.Hud.HudElementView.EditBareTier)
+                ImGui.TextDisabled("Editing BARE layout — moves write to bare-mode positions.");
+            ImGui.Separator();
+        }
 
-            if (ImGui.CollapsingHeader("Power-transition glitch (global)"))
+        private void DrawBuildTab()
+        {
+            ImGui.TextDisabled("PROFILE — layout and element changes are saved to the active HUD profile.");
+            if (!HudSystem.DocumentMode)
             {
-                Toggle(HudConfig.GlitchEnabled, "Enable glitch (tear/shake) on power down / off / on");
-                FloatSlider(HudConfig.GlitchDuration, "Duration (seconds)", 0.1f, 4f);
-                FloatSlider(HudConfig.GlitchIntensity, "Severity", 0f, 1f);
-                Toggle(HudConfig.GlitchOnPowerDown, "Fire on power DOWN / suit removed");
-                Toggle(HudConfig.GlitchOnPowerUp, "Fire on power UP / boot");
-                if (ImGui.Button("Test glitch now"))
-                    HudGlitch.TriggerTest();
-                ImGui.TextDisabled("Per-element opt-in + strength: click an element, see its");
-                ImGui.TextDisabled("'Effects' section (also controls Death collapse and Warp).");
+                ImGui.TextColored(new Vector4(1f, 0.72f, 0.25f, 1f),
+                    "The document HUD is off. Enable it under View & Behavior to use the designer.");
+                return;
             }
+            DrawDesignerSection();
+        }
 
-            if (ImGui.CollapsingHeader("Effects (global) — 0.9.0"))
-            {
-                ImGui.TextColored(new Vector4(0.25f, 0.85f, 0.93f, 1f), "TIER A — mesh effects (cheap)");
-                Toggle(HudConfig.FxTierA, "Enable Tier A (all mesh effects)");
-                Toggle(HudConfig.FxHairlinesOn, "Hairlines (sub-1px lines fade, not vanish)");
-                FloatSlider(HudConfig.FxHairlineMin, "  thinnest line (px)", 0.05f, 1f);
-                Toggle(HudConfig.FxEdgeLightOn, "Edge light (borders + lines)");
-                FloatSlider(HudConfig.FxEdgeLight, "  edge-light strength", 0f, 2f);
-                if (HudConfig.FxEdgeLightColor != null)
-                {
-                    string es = HudConfig.FxEdgeLightColor.Value ?? "#FFFFFF";
-                    if (!ReferenceEquals(es, _edgeTintStr))
-                    {
-                        _edgeTintStr = es;
-                        Color ec;
-                        if (!ColorUtility.TryParseHtmlString(es, out ec)) ec = Color.white;
-                        _edgeTintVec = new Vector3(ec.r, ec.g, ec.b);
-                    }
-                    if (ImGui.ColorEdit3("  edge-light colour", ref _edgeTintVec, ImGuiColorEditFlags.PickerHueWheel))
-                    {
-                        string hex = "#" + ColorUtility.ToHtmlStringRGB(
-                            new Color(_edgeTintVec.x, _edgeTintVec.y, _edgeTintVec.z, 1f));
-                        HudConfig.FxEdgeLightColor.Value = hex;
-                        _edgeTintStr = hex;
-                    }
-                }
-                FloatSlider(HudConfig.FxEdgeLightAngle, "  light angle (0=R,90=top,180=L)", 0f, 360f);
-                FloatSlider(HudConfig.FxEdgeLightRim, "  opposing-rim catch", 0f, 2f);
-                FloatSlider(HudConfig.FxEdgeLightSharp, "  falloff (high=tight, low=broad)", 1f, 8f);
-                FloatSlider(HudConfig.FxEdgeRipple, "  ripple (irregular shimmer)", 0f, 2.5f);
-                FloatSlider(HudConfig.FxEdgeRippleFreq, "  ripple frequency", 0.5f, 8f);
-                Toggle(HudConfig.FxPulseOn, "Pulse (elements still opt in individually)");
-                FloatSlider(HudConfig.FxPulseSpeed, "  pulse speed (Hz)", 0.05f, 3f);
-                FloatSlider(HudConfig.FxPulseDepth, "  pulse depth", 0f, 1f);
-                ImGui.TextDisabled("The concept-art look (global defaults; per-element overrides in each popup):");
-                Toggle(HudConfig.FxBorderFadeOn, "Border fade (unlit sections dissolve)");
-                FloatSlider(HudConfig.FxBorderFade, "  border fade amount", 0f, 1f);
-                Toggle(HudConfig.FxSoftEdgeOn, "Soft edge (boxes melt together)");
-                FloatSlider(HudConfig.FxSoftEdge, "  soft edge width (px)", 0f, 48f);
-                Toggle(HudConfig.FxGlowOn, "Glow halo");
-                FloatSlider(HudConfig.FxGlow, "  glow outward strength", 0f, 2f);
-                FloatSlider(HudConfig.FxGlowInner, "  glow inward strength (into the box)", 0f, 2f);
-                FloatSlider(HudConfig.FxGlowWidth, "  glow width (px)", 6f, 160f);
-                FloatSlider(HudConfig.FxGlowDiffuse, "  glow diffuseness (haze)", 0f, 1f);
+        private void DrawThemeTab()
+        {
+            ImGui.TextDisabled("GLOBAL — these defaults and palette colours apply across HUD profiles.");
 
-                ImGui.Separator();
-                ImGui.TextColored(new Vector4(0.25f, 0.85f, 0.93f, 1f),
-                    Core.HudShaderStore.TierBAvailable
-                        ? "TIER B — shader effects"
-                        : "TIER B — shader effects (bundle not loaded — inactive)");
-                Toggle(HudConfig.FxTierB, "Enable Tier B (all shader effects)");
-                Toggle(HudConfig.FxShineOn, "Shine sweep");
-                FloatSlider(HudConfig.FxShine, "  shine strength", 0f, 2f);
-                FloatSlider(HudConfig.FxShinePeriod, "  shine period (seconds)", 2f, 60f);
-                Toggle(HudConfig.FxIridOn, "Iridescence (rim rainbow)");
-                FloatSlider(HudConfig.FxIridescence, "  iridescence strength", 0f, 1f);
-                Toggle(HudConfig.FxChromaOn, "Chromatic aberration (needs Tier C frost)");
-                FloatSlider(HudConfig.FxChroma, "  chroma strength", 0f, 1f);
-                Toggle(HudConfig.FxDissolveBoot, "Dissolve reveal on boot/power transitions");
-
-                ImGui.Separator();
-                ImGui.TextColored(new Vector4(1f, 0.72f, 0.25f, 1f), "TIER C — frosted glass (EXPERIMENTAL)");
-                Toggle(HudConfig.FxTierC, "Enable frosted-glass backdrop (Flat/Warp curvature only)");
-                FloatSlider(HudConfig.FrostStrength, "Frost strength (all elements)", 0f, 1f);
-                FloatSlider(HudConfig.FrostDarken, "Frost darkening", 0f, 1f);
-                IntSliderCfg(HudConfig.FrostUpdateEveryN, "Re-blur every N frames", 1, 8);
-                ImGui.TextDisabled("Downsample + tint live in the config (F10) / cfg file.");
-
-                ImGui.Separator();
-                ImGui.TextColored(new Vector4(0.25f, 0.85f, 0.93f, 1f),
-                    HudBloomFx.Available
-                        ? "HUD BLOOM — elements light each other"
-                        : "HUD BLOOM — elements light each other (bundle not loaded — inactive)");
-                Toggle(HudConfig.FxBloomOn, "Enable HUD bloom (routes the HUD through a render texture)");
-                FloatSlider(HudConfig.FxBloomStrength, "  bloom strength", 0f, 3f);
-                FloatSlider(HudConfig.FxBloomThreshold, "  bright threshold", 0f, 1.5f);
-                FloatSlider(HudConfig.FxBloomKnee, "  soft knee", 0f, 1f);
-                IntSliderCfg(HudConfig.FxBloomBlurSteps, "  blur steps (reach doubles per step)", 1, 5);
-                FloatSlider(HudConfig.FxBloomSpread, "  spread (continuous width fine-adjust)", 0.5f, 3f);
-                BloomResCombo();
-                FloatSlider(HudConfig.FxBloomAnamorph, "  anamorphic streak (-1 vertical, +1 horizontal)", -1f, 1f);
-                FloatSlider(HudConfig.FxBloomSaturation, "  glow saturation (0 white-hot, 1 own hues)", 0f, 2f);
-                FloatSlider(HudConfig.FxBloomSatBias, "  saturation bias (+ = coloured pixels only bloom)", -1f, 1f);
-                // Glow tint: the standard hue-wheel swatch (same control as the palette rows).
-                // Stored as #RRGGBB in the cfg so the file stays hand-editable; the cache keeps
-                // the per-frame path parse-free while the header is open.
-                if (HudConfig.FxBloomTint != null)
-                {
-                    string ts = HudConfig.FxBloomTint.Value ?? "#FFFFFF";
-                    if (!ReferenceEquals(ts, _bloomTintStr))
-                    {
-                        _bloomTintStr = ts;
-                        Color tc;
-                        if (!ColorUtility.TryParseHtmlString(ts, out tc)) tc = Color.white;
-                        _bloomTintVec = new Vector3(tc.r, tc.g, tc.b);
-                    }
-                    if (ImGui.ColorEdit3("  glow tint", ref _bloomTintVec, ImGuiColorEditFlags.PickerHueWheel))
-                    {
-                        string hex = "#" + ColorUtility.ToHtmlStringRGB(
-                            new Color(_bloomTintVec.x, _bloomTintVec.y, _bloomTintVec.z, 1f));
-                        HudConfig.FxBloomTint.Value = hex;
-                        _bloomTintStr = hex;
-                    }
-                }
-
-                // ── Dynamic bloom (each optional; material params only, so animating is free).
-                Toggle(HudConfig.FxBloomPulseOn, "  breathing pulse (the glow breathes)");
-                if (HudConfig.FxBloomPulseOn != null && HudConfig.FxBloomPulseOn.Value)
-                {
-                    FloatSlider(HudConfig.FxBloomPulseSpeed, "    breaths per second", 0.05f, 2f);
-                    FloatSlider(HudConfig.FxBloomPulseDepth, "    breath depth", 0f, 1f);
-                }
-                Toggle(HudConfig.FxBloomReactOn, "  state-reactive glow (power / alarms / boot)");
-                if (HudConfig.FxBloomReactOn != null && HudConfig.FxBloomReactOn.Value)
-                {
-                    FloatSlider(HudConfig.FxBloomReactPower, "    low suit power dims the glow", 0f, 1f);
-                    FloatSlider(HudConfig.FxBloomReactAlarm, "    critical alarms pulse it red", 0f, 1f);
-                    FloatSlider(HudConfig.FxBloomReactBoot, "    boot sequence flares it", 0f, 1f);
-                }
-
-                // Second bloom band: an independent glow for the BRIGHTEST pixels — style the
-                // borders above its threshold (edge light / spec / border colour) and the frame
-                // lines carry their own glow, tuned separately from the base bloom.
-                Toggle(HudConfig.FxBloom2On, "  BORDER / HIGHLIGHT bloom (second band, brightest pixels)");
-                if (HudConfig.FxBloom2On != null && HudConfig.FxBloom2On.Value)
-                {
-                    FloatSlider(HudConfig.FxBloom2Threshold, "    band threshold (above = border glow)", 0f, 1.5f);
-                    FloatSlider(HudConfig.FxBloom2SatBias, "    saturation bias (+ = borders, not white text)", -1f, 1f);
-                    FloatSlider(HudConfig.FxBloom2Strength, "    band strength", 0f, 3f);
-                    IntSliderCfg(HudConfig.FxBloom2Steps, "    band reach (blur steps)", 1, 5);
-                    FloatSlider(HudConfig.FxBloom2Spread, "    band width fine-adjust", 0.5f, 3f);
-                    if (HudConfig.FxBloom2Tint != null)
-                    {
-                        string ts2 = HudConfig.FxBloom2Tint.Value ?? "#FFFFFF";
-                        if (!ReferenceEquals(ts2, _bloom2TintStr))
-                        {
-                            _bloom2TintStr = ts2;
-                            Color tc2;
-                            if (!ColorUtility.TryParseHtmlString(ts2, out tc2)) tc2 = Color.white;
-                            _bloom2TintVec = new Vector3(tc2.r, tc2.g, tc2.b);
-                        }
-                        if (ImGui.ColorEdit3("    band tint", ref _bloom2TintVec, ImGuiColorEditFlags.PickerHueWheel))
-                        {
-                            string hex2 = "#" + ColorUtility.ToHtmlStringRGB(
-                                new Color(_bloom2TintVec.x, _bloom2TintVec.y, _bloom2TintVec.z, 1f));
-                            HudConfig.FxBloom2Tint.Value = hex2;
-                            _bloom2TintStr = hex2;
-                        }
-                    }
-                    ImGui.TextDisabled("    Tip: raise 'Glass edge light' so borders outshine text,");
-                    ImGui.TextDisabled("    then set the threshold between them.");
-                }
-
-                ImGui.TextDisabled("Measure any of this with the Profiler below (uiaprof ab <effect>).");
-                if (ImGui.Button("Reset ALL per-element effect overrides"))
-                    HudEditorMode.ResetAllElementEffects();
-                ImGui.TextDisabled("Removes every element's own fx settings (one undo step).");
-            }
-
-            if (ImGui.CollapsingHeader("Profiler"))
-            {
-                bool vis = Profiling.ProfilicusUniversalis.IsVisible;
-                if (ImGui.Button(vis ? "Hide profiler window" : "Show profiler window"))
-                    Profiling.ProfilicusUniversalis.SetVisible(!vis);
-                ImGui.SameLine();
-                if (ImGui.Button("Snapshot##prof"))
-                    Profiling.ProfilicusUniversalis.SaveSnapshot();
-                ImGui.TextDisabled("Console: uiaprof [on|off|clear|save|ab <effect>] — ab measures an");
-                ImGui.TextDisabled("effect's real frame cost (ON vs OFF) and prints the delta.");
-            }
-
-            if (HudSystem.DocumentMode)
-            {
-                if (ImGui.CollapsingHeader("Global style"))
-                {
-                    FloatSlider(HudConfig.HudScale, "Overall HUD scale", 0.6f, 1.6f);
-                    FloatSlider(HudConfig.CornerRadius, "Default corner rounding (px)", 0f, 28f);
-                    FloatSlider(HudConfig.BorderWidth, "Default line thickness (px)", 0f, 6f);
-                    FloatSlider(HudConfig.EdgeFeather, "Edge softness / AA (px)", 0f, 4f);
-                    FloatSlider(HudConfig.GlassSheen, "Default glass sheen", 0f, 1f);
-                    FloatSlider(HudConfig.GlassEdge, "Default glass edge light", 0f, 1f);
-                    ImGui.TextDisabled("Per-element glass overrides this (set it to -1 to follow these).");
-                    if (ImGui.Button("Make ALL elements follow global glass"))
-                        HudEditorMode.ResetAllGlassToGlobal();
-                    ImGui.TextDisabled("Clears every element's own sheen/edge (colours & layout untouched).");
-                    if (ImGui.Button("Flatten ALL boxes (strip glass / glow)"))
-                        HudEditorMode.MakeAllFlat();
-                    ImGui.TextDisabled("Zeros sheen + edge light + glow on every element -> plain bordered boxes.");
-                }
-            }
-            else if (ImGui.CollapsingHeader("Layout & sizes"))
+            if (ImGui.CollapsingHeader("Panel surface", ImGuiTreeNodeFlags.DefaultOpen))
             {
                 FloatSlider(HudConfig.HudScale, "Overall HUD scale", 0.6f, 1.6f);
+                FloatSlider(HudConfig.CornerRadius, "Default corner rounding (px)", 0f, 28f);
+                FloatSlider(HudConfig.BorderWidth, "Default line thickness (px)", 0f, 6f);
+                FloatSlider(HudConfig.EdgeFeather, "Edge softness / AA (px)", 0f, 4f);
+                FloatSlider(HudConfig.GlassSheen, "Default glass sheen", 0f, 1f);
+                FloatSlider(HudConfig.GlassEdge, "Default glass edge light", 0f, 1f);
+                ImGui.Spacing();
+                ImGui.TextColored(new Vector4(0.25f, 0.85f, 0.93f, 1f), "ANALYTIC SDF PANELS");
+                Toggle(HudConfig.SdfPanels, "Use analytic SDF glass panels");
+                if (HudConfig.SdfPanels != null && HudConfig.SdfPanels.Value)
+                {
+                    FloatSlider(HudConfig.SdfSquircle, "  corner shape (2 round - 8 squircle)", 2f, 8f);
+                    Toggle(HudConfig.SdfGaussianHalo, "  Gaussian distance falloff (not a blur convolution)");
+                    if (!Core.HudShaderStore.SdfAvailable)
+                        ImGui.TextColored(new Vector4(1f, 0.72f, 0.25f, 1f),
+                            "  Shader bundle unavailable — panels fail soft to the mesh renderer.");
+                }
+                ImGui.Spacing();
+                if (HudSystem.DocumentMode)
+                {
+                    ImGui.TextDisabled("Apply one coherent source mode to every element:");
+                    if (ImGui.Button("ALL follow Theme + Effects globals"))
+                        HudEditorMode.SetAllFollowGlobal(true);
+                    ImGui.SameLine();
+                    if (ImGui.Button("Snapshot ALL as Custom"))
+                        HudEditorMode.SetAllFollowGlobal(false);
+                    if (ImGui.Button("Flatten ALL boxes")) HudEditorMode.MakeAllFlat();
+                }
+            }
+
+            if (!HudSystem.DocumentMode && ImGui.CollapsingHeader("Legacy panel sizes"))
+            {
                 FloatSlider(HudConfig.TopBarHeight, "Top bar height (px)", 36f, 120f);
                 FloatSlider(HudConfig.TopBarCurve, "Top bar curve (end drop px)", 0f, 120f);
                 FloatSlider(HudConfig.TopBarWidthPct, "Top bar width (fraction)", 0.5f, 1f);
@@ -332,14 +218,9 @@ namespace StationeersUIMod.Windows
                 FloatSlider(HudConfig.HandBoxHeight, "Hand box height (px)", 56f, 160f);
                 FloatSlider(HudConfig.VitalsWidth, "Vitals card width (px)", 160f, 420f);
                 FloatSlider(HudConfig.VitalsHeight, "Vitals card height (px)", 100f, 300f);
-                FloatSlider(HudConfig.CornerRadius, "Panel corner rounding (px)", 0f, 28f);
-                FloatSlider(HudConfig.BorderWidth, "Panel line thickness (px)", 0f, 6f);
-                FloatSlider(HudConfig.EdgeFeather, "Edge softness / AA (px)", 0f, 4f);
-                FloatSlider(HudConfig.GlassSheen, "Default glass sheen", 0f, 1f);
-                FloatSlider(HudConfig.GlassEdge, "Default glass edge light", 0f, 1f);
             }
 
-            if (ImGui.CollapsingHeader("Text"))
+            if (ImGui.CollapsingHeader("Typography", ImGuiTreeNodeFlags.DefaultOpen))
             {
                 FontCombo();
                 FloatSlider(HudConfig.FontScale, "Font scale (all HUD text)", 0.6f, 1.8f);
@@ -350,8 +231,205 @@ namespace StationeersUIMod.Windows
                 FloatSlider(HudConfig.BareWordFontSize, "Felt-sense word size", 12f, 36f);
             }
 
-            if (ImGui.CollapsingHeader("Colours", ImGuiTreeNodeFlags.DefaultOpen))
+            if (ImGui.CollapsingHeader("Palette", ImGuiTreeNodeFlags.DefaultOpen))
                 DrawColourControls();
+        }
+
+        private void DrawEffectsTab()
+        {
+            ImGui.TextDisabled("GLOBAL — element popups can follow these defaults or override supported effects.");
+
+            if (ImGui.CollapsingHeader("Edges, glow & pulse", ImGuiTreeNodeFlags.DefaultOpen))
+            {
+                Toggle(HudConfig.FxTierA, "Enable surface and edge effects");
+                if (HudConfig.FxTierA != null && HudConfig.FxTierA.Value)
+                {
+                    Toggle(HudConfig.FxHairlinesOn, "Hairlines (sub-1px lines fade, not vanish)");
+                    if (HudConfig.FxHairlinesOn.Value)
+                        FloatSlider(HudConfig.FxHairlineMin, "  thinnest line (px)", 0.05f, 1f);
+
+                    Toggle(HudConfig.FxEdgeLightOn, "Edge energy (borders + lines)");
+                    if (HudConfig.FxEdgeLightOn.Value)
+                    {
+                        FloatSlider(HudConfig.FxEdgeLight, "  Strength##edgeEnergyStrength", 0f, 2f);
+                        DrawEdgeLightColour();
+                        FloatSlider(HudConfig.FxEdgeLightAngle, "  light angle (0=R,90=top,180=L)", 0f, 360f);
+                        FloatSlider(HudConfig.FxEdgeLightRim, "  opposing-rim catch", 0f, 2f);
+                        FloatSlider(HudConfig.FxEdgeLightSharp, "  falloff (high=tight, low=broad)", 1f, 8f);
+                        FloatSlider(HudConfig.FxEdgeRipple, "  irregular energy", 0f, 2.5f);
+                        FloatSlider(HudConfig.FxEdgeRippleFreq, "  energy frequency", 0.05f, 8f);
+                        FloatSlider(HudConfig.FxEdgeFlowSpeed, "  flow speed (0 = frozen)", 0f, 4f);
+                    }
+
+                    Toggle(HudConfig.FxBorderFadeOn, "Border fade (unlit sections dissolve)");
+                    if (HudConfig.FxBorderFadeOn.Value)
+                        FloatSlider(HudConfig.FxBorderFade, "  fade amount", 0f, 1f);
+                    Toggle(HudConfig.FxSoftEdgeOn, "Soft edge (boxes melt together)");
+                    if (HudConfig.FxSoftEdgeOn.Value)
+                        FloatSlider(HudConfig.FxSoftEdge, "  Width (px)##softEdgeWidth", 0f, 48f);
+                    Toggle(HudConfig.FxGlowOn, "Glow halo");
+                    if (HudConfig.FxGlowOn.Value)
+                    {
+                        FloatSlider(HudConfig.FxGlow, "  outward strength", 0f, 2f);
+                        FloatSlider(HudConfig.FxGlowInner, "  inward strength", 0f, 2f);
+                        FloatSlider(HudConfig.FxGlowWidth, "  Width (px)##glowWidth", 6f, 160f);
+                        FloatSlider(HudConfig.FxGlowDiffuse, "  diffuseness (haze)", 0f, 1f);
+                    }
+                    Toggle(HudConfig.FxPulseOn, "Allow per-element breathing pulse");
+                    if (HudConfig.FxPulseOn.Value)
+                    {
+                        FloatSlider(HudConfig.FxPulseSpeed, "  pulse speed (Hz)", 0.05f, 3f);
+                        FloatSlider(HudConfig.FxPulseDepth, "  pulse depth", 0f, 1f);
+                    }
+                }
+            }
+
+            if (ImGui.CollapsingHeader("Glass animation", ImGuiTreeNodeFlags.DefaultOpen))
+            {
+                ImGui.TextColored(new Vector4(0.25f, 0.85f, 0.93f, 1f),
+                    Core.HudShaderStore.TierBAvailable
+                        ? "SHADER BUNDLE READY"
+                        : "SHADER BUNDLE NOT LOADED — THESE EFFECTS ARE INACTIVE");
+                Toggle(HudConfig.FxTierB, "Enable glass animation effects");
+                if (HudConfig.FxTierB.Value)
+                {
+                    Toggle(HudConfig.FxShineOn, "Shine sweep");
+                    if (HudConfig.FxShineOn.Value)
+                    {
+                        FloatSlider(HudConfig.FxShine, "  Strength##shineStrength", 0f, 2f);
+                        FloatSlider(HudConfig.FxShinePeriod, "  period (seconds)", 2f, 60f);
+                    }
+                    Toggle(HudConfig.FxIridOn, "Iridescent rim");
+                    if (HudConfig.FxIridOn.Value)
+                        FloatSlider(HudConfig.FxIridescence, "  Strength##iridescenceStrength", 0f, 1f);
+                    Toggle(HudConfig.FxChromaOn, "Chromatic fringe (uses frosted backdrop)");
+                    if (HudConfig.FxChromaOn.Value)
+                        FloatSlider(HudConfig.FxChroma, "  Strength##chromaStrength", 0f, 1f);
+                    Toggle(HudConfig.FxDissolveBoot, "Dissolve reveal on boot/power transitions");
+                }
+            }
+
+            if (ImGui.CollapsingHeader("Frosted glass", ImGuiTreeNodeFlags.DefaultOpen))
+            {
+                Toggle(HudConfig.FxTierC, "Enable frosted-glass backdrop (Flat/Warp curvature only)");
+                if (HudConfig.FxTierC.Value)
+                {
+                    FloatSlider(HudConfig.FrostStrength, "Frost strength (all elements)", 0f, 1f);
+                    FloatSlider(HudConfig.FrostDepth, "Blur depth (shallow - deep)", 0f, 1f);
+                    FloatSlider(HudConfig.FrostDarken, "Backdrop darkening", 0f, 1f);
+                    FrostDownsampleCombo();
+                    IntSliderCfg(HudConfig.FrostUpdateEveryN, "Re-blur every N frames", 1, 8);
+                    RgbConfig(HudConfig.FrostTint, "Frost tint", ref _frostTintStr, ref _frostTintVec);
+                    ImGui.TextDisabled(HudBackdrop.Active ? "Backdrop capture active." : "Backdrop capture is idle or unavailable in this view mode.");
+                }
+            }
+
+            if (ImGui.CollapsingHeader("HUD bloom", ImGuiTreeNodeFlags.DefaultOpen))
+                DrawBloomControls();
+
+            ImGui.Separator();
+            if (ImGui.Button("Reset active per-element effects to current globals"))
+                HudEditorMode.ResetAllElementEffects();
+            ImGui.TextDisabled("Custom appearance stays custom; effect values receive a coherent global snapshot.");
+        }
+
+        private void DrawViewBehaviorTab()
+        {
+            ImGui.TextDisabled("GLOBAL — projection, suit behavior and vanilla-panel integration.");
+
+            if (ImGui.CollapsingHeader("HUD renderer", ImGuiTreeNodeFlags.DefaultOpen))
+            {
+                Toggle(HudConfig.VisorHudEnabled, "Visor HUD enabled");
+                Toggle(HudConfig.UseDocumentHud, "Use profile-driven document HUD");
+                if (!HudSystem.DocumentMode)
+                {
+                    ImGui.TextDisabled("Legacy fixed panels:");
+                    Toggle(HudConfig.ShowTopBar, "  Top status bar");
+                    Toggle(HudConfig.ShowCompass, "  Compass ribbon");
+                    Toggle(HudConfig.ShowEquipment, "  Equipment column (1-6)");
+                    Toggle(HudConfig.ShowHands, "  Hand boxes");
+                    Toggle(HudConfig.ShowVitals, "  Vitals card / felt senses");
+                    Toggle(HudConfig.ShowHologram, "  Player hologram in vitals card");
+                }
+                Toggle(HudConfig.ShowVignette, "Visor-edge vignette");
+            }
+
+            if (ImGui.CollapsingHeader("Curvature & projection", ImGuiTreeNodeFlags.DefaultOpen))
+            {
+                CurvatureCombo();
+                FloatSlider(HudConfig.CurveStrength, "Curve strength (0 flat - 1 fishbowl)", 0f, 1f);
+                Toggle(HudConfig.CurveInvert, "Invert curve direction");
+                Toggle(HudConfig.BareFlattens, "Flatten the HUD when suit power is absent");
+                if (HudConfig.Curvature.Value == HudCurvature.CurvedWorldCanvas
+                    || HudConfig.Curvature.Value == HudCurvature.CurvedRt)
+                    FloatSlider(HudConfig.WorldCanvasDistance, "Visor distance (m)", 0.25f, 2f);
+            }
+
+            if (ImGui.CollapsingHeader("Suit power & transitions", ImGuiTreeNodeFlags.DefaultOpen))
+            {
+                Toggle(HudConfig.DiegeticTiers, "Diegetic tiers (no suit power = words only)");
+                Toggle(HudConfig.FlickerAnimations, "Flicker animations (off/boot/death)");
+                Toggle(HudConfig.LowPowerDropouts, "Low-power dropout glitches");
+                if (HudConfig.LowPowerDropouts.Value)
+                    FloatSlider(HudConfig.LowPowerThreshold, "  low-power threshold (%)", 0f, 40f);
+                if (ImGui.Button("Test power-death flicker")) HudSystem.TestPowerDeath();
+                ImGui.SameLine();
+                if (ImGui.Button("Test boot sequence")) HudSystem.TestBoot();
+
+                ImGui.Spacing();
+                Toggle(HudConfig.GlitchEnabled, "Power-transition tear / shake");
+                if (HudConfig.GlitchEnabled.Value)
+                {
+                    FloatSlider(HudConfig.GlitchDuration, "  duration (seconds)", 0.1f, 4f);
+                    FloatSlider(HudConfig.GlitchIntensity, "  severity", 0f, 1f);
+                    Toggle(HudConfig.GlitchOnPowerDown, "  fire on power DOWN / suit removed");
+                    Toggle(HudConfig.GlitchOnPowerUp, "  fire on power UP / boot");
+                    if (ImGui.Button("Test glitch now")) HudGlitch.TriggerTest();
+                }
+                ImGui.TextDisabled("Each element can opt out of collapse, glitch and warp in its inspector.");
+            }
+
+            if (ImGui.CollapsingHeader("Vanilla panels", ImGuiTreeNodeFlags.DefaultOpen))
+            {
+                ImGui.TextDisabled("Hidden through vanilla visibility paths; objects are never destroyed.");
+                Toggle(UIAConfig.HideVanillaHands, "Hide vanilla hands panel");
+                Toggle(UIAConfig.HideVanillaClothing, "Hide vanilla clothing panel");
+                Toggle(UIAConfig.HideVanillaStatus, "Hide vanilla status panel");
+                Toggle(UIAConfig.HideVanillaPlayerState, "Hide vanilla instrument cluster (bottom-right)");
+            }
+        }
+
+        private void DrawDiagnosticsTab()
+        {
+            ImGui.TextDisabled("Developer previews, renderer fallback and performance tools.");
+
+            if (ImGui.CollapsingHeader("Preview data", ImGuiTreeNodeFlags.DefaultOpen))
+            {
+                Toggle(HudConfig.DebugShowAll, "Show everything (all vitals/moodlets/instruments)");
+                Toggle(HudConfig.DebugShowAllBare, "Show everything in power-off / bare layout");
+            }
+
+            if (ImGui.CollapsingHeader("Renderer status", ImGuiTreeNodeFlags.DefaultOpen))
+            {
+                ImGui.Text("Document HUD: " + (HudSystem.DocumentMode ? "ACTIVE" : "legacy fixed panels"));
+                ImGui.Text("Effects bundle: " + (Core.HudShaderStore.TierBAvailable ? "READY" : "NOT LOADED"));
+                ImGui.Text("Analytic panel shader: " + (Core.HudShaderStore.SdfAvailable ? "READY" : "FALLBACK MESH"));
+                ImGui.Text("Frost capture: " + (HudBackdrop.Active ? "ACTIVE" : "IDLE"));
+                ImGui.Text("Bloom: " + (HudBloomFx.Available ? "AVAILABLE" : "UNAVAILABLE"));
+                Toggle(HudConfig.LegacyImGuiHud, "Draw legacy ImGui HUD diagnostics overlay");
+            }
+
+            if (ImGui.CollapsingHeader("Profiler", ImGuiTreeNodeFlags.DefaultOpen))
+            {
+                bool vis = Profiling.ProfilicusUniversalis.IsVisible;
+                if (ImGui.Button(vis ? "Hide profiler window" : "Show profiler window"))
+                    Profiling.ProfilicusUniversalis.SetVisible(!vis);
+                ImGui.SameLine();
+                if (ImGui.Button("Snapshot##prof"))
+                    Profiling.ProfilicusUniversalis.SaveSnapshot();
+                ImGui.TextDisabled("Console: uiaprof [on|off|clear|save|ab <effect>]");
+                ImGui.TextDisabled("A/B measures an effect's real ON-vs-OFF frame cost.");
+            }
         }
 
         // ------------------------------------------------------------------ designer
@@ -376,27 +454,22 @@ namespace StationeersUIMod.Windows
             "PngDoll",
         };
 
-        /// <summary>The HUD Designer controls: grid, add/draw, undo, selection actions,
-        /// and the layout-profile manager. Only shown in document mode.</summary>
+        /// <summary>The HUD Designer controls: grid, add/draw, and selection actions.
+        /// Profile and history controls stay in the persistent toolbar above the tabs.</summary>
         private void DrawDesignerSection()
         {
-            if (!ImGui.CollapsingHeader("Designer", ImGuiTreeNodeFlags.DefaultOpen)) return;
-
             ImGui.TextDisabled("Click an element to select - drag to move, corners resize.");
             ImGui.TextDisabled("Del removes - Ctrl+D duplicates - Ctrl+Z / Ctrl+Y undo/redo.");
             ImGui.TextDisabled("Ctrl+drag = box-select many - arrow keys nudge (Shift = grid).");
             ImGui.Spacing();
 
-            // Debug previews: fill the HUD so you can arrange the worst case.
-            Toggle(HudConfig.DebugShowAll, "DEBUG: show everything (all vitals/moodlets/instruments)");
-            Toggle(HudConfig.DebugShowAllBare, "DEBUG: show everything, power-off (bare) layout");
-            ImGui.Spacing();
-
+            ImGui.TextColored(new Vector4(0.25f, 0.85f, 0.93f, 1f), "CANVAS & GRID");
             Toggle(HudConfig.GridSnapEnabled, "Snap to grid (hold Alt to bypass)");
             Toggle(HudConfig.ShowGrid, "Show grid");
             FloatSlider(HudConfig.GridSnapSize, "Grid size (px)", 2f, 64f);
             ImGui.Spacing();
 
+            ImGui.TextColored(new Vector4(0.25f, 0.85f, 0.93f, 1f), "CREATE & EDIT GEOMETRY");
             ImGui.SetNextItemWidth(200f);
             if (ImGui.BeginCombo("##addtype", AddableTypes[_addTypeIndex]))
             {
@@ -450,22 +523,18 @@ namespace StationeersUIMod.Windows
             }
             ImGui.Spacing();
 
-            // (No BeginDisabled in the game's ImGui binding — dead buttons just no-op.)
-            if (ImGui.Button("Undo##doc") && UI.Hud.HudDocumentHistory.CanUndo)
-                HudEditorMode.DoUndo();
-            ImGui.SameLine();
-            if (ImGui.Button("Redo##doc") && UI.Hud.HudDocumentHistory.CanRedo)
-                HudEditorMode.DoRedo();
-
+            ImGui.TextColored(new Vector4(0.25f, 0.85f, 0.93f, 1f), "SELECTION");
             var sel = HudEditorMode.SelectedElement;
             if (sel != null)
             {
-                ImGui.SameLine();
                 if (ImGui.Button("Duplicate")) HudEditorMode.DuplicateSelected();
                 ImGui.SameLine();
                 if (ImGui.Button("Delete")) HudEditorMode.DeleteSelected();
-                if (ImGui.Button("Make flat (strip glass / glow)")) HudEditorMode.MakeSelectedFlat();
-                ImGui.TextDisabled("Zeros this box's sheen + edge light + glow -> a plain bordered box.");
+                if (sel.CanFlatten)
+                {
+                    if (ImGui.Button("Make flat (strip optical effects)")) HudEditorMode.MakeSelectedFlat();
+                    ImGui.TextDisabled("Snapshots this panel as Custom, then disables glass, glow and optical layers.");
+                }
 
                 // Per-curvature-mode placement: dragging writes to the CURRENT mode's own layout
                 // for the LIVE HUD (bare stays shared). Show which, and let it snap back to base.
@@ -485,14 +554,13 @@ namespace StationeersUIMod.Windows
                         HudEditorMode.ResetModeLayout();
                 }
             }
-            ImGui.Spacing();
-            DrawProfilesSection();
-            ImGui.Separator();
+            else
+                ImGui.TextDisabled("Select an element on the HUD to show its document actions.");
         }
 
         private void DrawProfilesSection()
         {
-            ImGui.TextDisabled("Layout profiles (shareable XML):");
+            ImGui.TextDisabled("Active profile (shareable XML; edits autosave):");
             string active = HudEditorMode.ActiveProfileName();
             ImGui.SetNextItemWidth(200f);
             bool comboOpen = ImGui.BeginCombo("##profile", active);
@@ -505,6 +573,7 @@ namespace StationeersUIMod.Windows
                     if (ImGui.Selectable(n, string.Equals(n, active, System.StringComparison.OrdinalIgnoreCase))
                         && !string.Equals(n, active, System.StringComparison.OrdinalIgnoreCase))
                     {
+                        FlushPendingElementEdit();
                         if (HudConfig.HudActiveProfile != null) HudConfig.HudActiveProfile.Value = n;
                         // Fallback factory guards a corrupt file: keep what we have.
                         var keep = Features.HudProfileStore.Active;
@@ -523,11 +592,14 @@ namespace StationeersUIMod.Windows
                 catch { }
             }
 
-            ImGui.SetNextItemWidth(200f);
+            ImGui.TextDisabled("New copy:");
+            ImGui.SameLine();
+            ImGui.SetNextItemWidth(145f);
             ImGui.InputText("##saveas", ref _saveAsName, 48);
             ImGui.SameLine();
-            if (ImGui.Button("Save as") && !string.IsNullOrEmpty(_saveAsName))
+            if (ImGui.Button("Duplicate as") && !string.IsNullOrEmpty(_saveAsName))
             {
+                FlushPendingElementEdit();
                 // Sanitize BEFORE remembering the name: the store strips illegal chars
                 // for the file, and a config name that kept them would miss the file on
                 // the next launch and silently regenerate the default.
@@ -536,11 +608,14 @@ namespace StationeersUIMod.Windows
                     clean = clean.Replace(bad.ToString(), "");
                 clean = clean.Trim();
                 var doc = Features.HudProfileStore.Active;
-                if (!string.IsNullOrEmpty(clean) && doc != null
-                    && Features.HudProfileStore.Save(doc, clean))
+                var copy = doc != null ? doc.Clone() : null;
+                if (copy != null) copy.Name = clean;
+                if (!string.IsNullOrEmpty(clean) && copy != null
+                    && Features.HudProfileStore.Save(copy, clean))
                 {
                     if (HudConfig.HudActiveProfile != null) HudConfig.HudActiveProfile.Value = clean;
-                    Features.HudProfileStore.SetActive(doc, clean);
+                    Features.HudProfileStore.SetActive(copy, clean);
+                    UI.Hud.HudDocumentHistory.Clear();
                     _saveAsName = "";
                     _profileNamesCache = Features.HudProfileStore.ListProfiles(); // new file: refresh the cache
                 }
@@ -747,6 +822,45 @@ namespace StationeersUIMod.Windows
         private static int _elementPopupStamp = -1;
         private static readonly List<UI.Hud.HudProp> _propScratch = new List<UI.Hud.HudProp>();
         private static UI.Hud.HudDocument _pendingElementUndo;
+        private static UI.Hud.HudDocument _pendingElementDocument;
+        private static string _pendingElementProfile;
+        private static bool _pendingElementChanged;
+        private static UI.Hud.HudPropGroup? _activeElementPropGroup;
+
+        /// <summary>Finish an in-flight property gesture before selection/profile/editor state
+        /// changes can make ImGui omit its normal deactivation callback. The old document is still
+        /// persisted if an external profile swap beat us here; its undo snapshot is intentionally
+        /// not mixed into the new profile's history.</summary>
+        private static void FlushPendingElementEdit()
+        {
+            if (_pendingElementUndo != null && _pendingElementChanged
+                && _pendingElementDocument != null
+                && !HudEditorMode.DocumentsEqual(_pendingElementDocument, _pendingElementUndo))
+            {
+                var active = Features.HudProfileStore.Active;
+                if (ReferenceEquals(active, _pendingElementDocument))
+                {
+                    UI.Hud.HudDocumentHistory.Push(_pendingElementUndo);
+                    Features.HudProfileStore.MarkChanged();
+                }
+                else if (_pendingElementDocument != null && !string.IsNullOrEmpty(_pendingElementProfile))
+                {
+                    Features.HudProfileStore.Save(_pendingElementDocument, _pendingElementProfile);
+                }
+            }
+            _pendingElementUndo = null;
+            _pendingElementDocument = null;
+            _pendingElementProfile = null;
+            _pendingElementChanged = false;
+        }
+
+        private static void CancelPendingElementEdit()
+        {
+            _pendingElementUndo = null;
+            _pendingElementDocument = null;
+            _pendingElementProfile = null;
+            _pendingElementChanged = false;
+        }
 
         public static void DrawPopupOverlay()
         {
@@ -758,8 +872,18 @@ namespace StationeersUIMod.Windows
             if (HudSystem.DocumentMode)
             {
                 var el = HudEditorMode.SelectedElement;
-                if (el == null || el.Def == null) return;
+                if (el == null || el.Def == null)
+                {
+                    FlushPendingElementEdit();
+                    _activeElementPropGroup = null;
+                    return;
+                }
                 bool elMoved = _elementPopupStamp != HudEditorMode.ElementStamp;
+                if (elMoved)
+                {
+                    FlushPendingElementEdit();
+                    _activeElementPropGroup = null;
+                }
                 _elementPopupStamp = HudEditorMode.ElementStamp;
                 // Open CENTERED (FlorpyDorp: the click-point spawn kept landing bottom-
                 // right) and freely resizable up to nearly the screen — the old 400x560
@@ -779,22 +903,42 @@ namespace StationeersUIMod.Windows
                     // mere click into a widget, and pushing there wiped the redo stack
                     // with dead steps (review finding). The begin-stash keeps the
                     // pre-gesture state; only a real change spends it.
-                    if (elMoved) _pendingElementUndo = null;
-                    HudPropDrawer.DrawAll(_propScratch,
-                        onBeginEdit: () =>
-                        {
-                            var doc = Features.HudProfileStore.Active;
-                            _pendingElementUndo = doc != null ? doc.Clone() : null;
-                        },
-                        onCommitted: () =>
-                        {
-                            if (_pendingElementUndo != null)
-                            {
-                                UI.Hud.HudDocumentHistory.Push(_pendingElementUndo);
-                                _pendingElementUndo = null;
-                            }
-                            Features.HudProfileStore.MarkChanged();
-                        });
+                    System.Action beginElementEdit = () =>
+                    {
+                        if (_pendingElementUndo != null) return;
+                        var doc = Features.HudProfileStore.Active;
+                        _pendingElementUndo = doc != null ? doc.Clone() : null;
+                        _pendingElementDocument = doc;
+                        _pendingElementProfile = HudEditorMode.ActiveProfileName();
+                        _pendingElementChanged = false;
+                    };
+                    System.Action commitElementEdit = () =>
+                    {
+                        FlushPendingElementEdit();
+                    };
+                    System.Action cancelElementEdit = () =>
+                    {
+                        CancelPendingElementEdit();
+                    };
+                    System.Action noteElementChanged = () =>
+                    {
+                        if (_pendingElementUndo != null) _pendingElementChanged = true;
+                    };
+
+                    if (ImGui.BeginTabBar("##UIAHudElementTabs"))
+                    {
+                        DrawElementPropTab("Content", UI.Hud.HudPropGroup.Content,
+                            beginElementEdit, commitElementEdit, cancelElementEdit, noteElementChanged);
+                        DrawElementPropTab("Layout", UI.Hud.HudPropGroup.Layout,
+                            beginElementEdit, commitElementEdit, cancelElementEdit, noteElementChanged);
+                        DrawElementPropTab("Appearance", UI.Hud.HudPropGroup.Appearance,
+                            beginElementEdit, commitElementEdit, cancelElementEdit, noteElementChanged);
+                        DrawElementPropTab("Effects", UI.Hud.HudPropGroup.Effects,
+                            beginElementEdit, commitElementEdit, cancelElementEdit, noteElementChanged);
+                        DrawElementPropTab("Interaction", UI.Hud.HudPropGroup.Interaction,
+                            beginElementEdit, commitElementEdit, cancelElementEdit, noteElementChanged);
+                        ImGui.EndTabBar();
+                    }
                     // Live feedback only while a widget is actually being edited — an
                     // idle popup must not rebuild the element's meshes every frame.
                     bool editing = false;
@@ -804,11 +948,19 @@ namespace StationeersUIMod.Windows
                     if (ImGui.Button("Duplicate##pop")) HudEditorMode.DuplicateSelected();
                     ImGui.SameLine();
                     if (ImGui.Button("Delete##pop")) HudEditorMode.DeleteSelected();
-                    if (ImGui.Button("Make flat (strip glass / glow)##pop")) HudEditorMode.MakeSelectedFlat();
-                    ImGui.TextDisabled("Zeros this box's sheen + edge light + glow -> a plain bordered box.");
+                    if (el.CanFlatten)
+                    {
+                        if (ImGui.Button("Make flat (strip optical effects)##pop")) HudEditorMode.MakeSelectedFlat();
+                        ImGui.TextDisabled("Snapshots this panel as Custom, then disables glass, glow and optical layers.");
+                    }
                 }
                 ImGui.End();
-                if (!elOpen) HudEditorMode.ClearElementSelection();
+                if (!elOpen)
+                {
+                    FlushPendingElementEdit();
+                    _activeElementPropGroup = null;
+                    HudEditorMode.ClearElementSelection();
+                }
                 return;
             }
 
@@ -838,6 +990,27 @@ namespace StationeersUIMod.Windows
             }
             ImGui.End();
             if (!open) HudEditorMode.Selected = null;
+        }
+
+        private static void DrawElementPropTab(string title, UI.Hud.HudPropGroup group,
+            System.Action beginEdit, System.Action commitEdit, System.Action cancelEdit,
+            System.Action noteChanged)
+        {
+            if (!HudPropDrawer.HasGroup(_propScratch, group) || !ImGui.BeginTabItem(title)) return;
+            if (!_activeElementPropGroup.HasValue || _activeElementPropGroup.Value != group)
+            {
+                // The old tab's active InputText/slider is no longer submitted, so ImGui cannot
+                // report its normal deactivation. Finish a real edit (or discard an untouched
+                // activation) before any control in this tab can start a new gesture.
+                FlushPendingElementEdit();
+                _activeElementPropGroup = group;
+            }
+            ImGui.BeginChild("##UIAHudElement" + title + "Scroll", new Vector2(0f, -82f),
+                false, ImGuiWindowFlags.None);
+            HudPropDrawer.DrawGroup(_propScratch, group, beginEdit, commitEdit, cancelEdit,
+                noteChanged);
+            ImGui.EndChild();
+            ImGui.EndTabItem();
         }
 
         /// <summary>Generic widget for any config entry — the popup doesn't know panels.</summary>
@@ -877,13 +1050,127 @@ namespace StationeersUIMod.Windows
 
         // ------------------------------------------------------------------ pieces
 
+        private static void DrawEdgeLightColour()
+        {
+            RgbConfig(HudConfig.FxEdgeLightColor, "  Edge-light colour##edgeLightColour",
+                ref _edgeTintStr, ref _edgeTintVec);
+        }
+
+        /// <summary>Draw a hue-wheel editor for a config value stored as a hand-editable #RRGGBB string.</summary>
+        private static void RgbConfig(ConfigEntry<string> entry, string label,
+            ref string cachedText, ref Vector3 cachedColour)
+        {
+            if (entry == null) return;
+
+            string text = entry.Value ?? "#FFFFFF";
+            if (!string.Equals(text, cachedText, System.StringComparison.Ordinal))
+            {
+                Color parsed;
+                if (!ColorUtility.TryParseHtmlString(text, out parsed)) parsed = Color.white;
+                cachedText = text;
+                cachedColour = new Vector3(parsed.r, parsed.g, parsed.b);
+            }
+
+            if (ImGui.ColorEdit3(label, ref cachedColour, ImGuiColorEditFlags.PickerHueWheel))
+            {
+                string hex = "#" + ColorUtility.ToHtmlStringRGB(
+                    new Color(cachedColour.x, cachedColour.y, cachedColour.z, 1f));
+                entry.Value = hex;
+                cachedText = hex;
+            }
+        }
+
+        private static void FrostDownsampleCombo()
+        {
+            if (HudConfig.FrostDownsample == null) return;
+
+            float value = HudConfig.FrostDownsample.Value;
+            int divisor = value < 3f ? 2 : value < 6f ? 4 : 8;
+            string current = divisor == 2 ? "Half resolution (sharpest)"
+                : divisor == 4 ? "Quarter resolution (balanced)"
+                : "Eighth resolution (softest / cheapest)";
+            if (ImGui.BeginCombo("Backdrop blur resolution", current))
+            {
+                if (ImGui.Selectable("Half resolution (sharpest)", divisor == 2))
+                    HudConfig.FrostDownsample.Value = 2f;
+                if (ImGui.Selectable("Quarter resolution (balanced)", divisor == 4))
+                    HudConfig.FrostDownsample.Value = 4f;
+                if (ImGui.Selectable("Eighth resolution (softest / cheapest)", divisor == 8))
+                    HudConfig.FrostDownsample.Value = 8f;
+                ImGui.EndCombo();
+            }
+        }
+
+        private static void DrawBloomControls()
+        {
+            ImGui.TextColored(new Vector4(0.25f, 0.85f, 0.93f, 1f),
+                HudBloomFx.Available
+                    ? "BLOOM RENDERER READY"
+                    : "BLOOM SHADER NOT LOADED — THESE CONTROLS ARE INACTIVE");
+            Toggle(HudConfig.FxBloomOn, "Enable HUD bloom (HUD elements light each other)");
+            if (HudConfig.FxBloomOn == null || !HudConfig.FxBloomOn.Value) return;
+
+            ImGui.TextDisabled("Base glow");
+            FloatSlider(HudConfig.FxBloomStrength, "  Strength##bloomBaseStrength", 0f, 3f);
+            FloatSlider(HudConfig.FxBloomThreshold, "  Bright threshold##bloomBaseThreshold", 0f, 1.5f);
+            FloatSlider(HudConfig.FxBloomKnee, "  Soft knee##bloomBaseKnee", 0f, 1f);
+            IntSliderCfg(HudConfig.FxBloomBlurSteps, "  Reach / blur steps##bloomBaseSteps", 1, 5);
+            FloatSlider(HudConfig.FxBloomSpread, "  Width fine-adjust##bloomBaseSpread", 0.5f, 3f);
+            BloomResCombo();
+            FloatSlider(HudConfig.FxBloomAnamorph,
+                "  Streak shape (-1 vertical, +1 horizontal)##bloomBaseAnamorph", -1f, 1f);
+            FloatSlider(HudConfig.FxBloomSaturation,
+                "  Saturation (0 white-hot, 1 source hues)##bloomBaseSaturation", 0f, 2f);
+            FloatSlider(HudConfig.FxBloomSatBias,
+                "  Colour bias (+ favours coloured pixels)##bloomBaseBias", -1f, 1f);
+            RgbConfig(HudConfig.FxBloomTint, "  Glow tint##bloomBaseTint",
+                ref _bloomTintStr, ref _bloomTintVec);
+
+            ImGui.Spacing();
+            Toggle(HudConfig.FxBloomPulseOn, "Breathing bloom");
+            if (HudConfig.FxBloomPulseOn != null && HudConfig.FxBloomPulseOn.Value)
+            {
+                FloatSlider(HudConfig.FxBloomPulseSpeed, "  Breaths per second##bloomPulseSpeed", 0.05f, 2f);
+                FloatSlider(HudConfig.FxBloomPulseDepth, "  Breath depth##bloomPulseDepth", 0f, 1f);
+            }
+
+            Toggle(HudConfig.FxBloomReactOn, "State-reactive bloom");
+            if (HudConfig.FxBloomReactOn != null && HudConfig.FxBloomReactOn.Value)
+            {
+                FloatSlider(HudConfig.FxBloomReactPower, "  Low suit power dimming##bloomReactPower", 0f, 1f);
+                FloatSlider(HudConfig.FxBloomReactAlarm, "  Critical alarm response##bloomReactAlarm", 0f, 1f);
+                FloatSlider(HudConfig.FxBloomReactBoot, "  Boot flare##bloomReactBoot", 0f, 1f);
+            }
+
+            ImGui.Spacing();
+            Toggle(HudConfig.FxBloom2On, "Border / highlight bloom (second bright band)");
+            if (HudConfig.FxBloom2On != null && HudConfig.FxBloom2On.Value)
+            {
+                FloatSlider(HudConfig.FxBloom2Threshold,
+                    "  Highlight threshold##bloomHighlightThreshold", 0f, 1.5f);
+                FloatSlider(HudConfig.FxBloom2SatBias,
+                    "  Colour bias (+ favours borders)##bloomHighlightBias", -1f, 1f);
+                FloatSlider(HudConfig.FxBloom2Strength,
+                    "  Strength##bloomHighlightStrength", 0f, 3f);
+                IntSliderCfg(HudConfig.FxBloom2Steps,
+                    "  Reach / blur steps##bloomHighlightSteps", 1, 5);
+                FloatSlider(HudConfig.FxBloom2Spread,
+                    "  Width fine-adjust##bloomHighlightSpread", 0.5f, 3f);
+                RgbConfig(HudConfig.FxBloom2Tint, "  Highlight tint##bloomHighlightTint",
+                    ref _bloom2TintStr, ref _bloom2TintVec);
+                ImGui.TextDisabled("Raise panel edge light, then set this threshold between borders and text.");
+            }
+
+            ImGui.TextDisabled("Measure real frame cost in Diagnostics or with: uiaprof ab bloom");
+        }
+
         private static void PreviewTierCombo()
         {
             string current = !HudSystem.ForceTier.HasValue ? "Live (whatever you wear)"
                 : HudSystem.ForceTier.Value == HudTier.Bare ? "BARE (no suit power)"
                 : HudSystem.ForceTier.Value == HudTier.Suited ? "SUITED (full readout)"
                 : "ROBOT";
-            if (ImGui.BeginCombo("Preview tier", current))
+            if (ImGui.BeginCombo("##previewTier", current))
             {
                 if (ImGui.Selectable("Live (whatever you wear)", !HudSystem.ForceTier.HasValue))
                     HudSystem.ForceTier = null;
@@ -895,12 +1182,6 @@ namespace StationeersUIMod.Windows
                     HudSystem.ForceTier = HudTier.Robot;
                 ImGui.EndCombo();
             }
-            // Per-tier layout: while previewing BARE, dragging/resizing (and the X/Y/W/H fields)
-            // edit the BARE-mode layout of any element shown in bare — turn on "Separate bare-mode
-            // layout" in an element's popup for it to diverge from its suit position. Gated on the
-            // exact signal that routes writes, so the cue can never disagree with what's edited.
-            if (UI.Hud.HudElementView.EditBareTier)
-                ImGui.TextDisabled("Editing BARE layout — moves bare-mode positions.");
         }
 
         /// <summary>Bloom bright-pass base resolution: Full = crisp hairline glow (priciest),
@@ -967,12 +1248,45 @@ namespace StationeersUIMod.Windows
                 "HudGood", "HudWarn", "HudCritical",
             };
 
+        /// <summary>Commit an interrupted palette gesture only when its final config values differ
+        /// from the activation snapshot. This preserves redo after a click-without-edit (or a drag
+        /// returned to its starting colour) and also makes window/tab closure a valid commit edge.</summary>
+        private static void FlushPendingPaletteEdit()
+        {
+            var snapshot = _pendingUndo;
+            _pendingUndo = null;
+            if (snapshot == null || !PaletteChangedSince(snapshot)) return;
+            HudPalette.History.PushUndo(snapshot);
+        }
+
+        private static bool PaletteChangedSince(Dictionary<string, string> snapshot)
+        {
+            if (snapshot.Count != HudPalette.All.Count) return true;
+            for (int i = 0; i < HudPalette.All.Count; i++)
+            {
+                var entry = HudPalette.All[i];
+                string before;
+                if (!snapshot.TryGetValue(entry.Name, out before)
+                    || !string.Equals(before, entry.Config.Value, System.StringComparison.Ordinal))
+                    return true;
+            }
+            return false;
+        }
+
         private static void DrawColourControls()
         {
             ImGui.TextDisabled("Click a swatch for a colour wheel. The A slider is transparency.");
-            if (ImGui.Button("Undo")) HudPalette.History.Undo();
+            if (ImGui.Button("Undo"))
+            {
+                FlushPendingPaletteEdit();
+                HudPalette.History.Undo();
+            }
             ImGui.SameLine();
-            if (ImGui.Button("Redo")) HudPalette.History.Redo();
+            if (ImGui.Button("Redo"))
+            {
+                FlushPendingPaletteEdit();
+                HudPalette.History.Redo();
+            }
             ImGui.SameLine();
             ImGui.TextDisabled(HudPalette.History.CanUndo ? "" : "(nothing to undo)");
             ImGui.Spacing();
@@ -993,14 +1307,6 @@ namespace StationeersUIMod.Windows
             ColorWheelHot(HudPalette.Good, ref scrollTo);
             ColorWheelHot(HudPalette.Warn, ref scrollTo);
             ColorWheelHot(HudPalette.Critical, ref scrollTo);
-            if (HudSystem.DocumentMode)
-            {
-                if (ImGui.Button("Make ALL boxes follow global"))
-                    HudEditorMode.SetAllFollowGlobal(true);
-                ImGui.SameLine();
-                if (ImGui.Button("Give each box its own"))
-                    HudEditorMode.SetAllFollowGlobal(false);
-            }
             ImGui.Separator();
             ImGui.TextDisabled("Other HUD colours (compass, hologram, edges, scanline...):");
 
@@ -1012,7 +1318,10 @@ namespace StationeersUIMod.Windows
 
             ImGui.Spacing();
             if (ImGui.Button("Reset all HUD colours to defaults"))
+            {
+                FlushPendingPaletteEdit();
                 HudPalette.ResetToDefaults();
+            }
         }
 
         /// <summary>A palette swatch that highlights (and scrolls into view) when its element is
@@ -1053,14 +1362,23 @@ namespace StationeersUIMod.Windows
             const ImGuiColorEditFlags flags = ImGuiColorEditFlags.AlphaBar
                                             | ImGuiColorEditFlags.AlphaPreviewHalf
                                             | ImGuiColorEditFlags.PickerHueWheel;
-            if (ImGui.ColorEdit4(entry.Name, ref v, flags))
-                entry.Value = new Color(v.x, v.y, v.z, v.w);
+            bool changed = ImGui.ColorEdit4(entry.Name, ref v, flags);
             // One drag = one undo step (same contract as the radial editor).
             if (ImGui.IsItemActivated())
-                _pendingUndo = _frameSnapshot;
-            if (ImGui.IsItemDeactivatedAfterEdit() && _pendingUndo != null)
             {
-                HudPalette.History.PushUndo(_pendingUndo);
+                // A prior picker may have disappeared on a tab/window transition without
+                // deactivation. Preserve its step before taking ownership of the shared slot.
+                FlushPendingPaletteEdit();
+                _pendingUndo = _frameSnapshot;
+            }
+            if (changed)
+                entry.Value = new Color(v.x, v.y, v.z, v.w);
+            if (ImGui.IsItemDeactivatedAfterEdit())
+            {
+                FlushPendingPaletteEdit();
+            }
+            else if (ImGui.IsItemDeactivated())
+            {
                 _pendingUndo = null;
             }
         }

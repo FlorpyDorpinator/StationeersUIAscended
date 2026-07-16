@@ -450,16 +450,23 @@ namespace StationeersUIMod.UI.Hud.Widgets
         {
             base.DescribeProps(into);
             var d = Def;
+
+            int layoutStart = into.Count;
             into.Add(HudProp.F("Chip width", () => d.GetF("chipWidth", 120f), v => d.SetF("chipWidth", Mathf.Clamp(v, 24f, 480f)), 24f, 480f));
             into.Add(HudProp.F("Chip height", () => d.GetF("chipH", 60f), v => d.SetF("chipH", Mathf.Clamp(v, 10f, 240f)), 10f, 240f));
-            into.Add(HudProp.F("Icon scale (× chip height)", () => d.GetF("iconScale", 0.95f), v => d.SetF("iconScale", Mathf.Clamp(v, 0.3f, 1.6f)), 0.3f, 1.6f));
-            into.Add(HudProp.F("Text scale (× chip height)", () => d.GetF("textScale", 0.24f), v => d.SetF("textScale", Mathf.Clamp(v, 0.08f, 0.6f)), 0.08f, 0.6f));
             into.Add(HudProp.F("Column gap", () => d.GetF("colGap", 8f), v => d.SetF("colGap", Mathf.Clamp(v, 0f, 40f)), 0f, 40f));
             into.Add(HudProp.F("Row gap", () => d.GetF("rowGap", 6f), v => d.SetF("rowGap", Mathf.Clamp(v, 0f, 40f)), 0f, 40f));
             into.Add(HudProp.Bool("Stack two-word names", () => d.GetB("stackWords", true), v => d.SetB("stackWords", v)));
+            for (int i = layoutStart; i < into.Count; i++) into[i].Group = HudPropGroup.Layout;
+
             into.Add(HudProp.Bool("Show labels", () => d.GetB("labels", true), v => d.SetB("labels", v)));
+
+            int appearanceStart = into.Count;
+            into.Add(HudProp.F("Icon scale (× chip height)", () => d.GetF("iconScale", 0.95f), v => d.SetF("iconScale", Mathf.Clamp(v, 0.3f, 1.6f)), 0.3f, 1.6f));
+            into.Add(HudProp.F("Text scale (× chip height)", () => d.GetF("textScale", 0.24f), v => d.SetF("textScale", Mathf.Clamp(v, 0.08f, 0.6f)), 0.08f, 0.6f));
             into.Add(HudProp.Bool("Chip backdrop box", () => d.GetB("box", false), v => d.SetB("box", v)));
             into.Add(HudProp.Bool("Thin-line glyphs (off = game icons)", () => d.GetB("glyphs", false), v => d.SetB("glyphs", v)));
+            for (int i = appearanceStart; i < into.Count; i++) into[i].Group = HudPropGroup.Appearance;
         }
     }
 }

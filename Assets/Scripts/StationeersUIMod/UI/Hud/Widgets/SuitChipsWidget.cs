@@ -99,8 +99,11 @@ namespace StationeersUIMod.UI.Hud.Widgets
             base.DescribeProps(into);
             var d = Def;
             into.Add(HudProp.Bool("Internals chip", () => d.GetB("internals", false), v => d.SetB("internals", v)));
+
+            int layoutStart = into.Count;
             into.Add(HudProp.Bool("Vertical", () => d.GetB("vertical", false), v => d.SetB("vertical", v)));
             into.Add(HudProp.F("Gap", () => d.GetF("gap", 8f), v => d.SetF("gap", Mathf.Clamp(v, 0f, 40f)), 0f, 40f));
+            for (int i = layoutStart; i < into.Count; i++) into[i].Group = HudPropGroup.Layout;
         }
 
         // ---- layout ----

@@ -262,10 +262,17 @@ namespace StationeersUIMod.UI.Hud.Widgets
         {
             base.DescribeProps(into);
             var d = Def;
+
             into.Add(HudProp.Bool("Hologram tint", () => d.GetB("holo", true), v => d.SetB("holo", v)));
+            into[into.Count - 1].Group = HudPropGroup.Appearance;
+
             into.Add(HudProp.Bool("Scanlines", () => d.GetB("scanlines", true), v => d.SetB("scanlines", v)));
+            into[into.Count - 1].Group = HudPropGroup.Effects;
+
+            int layoutStart = into.Count;
             into.Add(HudProp.F("Camera FOV (0 = vanilla)", () => d.GetF("camFov", 0f), v => d.SetF("camFov", Mathf.Clamp(v, 0f, 60f)), 0f, 60f));
             into.Add(HudProp.F("Camera zoom-out", () => d.GetF("camDistance", 0f), v => d.SetF("camDistance", v), -1f, 3f));
+            for (int i = layoutStart; i < into.Count; i++) into[i].Group = HudPropGroup.Layout;
         }
     }
 }

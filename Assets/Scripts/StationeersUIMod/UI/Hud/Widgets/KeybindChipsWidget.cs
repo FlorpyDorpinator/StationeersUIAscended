@@ -159,6 +159,8 @@ namespace StationeersUIMod.UI.Hud.Widgets
             var d = Def;
             into.Add(HudProp.Bool("Vertical layout", () => d.GetB("vertical", false),
                 v => d.SetB("vertical", v)));
+            into[into.Count - 1].Group = HudPropGroup.Layout;
+
             for (int i = 1; i <= N; i++)
             {
                 string key = "chip" + i;

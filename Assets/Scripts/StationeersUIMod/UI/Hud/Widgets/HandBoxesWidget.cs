@@ -200,10 +200,10 @@ namespace StationeersUIMod.UI.Hud.Widgets
         {
             base.DescribeProps(into);
             var d = Def;
+
+            int layoutStart = into.Count;
             into.Add(HudProp.F("Box gap", () => d.GetF("gap", 22f),
                 v => d.SetF("gap", Mathf.Max(0f, v)), 0f, 160f));
-            into.Add(HudProp.Bool("Show tray shelf", () => d.GetB("tray", true),
-                v => d.SetB("tray", v)));
 
             // Nudge the two text rows within each hand box (both hands move together, stays
             // symmetric). "Hand name" is the LEFT/RIGHT HAND label; "Item state" is the status
@@ -212,6 +212,12 @@ namespace StationeersUIMod.UI.Hud.Widgets
             into.Add(HudProp.F("Hand-name Y", () => d.GetF("titleDY", 0f), v => d.SetF("titleDY", v), -200f, 200f));
             into.Add(HudProp.F("Item-state X", () => d.GetF("stateDX", 0f), v => d.SetF("stateDX", v), -200f, 200f));
             into.Add(HudProp.F("Item-state Y", () => d.GetF("stateDY", 0f), v => d.SetF("stateDY", v), -200f, 200f));
+            for (int i = layoutStart; i < into.Count; i++) into[i].Group = HudPropGroup.Layout;
+
+            into.Add(HudProp.Bool("Show tray shelf", () => d.GetB("tray", true),
+                v => d.SetB("tray", v)));
+            into[into.Count - 1].Group = HudPropGroup.Appearance;
+
             AddDropHighlightProps(into); // #4: drag-over drop cue mode + colour
         }
     }

@@ -185,6 +185,8 @@ namespace StationeersUIMod.UI.Hud.Widgets
             var d = Def;
             into.Add(HudProp.Bool("Background box", () => d.GetB("box", true), v => d.SetB("box", v)));
             into.Add(HudProp.F("Value size", () => d.GetF("valueSize", 14f), v => d.SetF("valueSize", v), 8f, 48f));
+            into[into.Count - 2].Group = HudPropGroup.Appearance;
+            into[into.Count - 1].Group = HudPropGroup.Appearance;
         }
     }
 }

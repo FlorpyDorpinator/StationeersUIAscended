@@ -22,6 +22,7 @@ public static class UiaBundleBuilder
     {
         "Assets/Shaders/HudEdgeFX.shader",
         "Assets/Shaders/HudGlass.shader",
+        "Assets/Shaders/HudPanelSdf.shader",
         "Assets/Shaders/HudBlur.shader",
         "Assets/Shaders/HudBloom.shader",
     };

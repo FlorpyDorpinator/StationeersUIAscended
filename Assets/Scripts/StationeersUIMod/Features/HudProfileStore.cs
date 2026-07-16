@@ -76,6 +76,10 @@ namespace StationeersUIMod.Features
         private static bool _rearm;
         private static float _saveAt;
 
+        /// <summary>Editor-facing autosave state. Read-only: persistence remains owned by Tick/
+        /// FlushNow, but F9 can tell the author whether the active profile is still pending.</summary>
+        public static bool HasPendingSave => _dirty;
+
         // A load/save failure warns once per file name, not once per frame — a corrupt profile that
         // a Tick keeps retrying must not flood the log. Cleared for a name on any clean load/delete.
         private static readonly HashSet<string> _warned = new HashSet<string>();

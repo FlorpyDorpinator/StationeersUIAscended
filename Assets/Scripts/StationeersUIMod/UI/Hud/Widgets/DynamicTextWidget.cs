@@ -150,8 +150,11 @@ namespace StationeersUIMod.UI.Hud.Widgets
             base.DescribeProps(into);
             var d = Def;
             into.Add(HudProp.F("Text size", () => d.GetF("size", 17f), v => d.SetF("size", v), 6f, 64f));
+            into[into.Count - 1].Group = HudPropGroup.Appearance;
+
             into.Add(HudProp.Enum("Align", () => AlignIndex(d.Align),
                 v => d.Align = AlignNames[Mathf.Clamp(v, 0, AlignNames.Length - 1)], AlignNames));
+            into[into.Count - 1].Group = HudPropGroup.Layout;
 
             switch (d.Type)
             {

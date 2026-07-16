@@ -128,6 +128,15 @@ namespace StationeersUIMod.UI.Hud
             _canvas = go.AddComponent<Canvas>();
             _canvas.renderMode = RenderMode.ScreenSpaceOverlay;
             _canvas.sortingOrder = HudCanvasOrder; // above vanilla HUD (0), under radials (5000)
+            // The analytic panel renderer carries its complete per-element contract in vertex
+            // streams so every panel can share one material. UGUI silently drops these streams
+            // unless the owning Canvas opts in. Normal/Tangent are parameter lanes here, not
+            // lighting inputs; VisorWarp preserves them while changing only vertex positions.
+            _canvas.additionalShaderChannels |= AdditionalCanvasShaderChannels.TexCoord1
+                | AdditionalCanvasShaderChannels.TexCoord2
+                | AdditionalCanvasShaderChannels.TexCoord3
+                | AdditionalCanvasShaderChannels.Normal
+                | AdditionalCanvasShaderChannels.Tangent;
             // A raycaster so BORROWED vanilla widgets (the moodlet strip) can still receive
             // their own hover tooltips. Only graphics with raycastTarget=true are hit, and
             // the root CanvasGroup blocks raycasts by default — a subtree opts back in with
@@ -1075,7 +1084,8 @@ namespace StationeersUIMod.UI.Hud
             // or Stage 2 bloom — each is independent). Idempotent + fail-soft. Bloom uses it to resolve
             // BloomShader/BlurShader; until then BloomActive() stays false and the HUD renders direct
             // (routing to the RT waits one frame for the load — invisible, flat-direct == flat-RT 1:1).
-            if (frostWanted || radialFrostWanted || (HudConfig.FxTierB != null && HudConfig.FxTierB.Value)
+            if (frostWanted || radialFrostWanted || (HudConfig.SdfPanels != null && HudConfig.SdfPanels.Value)
+                || (HudConfig.FxTierB != null && HudConfig.FxTierB.Value)
                 || (HudConfig.FxBloomOn != null && HudConfig.FxBloomOn.Value))
                 Core.HudShaderStore.EnsureLoaded();
             if (frostWanted || radialFrostWanted)
@@ -1162,6 +1172,28 @@ namespace StationeersUIMod.UI.Hud
         private static float _dissolveUntil;
         private const float DissolveSeconds = 1.2f;
 
+        // Shared-family property IDs. HudFxMaterials mirrors every write into an existing
+        // mode-C ZTest clone, so animated clocks and live F9 changes cannot freeze when the
+        // canvas changes render path. IDs are cached once; no string lookup/allocation per frame.
+        private static readonly int _idShineStrength = Shader.PropertyToID("_ShineStrength");
+        private static readonly int _idShineWidth = Shader.PropertyToID("_ShineWidth");
+        private static readonly int _idShinePos = Shader.PropertyToID("_ShinePos");
+        private static readonly int _idShineDir = Shader.PropertyToID("_ShineDir");
+        private static readonly int _idIridStrength = Shader.PropertyToID("_IridStrength");
+        private static readonly int _idIridScale = Shader.PropertyToID("_IridScale");
+        private static readonly int _idDissolveAmt = Shader.PropertyToID("_DissolveAmt");
+        private static readonly int _idDissolveGlow = Shader.PropertyToID("_DissolveGlow");
+        private static readonly int _idDissolveScale = Shader.PropertyToID("_DissolveScale");
+        private static readonly int _idFrostStrength = Shader.PropertyToID("_FrostStrength");
+        private static readonly int _idFrostTint = Shader.PropertyToID("_FrostTint");
+        private static readonly int _idFrostDarken = Shader.PropertyToID("_FrostDarken");
+        private static readonly int _idChromaStrength = Shader.PropertyToID("_ChromaStrength");
+        private static readonly int _idEdgeLightDir = Shader.PropertyToID("_EdgeLightDir");
+        private static readonly int _idEdgeLightColor = Shader.PropertyToID("_EdgeLightColor");
+        private static readonly int _idEdgeLightRim = Shader.PropertyToID("_EdgeLightRim");
+        private static readonly int _idEdgeLightSharp = Shader.PropertyToID("_EdgeLightSharp");
+        private static readonly Vector4 _defaultShineDir = new Vector4(1f, 0f, 0f, 0f);
+
         /// <summary>Kick the boot-dissolve envelope (called from the power-up transition).</summary>
         internal static void TriggerBootDissolve()
         {
@@ -1191,30 +1223,64 @@ namespace StationeersUIMod.UI.Hud
             var edgeFx = HudFxMaterials.Get("edgefx");
             if (edgeFx != null)
             {
-                edgeFx.SetFloat("_ShinePos", shinePos);
-                edgeFx.SetFloat("_ShineStrength", shine);
-                edgeFx.SetFloat("_IridStrength", irid);
-                edgeFx.SetFloat("_DissolveAmt", dis);
+                HudFxMaterials.SetFloat("edgefx", _idShinePos, shinePos);
+                HudFxMaterials.SetFloat("edgefx", _idShineStrength, shine);
+                HudFxMaterials.SetFloat("edgefx", _idIridStrength, irid);
+                HudFxMaterials.SetFloat("edgefx", _idDissolveAmt, dis);
             }
             var glass = HudFxMaterials.Get("glass");
-            if (glass != null)
+            var sdfGlass = HudFxMaterials.Get("sdfglass");
+            if (glass != null || sdfGlass != null)
             {
                 // Global frost gate (0..1): scales every element's frost at once. The per-element
                 // volume rides uv0.x on top; this is the shared multiplier the F9 slider drives.
-                glass.SetFloat("_FrostStrength", HudConfig.FrostStrength != null ? HudConfig.FrostStrength.Value : 1f);
-                glass.SetFloat("_FrostDarken", HudConfig.FrostDarken != null ? HudConfig.FrostDarken.Value : 0.75f);
+                float frostStrength = HudConfig.FrostStrength != null ? HudConfig.FrostStrength.Value : 1f;
+                float frostDarken = HudConfig.FrostDarken != null ? HudConfig.FrostDarken.Value : 0.75f;
+                float chroma = HudConfig.FxChromaOn != null && HudConfig.FxChromaOn.Value
+                    && HudConfig.FxChroma != null ? HudConfig.FxChroma.Value : 0f;
                 Color tint;
                 if (!ColorUtility.TryParseHtmlString(
                         HudConfig.FrostTint != null ? HudConfig.FrostTint.Value : "#B6BCC2", out tint))
                     tint = new Color(0.714f, 0.737f, 0.761f);
-                glass.SetColor("_FrostTint", tint);
-                glass.SetFloat("_ChromaStrength",
-                    HudConfig.FxChromaOn != null && HudConfig.FxChromaOn.Value
-                    && HudConfig.FxChroma != null ? HudConfig.FxChroma.Value : 0f);
-                // Tier B layers over the glass too (play-test: frost used to REPLACE shine/irid).
-                glass.SetFloat("_ShinePos", shinePos);
-                glass.SetFloat("_ShineStrength", shine);
-                glass.SetFloat("_IridStrength", irid);
+
+                if (glass != null)
+                {
+                    HudFxMaterials.SetFloat("glass", _idFrostStrength, frostStrength);
+                    HudFxMaterials.SetFloat("glass", _idFrostDarken, frostDarken);
+                    HudFxMaterials.SetColor("glass", _idFrostTint, tint);
+                    HudFxMaterials.SetFloat("glass", _idChromaStrength, chroma);
+                    // Tier B layers over the glass too (play-test: frost used to REPLACE shine/irid).
+                    HudFxMaterials.SetFloat("glass", _idShinePos, shinePos);
+                    HudFxMaterials.SetFloat("glass", _idShineStrength, shine);
+                    HudFxMaterials.SetFloat("glass", _idIridStrength, irid);
+                }
+
+                if (sdfGlass != null)
+                {
+                    // HudPanelSdf carries the complete panel stack in one material. Per-element
+                    // strengths/shape data ride vertex streams; these are the shared clocks and
+                    // global optical/light controls. Defaults mirror HudGlass/HudEdgeFX exactly.
+                    HudFxMaterials.SetFloat("sdfglass", _idFrostStrength, frostStrength);
+                    HudFxMaterials.SetFloat("sdfglass", _idFrostDarken, frostDarken);
+                    HudFxMaterials.SetColor("sdfglass", _idFrostTint, tint);
+                    HudFxMaterials.SetFloat("sdfglass", _idChromaStrength, chroma);
+                    HudFxMaterials.SetFloat("sdfglass", _idShinePos, shinePos);
+                    HudFxMaterials.SetFloat("sdfglass", _idShineStrength, shine);
+                    HudFxMaterials.SetFloat("sdfglass", _idShineWidth, 0.1f);
+                    HudFxMaterials.SetVector("sdfglass", _idShineDir, _defaultShineDir);
+                    HudFxMaterials.SetFloat("sdfglass", _idIridStrength, irid);
+                    HudFxMaterials.SetFloat("sdfglass", _idIridScale, 6f);
+                    HudFxMaterials.SetFloat("sdfglass", _idDissolveAmt, dis);
+                    HudFxMaterials.SetFloat("sdfglass", _idDissolveGlow, 1f);
+                    HudFxMaterials.SetFloat("sdfglass", _idDissolveScale, 30f);
+                    HudFxMaterials.SetVector("sdfglass", _idEdgeLightDir,
+                        new Vector4(PanelGraphic.LightX, PanelGraphic.LightY, 0f, 0f));
+                    HudFxMaterials.SetColor("sdfglass", _idEdgeLightColor, PanelGraphic.LightTint());
+                    HudFxMaterials.SetFloat("sdfglass", _idEdgeLightRim,
+                        HudConfig.FxEdgeLightRim != null ? HudConfig.FxEdgeLightRim.Value : 0.5f);
+                    HudFxMaterials.SetFloat("sdfglass", _idEdgeLightSharp,
+                        HudConfig.FxEdgeLightSharp != null ? HudConfig.FxEdgeLightSharp.Value : 3f);
+                }
             }
         }
 
@@ -1714,6 +1780,11 @@ namespace StationeersUIMod.UI.Hud
                     _ztestMat = new Material(sh) { renderQueue = 4000 };
                     _ztestMat.SetInt("unity_GUIZTestMode", (int)CompareFunction.Always);
                 }
+                // Mark the path before walking the subtree. If one graphic throws during the
+                // sweep, later lazy assignments still choose their matching world-safe shader,
+                // and RestoreWorldMaterials can unwind every successfully processed graphic.
+                _worldMatsApplied = true;
+                HudFxMaterials.SetWorldModeCanvas(_canvas, _ztestMat);
                 var overlayShader = Shader.Find("TextMeshPro/Distance Field Overlay"); // ships with the game
                 foreach (var g in _canvas.GetComponentsInChildren<Graphic>(true))
                 {
@@ -1747,7 +1818,6 @@ namespace StationeersUIMod.UI.Hud
                         g.material = _ztestMat;
                     }
                 }
-                _worldMatsApplied = true;
             }
             catch (Exception e)
             {
@@ -1757,8 +1827,15 @@ namespace StationeersUIMod.UI.Hud
 
         private static void RestoreWorldMaterials()
         {
-            if (!_worldMatsApplied) return;
+            if (!_worldMatsApplied)
+            {
+                // Belt-and-braces teardown: never let a failed/partial mode transition leave
+                // future assignments selecting world-space clones after the canvas went flat.
+                HudFxMaterials.SetWorldModeCanvas(null, null);
+                return;
+            }
             _worldMatsApplied = false;
+            HudFxMaterials.SetWorldModeCanvas(null, null);
             try
             {
                 foreach (var kv in _tmpOriginalMats)

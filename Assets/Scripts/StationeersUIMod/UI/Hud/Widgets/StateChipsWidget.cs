@@ -101,13 +101,20 @@ namespace StationeersUIMod.UI.Hud.Widgets
         {
             base.DescribeProps(into);
             var d = Def;
-            into.Add(HudProp.F("Gap (px)", () => d.GetF("gap", 2f),
-                v => d.SetF("gap", Mathf.Clamp(v, 0f, 12f)), 0f, 12f));
-            into.Add(HudProp.F("Icon inset (0..0.4)", () => d.GetF("inset", 0.14f),
-                v => d.SetF("inset", Mathf.Clamp(v, 0f, 0.4f)), 0f, 0.4f));
+
             into.Add(HudProp.Bool("Helmet chip", () => d.GetB("helmet", true), v => d.SetB("helmet", v)));
             into.Add(HudProp.Bool("Light chip", () => d.GetB("light", true), v => d.SetB("light", v)));
             into.Add(HudProp.Bool("Jetpack chip", () => d.GetB("jetpack", true), v => d.SetB("jetpack", v)));
+
+            int layoutStart = into.Count;
+            into.Add(HudProp.F("Gap (px)", () => d.GetF("gap", 2f),
+                v => d.SetF("gap", Mathf.Clamp(v, 0f, 12f)), 0f, 12f));
+            for (int i = layoutStart; i < into.Count; i++) into[i].Group = HudPropGroup.Layout;
+
+            int appearanceStart = into.Count;
+            into.Add(HudProp.F("Icon inset (0..0.4)", () => d.GetF("inset", 0.14f),
+                v => d.SetF("inset", Mathf.Clamp(v, 0f, 0.4f)), 0f, 0.4f));
+            for (int i = appearanceStart; i < into.Count; i++) into[i].Group = HudPropGroup.Appearance;
         }
 
         // ---- layout ----

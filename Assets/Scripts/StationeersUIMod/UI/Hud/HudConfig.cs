@@ -82,6 +82,9 @@ namespace StationeersUIMod.UI.Hud
         public static ConfigEntry<float> EdgeFeather;
         public static ConfigEntry<float> GlassSheen;
         public static ConfigEntry<float> GlassEdge;
+        public static ConfigEntry<bool> SdfPanels;          // analytic fragment-space panel renderer
+        public static ConfigEntry<float> SdfSquircle;       // 2=circular corners, >2=squircle
+        public static ConfigEntry<bool> SdfGaussianHalo;    // higher-quality analytic halo
 
         // Text
         public static ConfigEntry<string> FontName;
@@ -129,6 +132,7 @@ namespace StationeersUIMod.UI.Hud
         public static ConfigEntry<float> FxEdgeLightSharp;  // falloff exponent — high=tight catch, low=broad wash
         public static ConfigEntry<float> FxEdgeRipple;      // irregular light/dark shimmer along edges (0 = smooth)
         public static ConfigEntry<float> FxEdgeRippleFreq;  // shimmer frequency, cycles per ~100px
+        public static ConfigEntry<float> FxEdgeFlowSpeed;   // shader-time edge-energy animation speed
         public static ConfigEntry<float> FxPulseSpeed;      // breathing pulse rate, Hz
         public static ConfigEntry<float> FxPulseDepth;      // 0..1 how deep the dim half of the pulse goes
         public static ConfigEntry<float> FxShine;           // shine sweep global strength (Tier B)
@@ -147,6 +151,7 @@ namespace StationeersUIMod.UI.Hud
         public static ConfigEntry<float> FxGlowWidth;       // halo width, px (shared by both sides)
         public static ConfigEntry<float> FxGlowDiffuse;     // halo shape: 0 tight rim, 1 wide soft haze
         public static ConfigEntry<float> FrostStrength;     // 0..1 global frost gate (scales every element's frost)
+        public static ConfigEntry<float> FrostDepth;        // 0..1 blur-pyramid depth (per-element overridable)
         public static ConfigEntry<float> FrostDownsample;   // blur RT divisor (2/4/8)
         public static ConfigEntry<int> FrostUpdateEveryN;   // re-blur throttle, frames
         public static ConfigEntry<float> FrostDarken;       // 0..1 backdrop darkening
@@ -302,6 +307,17 @@ namespace StationeersUIMod.UI.Hud
                 new ConfigDescription("Default glass edge light (the bright rim highlight) on every " +
                     "panel. Elements whose own 'Glass edge light' is -1 inherit this.",
                     new AcceptableValueRange<float>(0f, 1f)));
+            SdfPanels = cfg.Bind(S, "SdfPanels", true,
+                "Render rectangular/trapezoid panels analytically in the UIA/SdfGlass shader. " +
+                "Requires uia_effects.bundle and fails soft to the existing PanelGraphic mesh.");
+            SdfSquircle = cfg.Bind(S, "SdfSquircleExponent", 2f,
+                new ConfigDescription("Global SDF corner exponent: 2 = circular rounded corners; " +
+                    "higher values produce a squircle/superellipse shoulder.",
+                    new AcceptableValueRange<float>(2f, 8f)));
+            SdfGaussianHalo = cfg.Bind(S, "SdfGaussianHalo", false,
+                "Use the shader's Gaussian distance falloff instead of the cheaper smooth distance ramp. " +
+                "This is a quality/taste option, not an exact convolution for asymmetric trapezoids; " +
+                "elements can override it when they use their own appearance.");
 
             FontName = cfg.Bind(S, "HudFontName", "",
                 "TMP font for all HUD text (substring match; empty = the game's default " +
@@ -399,6 +415,10 @@ namespace StationeersUIMod.UI.Hud
                     "LOW (down to 0.05) = a single wide, slow light→dark sweep. Pair a low value with a high " +
                     "per-element 'Ripple gradient' for one broad soft gradient.",
                     new AcceptableValueRange<float>(0.05f, 8f)));
+            FxEdgeFlowSpeed = cfg.Bind(FX, "EdgeFlowSpeed", 0.22f,
+                new ConfigDescription("Animation speed of SDF edge energy. 0 freezes the pattern; " +
+                    "higher values move luminous detail through the border band without rebuilding the Canvas.",
+                    new AcceptableValueRange<float>(0f, 4f)));
             FxBorderFadeOn = cfg.Bind(FX, "BorderFadeOn", true, "Unlit border sections dissolve away.");
             FxSoftEdgeOn = cfg.Bind(FX, "SoftEdgeOn", true, "Panel fills melt softly outward.");
             FxGlowOn = cfg.Bind(FX, "GlowOn", false,
@@ -455,6 +475,10 @@ namespace StationeersUIMod.UI.Hud
                 new ConfigDescription("Global frost strength (0..1): scales the frosted-glass blur/tint on " +
                     "EVERY element at once. Each element's own 'frost strength' multiplies on top of this " +
                     "(1 = full per-element look; 0 = no frost anywhere).",
+                    new AcceptableValueRange<float>(0f, 1f)));
+            FrostDepth = cfg.Bind(FX, "FrostDepth", 1f,
+                new ConfigDescription("Backdrop blur depth: 0 uses the shallowest pyramid level, " +
+                    "1 preserves the current full dual-Kawase result. Elements may override it.",
                     new AcceptableValueRange<float>(0f, 1f)));
             FrostDownsample = cfg.Bind(FX, "FrostDownsample", 4f,
                 new ConfigDescription("Frost blur RT divisor: 4 = quarter resolution (cheapest good look).",

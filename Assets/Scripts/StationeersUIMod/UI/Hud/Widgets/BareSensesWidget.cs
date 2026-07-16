@@ -281,6 +281,7 @@ namespace StationeersUIMod.UI.Hud.Widgets
             base.DescribeProps(into);
             into.Add(HudProp.F("Felt-sense word size", () => Def.GetF("wordSize", 20f),
                 v => Def.SetF("wordSize", v), 12f, 36f));
+            into[into.Count - 1].Group = HudPropGroup.Appearance;
 
             into.Add(HudProp.Header("Senses (row = top → bottom)"));
             for (int i = 0; i < Rows; i++)

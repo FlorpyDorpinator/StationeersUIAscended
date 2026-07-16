@@ -244,8 +244,11 @@ namespace StationeersUIMod.UI.Hud.Widgets
             base.DescribeProps(into);
             var d = Def;
             into.Add(HudProp.Bool("Box frame", () => d.GetB("box", true), v => d.SetB("box", v)));
+            into[into.Count - 1].Group = HudPropGroup.Appearance;
+
             into.Add(HudProp.F("Inner padding px", () => d.GetF("padPx", 4f),
                 v => d.SetF("padPx", Mathf.Max(0f, v)), 0f, 40f));
+            into[into.Count - 1].Group = HudPropGroup.Layout;
         }
     }
 }

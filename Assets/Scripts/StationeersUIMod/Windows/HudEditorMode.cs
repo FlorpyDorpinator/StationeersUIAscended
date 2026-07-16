@@ -53,6 +53,9 @@ namespace StationeersUIMod.Windows
 
         public static void Exit()
         {
+            // Closing the designer is an interruption just like releasing the mouse: preserve
+            // the visible partial drag as one undoable edit before tearing down its state.
+            CommitActiveDrag();
             Active = false;
             Selected = null;
             SelectedElement = null;
@@ -199,6 +202,8 @@ namespace StationeersUIMod.Windows
         private static bool _dragBare;              // this gesture edits the bare override (preview=BARE)
         private static UI.Hud.HudCurvature _dragMode; // and this curvature mode's LIVE layout (captured at grab)
         private static UI.Hud.HudDocument _preDrag; // undo snapshot armed at mouse-down
+        private static UI.Hud.HudDocument _dragDocument; // exact live document the snapshot belongs to
+        private static string _dragProfileName;     // save target if a profile swap interrupts the drag
 
         // Point-edit sub-mode: dragging a Shape/Polyline ANCHOR (not the 8 rect handles).
         private const int PointHandle = -2;          // _dragHandle sentinel
@@ -265,6 +270,9 @@ namespace StationeersUIMod.Windows
                     float step = shift
                         ? (HudConfig.GridSnapSize != null ? Mathf.Max(1f, HudConfig.GridSnapSize.Value) : 8f)
                         : 1f;
+                    // A nudge while the mouse is still held ends the drag first. This yields two
+                    // honest history steps (drag, then nudge) instead of losing the drag baseline.
+                    CommitActiveDrag();
                     PushUndoNow();
                     foreach (var v in _views)
                     {
@@ -322,28 +330,16 @@ namespace StationeersUIMod.Windows
 
             if (_dragging)
             {
+                // A profile/document swap must not let old drag origins mutate the new document.
+                // CommitActiveDrag saves the old document directly when it is no longer active.
+                if (!ReferenceEquals(Features.HudProfileStore.Active, _dragDocument))
+                {
+                    CommitActiveDrag();
+                    return;
+                }
                 UpdateDrag(p, scale);
                 if (Input.GetMouseButtonUp(0))
-                {
-                    _dragging = false;
-                    _dragOrig.Clear();
-                    _origPts.Clear(); _origHin.Clear(); _origHout.Clear();
-                    if (_dragMoved)
-                    {
-                        // A point drag re-centres the shape's bbox on release so the selection rect
-                        // and resize handles keep hugging it.
-                        if (_dragHandle == PointHandle && SelectedElement != null)
-                        {
-                            RebaseShape(SelectedElement.Def);
-                            HudSystem.RelayoutElement(SelectedElement);
-                        }
-                        // One gesture = one undo step + one full relayout via the store.
-                        UI.Hud.HudDocumentHistory.Push(_preDrag);
-                        Features.HudProfileStore.MarkChanged();
-                    }
-                    _preDrag = null;
-                    _dragPointIndex = -1;
-                }
+                    CommitActiveDrag();
                 return;
             }
 
@@ -478,14 +474,15 @@ namespace StationeersUIMod.Windows
                 _origHout.AddRange(v.Def.GetPoints("hout"));
             }
 
-            var doc = Features.HudProfileStore.Active;
-            _preDrag = doc != null ? doc.Clone() : null;
+            ArmDragSnapshot();
         }
 
         private static void UpdateDrag(Vector2 p, float scale)
         {
             var v = SelectedElement;
-            if (v == null) { _dragging = false; return; }
+            // Keep the transaction armed if a view rebuild temporarily removes the selected
+            // view. Its already-applied partial geometry still needs committing on interruption.
+            if (v == null) return;
             var d = v.Def;
             bool bare = _dragBare; // write the bare override or the base layout (captured at grab)
             Vector2 delta = (p - _dragStart) / Mathf.Max(0.01f, scale);
@@ -724,8 +721,7 @@ namespace StationeersUIMod.Windows
             if (kind == 1) { var h = v.Def.GetPoints("hin"); _origPoint = index < h.Length ? h[index] : Vector2.zero; }
             else if (kind == 2) { var h = v.Def.GetPoints("hout"); _origPoint = index < h.Length ? h[index] : Vector2.zero; }
             else _origPoint = pts[index];
-            var doc = Features.HudProfileStore.Active;
-            _preDrag = doc != null ? doc.Clone() : null;
+            ArmDragSnapshot();
         }
 
         /// <summary>A handle array padded (with zero) to the current point count, so a partially
@@ -872,15 +868,136 @@ namespace StationeersUIMod.Windows
             if (doc != null) UI.Hud.HudDocumentHistory.Push(doc.Clone());
         }
 
-        /// <summary>Any document swap invalidates an in-flight drag — without this, the
-        /// release after a mid-drag Ctrl+Z pushes the STALE pre-drag snapshot onto the
-        /// undo stack (a future state masquerading as the past) and autosaves the wrong
-        /// baseline.</summary>
-        private static void CancelDrag()
+        /// <summary>Complete a synchronous document mutation without manufacturing a dead undo
+        /// step. The caller supplies the pre-edit clone, mutates the live document, then calls
+        /// here; only a real serialized change clears redo and arms autosave.</summary>
+        private static bool CommitDocumentMutation(UI.Hud.HudDocument before)
+        {
+            var current = Features.HudProfileStore.Active;
+            if (before == null || current == null || DocumentsEqual(current, before)) return false;
+            UI.Hud.HudDocumentHistory.Push(before);
+            Features.HudProfileStore.MarkChanged();
+            return true;
+        }
+
+        /// <summary>Bind the pre-edit snapshot to the exact document/profile being dragged so
+        /// later interruptions cannot mix its history or persistence into a replacement.</summary>
+        private static void ArmDragSnapshot()
+        {
+            _dragDocument = Features.HudProfileStore.Active;
+            _preDrag = _dragDocument != null ? _dragDocument.Clone() : null;
+            _dragProfileName = ActiveProfileName();
+        }
+
+        /// <summary>Finish an in-flight canvas gesture before another command changes editor
+        /// state. A real change becomes exactly one undo step; returning to the precise pre-drag
+        /// document creates no dead history entry. If a profile swap already happened, save the
+        /// old document directly rather than contaminating the new profile's history.</summary>
+        private static void CommitActiveDrag()
+        {
+            if (!_dragging && _preDrag == null) return;
+
+            var dragged = _dragDocument;
+            bool changed = dragged != null && _preDrag != null && !DocumentsEqual(dragged, _preDrag);
+
+            // Point drags defer bbox re-centering until the gesture ends. Do it only after an
+            // actual point change; a move-away-and-back must remain a true no-op.
+            if (changed && _dragHandle == PointHandle)
+            {
+                var def = FindElement(dragged, _selectedId);
+                if (def != null)
+                {
+                    RebaseShape(def);
+                    if (ReferenceEquals(Features.HudProfileStore.Active, dragged))
+                    {
+                        if (SelectedElement != null && ReferenceEquals(SelectedElement.Def, def))
+                            HudSystem.RelayoutElement(SelectedElement);
+                        else
+                            HudSystem.RequestViewRebuild();
+                    }
+                    changed = !DocumentsEqual(dragged, _preDrag);
+                }
+            }
+
+            if (changed)
+            {
+                if (ReferenceEquals(Features.HudProfileStore.Active, dragged))
+                {
+                    UI.Hud.HudDocumentHistory.Push(_preDrag);
+                    Features.HudProfileStore.MarkChanged();
+                }
+                else if (!string.IsNullOrEmpty(_dragProfileName))
+                {
+                    // The active history belongs to the replacement document. Persist the old
+                    // partial drag without putting its snapshot on that unrelated undo stack.
+                    Features.HudProfileStore.Save(dragged, _dragProfileName);
+                }
+            }
+
+            ClearDragState();
+        }
+
+        private static void ClearDragState()
         {
             _dragging = false;
             _dragMoved = false;
             _preDrag = null;
+            _dragDocument = null;
+            _dragProfileName = null;
+            _dragHandle = -1;
+            _dragPointIndex = -1;
+            _pointDragKind = 0;
+            _dragOrig.Clear();
+            _origPts.Clear();
+            _origHin.Clear();
+            _origHout.Clear();
+        }
+
+        private static UI.Hud.HudElementDef FindElement(UI.Hud.HudDocument doc, string id)
+        {
+            if (doc == null || doc.Elements == null || id == null) return null;
+            for (int i = 0; i < doc.Elements.Count; i++)
+            {
+                var e = doc.Elements[i];
+                if (e != null && e.Id == id) return e;
+            }
+            return null;
+        }
+
+        internal static bool DocumentsEqual(UI.Hud.HudDocument a, UI.Hud.HudDocument b)
+        {
+            if (ReferenceEquals(a, b)) return true;
+            if (a == null || b == null || a.Schema != b.Schema || a.Name != b.Name
+                || a.Font != b.Font || a.Description != b.Description || a.Author != b.Author)
+                return false;
+            if (a.Elements == null || b.Elements == null) return a.Elements == b.Elements;
+            if (a.Elements.Count != b.Elements.Count) return false;
+            for (int i = 0; i < a.Elements.Count; i++)
+                if (!ElementsEqual(a.Elements[i], b.Elements[i])) return false;
+            return true;
+        }
+
+        private static bool ElementsEqual(UI.Hud.HudElementDef a, UI.Hud.HudElementDef b)
+        {
+            if (ReferenceEquals(a, b)) return true;
+            if (a == null || b == null || a.Id != b.Id || a.Type != b.Type || a.Anchor != b.Anchor
+                || a.X != b.X || a.Y != b.Y || a.W != b.W || a.H != b.H
+                || a.WPct != b.WPct || a.HPct != b.HPct || a.Z != b.Z || a.Tiers != b.Tiers
+                || a.Fill != b.Fill || a.Border != b.Border || a.TextColor != b.TextColor
+                || a.BorderWidth != b.BorderWidth || a.RTL != b.RTL || a.RTR != b.RTR
+                || a.RBR != b.RBR || a.RBL != b.RBL || a.FontScale != b.FontScale
+                || a.Text != b.Text || a.Align != b.Align || a.Icon != b.Icon)
+                return false;
+            if (a.Params == null || b.Params == null) return a.Params == b.Params;
+            if (a.Params.Count != b.Params.Count) return false;
+            for (int i = 0; i < a.Params.Count; i++)
+            {
+                var ap = a.Params[i];
+                var bp = b.Params[i];
+                if (ReferenceEquals(ap, bp)) continue;
+                if (ap == null || bp == null || ap.K != bp.K || ap.V != bp.V) return false;
+            }
+            return true;
         }
 
         public static void ClearElementSelection()
@@ -891,6 +1008,7 @@ namespace StationeersUIMod.Windows
 
         public static void DeleteSelected()
         {
+            CommitActiveDrag();
             var doc = Features.HudProfileStore.Active;
             var v = SelectedElement;
             if (doc == null || v == null) return;
@@ -920,6 +1038,7 @@ namespace StationeersUIMod.Windows
 
         public static void DuplicateSelected()
         {
+            CommitActiveDrag();
             var doc = Features.HudProfileStore.Active;
             var v = SelectedElement;
             if (doc == null || v == null) return;
@@ -934,56 +1053,137 @@ namespace StationeersUIMod.Windows
             HudSystem.RequestViewRebuild();
         }
 
-        /// <summary>Set (or clear) "Follow global colours" on EVERY element at once — the one-click
-        /// way to make the whole HUD track the global box colours, or hand each box back its own.
-        /// One undo step; colours apply next frame (read live in UpdatePanel).</summary>
+        /// <summary>Move every element onto the coherent Global or Custom style contract. Moving
+        /// to Custom snapshots each element's currently effective appearance/effects first, so
+        /// the bulk action cannot reveal stale profile values or make the HUD jump.</summary>
         public static void SetAllFollowGlobal(bool follow)
         {
+            CommitActiveDrag();
             var doc = Features.HudProfileStore.Active;
             if (doc == null || doc.Elements == null) return;
-            PushUndoNow();
-            foreach (var e in doc.Elements)
-                if (e != null) e.SetB("followGlobal", follow);
-            Features.HudProfileStore.MarkChanged();
+            var before = doc.Clone();
+            var views = new List<HudElementView>();
+            HudSystem.CollectElementViews(views);
+            for (int i = 0; i < doc.Elements.Count; i++)
+            {
+                var def = doc.Elements[i];
+                if (def == null) continue;
+                HudElementView live = null;
+                for (int j = 0; j < views.Count; j++)
+                {
+                    if (views[j] != null && ReferenceEquals(views[j].Def, def))
+                    {
+                        live = views[j];
+                        break;
+                    }
+                }
+                if (live != null) live.SetUnifiedStyleSource(follow, !follow);
+                else HudElementView.SetUnifiedStyleSourceWithoutView(def, follow, !follow);
+            }
+            CommitDocumentMutation(before);
         }
 
-        /// <summary>Clear the per-element glass overrides on EVERY element (set "sheen"/"spec" to
-        /// -1), so the whole HUD follows the global glass sliders (HudConfig.GlassSheen/GlassEdge).
-        /// The one-click "make all glass match the global" — colours and layout are left untouched.
-        /// One undo step; glass applies next frame (read live in ApplyGlass).</summary>
+        /// <summary>Make every element's glass match the global sliders without changing its
+        /// source contract: Custom receives explicit current values, Legacy restores -1 sentinels,
+        /// and coherent Global already follows. A real change is one undo step; an idempotent click
+        /// leaves undo/redo untouched.</summary>
         public static void ResetAllGlassToGlobal()
         {
+            CommitActiveDrag();
             var doc = Features.HudProfileStore.Active;
             if (doc == null || doc.Elements == null) return;
-            PushUndoNow();
+            var before = doc.Clone();
             foreach (var e in doc.Elements)
             {
                 if (e == null) continue;
-                e.SetF("sheen", -1f);
-                e.SetF("spec", -1f);
+                if (HudElementView.IsCustomStyleDefinition(e))
+                {
+                    e.SetF("sheen", HudConfig.GlassSheen != null ? HudConfig.GlassSheen.Value : 0f);
+                    e.SetF("spec", HudConfig.GlassEdge != null ? HudConfig.GlassEdge.Value : 0f);
+                }
+                else if (e.GetI("styleSource", 0) == 0)
+                {
+                    e.SetF("sheen", -1f);
+                    e.SetF("spec", -1f);
+                }
             }
-            Features.HudProfileStore.MarkChanged();
+            CommitDocumentMutation(before);
         }
 
-        /// <summary>Clear every element's per-element 0.9.0 effect overrides (remove the fx*
-        /// params, so all rows return to their defaults = the global masters govern). One undo
-        /// step; Set(key, null) REMOVES the key rather than writing a redundant default.</summary>
+        /// <summary>Reset every element's effect values to the current globals. Legacy/Global
+        /// elements drop their old override keys; Custom receives explicit values so its complete
+        /// local contract remains truthful. A real change is one undo step; an idempotent click
+        /// leaves undo/redo untouched.</summary>
         public static void ResetAllElementEffects()
         {
+            CommitActiveDrag();
             var doc = Features.HudProfileStore.Active;
             if (doc == null || doc.Elements == null) return;
-            PushUndoNow();
-            string[] keys =
+            var before = doc.Clone();
+            string[] legacyOnlyKeys =
             {
-                "fxPulse", "fxPulseAmt", "fxShine", "fxShineAmt", "fxIrid", "fxIridAmt",
-                "fxDissolve", "fxFrost", "fxFrostAmt",
+                "fxShine", "fxShineAmt", "fxIrid", "fxIridAmt",
+                "fxDissolve", "fxFrost", "fxFrostAmt", "fxChroma", "fxChromaAmt",
+            };
+            string[] motionKeys =
+            {
+                "fxCollapse", "fxCollapseAmt", "fxGlitch", "fxGlitchAmt", "fxWarp", "fxWarpAmt",
+                "fxPulse", "fxPulseAmt",
+            };
+            string[] inheritedEffectKeys =
+            {
+                "bfade", "softEdge", "glow", "glowIn", "glowWidth", "glowDiffuse",
+                "ripple", "rippleFreq", "rippleSmooth", "edgeFlow", "frostDepth",
             };
             foreach (var e in doc.Elements)
             {
                 if (e == null) continue;
-                for (int i = 0; i < keys.Length; i++) e.Set(keys[i], null);
+                for (int i = 0; i < legacyOnlyKeys.Length; i++) e.Set(legacyOnlyKeys[i], null);
+
+                // Custom is a complete explicit snapshot, so never remove its keys and let the
+                // runtime silently fall through to globals while the inspector shows defaults.
+                if (!HudElementView.IsCustomStyleDefinition(e))
+                {
+                    for (int i = 0; i < inheritedEffectKeys.Length; i++)
+                        e.Set(inheritedEffectKeys[i], null);
+                    for (int i = 0; i < motionKeys.Length; i++) e.Set(motionKeys[i], null);
+                    continue;
+                }
+                e.SetB("customBorderFadeOn", HudConfig.FxBorderFadeOn != null && HudConfig.FxBorderFadeOn.Value);
+                e.SetB("customSoftEdgeOn", HudConfig.FxSoftEdgeOn != null && HudConfig.FxSoftEdgeOn.Value);
+                e.SetB("customGlowOn", HudConfig.FxGlowOn != null && HudConfig.FxGlowOn.Value);
+                e.SetB("customRippleOn", HudConfig.FxEdgeLightOn != null && HudConfig.FxEdgeLightOn.Value);
+                e.SetF("bfade", HudConfig.FxBorderFade != null ? HudConfig.FxBorderFade.Value : 0f);
+                e.SetF("softEdge", HudConfig.FxSoftEdge != null ? HudConfig.FxSoftEdge.Value : 0f);
+                e.SetF("glow", HudConfig.FxGlow != null ? HudConfig.FxGlow.Value : 0f);
+                e.SetF("glowIn", HudConfig.FxGlowInner != null ? HudConfig.FxGlowInner.Value : 0f);
+                e.SetF("glowWidth", HudConfig.FxGlowWidth != null ? HudConfig.FxGlowWidth.Value : 24f);
+                e.SetF("glowDiffuse", HudConfig.FxGlowDiffuse != null ? HudConfig.FxGlowDiffuse.Value : 0f);
+                e.SetF("ripple", HudConfig.FxEdgeRipple != null ? HudConfig.FxEdgeRipple.Value : 0f);
+                e.SetF("rippleFreq", HudConfig.FxEdgeRippleFreq != null ? HudConfig.FxEdgeRippleFreq.Value : 2f);
+                e.SetF("rippleSmooth", 0f);
+                e.SetF("edgeFlow", HudConfig.FxEdgeFlowSpeed != null ? HudConfig.FxEdgeFlowSpeed.Value : 0.22f);
+                e.SetF("frostDepth", HudConfig.FrostDepth != null ? HudConfig.FrostDepth.Value : 1f);
+                e.SetB("customShineOn", HudConfig.FxShineOn != null && HudConfig.FxShineOn.Value);
+                e.SetF("customShine", HudConfig.FxShine != null ? HudConfig.FxShine.Value : 0f);
+                e.SetB("customIridOn", HudConfig.FxIridOn != null && HudConfig.FxIridOn.Value);
+                e.SetF("customIrid", HudConfig.FxIridescence != null ? HudConfig.FxIridescence.Value : 0f);
+                e.SetB("customChromaOn", HudConfig.FxChromaOn != null && HudConfig.FxChromaOn.Value);
+                e.SetF("customChroma", HudConfig.FxChroma != null ? HudConfig.FxChroma.Value : 0f);
+                e.SetB("customFrostOn", true);
+                e.SetF("customFrost", HudConfig.FrostStrength != null ? HudConfig.FrostStrength.Value : 1f);
+                e.SetB("customDissolve", HudConfig.FxDissolveBoot != null && HudConfig.FxDissolveBoot.Value);
+                e.SetB("fxCollapse", true);
+                e.SetF("fxCollapseAmt", 1f);
+                e.SetB("fxGlitch", true);
+                e.SetF("fxGlitchAmt", 1f);
+                e.SetB("fxWarp", true);
+                e.SetF("fxWarpAmt", 1f);
+                e.SetB("fxPulse", false);
+                e.SetF("fxPulseAmt", 1f);
+                e.SetB("customStyleReady", true);
             }
-            Features.HudProfileStore.MarkChanged();
+            CommitDocumentMutation(before);
         }
 
         /// <summary>Strip the "glassy" look from one element: zero its sheen (milky fill), edge
@@ -993,7 +1193,11 @@ namespace StationeersUIMod.Windows
         /// global glass sliders.</summary>
         private static void StripGlass(UI.Hud.HudElementDef d)
         {
-            if (d == null) return;
+            if (d == null || !HudElementView.CanFlattenDefinition(d)) return;
+            // Flat is itself a deliberate local design. Snapshot the currently visible theme
+            // first so a Global element keeps its colours/geometry, then disable every optical
+            // layer explicitly instead of writing sentinels that Global would ignore.
+            HudElementView.SetUnifiedStyleSourceWithoutView(d, false, true);
             d.SetF("sheen", 0f);
             d.SetF("spec", 0f);       // 0 (not -1) = also opts out of the GLOBAL edge-light boost
             d.SetF("glow", 0f);
@@ -1001,28 +1205,45 @@ namespace StationeersUIMod.Windows
             d.SetF("softEdge", 0f);
             d.SetF("bfade", 0f);      // solid border, no light-driven dissolve
             d.SetF("ripple", 0f);     // no edge shimmer
+            d.SetB("customBorderFadeOn", false);
+            d.SetB("customSoftEdgeOn", false);
+            d.SetB("customGlowOn", false);
+            d.SetB("customRippleOn", false);
+            d.SetB("customShineOn", false);
+            d.SetF("customShine", 0f);
+            d.SetB("customIridOn", false);
+            d.SetF("customIrid", 0f);
+            d.SetB("customChromaOn", false);
+            d.SetF("customChroma", 0f);
+            d.SetB("customFrostOn", false);
+            d.SetF("customFrost", 0f);
+            d.SetB("customDissolve", false);
         }
 
         /// <summary>Flatten the SELECTED element (see <see cref="StripGlass"/>). One undo step.</summary>
         public static void MakeSelectedFlat()
         {
+            CommitActiveDrag();
             var view = SelectedElement;
             if (view == null || view.Def == null) return;
-            PushUndoNow();
+            var doc = Features.HudProfileStore.Active;
+            if (doc == null) return;
+            var before = doc.Clone();
             StripGlass(view.Def);
-            Features.HudProfileStore.MarkChanged();
+            CommitDocumentMutation(before);
         }
 
         /// <summary>Flatten EVERY element in the active profile (the one-click "make the whole HUD
         /// plain bordered boxes"). One undo step.</summary>
         public static void MakeAllFlat()
         {
+            CommitActiveDrag();
             var doc = Features.HudProfileStore.Active;
             if (doc == null || doc.Elements == null) return;
-            PushUndoNow();
+            var before = doc.Clone();
             foreach (var e in doc.Elements)
                 if (e != null) StripGlass(e);
-            Features.HudProfileStore.MarkChanged();
+            CommitDocumentMutation(before);
         }
 
         /// <summary>Add a fresh element of the given type at screen centre, selected.</summary>
@@ -1133,7 +1354,8 @@ namespace StationeersUIMod.Windows
 
         public static void DoUndo()
         {
-            CancelDrag();
+            // Commit first so Ctrl+Z during a drag immediately restores its pre-drag geometry.
+            CommitActiveDrag();
             var doc = Features.HudProfileStore.Active;
             if (doc == null || !UI.Hud.HudDocumentHistory.CanUndo) return;
             var prev = UI.Hud.HudDocumentHistory.Undo(doc);
@@ -1145,7 +1367,8 @@ namespace StationeersUIMod.Windows
 
         public static void DoRedo()
         {
-            CancelDrag();
+            // A changed drag is a new history branch and therefore correctly clears redo.
+            CommitActiveDrag();
             var doc = Features.HudProfileStore.Active;
             if (doc == null || !UI.Hud.HudDocumentHistory.CanRedo) return;
             var next = UI.Hud.HudDocumentHistory.Redo(doc);

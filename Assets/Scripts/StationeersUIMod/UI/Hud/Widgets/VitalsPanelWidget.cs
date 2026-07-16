@@ -512,16 +512,26 @@ namespace StationeersUIMod.UI.Hud.Widgets
         {
             base.DescribeProps(into);
             var d = Def;
+
+            int appearanceStart = into.Count;
             into.Add(HudProp.Bool("Background box", () => d.GetB("box", true), v => d.SetB("box", v)));
             into.Add(HudProp.Bool("Row lines", () => d.GetB("rowLines", true), v => d.SetB("rowLines", v)));
+            for (int i = appearanceStart; i < into.Count; i++) into[i].Group = HudPropGroup.Appearance;
+
             into.Add(HudProp.Bool("Row icons", () => d.GetB("icons", true), v => d.SetB("icons", v)));
             into.Add(HudProp.Bool("Words mode (bare)", () => d.GetB("words", false), v => d.SetB("words", v)));
             into.Add(HudProp.Bool("Pressure row (words)", () => d.GetB("rowPressure", false), v => d.SetB("rowPressure", v)));
             into.Add(HudProp.Bool("Temp row (words)", () => d.GetB("rowTemp", false), v => d.SetB("rowTemp", v)));
+
+            int layoutStart = into.Count;
             into.Add(HudProp.F("Row height", () => d.GetF("rowHeight", 42f),
                 v => d.SetF("rowHeight", Mathf.Clamp(v, 16f, 96f)), 16f, 96f));
+            for (int i = layoutStart; i < into.Count; i++) into[i].Group = HudPropGroup.Layout;
+
+            appearanceStart = into.Count;
             into.Add(HudProp.F("Icon size (rel)", () => d.GetF("iconScale", 0.92f),
                 v => d.SetF("iconScale", Mathf.Clamp(v, 0.2f, 1.15f)), 0.2f, 1.15f));
+            for (int i = appearanceStart; i < into.Count; i++) into[i].Group = HudPropGroup.Appearance;
         }
     }
 }

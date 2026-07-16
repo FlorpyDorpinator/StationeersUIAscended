@@ -55,6 +55,12 @@ namespace StationeersUIMod.Core
         /// <see cref="TierBAvailable"/> is true — bloom is an optional blit chain.</summary>
         public static Shader BloomShader { get; private set; }
 
+        /// <summary>True only when the analytic panel SDF shader resolved and its shared
+        /// <c>sdfglass</c> material family was registered. Kept separate from
+        /// <see cref="TierBAvailable"/> so a panel never emits the SDF vertex contract unless
+        /// the matching material can actually be assigned.</summary>
+        public static bool SdfAvailable { get; private set; }
+
         /// <summary>Idempotent lazy loader. No-op after the first attempt (success OR failure) this
         /// life. Safe on a headless server (batch mode short-circuits). Never throws.</summary>
         public static void EnsureLoaded()
@@ -97,6 +103,7 @@ namespace StationeersUIMod.Core
                 // Resolve each shader by full name, then asset file name, then a scan (Beef's pattern).
                 Shader edgeFx = LoadShader(_bundle, "UIA/HudEdgeFX", "HudEdgeFX");
                 Shader glass = LoadShader(_bundle, "UIA/HudGlass", "HudGlass");
+                Shader panelSdf = LoadShader(_bundle, "UIA/HudPanelSdf", "HudPanelSdf");
                 Shader blur = LoadShader(_bundle, "UIA/HudBlur", "HudBlur");
                 Shader bloom = LoadShader(_bundle, "UIA/HudBloom", "HudBloom");
 
@@ -106,17 +113,23 @@ namespace StationeersUIMod.Core
                 bool anyRegistered = false;
                 if (edgeFx != null) { HudFxMaterials.Register("edgefx", edgeFx); anyRegistered = true; }
                 if (glass != null) { HudFxMaterials.Register("glass", glass); anyRegistered = true; }
+                if (panelSdf != null)
+                {
+                    SdfAvailable = HudFxMaterials.Register("sdfglass", panelSdf) != null;
+                    anyRegistered |= SdfAvailable;
+                }
 
                 // Tier B is "available" once we have at least one effect-material shader. Blur is optional.
                 TierBAvailable = anyRegistered;
 
                 if (!TierBAvailable)
                     UIALog.Warn("HudShaderStore: bundle loaded but no effect shaders resolved " +
-                                "(UIA/HudEdgeFX, UIA/HudGlass). Tier B/C disabled.");
+                                "(UIA/HudEdgeFX, UIA/HudGlass, UIA/HudPanelSdf). Tier B/C disabled.");
             }
             catch (Exception e)
             {
                 TierBAvailable = false;
+                SdfAvailable = false;
                 UIALog.Warn("HudShaderStore: shader bundle load failed (" + e.Message +
                             "). Tier B/C disabled; Tier A fallbacks active.");
             }
@@ -246,6 +259,7 @@ namespace StationeersUIMod.Core
             BlurShader = null;
             BloomShader = null;
             TierBAvailable = false;
+            SdfAvailable = false;
             _attempted = false; // let the next life re-attempt the load
         }
     }

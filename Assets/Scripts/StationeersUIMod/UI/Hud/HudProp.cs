@@ -8,6 +8,11 @@ namespace StationeersUIMod.UI.Hud
     /// </summary>
     public enum HudPropKind { Bool, Float, Int, Text, Enum, ColorRef, Anchor, TierMask, Points, Header }
 
+    /// <summary>Inspector destination for a property. Widget-specific descriptors default to
+    /// Content; HudElementView marks its shared ranges explicitly so F9 can present a short,
+    /// capability-aware tabbed inspector without teaching the window about every widget type.</summary>
+    public enum HudPropGroup { Content, Layout, Appearance, Effects, Interaction }
+
     /// <summary>
     /// A single editable knob on a HUD widget, described as data rather than code.
     ///
@@ -27,6 +32,13 @@ namespace StationeersUIMod.UI.Hud
         /// <summary>Which editor widget to draw.</summary>
         public HudPropKind Kind;
 
+        /// <summary>Stable inspector tab. Content is the safe default for widget-owned props.</summary>
+        public HudPropGroup Group = HudPropGroup.Content;
+
+        /// <summary>Optional explicit ImGui identity. When absent the drawer uses Group + Label,
+        /// which stays stable while inheritance hides or reveals neighbouring rows.</summary>
+        public string StableId;
+
         /// <summary>Slider bounds for <see cref="HudPropKind.Float"/> / <see cref="HudPropKind.Int"/>.
         /// Ignored by the other kinds.</summary>
         public float Min, Max;
@@ -42,6 +54,10 @@ namespace StationeersUIMod.UI.Hud
 
         /// <summary>Optional one-line tooltip. Null when the label is self-explanatory.</summary>
         public string Help;
+
+        /// <summary>Runtime fallback for an empty colour reference. Without this, the inspector
+        /// cannot know that (for example) an empty warning-bar ref means HudWarn rather than white.</summary>
+        public Func<UnityEngine.Color> ColorFallback;
 
         public static HudProp Bool(string label, Func<bool> get, Action<bool> set)
         {
@@ -105,7 +121,8 @@ namespace StationeersUIMod.UI.Hud
 
         /// <summary>A colour reference string: a palette entry name or a "#RRGGBBAA" literal.
         /// Resolved to a real colour by <see cref="HudPalette.Resolve"/>.</summary>
-        public static HudProp Color(string label, Func<string> get, Action<string> set)
+        public static HudProp Color(string label, Func<string> get, Action<string> set,
+            Func<UnityEngine.Color> fallback = null)
         {
             return new HudProp
             {
@@ -113,6 +130,7 @@ namespace StationeersUIMod.UI.Hud
                 Kind = HudPropKind.ColorRef,
                 Get = () => get(),
                 Set = v => set((string)v),
+                ColorFallback = fallback,
             };
         }
 

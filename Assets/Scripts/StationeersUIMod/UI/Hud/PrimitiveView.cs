@@ -270,45 +270,75 @@ namespace StationeersUIMod.UI.Hud
                 // Trapezoid insets come from the base (SupportsTrapezoid). Box's own extras:
                 // per-side border visibility ("make one of the 4 sides transparent").
                 case HudElementType.Box:
+                {
+                    int appearanceStart = into.Count;
                     into.Add(HudProp.Bool("Border: top", () => d.GetB("bTop", true), v => d.SetB("bTop", v)));
                     into.Add(HudProp.Bool("Border: right", () => d.GetB("bRight", true), v => d.SetB("bRight", v)));
                     into.Add(HudProp.Bool("Border: bottom", () => d.GetB("bBottom", true), v => d.SetB("bBottom", v)));
                     into.Add(HudProp.Bool("Border: left", () => d.GetB("bLeft", true), v => d.SetB("bLeft", v)));
+                    for (int i = appearanceStart; i < into.Count; i++) into[i].Group = HudPropGroup.Appearance;
                     break;
+                }
                 case HudElementType.Label:
+                {
                     into.Add(HudProp.Text("Text", () => d.Text ?? "", v => d.Text = v));
-                    into.Add(HudProp.F("Text size", () => d.GetF("size", 14f), v => d.SetF("size", v), 6f, 64f));
+
+                    int layoutStart = into.Count;
                     into.Add(HudProp.Enum("Align", () => AlignIndex(d.Align),
                         v => d.Align = AlignNames[Mathf.Clamp(v, 0, AlignNames.Length - 1)], AlignNames));
                     into.Add(HudProp.Bool("Wrap text", () => d.GetB("wrap", true), v => d.SetB("wrap", v)));
+                    for (int i = layoutStart; i < into.Count; i++) into[i].Group = HudPropGroup.Layout;
+
+                    int appearanceStart = into.Count;
+                    into.Add(HudProp.F("Text size", () => d.GetF("size", 14f), v => d.SetF("size", v), 6f, 64f));
+                    for (int i = appearanceStart; i < into.Count; i++) into[i].Group = HudPropGroup.Appearance;
                     break;
+                }
                 case HudElementType.Polyline:
-                    into.Add(HudProp.F("Line width", () => d.GetF("width", 2f), v => d.SetF("width", Mathf.Max(0.05f, v)), 0.05f, 24f));
+                {
+                    int layoutStart = into.Count;
                     into.Add(HudProp.Bool("Closed loop", () => d.GetB("closed", false), v => d.SetB("closed", v)));
-                    into.Add(HudProp.F("Fade ends (0=off)", () => d.GetF("fadeEnds", 0f), v => d.SetF("fadeEnds", Mathf.Clamp(v, 0f, 0.49f)), 0f, 0.49f));
                     into.Add(HudProp.Bool("Smooth (curved)", () => d.GetB("smooth", false), v => d.SetB("smooth", v)));
                     into.Add(HudProp.I("Curve smoothness", () => d.GetI("curveSteps", 12), v => d.SetI("curveSteps", Mathf.Clamp(v, 2, 32)), 2, 32));
+                    for (int i = layoutStart; i < into.Count; i++) into[i].Group = HudPropGroup.Layout;
+
+                    int appearanceStart = into.Count;
+                    into.Add(HudProp.F("Line width", () => d.GetF("width", 2f), v => d.SetF("width", Mathf.Max(0.05f, v)), 0.05f, 24f));
+                    for (int i = appearanceStart; i < into.Count; i++) into[i].Group = HudPropGroup.Appearance;
+
+                    int effectsStart = into.Count;
+                    into.Add(HudProp.F("Fade ends (0=off)", () => d.GetF("fadeEnds", 0f), v => d.SetF("fadeEnds", Mathf.Clamp(v, 0f, 0.49f)), 0f, 0.49f));
+                    for (int i = effectsStart; i < into.Count; i++) into[i].Group = HudPropGroup.Effects;
                     break;
+                }
                 case HudElementType.Icon:
                     into.Add(HudProp.Text("Icon (glyph or PNG name)", () => d.Icon ?? "", v => d.Icon = v));
                     into.Add(HudProp.F("Stroke scale", () => d.GetF("stroke", 1f), v => d.SetF("stroke", Mathf.Clamp(v, 0.4f, 3f)), 0.4f, 3f));
+                    into[into.Count - 1].Group = HudPropGroup.Appearance;
                     break;
                 case HudElementType.Shape:
+                {
                     // The silhouette itself is drawn/edited with the pen tool (F9 gizmo layer); these
                     // tune it. Fill/border/glass come from the base props (it is a glass panel).
                     // Curve style: Straight corners / Smooth (Catmull through the points) / Bézier
                     // (drag per-point handles in Edit-points mode). Choosing Bézier seeds smooth
                     // handles from the point tangents so it curves immediately.
+                    int layoutStart = into.Count;
                     into.Add(HudProp.Enum("Curve style",
                         () => d.GetI("curveMode", d.GetB("smooth", false) ? 1 : 0),
                         v => { d.SetI("curveMode", Mathf.Clamp(v, 0, 2)); if (v == 2) EnsureBezierHandles(d); },
                         CurveStyleNames));
                     into.Add(HudProp.I("Curve smoothness", () => d.GetI("curveSteps", 12), v => d.SetI("curveSteps", Mathf.Clamp(v, 2, 32)), 2, 32));
+                    for (int i = layoutStart; i < into.Count; i++) into[i].Group = HudPropGroup.Layout;
+
+                    int appearanceStart = into.Count;
                     into.Add(HudProp.Bool("Border: top", () => d.GetB("bTop", true), v => d.SetB("bTop", v)));
                     into.Add(HudProp.Bool("Border: right", () => d.GetB("bRight", true), v => d.SetB("bRight", v)));
                     into.Add(HudProp.Bool("Border: bottom", () => d.GetB("bBottom", true), v => d.SetB("bBottom", v)));
                     into.Add(HudProp.Bool("Border: left", () => d.GetB("bLeft", true), v => d.SetB("bLeft", v)));
+                    for (int i = appearanceStart; i < into.Count; i++) into[i].Group = HudPropGroup.Appearance;
                     break;
+                }
             }
         }
 

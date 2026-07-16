@@ -283,10 +283,14 @@ namespace StationeersUIMod.UI.Hud.Widgets
             var d = Def;
             into.Add(HudProp.F("Moodlet scale", () => d.GetF("moodletScale", 0.32f),
                 v => d.SetF("moodletScale", Mathf.Clamp(v, 0.08f, 1.5f)), 0.08f, 1.5f));
+            into[into.Count - 1].Group = HudPropGroup.Layout;
+
+            int appearanceStart = into.Count;
             into.Add(HudProp.F("Moodlet transparency", () => d.GetF("moodletTransparency", 0f),
                 v => d.SetF("moodletTransparency", Mathf.Clamp01(v)), 0f, 1f));
             into.Add(HudProp.F("Moodlet brightness", () => d.GetF("moodletBrightness", 1f),
                 v => d.SetF("moodletBrightness", Mathf.Clamp01(v)), 0f, 1f));
+            for (int i = appearanceStart; i < into.Count; i++) into[i].Group = HudPropGroup.Appearance;
         }
     }
 }

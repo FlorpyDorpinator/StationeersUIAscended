@@ -264,7 +264,27 @@ namespace StationeersUIMod.UI.Hud.Widgets
         {
             base.DescribeProps(into);
             var d = Def;
+
+            // Content: visibility policy and the source art for each body part.
             into.Add(HudProp.Bool("Only when injured", () => d.GetB("injuredOnly", true), v => d.SetB("injuredOnly", v)));
+            into.Add(HudProp.Text("Head PNG", () => d.GetS("iHead", "doll_head"), v => d.Set("iHead", v)));
+            into.Add(HudProp.Text("Chest PNG", () => d.GetS("iChest", "doll_chest"), v => d.Set("iChest", v)));
+            into.Add(HudProp.Text("Abdomen PNG", () => d.GetS("iTummy", "doll_tummy"), v => d.Set("iTummy", v)));
+            into.Add(HudProp.Text("Left arm PNG", () => d.GetS("iArmL", "doll_arm_l"), v => d.Set("iArmL", v)));
+            into.Add(HudProp.Text("Right arm PNG", () => d.GetS("iArmR", "doll_arm_r"), v => d.Set("iArmR", v)));
+            into.Add(HudProp.Text("Left leg PNG", () => d.GetS("iLegL", "doll_leg"), v => d.Set("iLegL", v)));
+            into.Add(HudProp.Text("Right leg PNG", () => d.GetS("iLegR", "doll_leg"), v => d.Set("iLegR", v)));
+
+            int layoutStart = into.Count;
+            into.Add(HudProp.F("Figure scale", () => d.GetF("figScale", 0.98f), v => d.SetF("figScale", Mathf.Clamp(v, 0.3f, 1.2f)), 0.3f, 1.2f));
+            into.Add(HudProp.F("Figure Y nudge", () => d.GetF("figY", 0f), v => d.SetF("figY", v), -80f, 80f));
+            into.Add(HudProp.F("Arm spread", () => d.GetF("armSpread", 1f), v => d.SetF("armSpread", Mathf.Clamp(v, 0f, 3f)), 0f, 3f));
+            into.Add(HudProp.F("Arm Y (frac)", () => d.GetF("armY", 0f), v => d.SetF("armY", Mathf.Clamp(v, -0.3f, 0.3f)), -0.3f, 0.3f));
+            into.Add(HudProp.F("Leg spread (frac)", () => d.GetF("legSpread", 0.06f), v => d.SetF("legSpread", Mathf.Clamp(v, 0f, 0.4f)), 0f, 0.4f));
+            into.Add(HudProp.F("Leg Y (frac)", () => d.GetF("legY", 0f), v => d.SetF("legY", Mathf.Clamp(v, -0.3f, 0.3f)), -0.3f, 0.3f));
+            for (int i = layoutStart; i < into.Count; i++) into[i].Group = HudPropGroup.Layout;
+
+            int appearanceStart = into.Count;
             into.Add(HudProp.Bool("Whole-body tint", () => d.GetB("wholeBody", false), v => d.SetB("wholeBody", v)));
             into.Add(HudProp.Bool("Background box", () => d.GetB("box", true), v => d.SetB("box", v)));
 
@@ -279,19 +299,7 @@ namespace StationeersUIMod.UI.Hud.Widgets
                 v => d.Set("cHealthy", v)));
             into.Add(HudProp.Color("Warning tint", () => DollColorRef("cWarn", "HudWarn"), v => d.Set("cWarn", v)));
             into.Add(HudProp.Color("Critical tint", () => DollColorRef("cCrit", "HudCritical"), v => d.Set("cCrit", v)));
-            into.Add(HudProp.F("Figure scale", () => d.GetF("figScale", 0.98f), v => d.SetF("figScale", Mathf.Clamp(v, 0.3f, 1.2f)), 0.3f, 1.2f));
-            into.Add(HudProp.F("Figure Y nudge", () => d.GetF("figY", 0f), v => d.SetF("figY", v), -80f, 80f));
-            into.Add(HudProp.F("Arm spread", () => d.GetF("armSpread", 1f), v => d.SetF("armSpread", Mathf.Clamp(v, 0f, 3f)), 0f, 3f));
-            into.Add(HudProp.F("Arm Y (frac)", () => d.GetF("armY", 0f), v => d.SetF("armY", Mathf.Clamp(v, -0.3f, 0.3f)), -0.3f, 0.3f));
-            into.Add(HudProp.F("Leg spread (frac)", () => d.GetF("legSpread", 0.06f), v => d.SetF("legSpread", Mathf.Clamp(v, 0f, 0.4f)), 0f, 0.4f));
-            into.Add(HudProp.F("Leg Y (frac)", () => d.GetF("legY", 0f), v => d.SetF("legY", Mathf.Clamp(v, -0.3f, 0.3f)), -0.3f, 0.3f));
-            into.Add(HudProp.Text("Head PNG", () => d.GetS("iHead", "doll_head"), v => d.Set("iHead", v)));
-            into.Add(HudProp.Text("Chest PNG", () => d.GetS("iChest", "doll_chest"), v => d.Set("iChest", v)));
-            into.Add(HudProp.Text("Abdomen PNG", () => d.GetS("iTummy", "doll_tummy"), v => d.Set("iTummy", v)));
-            into.Add(HudProp.Text("Left arm PNG", () => d.GetS("iArmL", "doll_arm_l"), v => d.Set("iArmL", v)));
-            into.Add(HudProp.Text("Right arm PNG", () => d.GetS("iArmR", "doll_arm_r"), v => d.Set("iArmR", v)));
-            into.Add(HudProp.Text("Left leg PNG", () => d.GetS("iLegL", "doll_leg"), v => d.Set("iLegL", v)));
-            into.Add(HudProp.Text("Right leg PNG", () => d.GetS("iLegR", "doll_leg"), v => d.Set("iLegR", v)));
+            for (int i = appearanceStart; i < into.Count; i++) into[i].Group = HudPropGroup.Appearance;
         }
     }
 }
