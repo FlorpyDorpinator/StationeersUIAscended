@@ -130,15 +130,31 @@ namespace StationeersUIMod.UI.Hud
             }
         }
 
-        /// <summary>0.5..8 — <see cref="EdgeRipple"/> base frequency in cycles per ~100px.
-        /// Default 2. Inert while EdgeRipple is 0, so the default is byte-identity-safe.</summary>
+        /// <summary>0.05..8 — <see cref="EdgeRipple"/> base frequency in cycles per ~100px.
+        /// Default 2. Low = a WIDE, slow light→dark sweep along the stroke (floor dropped from
+        /// 0.5). Inert while EdgeRipple is 0, so the default is byte-identity-safe.</summary>
         public float EdgeRippleFreq
         {
             get => _edgeRippleFreq;
             set
             {
-                value = float.IsNaN(value) ? 2f : Mathf.Clamp(value, 0.5f, 8f);
+                value = float.IsNaN(value) ? 2f : Mathf.Clamp(value, 0.05f, 8f);
                 if (!Mathf.Approximately(_edgeRippleFreq, value)) { _edgeRippleFreq = value; SetVerticesDirty(); }
+            }
+        }
+
+        private float _rippleSmooth;
+
+        /// <summary>0..1 — fades the ripple's higher harmonics toward a single clean sine (1 = a
+        /// smooth light→dark gradient, 0 = the classic layered noise). Pair with a low
+        /// <see cref="EdgeRippleFreq"/> for one broad soft sweep.</summary>
+        public float RippleSmooth
+        {
+            get => _rippleSmooth;
+            set
+            {
+                value = float.IsNaN(value) ? 0f : Mathf.Clamp01(value);
+                if (!Mathf.Approximately(_rippleSmooth, value)) { _rippleSmooth = value; SetVerticesDirty(); }
             }
         }
 
@@ -213,12 +229,15 @@ namespace StationeersUIMod.UI.Hud
 
             float hw = _width * 0.5f;
             // Phone-wire AA (Persson/"Humus" coverage trick): a rasteriser can't draw a
-            // stroke thinner than one pixel without it shimmering/dropping out, so we render
-            // at a 1px floor (drawHw >= 0.5 half-width) and instead scale the SOLID alpha by
-            // the coverage the true width WOULD have had. A 0.3px line => 1px wide @ 30%
-            // alpha, fading smoothly to nothing as Width -> 0 rather than vanishing. The
-            // fringe/fade colours all derive from `solid` (alpha-0 copies), so they follow.
-            float drawHw = Mathf.Max(hw, 0.5f);
+            // stroke thinner than ~a pixel without it shimmering/dropping out, so we render at
+            // a floor half-width and instead scale the SOLID alpha by the coverage the true
+            // width WOULD have had. A 0.3px line => drawn at the floor @ ~proportional alpha,
+            // fading smoothly to nothing as Width -> 0 rather than vanishing. Floor dropped from
+            // 0.5 to 0.28 half-width (~0.56px) so genuinely hairline strokes can render finer
+            // before the coverage takes over — a touch more shimmer risk at the extreme, worth
+            // it for the thin-line ask. The fringe/fade colours derive from `solid` (alpha-0
+            // copies), so they follow.
+            float drawHw = Mathf.Max(hw, 0.28f);
             float cov = drawHw > 0f ? hw / drawHw : 1f; // <= 1
             float f = Feather;
             Color solid = color;
@@ -276,18 +295,23 @@ namespace StationeersUIMod.UI.Hud
                     {
                         Vector2 p = pts[i];
                         float t = (p.x + p.y * 0.7f) * (_edgeRippleFreq * 0.0628f);
+                        float harm = 1f - _rippleSmooth;
                         float ripple = 1f + _edgeRipple * (0.32f * Mathf.Sin(t)
-                            + 0.24f * Mathf.Sin(t * 2.417f + 1.7f)
-                            + 0.14f * Mathf.Sin(t * 5.089f + 4.2f));
+                            + harm * (0.24f * Mathf.Sin(t * 2.417f + 1.7f)
+                            + 0.14f * Mathf.Sin(t * 5.089f + 4.2f)));
                         // Ceiling 2: overdriven ripple (slider > 1) lets crests overshoot the
                         // nominal light dot (channels still clamp per-pixel below) while
                         // troughs clip fully dark — matches PanelGraphic.BorderLightW.
                         d = Mathf.Clamp(d * ripple, 0f, 2f);
                     }
-                    float lit = 1f + _edgeLight * d;
-                    c.r = Mathf.Min(1f, c.r * lit);
-                    c.g = Mathf.Min(1f, c.g * lit);
-                    c.b = Mathf.Min(1f, c.b * lit);
+                    // Pull the stroke TOWARD the configurable edge-light colour where it faces the
+                    // key light (matches PanelGraphic.BorderAt — lines and borders tint alike). White
+                    // reproduces the classic bright specular highlight.
+                    float ws = Mathf.Clamp01(_edgeLight * d);
+                    Color tint = PanelGraphic.LightTint();
+                    c.r += (tint.r - c.r) * ws;
+                    c.g += (tint.g - c.g) * ws;
+                    c.b += (tint.b - c.b) * ws;
                 }
                 return c;
             }

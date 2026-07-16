@@ -132,6 +132,7 @@ namespace StationeersUIMod.UI.Hud.Widgets
                 // flip-flop would defeat the dirty-guard and rebuild the mesh).
                 _box[i].Sheen = GlassSheenFor();
                 _box[i].Spec = active ? 0f : GlassEdgeFor();
+                _box[i].FeatherOverride = FeatherFor();
                 ApplyMeshFx(_box[i]); // full 0.9.0 push (trio + ripple + uv0 + material) — sheen/spec above stay custom
 
                 // #4: drop cue — light this box (border, or whole box per F9) while a dragged

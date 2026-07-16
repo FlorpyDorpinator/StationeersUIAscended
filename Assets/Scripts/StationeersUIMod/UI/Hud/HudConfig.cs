@@ -123,6 +123,10 @@ namespace StationeersUIMod.UI.Hud
         public static ConfigEntry<bool> FxChromaOn;
         public static ConfigEntry<float> FxHairlineMin;     // 0 = true hairlines allowed
         public static ConfigEntry<float> FxEdgeLight;       // directional edge-light strength (lines + borders)
+        public static ConfigEntry<string> FxEdgeLightColor; // #RRGGBB the border/line whitens TOWARD (default white)
+        public static ConfigEntry<float> FxEdgeLightAngle;  // key-light direction, deg (0=right, 90=top, 180=left)
+        public static ConfigEntry<float> FxEdgeLightRim;    // opposing-rim catch on the far side (0..2, def 0.5)
+        public static ConfigEntry<float> FxEdgeLightSharp;  // falloff exponent — high=tight catch, low=broad wash
         public static ConfigEntry<float> FxEdgeRipple;      // irregular light/dark shimmer along edges (0 = smooth)
         public static ConfigEntry<float> FxEdgeRippleFreq;  // shimmer frequency, cycles per ~100px
         public static ConfigEntry<float> FxPulseSpeed;      // breathing pulse rate, Hz
@@ -142,6 +146,7 @@ namespace StationeersUIMod.UI.Hud
         public static ConfigEntry<float> FxGlowInner;       // glow intensity INTO the glass
         public static ConfigEntry<float> FxGlowWidth;       // halo width, px (shared by both sides)
         public static ConfigEntry<float> FxGlowDiffuse;     // halo shape: 0 tight rim, 1 wide soft haze
+        public static ConfigEntry<float> FrostStrength;     // 0..1 global frost gate (scales every element's frost)
         public static ConfigEntry<float> FrostDownsample;   // blur RT divisor (2/4/8)
         public static ConfigEntry<int> FrostUpdateEveryN;   // re-blur throttle, frames
         public static ConfigEntry<float> FrostDarken;       // 0..1 backdrop darkening
@@ -158,6 +163,29 @@ namespace StationeersUIMod.UI.Hud
         public static ConfigEntry<bool> FxBloomFineDetail;  // half-res bright pass: thin borders/lines survive into bloom
         public static ConfigEntry<float> FxBloomSaturation; // 0 white-hot .. 1 source hues .. 2 oversaturated
         public static ConfigEntry<string> FxBloomTint;      // #RRGGBB multiply on the glow
+        // Dynamic bloom (0.9.0 round 2) — every one optional, default off/neutral:
+        public static ConfigEntry<float> FxBloomAnamorph;   // -1 vertical .. 0 round .. +1 horizontal streak
+        public static ConfigEntry<int> FxBloomRes;          // -1 legacy(FineDetail) / 0 full / 1 half / 2 quarter
+        public static ConfigEntry<bool> FxBloomPulseOn;     // slow breathing on the glow strength
+        public static ConfigEntry<float> FxBloomPulseSpeed; // Hz
+        public static ConfigEntry<float> FxBloomPulseDepth; // 0..1 fraction of strength breathed away
+        public static ConfigEntry<bool> FxBloomReactOn;     // state-reactive master (power / alarm / boot)
+        public static ConfigEntry<float> FxBloomReactPower; // 0..1 how much low suit power dims the glow
+        public static ConfigEntry<float> FxBloomReactAlarm; // 0..1 red alarm pulse on critical states
+        public static ConfigEntry<float> FxBloomReactBoot;  // 0..1 boot-sequence flare
+        // Second bloom band ("border/highlight bloom"): an independent glow layer only the
+        // BRIGHTEST pixels reach — style borders above its threshold (edge light/spec) and the
+        // frame lines carry their own glow, separate from the general bloom.
+        public static ConfigEntry<bool> FxBloom2On;
+        public static ConfigEntry<float> FxBloom2Threshold; // higher than band 1 — highlights only
+        public static ConfigEntry<float> FxBloom2Strength;
+        public static ConfigEntry<int> FxBloom2Steps;       // its own pyramid depth (reach)
+        public static ConfigEntry<float> FxBloom2Spread;    // its own continuous width
+        public static ConfigEntry<string> FxBloom2Tint;     // #RRGGBB on the highlight glow only
+        // Saturation selectivity (needs the 2026-07-15+ shader bundle; older bundles ignore it):
+        // + = only SATURATED pixels bloom (coloured borders, not white text), - = only unsaturated.
+        public static ConfigEntry<float> FxBloomSatBias;    // band 1
+        public static ConfigEntry<float> FxBloom2SatBias;   // band 2 — THE borders-not-text knob
 
         public static void Bind(ConfigFile cfg)
         {
@@ -346,14 +374,31 @@ namespace StationeersUIMod.UI.Hud
                 new ConfigDescription("Directional edge-light on drawn lines: brighter where the stroke " +
                     "faces the key light, matching the panel borders. 0 = flat strokes.",
                     new AcceptableValueRange<float>(0f, 2f)));
+            FxEdgeLightColor = cfg.Bind(FX, "EdgeLightColor", "#FFFFFF",
+                "The colour a border/line's edge light whitens TOWARD, #RRGGBB. White = the classic " +
+                "specular look; a tint (e.g. cyan #35C8E8) gives coloured edge highlights.");
+            FxEdgeLightAngle = cfg.Bind(FX, "EdgeLightAngleDeg", 116.565f,
+                new ConfigDescription("Direction the key light comes FROM, in degrees (0 = right, 90 = top, " +
+                    "180 = left, 270 = bottom). The edges facing this way catch the light. Default ~117 = " +
+                    "upper-left (the shipped look).", new AcceptableValueRange<float>(0f, 360f)));
+            FxEdgeLightRim = cfg.Bind(FX, "EdgeLightRim", 0.5f,
+                new ConfigDescription("How strongly the OPPOSITE (far) edge catches a faint counter-light. " +
+                    "0 = only the lit side glows; 1+ = a bright rim on both sides.",
+                    new AcceptableValueRange<float>(0f, 2f)));
+            FxEdgeLightSharp = cfg.Bind(FX, "EdgeLightSharpness", 3f,
+                new ConfigDescription("Falloff of the light along the border: HIGH = a tight catch on the " +
+                    "edges most square-on to the light; LOW = a broad wash spread around the frame.",
+                    new AcceptableValueRange<float>(1f, 8f)));
             FxEdgeRipple = cfg.Bind(FX, "EdgeRipple", 0.45f,
                 new ConfigDescription("Irregular light/dark shimmer ALONG borders and lines (the concept art's " +
                     "'random glowy' look). 0 = the smooth single-light run. Above ~1.4 the shimmer " +
                     "overdrives: dark troughs clip to fully dark and bright crests overshoot.",
                     new AcceptableValueRange<float>(0f, 2.5f)));
             FxEdgeRippleFreq = cfg.Bind(FX, "EdgeRippleFrequency", 2f,
-                new ConfigDescription("Shimmer frequency — higher = light/dark repeats more often along the edge.",
-                    new AcceptableValueRange<float>(0.5f, 8f)));
+                new ConfigDescription("Shimmer frequency — higher = light/dark repeats more often along the edge; " +
+                    "LOW (down to 0.05) = a single wide, slow light→dark sweep. Pair a low value with a high " +
+                    "per-element 'Ripple gradient' for one broad soft gradient.",
+                    new AcceptableValueRange<float>(0.05f, 8f)));
             FxBorderFadeOn = cfg.Bind(FX, "BorderFadeOn", true, "Unlit border sections dissolve away.");
             FxSoftEdgeOn = cfg.Bind(FX, "SoftEdgeOn", true, "Panel fills melt softly outward.");
             FxGlowOn = cfg.Bind(FX, "GlowOn", false,
@@ -406,6 +451,11 @@ namespace StationeersUIMod.UI.Hud
             FxDissolveBoot = cfg.Bind(FX, "DissolveOnBoot", true,
                 "Elements power on with a travelling dissolve frontier during boot/power transitions " +
                 "(needs the shader bundle; falls back to the classic flicker otherwise).");
+            FrostStrength = cfg.Bind(FX, "FrostStrength", 1f,
+                new ConfigDescription("Global frost strength (0..1): scales the frosted-glass blur/tint on " +
+                    "EVERY element at once. Each element's own 'frost strength' multiplies on top of this " +
+                    "(1 = full per-element look; 0 = no frost anywhere).",
+                    new AcceptableValueRange<float>(0f, 1f)));
             FrostDownsample = cfg.Bind(FX, "FrostDownsample", 4f,
                 new ConfigDescription("Frost blur RT divisor: 4 = quarter resolution (cheapest good look).",
                     new AcceptableValueList<float>(2f, 4f, 8f)));
@@ -456,6 +506,61 @@ namespace StationeersUIMod.UI.Hud
             FxBloomTint = cfg.Bind(FX, "BloomTint", "#FFFFFF",
                 "Tint multiplied into the glow, #RRGGBB. White = untinted; try a pale cyan for a " +
                 "hologram cast.");
+            FxBloomAnamorph = cfg.Bind(FX, "BloomAnamorphic", 0f,
+                new ConfigDescription("Streak the glow: +1 = wide HORIZONTAL sci-fi visor streaks, " +
+                    "-1 = vertical halation, 0 = round bloom. Done by blurring an asymmetric-" +
+                    "resolution pyramid — free.", new AcceptableValueRange<float>(-1f, 1f)));
+            FxBloomRes = cfg.Bind(FX, "BloomResolution", -1,
+                new ConfigDescription("Bright-pass base resolution: 0 = FULL (crisp hairline glow, " +
+                    "priciest), 1 = HALF, 2 = QUARTER (soft dreamy haze, cheapest). -1 = legacy: " +
+                    "follow the BloomFineDetail toggle.", new AcceptableValueRange<int>(-1, 2)));
+            FxBloomPulseOn = cfg.Bind(FX, "BloomPulseOn", false,
+                "The whole glow breathes: a slow sine on bloom strength.");
+            FxBloomPulseSpeed = cfg.Bind(FX, "BloomPulseSpeed", 0.25f,
+                new ConfigDescription("Breaths per second.", new AcceptableValueRange<float>(0.05f, 2f)));
+            FxBloomPulseDepth = cfg.Bind(FX, "BloomPulseDepth", 0.25f,
+                new ConfigDescription("Fraction of the glow breathed away at the low point.",
+                    new AcceptableValueRange<float>(0f, 1f)));
+            FxBloomReactOn = cfg.Bind(FX, "BloomReactOn", false,
+                "State-reactive glow: suit power dims it, critical alarms pulse it red, the boot " +
+                "sequence flares it. Each reaction has its own strength below.");
+            FxBloomReactPower = cfg.Bind(FX, "BloomReactPower", 0.6f,
+                new ConfigDescription("How much a draining suit battery dims the glow (0 = ignore " +
+                    "power, 1 = fully dark at 0%).", new AcceptableValueRange<float>(0f, 1f)));
+            FxBloomReactAlarm = cfg.Bind(FX, "BloomReactAlarm", 0.6f,
+                new ConfigDescription("Red pulse strength while a critical state is active (low " +
+                    "power / critical health).", new AcceptableValueRange<float>(0f, 1f)));
+            FxBloomReactBoot = cfg.Bind(FX, "BloomReactBoot", 0.8f,
+                new ConfigDescription("Glow flare while the boot sequence plays.",
+                    new AcceptableValueRange<float>(0f, 1f)));
+            FxBloom2On = cfg.Bind(FX, "Bloom2On", false,
+                "SECOND bloom band — an independent glow layer only pixels above ITS threshold " +
+                "reach. Style borders brighter than text (edge light / spec / border colour) and " +
+                "the frame lines get their own glow, tuned separately from the general bloom.");
+            FxBloom2Threshold = cfg.Bind(FX, "Bloom2Threshold", 0.85f,
+                new ConfigDescription("Brightness cutoff for the highlight band. Set BETWEEN your " +
+                    "border brightness and everything else's.", new AcceptableValueRange<float>(0f, 1.5f)));
+            FxBloom2Strength = cfg.Bind(FX, "Bloom2Strength", 1.2f,
+                new ConfigDescription("Highlight-band glow strength (adds on top of band 1).",
+                    new AcceptableValueRange<float>(0f, 3f)));
+            FxBloom2Steps = cfg.Bind(FX, "Bloom2BlurSteps", 2,
+                new ConfigDescription("Highlight-band blur depth — small = a tight hot rim around " +
+                    "the lines, large = a wide aura.", new AcceptableValueRange<int>(1, 5)));
+            FxBloom2Spread = cfg.Bind(FX, "Bloom2Spread", 1.5f,
+                new ConfigDescription("Highlight-band continuous width fine-adjust.",
+                    new AcceptableValueRange<float>(0.5f, 3f)));
+            FxBloom2Tint = cfg.Bind(FX, "Bloom2Tint", "#FFFFFF",
+                "Tint on the highlight glow only, #RRGGBB — e.g. cyan frames over a neutral base bloom.");
+            FxBloomSatBias = cfg.Bind(FX, "BloomSatBias", 0f,
+                new ConfigDescription("Saturation selectivity of the base bloom: +1 = only COLOURED " +
+                    "pixels bloom (white text stays dark), -1 = only white/grey pixels. 0 = off. " +
+                    "Needs the 2026-07-15+ effects bundle; older bundles ignore it.",
+                    new AcceptableValueRange<float>(-1f, 1f)));
+            FxBloom2SatBias = cfg.Bind(FX, "Bloom2SatBias", 0f,
+                new ConfigDescription("Saturation selectivity of the highlight band — set POSITIVE " +
+                    "so coloured BORDER lines get this glow while white text does not (the " +
+                    "borders-not-text knob). Needs the 2026-07-15+ effects bundle.",
+                    new AcceptableValueRange<float>(-1f, 1f)));
 
             HudPalette.Bind(cfg);
         }

@@ -41,6 +41,10 @@ namespace StationeersUIMod
     {
         // --- General ---
         public static ConfigEntry<bool> MasterEnable;
+        /// <summary>Master switch for the RADIAL half (see <see cref="Bind"/>). Paired with the
+        /// HUD half's master, <see cref="UI.Hud.HudConfig.VisorHudEnabled"/> — the two halves are
+        /// independent so a player can run either alone.</summary>
+        public static ConfigEntry<bool> RadialEnabled;
         public static ConfigEntry<KeyCode> SettingsWindowKey;
         public static ConfigEntry<int> HoldThresholdMs;
         public static ConfigEntry<ControlSchema> Schema;
@@ -48,6 +52,9 @@ namespace StationeersUIMod
         public static ConfigEntry<KeyCode> RadialPageKey;
         public static ConfigEntry<KeyCode> RadialFineAdjustKey;
         public static ConfigEntry<bool> RadialMovementEnabled;
+        public static ConfigEntry<bool> RadialHintBar;
+        /// <summary>Set true once the first-run guide has been shown (so it only auto-opens once).</summary>
+        public static ConfigEntry<bool> GuideShown;
 
         /// <summary>Shorthand for "the Option A behavior SET is active" — B is A plus the
         /// Hub gestures, so every A-gated behavior (STOW wedges, satellites, search,
@@ -149,6 +156,12 @@ namespace StationeersUIMod
         {
             MasterEnable = cfg.Bind("1. General", "MasterEnable", true,
                 "Master switch. When off, the mod draws and patches nothing.");
+            RadialEnabled = cfg.Bind("1. General", "RadialEnabled", true,
+                "Master switch for the RADIAL half of the mod (toolbelt / tool / bag / equipment " +
+                "radials, the SmartStow+ wheel and drag-out parking). Off = the radial menus never " +
+                "open and their keys fall back to the vanilla actions; the HUD half is unaffected. " +
+                "Pair with the Visor HUD master ('10. Visor HUD > VisorHudEnabled') to run either " +
+                "half of the mod on its own.");
             SettingsWindowKey = cfg.Bind("1. General", "SettingsWindowKey", KeyCode.F10,
                 "Key that toggles the in-game UI Ascended settings window.");
             HoldThresholdMs = cfg.Bind("1. General", "HoldThresholdMs", 180,
@@ -175,6 +188,11 @@ namespace StationeersUIMod
                 "Camera look stays on the cursor; typing in the search panel never moves you; " +
                 "disabled while seated (vehicle controls share the same gate). " +
                 "Off = the classic stop-and-pick behavior.");
+            RadialHintBar = cfg.Bind("1. General", "RadialHintBar", true,
+                "Show a slim, contextual key-hint bar just below an open radial (LMB select, RMB " +
+                "back, Alt reach, swap hand, page…). Follows your rebinds. Turn off for a cleaner wheel.");
+            GuideShown = cfg.Bind("1. General", "GuideShown", false,
+                "Internal: set once the first-run how-to guide has been shown. Reset to false to see it again.");
 
             ToolbeltRadialEnabled = cfg.Bind("2. Toolbelt Radial", "Enabled", true,
                 "Hold a key to open a radial of everything on your toolbelt; release over a tool to equip it into the active hand.");

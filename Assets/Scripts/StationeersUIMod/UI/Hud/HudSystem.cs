@@ -376,6 +376,9 @@ namespace StationeersUIMod.UI.Hud
                 case HudElementType.DayCounter:
                 case HudElementType.ActiveHandBadge:
                     return new Widgets.DynamicTextWidget();
+                // Freeform pen shapes render through PrimitiveView (like the other primitives).
+                case HudElementType.Shape:
+                    return new PrimitiveView();
                 default:
                     return new PrimitiveView();
             }
@@ -1140,7 +1143,15 @@ namespace StationeersUIMod.UI.Hud
                 // guaranteed non-MSAA here (see UpdateRtCurve/UpdateRtFlat) so the additive blit-back
                 // onto it is safe.
                 if (BloomActive() && _rt != null)
+                {
+                    // State-reactive bloom inputs (Dispatch folds them in only when the react
+                    // toggle is on): battery %, a critical-state flag, and the boot envelope.
+                    HudBloomFx.ReactPowerPct = snap.SuitBatteryPct;
+                    HudBloomFx.ReactAlarm = snap.LowPower || snap.HealthRatio < 0.25f;
+                    HudBloomFx.BootFlare01 = _dissolveUntil > Time.unscaledTime
+                        ? Mathf.Clamp01((_dissolveUntil - Time.unscaledTime) / DissolveSeconds) : 0f;
                     HudBloomFx.Dispatch(_rt);
+                }
             }
         }
 
@@ -1188,7 +1199,9 @@ namespace StationeersUIMod.UI.Hud
             var glass = HudFxMaterials.Get("glass");
             if (glass != null)
             {
-                glass.SetFloat("_FrostStrength", 1f); // element volume is uv0.x; this is the global gate
+                // Global frost gate (0..1): scales every element's frost at once. The per-element
+                // volume rides uv0.x on top; this is the shared multiplier the F9 slider drives.
+                glass.SetFloat("_FrostStrength", HudConfig.FrostStrength != null ? HudConfig.FrostStrength.Value : 1f);
                 glass.SetFloat("_FrostDarken", HudConfig.FrostDarken != null ? HudConfig.FrostDarken.Value : 0.75f);
                 Color tint;
                 if (!ColorUtility.TryParseHtmlString(
@@ -1231,6 +1244,8 @@ namespace StationeersUIMod.UI.Hud
                 + HudConfig.FontScale.Value * 97f
                 + HudConfig.EdgeFeather.Value * 41f   // read inside OnPopulateMesh — meshes
                                                       // must rebuild when the slider moves
+                + EdgeLightStyleHash()                // colour/angle/rim/falloff are read inside the
+                                                      // mesh too, so re-mesh when any of them change
                 + (HudConfig.CurveInvert.Value ? 313f : 0f)
                 + HudConfig.CurveStrength.Value * 631f + (int)HudConfig.Curvature.Value * 977f
                 + (HudWarp.BareFlat ? 1289f : 0f) // bare→flat transition re-lays-out + re-meshes
@@ -1240,6 +1255,21 @@ namespace StationeersUIMod.UI.Hud
                 // Document mode: any element edit bumps the store version — geometry
                 // lives in the document, so this replaces the per-panel size entries.
                 + (DocumentMode ? Features.HudProfileStore.Version * 3571f : 0f);
+        }
+
+        /// <summary>A hash of the CONFIGURABLE edge-light appearance (colour / angle / rim / falloff
+        /// + the on-flags that gate the tint). All of these are read INSIDE the border/line mesh, not
+        /// pushed as panel properties, so a change here must re-mesh — same reasoning as EdgeFeather.
+        /// The colour folds in as its resolved RGB (LightTint caches the parse, and returns white
+        /// while edge light is off, so this also re-meshes on the on/off toggle).</summary>
+        private static float EdgeLightStyleHash()
+        {
+            var tint = PanelGraphic.LightTint();
+            float h = (tint.r * 131f + tint.g * 197f + tint.b * 271f);
+            if (HudConfig.FxEdgeLightAngle != null) h += HudConfig.FxEdgeLightAngle.Value * 7.3f;
+            if (HudConfig.FxEdgeLightRim != null) h += HudConfig.FxEdgeLightRim.Value * 53f;
+            if (HudConfig.FxEdgeLightSharp != null) h += HudConfig.FxEdgeLightSharp.Value * 29f;
+            return h;
         }
 
         // ------------------------------------------------------------------ curvature

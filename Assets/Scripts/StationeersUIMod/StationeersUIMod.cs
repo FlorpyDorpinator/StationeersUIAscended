@@ -18,8 +18,8 @@ namespace StationeersUIMod
     /// </summary>
     public sealed class StationeersUIMod : MonoBehaviour
     {
-        public const string ModVersion = "0.9.0";
-        public const string VersionDisplay = "0.9.0 Experimental";
+        public const string ModVersion = "0.9.0.1";
+        public const string VersionDisplay = "0.9.0.1 Experimental";
         public const string ModGuid = "com.stationeersuimod.ui";
 
         public static StationeersUIMod Instance { get; private set; }
@@ -93,6 +93,7 @@ namespace StationeersUIMod
                 catch (Exception mig) { UIALog.Warn("Config migration skipped: " + mig.Message); }
 
                 UIAConfig.Bind(config);
+                Core.UiaKeybinds.EnsureBuilt();
 
                 if (GameManager.IsBatchMode)
                 {
@@ -111,6 +112,12 @@ namespace StationeersUIMod
                 // first run — required for the shipped default ("Smaller Test") to exist on a
                 // fresh install. No-overwrite, fail-soft; inert under F6 (ModDirectory null).
                 Features.HudProfileStore.ImportShipped(ModDirectory);
+
+                // Register our single-key actions in the game's native Controls screen. The
+                // SetupKeyBindings postfix also does this at game startup; doing it here as well
+                // re-hooks the OnControlsChanged sync after an F6 hot-reload (idempotent — it skips
+                // keys already registered and only re-subscribes if not already hooked).
+                Core.UiaKeybinds.RegisterWithGame();
 
                 _toolRadial = new ToolRadialFeature();
                 _bagRadial = new BagRadialFeature();
@@ -139,7 +146,8 @@ namespace StationeersUIMod
                     typeof(Patch_MovementController_HandleJump),
                     typeof(Patch_PlayerStateWindow_UpdateJetpackPanels),
                     typeof(Patch_ThingRenderer_OverrideShadowMode), // names + silences the vanilla shadow-LOD NRE
-                    typeof(Core.Patch_CommandLine_Process)); // `finddead` console command
+                    typeof(Core.Patch_CommandLine_Process), // `finddead` console command
+                    typeof(Core.Patch_KeyManager_SetupKeyBindings)); // native Controls-screen rows for our keys
 
                 // The static `new Mod(...)` above registers us with LaunchPadBooster for the optional client-side mod list.
                 // (Proper direct reference - no reflection hack.)
@@ -209,13 +217,31 @@ namespace StationeersUIMod
                     UI.SearchPanelView.Hide();
                 }
 
-                _radials.Update();
+                // The RADIAL half has its own master switch (independent of the HUD half). When
+                // it is off we behave exactly like the loading-screen stand-down: close any open
+                // radial, hide the DontDestroyOnLoad canvases, and skip the controller so its keys
+                // fall back to vanilla (the ownership props below already yield when off).
+                if (UIAConfig.RadialEnabled.Value)
+                {
+                    _radials.Update();
 
-                // #4: fire wedge-bound hotkeys only during real gameplay — no radial open
-                // (that's binding/using-the-wheel time) and gameplay input accepted (so a
-                // bound letter can't fire into a text field / open menu).
-                if (!_radials.IsRadialOpen && Guards.CanAcceptGameplayInput())
-                    Core.WedgeHotkeys.TickExecute();
+                    // #4: fire wedge-bound hotkeys only during real gameplay — no radial open
+                    // (that's binding/using-the-wheel time) and gameplay input accepted (so a
+                    // bound letter can't fire into a text field / open menu).
+                    if (!_radials.IsRadialOpen && Guards.CanAcceptGameplayInput())
+                        Core.WedgeHotkeys.TickExecute();
+
+                    UI.RadialHintBar.Tick(_radials.IsRadialOpen);
+                }
+                else
+                {
+                    if (_radials.IsRadialOpen) _radials.CloseAll();
+                    if (Windows.RadialEditorMode.Active) Windows.RadialEditorMode.Exit();
+                    UI.UnityRadialView.Hide();
+                    UI.ParkedItemsView.Hide();
+                    UI.SearchPanelView.Hide();
+                    UI.RadialHintBar.Tick(false);
+                }
 
                 // Frame.Total baseline: recorded from Update (NOT the ImGui hook — F1-hiding
                 // ImGui must not stop A/B captures; adversarial review 2026-07-13). Every
@@ -234,12 +260,25 @@ namespace StationeersUIMod
 
                 Core.UiaAbDriver.Tick(); // A/B capture state machine (inert unless a run is active)
 
+                // The UGUI Control Center (F10) is the player-facing front door. Pump it every
+                // frame (it owns its own Escape/close and rebind capture) and toggle on the key.
+                UI.Menu.UiaControlCenter.Update();
+
+                // First run: show the how-to guide once, the moment we are safely in-game.
+                if (!UIAConfig.GuideShown.Value && Guards.CanToggleMenus()
+                    && !UI.Menu.UiaControlCenter.IsOpen && !_radials.IsRadialOpen)
+                {
+                    UIAConfig.GuideShown.Value = true;
+                    UI.Menu.UiaControlCenter.OpenGuide();
+                }
+
                 if (Input.GetKeyDown(UIAConfig.SettingsWindowKey.Value) && Guards.CanToggleMenus()
-                    && !_radials.IsRadialOpen)
-                    ToggleSettingsWindow();
+                    && !_radials.IsRadialOpen && !Windows.HudEditorMode.Active)
+                    UI.Menu.UiaControlCenter.Toggle();
 
                 if (Input.GetKeyDown(UI.Hud.HudConfig.HudEditorKey.Value) && Guards.CanToggleMenus()
-                    && !_radials.IsRadialOpen && !Windows.RadialEditorMode.Active)
+                    && !_radials.IsRadialOpen && !Windows.RadialEditorMode.Active
+                    && !UI.Menu.UiaControlCenter.IsOpen)
                     ToggleHudEditor();
             }
             catch (Exception e)
@@ -281,14 +320,18 @@ namespace StationeersUIMod
                 // The click-to-edit popup rides the game's ImGui frame.
                 Windows.HudEditorWindow.DrawPopupOverlay();
 
-                // Legacy ImGui HUD only when the UGUI visor HUD is off (or explicitly
-                // preferred); the visor HUD itself draws from Update, not from here.
-                if (UI.Hud.HudConfig.LegacyImGuiHud.Value
-                    || !UI.Hud.HudConfig.VisorHudEnabled.Value)
+                // VisorHudEnabled is the HUD half's master switch: OFF now means NO HUD at all
+                // (vanilla restored), not "fall back to the legacy ImGui HUD". The legacy ImGui
+                // overlay is a diagnostics-only escape hatch that draws solely when the HUD half
+                // is ON and the player explicitly opted into the legacy renderer. The UGUI visor
+                // HUD itself draws from Update (HudSystem stands down when the master is off).
+                if (UI.Hud.HudConfig.VisorHudEnabled.Value && UI.Hud.HudConfig.LegacyImGuiHud.Value)
                     _hud.Draw();
                 else
                     _hud.RestoreVanillaIfNeeded();
-                _radials.Draw();
+
+                if (UIAConfig.RadialEnabled.Value)
+                    _radials.Draw();
             }
             finally
             {
@@ -308,18 +351,21 @@ namespace StationeersUIMod
             _radials != null && (_radials.IsRadialOpen || Guards.CanAcceptGameplayInput());
 
         public bool ToolRadialOwnsVanillaKey =>
-            UIAConfig.MasterEnable.Value && Assets.Scripts.Inventory.InventoryManager.ShowUi
+            UIAConfig.MasterEnable.Value && UIAConfig.RadialEnabled.Value
+            && Assets.Scripts.Inventory.InventoryManager.ShowUi
             && _toolRadial != null && _toolRadial.OwnsVanillaKey
             && CanHandleSuppressedKeys;
 
         public bool BagRadialOwnsVanillaKey =>
-            UIAConfig.MasterEnable.Value && Assets.Scripts.Inventory.InventoryManager.ShowUi
+            UIAConfig.MasterEnable.Value && UIAConfig.RadialEnabled.Value
+            && Assets.Scripts.Inventory.InventoryManager.ShowUi
             && _bagRadial != null && _bagRadial.OwnsVanillaKey
             && CanHandleSuppressedKeys;
 
         public bool EquipmentKeysOwnButton(string buttonName)
         {
-            if (!UIAConfig.MasterEnable.Value || !UIAConfig.EquipmentKeyRadialsEnabled.Value) return false;
+            if (!UIAConfig.MasterEnable.Value || !UIAConfig.RadialEnabled.Value
+                || !UIAConfig.EquipmentKeyRadialsEnabled.Value) return false;
             if (!Assets.Scripts.Inventory.InventoryManager.ShowUi) return false;
             if (!CanHandleSuppressedKeys) return false;
             foreach (var feature in _equipFeatures)
@@ -382,6 +428,10 @@ namespace StationeersUIMod
                 if (_profileEditor != null && _profileEditor.IsShowing) ImGuiWindowManager.Close(_profileEditor);
                 if (_hudEditorWindow != null && _hudEditorWindow.IsShowing) ImGuiWindowManager.Close(_hudEditorWindow);
                 Windows.HudEditorMode.Shutdown();
+                UI.Menu.UiaControlCenter.Shutdown();
+                UI.Menu.Kit.UiaRebindCapture.Reset();
+                UI.RadialHintBar.Shutdown();
+                Core.UiaKeybinds.Unhook();
                 UI.Hud.HudSystem.Shutdown();
                 _hud?.RestoreVanillaIfNeeded();
                 BagProfileStore.SaveAssignments();

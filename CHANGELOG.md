@@ -2,6 +2,60 @@
 
 All notable changes to the mod. Detailed engineering write-ups live in `Changes Reports/`.
 
+## 0.9.0.1 Experimental — 2026-07-16 — THE PEN, THE CONTROL CENTER + LIGHT YOU AIM
+
+A design-tooling pass on top of 0.9.0: draw your own shapes, aim the light, and take every effect
+per-element — plus a player-facing settings hub. Defaults are unchanged, so an untouched HUD looks
+exactly like 0.9.0.
+
+### The pen tool — draw your own glass
+- **Pen tool → filled glass shapes**: click points to lay a path, close it into a `Shape` element.
+  Every glass effect (sheen, edge light, glow, frost) applies to your own shapes.
+- **Full pen editor**: drag anchors, **Bézier handles** for smooth curves, **corner points**, and
+  insert/delete points — Adobe-style editing on a live HUD element.
+- Fixed the F9 selection box so shapes/lines can actually be grabbed.
+
+### UGUI "Control Center"
+- A player-facing settings hub **alongside** (not replacing) the ImGui F9/F10 windows.
+- **Master on/off** for the radial half and the HUD half, independently.
+- **In-world hint bar + guide** that teaches the controls.
+- **Key rebinding** — in our menu *and* the game's own Controls screen.
+- HUD profiles front-and-centre; bag-profile setup GUI.
+
+### Edge light you aim
+- The border/line highlight is fully configurable: **colour**, **direction** (angle — spin it and the
+  catch sweeps around the frame), **opposing-rim catch**, and **falloff** (tight catch ↔ broad wash).
+  Borders, pen shapes and drawn lines all share the one key light.
+- A box that zeroes its own edge light now **opts out of the global boost** (previously the global
+  always relit it).
+- Colour/angle/rim/falloff update **live** (folded into the layout hash — they're read inside the
+  mesh, so a change now re-meshes); the tint reverts when Edge light is unchecked instead of sticking.
+
+### Per-element everything
+- **Edge fade** — a box's far ends dissolve into the visor (new `HudEdgeFade` vertex-alpha modifier),
+  so a wide bar melts away instead of ending on a hard line.
+- **Make flat** — one click strips a box's glass/glow/edge light to a plain bordered box; per element
+  or **Flatten ALL boxes**.
+- Per-element sliders (all `-1 = follow global`): glass sheen, glass edge light, **edge softness /
+  AA**, border fade, soft edge, **glow out / in / width / diffuse**, **edge ripple / freq**.
+- **"Follow global effects" is its own checkbox**, independent of colours — and separating anything
+  from global now **freezes it at the current global value**, so nothing jumps; it stays what you were
+  looking at until you change it.
+- Ripple reworked: frequency floor **0.5 → 0.05** (a single slow light→dark sweep across a full-width
+  bar) plus a **"Ripple gradient"** slider that smooths the layered noise into a clean sine gradient.
+
+### Global defaults
+- **Global glass sheen** + **glass edge light** defaults (per-element `-1` follows them), with
+  "Make ALL elements follow global glass".
+- **Global frost strength** slider — scales every element's frost at once.
+
+### Bloom + fixes
+- **Dynamic bloom**: anamorphic streak, pulse, state-reactive response, resolution control.
+- Fixed the bright **"bowtie X"** artifact across glass panels (uniform concentric inset) + dense
+  interior fix.
+- Compass no longer breaks under curvature; F10 dropdown bug fixed and the menu restyled
+  (grey/rounded); hairlines can render thinner than before.
+
 ## 0.9.0 Experimental — 2026-07-13 — EFFECTS + THE PROFILER
 
 Three tiers of new HUD effects — every one togglable **globally** (F9 → "Effects (global)") and

@@ -2,7 +2,7 @@
   <Name>StationeersUIMod</Name>
   <ModID>StationeersUIAscended</ModID>
   <Author>FlorpyDorp + JXSN</Author>
-  <Version>0.9.0</Version>
+  <Version>0.9.0.1</Version>
   <Description>
 	  [h1]Stationeers UI Mod[/h1]
 	  
@@ -19,6 +19,20 @@ Ported from BepInEx proof-of-concept into Unity mod project. Radials are now dra
 <br>
 ]]></InGameDescription>
   <ChangeLog>
+    [h3]Version 0.9.0.1 EXPERIMENTAL — THE PEN, THE CONTROL CENTER + LIGHT YOU AIM:[/h3]
+    [list]
+    [*] THE PEN TOOL: draw your own filled glass shapes — click points to lay a path, close it, then edit it like Adobe: drag anchors, Bezier handles for smooth curves, corner points, insert/delete points. Every glass effect (sheen, edge light, glow, frost) works on your own shapes
+    [*] UGUI CONTROL CENTER: a proper in-game settings hub alongside the ImGui F9/F10 windows — master on/off for the radial half and the HUD half independently, an in-world hint bar + guide that teaches the controls, key rebinding (in our menu AND the game's own Controls screen), HUD profiles front-and-centre, and bag-profile setup
+    [*] EDGE LIGHT YOU AIM: the border/line highlight is now fully yours — pick its COLOUR, the DIRECTION it comes from (spin the angle and the catch sweeps around the frame), how much the opposite edge catches, and the falloff (tight catch vs broad wash). Borders and drawn lines light alike
+    [*] EDGE FADE: a box's far ends dissolve softly into the visor, so a wide bar melts away at the edges instead of stopping on a hard line (matches the concept art)
+    [*] MAKE FLAT: one click strips a box's glass, glow and edge light back to a plain slightly-transparent bordered box — per element, or the whole HUD at once
+    [*] Every effect is now per-element: glass sheen + edge light, edge softness (AA), border fade, soft edge, glow (out/in/width/diffuse) and edge ripple all have their own slider with "-1 = follow the global"
+    [*] "Follow global effects" is now its OWN checkbox, separate from colours — and separating anything from global FREEZES it at the current global value, so nothing jumps: it stays exactly what you were looking at until you change it
+    [*] Ripple, reworked: goes far WIDER (a single slow light-to-dark sweep across a full-width bar) and a new "gradient" slider smooths the choppy noise into a clean gradient
+    [*] Global glass sheen / edge-light / frost strength sliders — set the look once for the whole HUD, override any box that needs it
+    [*] Dynamic bloom: anamorphic streak, pulse, state-reactive response and a resolution control
+    [*] Fixes: the bright "bowtie X" artifact across glass panels is gone; the compass no longer breaks under curvature; the F10 menu's dropdown bug fixed and restyled (grey/rounded); thinner hairlines than before
+    [/list]
     [h3]Version 0.9.0 EXPERIMENTAL — EFFECTS + THE PROFILER:[/h3]
     [list]
     [*] Three tiers of new HUD effects, every one togglable globally (F9 > "Effects (global)") AND per element (each element's popup): Tier A mesh effects ON by default, Tier B shader effects ON when the effects bundle is present, Tier C frosted glass OFF by default (experimental)

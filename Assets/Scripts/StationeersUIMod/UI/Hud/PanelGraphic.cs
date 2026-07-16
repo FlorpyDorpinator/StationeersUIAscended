@@ -13,8 +13,12 @@ namespace StationeersUIMod.UI.Hud
     /// Overlay canvases get no MSAA; the ~1px colour/alpha ramp on every edge IS the AA.
     /// </summary>
     [RequireComponent(typeof(CanvasRenderer))]
-    public sealed class PanelGraphic : MaskableGraphic, IHudFxGraphic
+    public sealed class PanelGraphic : MaskableGraphic, IHudFxGraphic, IGlassSurface
     {
+        /// <summary>The graphic itself, for <see cref="IGlassSurface"/> (the FX-material path). The
+        /// glass-styling code drives panels and pen Shapes through the one interface.</summary>
+        public MaskableGraphic AsGraphic => this;
+
         private float _w = 100f, _h = 40f, _topInset, _bottomInset;
         // Per-corner radii in CCW center order: BL, BR, TR, TL. The single-radius
         // SetShape sets all four; the designer's boxes set each independently.
@@ -126,15 +130,33 @@ namespace StationeersUIMod.UI.Hud
             }
         }
 
-        /// <summary>0.5..8 — <see cref="EdgeRipple"/> frequency in cycles per ~100px. Default 2.
+        /// <summary>0.05..8 — <see cref="EdgeRipple"/> frequency in cycles per ~100px. Default 2.
+        /// Low values give a WIDE, gentle ripple (a long light→dark sweep along the border); the
+        /// floor dropped from 0.5 to 0.05 so a full-width bar can carry a single slow gradient.
         /// Only matters when EdgeRipple &gt; 0, so the default is inert for byte-identity.</summary>
         public float EdgeRippleFreq
         {
             get => _edgeRippleFreq;
             set
             {
-                value = float.IsNaN(value) ? 2f : Mathf.Clamp(value, 0.5f, 8f);
+                value = float.IsNaN(value) ? 2f : Mathf.Clamp(value, 0.05f, 8f);
                 if (!Mathf.Approximately(_edgeRippleFreq, value)) { _edgeRippleFreq = value; SetVerticesDirty(); }
+            }
+        }
+
+        private float _rippleSmooth;
+
+        /// <summary>0..1 — dials the ripple waveform from the layered incommensurate noise (0,
+        /// choppy light/dark breakup) toward a single clean sine (1, a smooth light→dark gradient).
+        /// Pair a high value with a low <see cref="EdgeRippleFreq"/> for one broad, soft sweep.
+        /// 0 (default) reproduces the classic look exactly.</summary>
+        public float RippleSmooth
+        {
+            get => _rippleSmooth;
+            set
+            {
+                value = float.IsNaN(value) ? 0f : Mathf.Clamp01(value);
+                if (!Mathf.Approximately(_rippleSmooth, value)) { _rippleSmooth = value; SetVerticesDirty(); }
             }
         }
 
@@ -250,8 +272,23 @@ namespace StationeersUIMod.UI.Hud
 
         public void Refresh() => SetVerticesDirty();
 
-        private static float Feather => HudConfig.EdgeFeather != null
-            ? HudConfig.EdgeFeather.Value : 1.25f;
+        private float _featherOverride = -1f;
+
+        /// <summary>Per-element edge softness (the AA ramp width, px). -1 (default) = use the
+        /// GLOBAL <see cref="HudConfig.EdgeFeather"/>, so an un-set panel renders exactly as before.
+        /// Dirty-guarded: the HUD may set it every frame, only a real change rebuilds the mesh.</summary>
+        public float FeatherOverride
+        {
+            get => _featherOverride;
+            set
+            {
+                value = float.IsNaN(value) ? -1f : value;
+                if (!Mathf.Approximately(_featherOverride, value)) { _featherOverride = value; SetVerticesDirty(); }
+            }
+        }
+
+        private float Feather => _featherOverride >= 0f ? _featherOverride
+            : (HudConfig.EdgeFeather != null ? HudConfig.EdgeFeather.Value : 1.25f);
 
         // Scratch (single-threaded UI rebuild, same pattern as CircleGraphic). The stop arrays
         // hold up to 4 inner-glow stops (GlowInner) + 4 base stops (fill-ramp, border-in,
@@ -265,6 +302,26 @@ namespace StationeersUIMod.UI.Hud
         private static readonly float[] _stopM = new float[17];
         private static readonly float[] _inW = new float[4];
         private static readonly float[] _miter = new float[4];
+        // Contour points recorded per emitted column (closing duplicate included) — the
+        // dense-interior rings are scaled copies of THIS polygon (convex, star-shaped about
+        // the centre by construction, so scaled copies nest and can never fold — the review
+        // refuted scaling the stop-0 ring, whose polar angle reverses near glow corners).
+        private static readonly List<Vector2> _icontour = new List<Vector2>(1200);
+        private static readonly List<Vector2> _istop0 = new List<Vector2>(1200); // stop-0 vertex positions per column
+
+        private bool _denseFill;
+
+        /// <summary>Opt this panel into the DENSE interior fill even without sheen — set by the
+        /// edge-fade wiring: a per-vertex alpha ramp (HudEdgeFade) across a single-fan interior
+        /// interpolates RADIALLY along the fan's corner→centre triangles and paints a bowtie X
+        /// (play-test 2026-07-15: "fade box ends causes dramatic bowtying"). With interior rings
+        /// the ramp is sampled every ~48px and barycentric interpolation reproduces a linear
+        /// ramp exactly. Default false = zero cost for untouched panels.</summary>
+        public bool DenseFill
+        {
+            get => _denseFill;
+            set { if (_denseFill != value) { _denseFill = value; SetVerticesDirty(); } }
+        }
 
         protected override void OnPopulateMesh(VertexHelper vh)
         {
@@ -278,6 +335,8 @@ namespace StationeersUIMod.UI.Hud
         private void PopulateMeshCore(VertexHelper vh)
         {
             vh.Clear();
+            _icontour.Clear();
+            _istop0.Clear();
             float hw = _w * 0.5f, hh = _h * 0.5f;
             // The threshold must admit hairlines: the vitals bars are ~1.4px tall panels
             // (hh 0.7) — a 1px guard would silently cull every one of them.
@@ -403,7 +462,7 @@ namespace StationeersUIMod.UI.Hud
             // (bitwise the old output); with glass on, fill follows the sheen gradient
             // and the border follows the specular run. Vertex colours interpolate
             // linearly across a quad, so linear-in-position light reads exactly.
-            void ColumnColors(Vector2 dir, Vector2 onShape)
+            void ColumnColors(Vector2 dir, Vector2 onShape, float glowFade, float bandD)
             {
                 Color fillC = FillAt(onShape.y, hh);
                 Color bc = hasBorder ? BorderAt(dir, onShape, hw) : fillC;
@@ -487,10 +546,26 @@ namespace StationeersUIMod.UI.Hud
                         // rises) and decays with the precomputed _inW falloff. The fill-ramp
                         // stop carries the full-strength value so the profile runs continuous
                         // through the border: glass -> inner glow -> frame -> halo.
-                        float aGi = Mathf.Min(0.9f, _glowInner * shaped);
+                        // glowFade dissolves the inner glow toward corners so adjacent edges' bands
+                        // no longer paint a bright overlap seam (the X). Colour only — no geometry.
+                        float aGi = Mathf.Min(0.9f, _glowInner * shaped) * glowFade;
+                        // POSITION-TRUE fill under each band stop: the fill base is sampled at the
+                        // stop VERTEX's own y, not the contour's. The contour-y carry made every
+                        // collapsed corner-arc stop-0 vertex (they all land ON the corner centre
+                        // when bandD = rc) wear a DIFFERENT colour — coincident verts, different
+                        // colours = a hard value step along the collinear centre→corner fan edges
+                        // = the full-panel bowtie X (adversarial verification, 2026-07-15). Sampling
+                        // at the true position makes coincident verts agree and the deep band wear
+                        // its real gradient; sheen 0 returns a constant, so defaults are unchanged.
                         for (int gs = 0; gs < inStops; gs++)
-                            _stopC[gs] = GlowOver(halo, aGi * _inW[gs], fillC);
-                        _stopC[inStops] = GlowOver(halo, aGi, _stopC[inStops]);
+                        {
+                            float bd = Mathf.Lerp(-bandD, -rampD, gs / (float)inStops); // == EmitColumn's stop depth
+                            Color fillHere = FillAt(onShape.y + dir.y * bd, hh);
+                            _stopC[gs] = GlowOver(halo, aGi * _inW[gs], fillHere);
+                        }
+                        // The fill-ramp stop sits at -rampD with a border, ON the contour without.
+                        Color fillRamp = hasBorder ? FillAt(onShape.y - dir.y * rampD, hh) : fillC;
+                        _stopC[inStops] = GlowOver(halo, aGi, fillRamp);
                     }
                 }
             }
@@ -542,10 +617,18 @@ namespace StationeersUIMod.UI.Hud
             // round 14). Compressing instead means every column still fades fully to zero, and
             // adjacent edges' bands both reach exactly zero ON the corner bisector, so the
             // miter seam carries no discontinuity at all.
-            void EmitColumn(Vector2 dir, Vector2 onShape, float innerCap)
+            // The inner glow keeps its ORIGINAL edge-perpendicular geometry (a clean border — a
+            // scaled-toward-centre inset instead displaced edge points sideways near the wide ends
+            // and speckled the frame). The X/bowtie was the adjacent edges' bands OVERLAPPING at the
+            // corners; it is killed purely by fading the inner-glow ALPHA to zero toward corners
+            // (glowFade, computed per column below) — a colour-only change, so the geometry and the
+            // border are untouched. glowFade 1 = full glow (mid-edge), 0 = none (corners/ends).
+            void EmitColumn(Vector2 dir, Vector2 onShape, float innerCap, float glowFade)
             {
-                ColumnColors(dir, onShape);
                 float bandD = inStops > 0 ? Mathf.Max(rampD, Mathf.Min(glowInD, innerCap)) : 0f;
+                ColumnColors(dir, onShape, glowFade, bandD);
+                _icontour.Add(onShape); // contour point, recorded for the dense-interior rings
+                _istop0.Add(onShape + dir * (inStops > 0 ? -bandD : _stopD[0])); // stop-0 position (the fill boundary)
                 for (int s = 0; s < stops; s++)
                 {
                     float d = s < inStops
@@ -579,7 +662,7 @@ namespace StationeersUIMod.UI.Hud
                 {
                     float a = Mathf.Lerp(aIn, aOut, i / (float)cornerSegs);
                     var dir = new Vector2(Mathf.Cos(a), Mathf.Sin(a));
-                    EmitColumn(dir, cur + dir * rc, Mathf.Max(rc, rampD));
+                    EmitColumn(dir, cur + dir * rc, Mathf.Max(rc, rampD), 0f); // corner arc: no inner glow (overlap zone)
                     columns++;
                 }
 
@@ -618,7 +701,12 @@ namespace StationeersUIMod.UI.Hud
                             innerCap = Mathf.Min(glowInD, Mathf.Min(
                                 len * et * _miter[c] + rc,
                                 len * (1f - et) * _miter[(c + 1) % 4] + rNext));
-                        EmitColumn(edgeDir, p, innerCap);
+                        // Fade the inner glow IN over ~glowInD from each corner, so the two edges'
+                        // bands both dissolve before they can overlap (the X). Full glow mid-edge.
+                        float glowFade = 1f;
+                        if (inStops > 0 && glowInD > 0.01f)
+                            glowFade = Mathf.SmoothStep(0f, 1f, (Mathf.Min(et, 1f - et) * len) / glowInD);
+                        EmitColumn(edgeDir, p, innerCap, glowFade);
                         columns++;
                     }
                 }
@@ -630,20 +718,122 @@ namespace StationeersUIMod.UI.Hud
                 Vector2 cur = _centers[0];
                 float aIn = NormalAngle(prev, cur);
                 var dir = new Vector2(Mathf.Cos(aIn), Mathf.Sin(aIn));
-                EmitColumn(dir, cur + dir * _radii[0], Mathf.Max(_radii[0], rampD));
+                EmitColumn(dir, cur + dir * _radii[0], Mathf.Max(_radii[0], rampD), 0f); // corner: no inner glow
                 columns++;
             }
+
+            // DENSE INTERIOR: when the fill carries a per-vertex gradient (quadratic sheen, or an
+            // edge-fade alpha ramp via DenseFill), a single fan from ONE centre vertex interpolates
+            // it RADIALLY along the corner→centre triangles — the full-panel bowtie X (adversarial
+            // verification 2026-07-15: with inner glow the corner-arc stop-0 verts even COLLAPSE
+            // onto the corner centre, turning the kink into a hard value step). Interior rings =
+            // scaled copies of the CONTOUR (star-shaped, so they nest and never fold), coloured at
+            // each vertex's OWN y, sampling every gradient densely. Gate keeps sheen-0, fade-less
+            // panels on the classic fan — byte-identical at defaults.
+            float minHalf = Mathf.Min(hw, hh);
+            bool denseFill = (_sheen > 0.004f || _denseFill) && minHalf >= 8f && columns >= 3;
 
             for (int i = 0; i < columns - 1; i++)
             {
                 int a = 1 + i * stops;
                 int b = 1 + (i + 1) * stops;
-                vh.AddTriangle(0, a, b); // fill fan to the innermost ring
+                if (!denseFill) vh.AddTriangle(0, a, b); // fill fan to the innermost ring
                 for (int s = 0; s < stops - 1; s++)
                 {
                     vh.AddTriangle(a + s, a + s + 1, b + s + 1);
                     vh.AddTriangle(a + s, b + s + 1, b + s);
                 }
+            }
+
+            if (denseFill)
+            {
+                // Ring set: K scaled contour copies from near the centre out to just inside the
+                // deepest stop-0 vertex (the glow band's pillow, or the ~1.25px fill ramp), then a
+                // BRIDGE band from the outermost ring to the true stop-0 verts. All loops run
+                // i < columns-1 mirroring the strip loop above — the closing duplicate column
+                // carries the seam; never wrap modulo columns (adversarial review, 2026-07-15).
+                float deepest = inStops > 0 ? glowInD : rampD;
+                float sMax = Mathf.Clamp(1f - (deepest + 2f) / minHalf, 0.2f, 0.97f);
+                int K = Mathf.Clamp(Mathf.CeilToInt(minHalf / 24f), 2, 8);
+                // Edge fade is a gradient in X: on a wide strip the rings (sized by the SHORT
+                // dimension) step hundreds of px apart horizontally, and a large fade fraction
+                // reaches inside them — radial interpolation again = a residual X (play-test
+                // 2026-07-15). With a fade active, ring density follows the LONG dimension so
+                // radial cells stay ≤ ~44px in x too; capped so ripple-dense meshes stay well
+                // under the 65k vert limit.
+                if (_denseFill)
+                {
+                    K = Mathf.Clamp(Mathf.CeilToInt(sMax * Mathf.Max(hw, hh) / 44f), K, 28);
+                    int maxRingVerts = 26000;
+                    if (columns * (K + 1) > maxRingVerts)
+                        K = Mathf.Max(2, maxRingVerts / Mathf.Max(1, columns) - 1);
+                }
+                // uv0.y: the OLD interior interpolated marker 0 (centre) → stop-0's marker across
+                // the fill; ring markers reproduce that field radially so external Tier B shaders
+                // keying on uv0.y see the same falloff. Stop-0 marker: 0 with a glow band, else 1.
+                float m0 = _stopM[0];
+
+                int ringBase = vh.currentVertCount; // == 1 + columns*stops
+                for (int r = 1; r <= K; r++)
+                {
+                    float sc = sMax * r / K;
+                    for (int i = 0; i < columns; i++)
+                    {
+                        Vector2 pp = _icontour[i] * sc;
+                        AddVertFx(vh, pp, FillAt(pp.y, hh), m0 * sc);
+                    }
+                }
+
+                int Ring(int r, int i) => ringBase + (r - 1) * columns + i; // r = 1..K
+
+                // Centre fan to the innermost ring (small: sMax/K of the panel).
+                for (int i = 0; i < columns - 1; i++)
+                    vh.AddTriangle(0, Ring(1, i), Ring(1, i + 1));
+                // Strips between consecutive interior rings.
+                for (int r = 1; r < K; r++)
+                    for (int i = 0; i < columns - 1; i++)
+                    {
+                        vh.AddTriangle(Ring(r, i), Ring(r + 1, i), Ring(r + 1, i + 1));
+                        vh.AddTriangle(Ring(r, i), Ring(r + 1, i + 1), Ring(r, i + 1));
+                    }
+                // Bridge band: outermost ring → the true stop-0 positions, SUBDIVIDED into a
+                // ladder. On a wide panel the rings (sized by the SHORT dimension) reach only
+                // ~sMax of the width, so a single-quad bridge spans hundreds of px radially —
+                // a fan in disguise, and its quad boundaries re-drew the bowtie as radial
+                // spokes (play-test 2026-07-15: "the bow tie is still there"). Bounding the
+                // cell size to ~44px makes interpolation error ∝ cell² sub-perceptual for
+                // every gradient (smoothstep edge fade, quadratic sheen, glow colours). Rows
+                // duplicate the ring-K / stop-0 endpoint positions with IDENTICAL colours
+                // (GlowOver at weight 0 is the raw fill), so there is no seam and no index
+                // sharing to get wrong. Ring-to-ring bands stay single quads: the edge fade
+                // is constant 1 inside sMax and sheen varies only a few px there.
+                float maxBridge = 0f;
+                for (int i = 0; i < columns; i++)
+                {
+                    float len = (_istop0[i] - _icontour[i] * sMax).magnitude;
+                    if (len > maxBridge) maxBridge = len;
+                }
+                int M = Mathf.Clamp(Mathf.CeilToInt(maxBridge / 44f), 1, 12);
+                if (columns > 500) M = Mathf.Min(M, 6); // vert guard for ripple-dense meshes
+                int bridgeBase = vh.currentVertCount;
+                for (int row = 0; row <= M; row++)
+                {
+                    float t = row / (float)M;
+                    float mk = Mathf.Lerp(m0 * sMax, m0, t);
+                    for (int i = 0; i < columns; i++)
+                    {
+                        Vector2 pp = Vector2.Lerp(_icontour[i] * sMax, _istop0[i], t);
+                        AddVertFx(vh, pp, FillAt(pp.y, hh), mk);
+                    }
+                }
+                for (int row = 0; row < M; row++)
+                    for (int i = 0; i < columns - 1; i++)
+                    {
+                        int a = bridgeBase + row * columns + i;
+                        int b = bridgeBase + (row + 1) * columns + i;
+                        vh.AddTriangle(a, b, b + 1);
+                        vh.AddTriangle(a, b + 1, a + 1);
+                    }
             }
         }
 
@@ -697,11 +887,53 @@ namespace StationeersUIMod.UI.Hud
             return c;
         }
 
-        // The two "lights" the border catches: a key from the upper-left and a fainter
-        // rim from the lower-right (unit vectors of (-1,2) and (1,-2)).
-        // internal so PolylineGraphic's EdgeLightDir defaults to the SAME key direction —
-        // panels and lines must agree on where the light comes from.
-        internal const float LightX = -0.4472f, LightY = 0.8944f;
+        // The key light the border catches, now CONFIGURABLE (direction / rim / falloff / colour).
+        // internal so PolylineGraphic and PolygonPanelGraphic share the SAME key direction — panels,
+        // pen shapes and lines must agree on where the light comes from. The default angle reproduces
+        // the old fixed (-0.4472, 0.8944) upper-left direction exactly, so untouched HUDs are identical.
+        private const float DefaultLightAngleDeg = 116.565f;
+        private static float LightAngleDeg => HudConfig.FxEdgeLightAngle != null ? HudConfig.FxEdgeLightAngle.Value : DefaultLightAngleDeg;
+        internal static float LightX => Mathf.Cos(LightAngleDeg * Mathf.Deg2Rad);
+        internal static float LightY => Mathf.Sin(LightAngleDeg * Mathf.Deg2Rad);
+        private static float LightRim => HudConfig.FxEdgeLightRim != null ? HudConfig.FxEdgeLightRim.Value : 0.5f;
+        private static float LightSharp => HudConfig.FxEdgeLightSharp != null ? HudConfig.FxEdgeLightSharp.Value : 3f;
+
+        private static Color _elTint = Color.white;
+        private static string _elTintFor;
+        /// <summary>The colour the edge light whitens TOWARD (parsed from FxEdgeLightColor, cached on
+        /// the string so the per-vertex path never re-parses). White reproduces the classic look.</summary>
+        internal static Color LightTint()
+        {
+            // The tint only applies while the global Edge light is ENABLED. Otherwise borders/lines
+            // keep the plain WHITE specular from their own spec — so unchecking "Edge light" reverts
+            // any chosen colour instead of it sticking on the border (play-test: "the colour I pick
+            // permanently alters the border, even after I turn edge light off").
+            bool on = HudConfig.FxTierA != null && HudConfig.FxTierA.Value
+                   && HudConfig.FxEdgeLightOn != null && HudConfig.FxEdgeLightOn.Value;
+            if (!on) return Color.white;
+            string s = HudConfig.FxEdgeLightColor != null ? HudConfig.FxEdgeLightColor.Value : "#FFFFFF";
+            if (!string.Equals(s, _elTintFor))
+            {
+                _elTintFor = s;
+                Color c;
+                _elTint = ColorUtility.TryParseHtmlString(s, out c) ? c : Color.white;
+            }
+            return _elTint;
+        }
+
+        /// <summary>The configurable directional light weight at a contour point: a key catch on the
+        /// side facing the light plus a fainter opposing rim, both shaped by the sharpness exponent
+        /// and run brighter→dimmer across the panel. <paramref name="txAcross"/> is 0 (left) .. 1
+        /// (right). Shared by panels, pen shapes and (via the same LightX/Y) drawn lines.</summary>
+        internal static float KeyLightWeight(Vector2 dir, float txAcross)
+        {
+            float dot = dir.x * LightX + dir.y * LightY;
+            float k1 = Mathf.Max(0f, dot);
+            float k2 = Mathf.Max(0f, -dot);
+            float sharp = LightSharp;
+            return Mathf.Pow(k1, sharp) * (1f - 0.55f * txAcross)
+                 + LightRim * Mathf.Pow(k2, sharp) * (0.25f + 0.75f * txAcross);
+        }
 
         /// <summary>Border colour for an edge whose outward normal is <paramref name="dir"/>
         /// at contour point <paramref name="p"/>. The directional light weight <c>w</c> is
@@ -725,9 +957,12 @@ namespace StationeersUIMod.UI.Hud
             if (_edgeRipple > 0.004f)
             {
                 float t = (p.x + p.y * 0.7f) * (_edgeRippleFreq * 0.0628f);
+                // RippleSmooth fades out the two higher harmonics, so at 1 only the base sine
+                // survives — a clean, broad light→dark gradient instead of choppy noise.
+                float harm = 1f - _rippleSmooth;
                 float ripple = 1f + _edgeRipple * (0.32f * Mathf.Sin(t)
-                    + 0.24f * Mathf.Sin(t * 2.417f + 1.7f)
-                    + 0.14f * Mathf.Sin(t * 5.089f + 4.2f));
+                    + harm * (0.24f * Mathf.Sin(t * 2.417f + 1.7f)
+                    + 0.14f * Mathf.Sin(t * 5.089f + 4.2f)));
                 // Ceiling 2 (not 1): overdriven ripple (slider > 1) pushes crests PAST the
                 // nominal light weight so spec whitening saturates and the halo brightens at
                 // the catches, while troughs clip to fully dark — the "more extremes" ask.
@@ -743,12 +978,8 @@ namespace StationeersUIMod.UI.Hud
         /// of <see cref="BorderLightW"/> so the halo can blend toward it as GlowDiffuse rises.</summary>
         private float BorderLightSmooth(Vector2 dir, Vector2 p, float hw)
         {
-            float dot = dir.x * LightX + dir.y * LightY;
-            float k1 = Mathf.Max(0f, dot);
-            float k2 = Mathf.Max(0f, -dot);
             float tx = Mathf.Clamp01((p.x + hw) / (2f * hw)); // 0 left .. 1 right
-            return k1 * k1 * k1 * (1f - 0.55f * tx)
-                 + 0.5f * k2 * k2 * k2 * (0.25f + 0.75f * tx);
+            return KeyLightWeight(dir, tx);
         }
 
         private Color BorderAt(Vector2 dir, Vector2 p, float hw)
@@ -757,13 +988,15 @@ namespace StationeersUIMod.UI.Hud
 
             Color c = BorderColor;
 
-            // Spec: whiten the line where it faces the key light (formula/output unchanged).
+            // Spec: pull the line TOWARD the (configurable) edge-light colour where it faces the key
+            // light. Tint = white reproduces the classic specular whitening exactly.
             if (_spec > 0.004f)
             {
                 float ws = Mathf.Clamp01(w * _spec * 1.6f);
-                c.r += (1f - c.r) * ws;
-                c.g += (1f - c.g) * ws;
-                c.b += (1f - c.b) * ws;
+                Color tint = LightTint();
+                c.r += (tint.r - c.r) * ws;
+                c.g += (tint.g - c.g) * ws;
+                c.b += (tint.b - c.b) * ws;
                 c.a += (1f - c.a) * ws * 0.85f;
             }
 

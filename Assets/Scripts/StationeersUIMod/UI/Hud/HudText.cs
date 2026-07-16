@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using StationeersUIMod.Features;
 using TMPro;
 using UnityEngine;
 
@@ -17,7 +18,12 @@ namespace StationeersUIMod.UI.Hud
 
         internal static TMP_FontAsset Font()
         {
-            string want = HudConfig.FontName != null ? HudConfig.FontName.Value : "";
+            // The active profile may carry its own font (a shipped "default UI" can ship a type
+            // face); it wins over the global HudFontName. Empty on both = the game's default face.
+            var active = HudProfileStore.Active;
+            string want = active != null && !string.IsNullOrEmpty(active.Font)
+                ? active.Font
+                : (HudConfig.FontName != null ? HudConfig.FontName.Value : "");
             if (_font != null && _fontFor == want) return _font;
             _font = Resolve(want);
             _fontFor = want;

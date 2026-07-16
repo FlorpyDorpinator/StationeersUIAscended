@@ -179,14 +179,20 @@ namespace StationeersUIMod.UI.Hud
         protected float GlassEdgeFor()
         {
             float global = HudConfig.GlassEdge != null ? HudConfig.GlassEdge.Value : 0f;
-            float v = FollowGlobal ? global : Def.GetF("spec", -1f);
+            float own = Def.GetF("spec", -1f);
+            float v = FollowGlobal ? global : own;
             float baseSpec = v >= 0f ? v : global;
             // Tier A's edge-light knob boosts the PANEL border light too (play-test: the
             // slider only drove drawn lines, which most HUDs barely use — the "brighter and
             // darker along the border" run lives in PanelGraphic.BorderAt and this is its
             // volume). Every widget flows through here (incl. hand/equipment boxes' direct
             // Spec sets), so one slider lights the whole HUD's edges.
-            if (HudConfig.FxTierA != null && HudConfig.FxTierA.Value
+            // BUT an element that has EXPLICITLY zeroed its own edge light (spec == 0 while not
+            // following global colours) opts OUT of that global boost — otherwise "Make flat" and
+            // dragging Glass edge light to 0 did nothing, because the global lit the border back up.
+            bool optedOut = !FollowGlobal && own == 0f;
+            if (!optedOut
+                && HudConfig.FxTierA != null && HudConfig.FxTierA.Value
                 && HudConfig.FxEdgeLightOn != null && HudConfig.FxEdgeLightOn.Value
                 && HudConfig.FxEdgeLight != null && HudConfig.FxEdgeLight.Value > 0f)
                 baseSpec = Mathf.Clamp01(baseSpec + HudConfig.FxEdgeLight.Value * 0.45f);
@@ -198,13 +204,46 @@ namespace StationeersUIMod.UI.Hud
         /// wherever they style a box — the setters are dirty-guarded, so the per-frame cost is two
         /// param reads. Also pushes the 0.9.0 per-element Tier B strength (uv0.x) so the shared
         /// effect shaders can modulate per element without breaking batching.</summary>
-        protected void ApplyGlass(PanelGraphic g)
+        protected void ApplyGlass(IGlassSurface g)
         {
             if (g == null) return;
             g.Sheen = GlassSheenFor();
             g.Spec = GlassEdgeFor();
+            g.FeatherOverride = FeatherFor();
             ApplyMeshFx(g);
+            ApplyEdgeFade(g.AsGraphic);
         }
+
+        /// <summary>Attach/update the per-element EDGE FADE on a panel: the far left/right
+        /// ("edgeFadeX") and top/bottom ("edgeFadeY") of the box dissolve to transparent, so a
+        /// wide bar melts into the visor at its ends (the concept-art look). Fades the box / border
+        /// / glow it runs on, NOT the sibling text/icons — the readouts stay crisp. The modifier is
+        /// added lazily and left inert (fade 0) when unused, so untouched elements are unchanged.</summary>
+        protected void ApplyEdgeFade(Graphic g)
+        {
+            if (g == null) return;
+            float fx = Def != null ? Def.GetF("edgeFadeX", 0f) : 0f;
+            float fy = Def != null ? Def.GetF("edgeFadeY", 0f) : 0f;
+            bool on = fx > 0.001f || fy > 0.001f;
+            // The fade is a per-vertex alpha ramp: across a single-fan interior it interpolates
+            // RADIALLY (corner→centre bowtie X). Opt the panel into the dense interior so the
+            // ramp is sampled every ~48px — barycentric interp then reproduces it exactly.
+            var pg = g as PanelGraphic;
+            if (pg != null) pg.DenseFill = on;
+            var ef = g.GetComponent<HudEdgeFade>();
+            if (!on)
+            {
+                if (ef != null) ef.SetFade(0f, 0f);
+                return;
+            }
+            if (ef == null) ef = g.gameObject.AddComponent<HudEdgeFade>();
+            ef.SetFade(fx, fy);
+        }
+
+        /// <summary>The element's effective edge softness (AA ramp width, px): its own "feather"
+        /// when set (>= 0), else -1 = defer to the global HudConfig.EdgeFeather (PanelGraphic does
+        /// the fallback). Same "-1 = global" convention as corner radius and border width.</summary>
+        protected float FeatherFor() => Def.GetF("feather", -1f);
 
         /// <summary>The Tier A mesh-effect push WITHOUT the sheen/spec pair: the concept-art
         /// trio (border fade / soft edge / glow in+out) + edge shimmer, per-element overrides
@@ -214,7 +253,7 @@ namespace StationeersUIMod.UI.Hud
         /// effects — calling only ApplyFx left the hand/1-6 boxes inert for every 0.9.0 mesh
         /// feature (play-test round 11; same shape as the round-1 ApplyFx split). Tier A off
         /// = everything 0 = classic 0.8.0 output.</summary>
-        protected void ApplyMeshFx(PanelGraphic g)
+        protected void ApplyMeshFx(IGlassSurface g)
         {
             if (g == null) return;
             bool tierA = HudConfig.FxTierA != null && HudConfig.FxTierA.Value;
@@ -225,11 +264,12 @@ namespace StationeersUIMod.UI.Hud
             g.SoftEdge = seOn ? OwnOrGlobal("softEdge", HudConfig.FxSoftEdge) : 0f;
             g.Glow = glOn ? OwnOrGlobal("glow", HudConfig.FxGlow) : 0f;
             g.GlowInner = glOn ? OwnOrGlobal("glowIn", HudConfig.FxGlowInner) : 0f;
-            g.GlowWidth = HudConfig.FxGlowWidth != null ? HudConfig.FxGlowWidth.Value : 24f;
-            g.GlowDiffuse = HudConfig.FxGlowDiffuse != null ? HudConfig.FxGlowDiffuse.Value : 0f;
+            g.GlowWidth = OwnOrGlobal("glowWidth", HudConfig.FxGlowWidth);
+            g.GlowDiffuse = OwnOrGlobal("glowDiffuse", HudConfig.FxGlowDiffuse);
             bool rippleOn = tierA && HudConfig.FxEdgeLightOn != null && HudConfig.FxEdgeLightOn.Value;
-            g.EdgeRipple = rippleOn && HudConfig.FxEdgeRipple != null ? HudConfig.FxEdgeRipple.Value : 0f;
-            g.EdgeRippleFreq = HudConfig.FxEdgeRippleFreq != null ? HudConfig.FxEdgeRippleFreq.Value : 2f;
+            g.EdgeRipple = rippleOn ? OwnOrGlobal("ripple", HudConfig.FxEdgeRipple) : 0f;
+            g.EdgeRippleFreq = OwnOrGlobal("rippleFreq", HudConfig.FxEdgeRippleFreq);
+            g.RippleSmooth = Def != null ? Def.GetF("rippleSmooth", 0f) : 0f;
 
             ApplyFx(g);
         }
@@ -246,7 +286,7 @@ namespace StationeersUIMod.UI.Hud
         /// Sheen/Spec directly with state overrides (hand boxes, equipment column — play-test:
         /// "no effects on the hand/1-6 slots") can opt their boxes into effects without
         /// disturbing their custom glass logic.</summary>
-        protected void ApplyFx(PanelGraphic g)
+        protected void ApplyFx(IGlassSurface g)
         {
             if (g == null) return;
             g.FxStrength = FxStrengthFor();
@@ -263,9 +303,9 @@ namespace StationeersUIMod.UI.Hud
                 && Core.HudShaderStore.TierBAvailable
                 && Def != null
                 && (Def.GetB("fxShine", true) || Def.GetB("fxIrid", true) || Def.GetB("fxDissolve", true));
-            if (frost) { if (!HudFxMaterials.Assign(g, "glass")) HudFxMaterials.Unassign(g); }
-            else if (edgeFx) { if (!HudFxMaterials.Assign(g, "edgefx")) HudFxMaterials.Unassign(g); }
-            else HudFxMaterials.Unassign(g);
+            if (frost) { if (!HudFxMaterials.Assign(g.AsGraphic, "glass")) HudFxMaterials.Unassign(g.AsGraphic); }
+            else if (edgeFx) { if (!HudFxMaterials.Assign(g.AsGraphic, "edgefx")) HudFxMaterials.Unassign(g.AsGraphic); }
+            else HudFxMaterials.Unassign(g.AsGraphic);
         }
 
         /// <summary>Per-element Tier B modulation (0..1) baked into uv0.x on rebuild: the max of
@@ -409,7 +449,15 @@ namespace StationeersUIMod.UI.Hud
             // Follow the GLOBAL box colours (edit them in F9 → Colours → "Global box colours") or
             // give this element its own. When following, the per-element colour pickers are hidden
             // because they'd have no effect.
-            into.Add(HudProp.Bool("Follow global colours", () => d.GetB("followGlobal", false), v => d.SetB("followGlobal", v)));
+            into.Add(HudProp.Bool("Follow global colours", () => d.GetB("followGlobal", false), v =>
+            {
+                bool was = d.GetB("followGlobal", false);
+                d.SetB("followGlobal", v);
+                // Separating (was following → now own): freeze the colours it was SHOWING (the current
+                // global palette) into this element, so it stays exactly that colour until you change
+                // it — no jump back to whatever the profile happened to store.
+                if (was && !v) SeedColoursFromGlobal(d);
+            }));
             if (!d.GetB("followGlobal", false))
             {
                 into.Add(HudProp.Color("Fill", () => d.Fill, v => d.Fill = v));
@@ -422,6 +470,7 @@ namespace StationeersUIMod.UI.Hud
                 into.Add(HudProp.F("Glass edge light (-1 = global)", () => d.GetF("spec", -1f), v => d.SetF("spec", v < 0f ? -1f : Mathf.Clamp01(v)), -1f, 1f));
             }
             into.Add(HudProp.F("Border width (-1 = global)", () => d.BorderWidth, v => d.BorderWidth = v, -1f, 8f));
+            into.Add(HudProp.F("Edge softness / AA (-1 = global)", () => d.GetF("feather", -1f), v => d.SetF("feather", v < 0f ? -1f : Mathf.Clamp(v, 0f, 4f)), -1f, 4f));
             into.Add(HudProp.F("Corner TL (-1 = global)", () => d.RTL, v => d.RTL = v, -1f, 64f));
             into.Add(HudProp.F("Corner TR (-1 = global)", () => d.RTR, v => d.RTR = v, -1f, 64f));
             into.Add(HudProp.F("Corner BR (-1 = global)", () => d.RBR, v => d.RBR = v, -1f, 64f));
@@ -440,6 +489,17 @@ namespace StationeersUIMod.UI.Hud
             // window). Each is a checkbox + a strength slider; default on at 1× so nothing changes
             // until you tune it. "Death collapse" is the CRT squash; turn it off for e.g. the top bar.
             into.Add(HudProp.Header("Effects (this element)"));
+            // Follow the GLOBAL mesh-effect sliders (F9 → Effects), or separate this element so it
+            // keeps its own. INDEPENDENT of the colour checkbox. Separating FREEZES the current
+            // global values into the element (so the look doesn't jump — it stays put until you move
+            // a slider); re-following resets those sliders back to "-1 = global". Derived from the
+            // params, so it needs no extra stored flag. Covers: border fade / soft edge / glow (out,
+            // in, width, diffuse) / edge ripple / ripple freq.
+            into.Add(HudProp.Bool("Follow global effects", () => !EffectsAreSeparated(d), v =>
+            {
+                if (v) ResetEffectsToGlobal(d);   // follow: drop back to -1 (use the global sliders)
+                else SeedEffectsFromGlobal(d);    // separate: freeze current global, then tweak below
+            }));
             into.Add(HudProp.Bool("Death collapse", () => d.GetB("fxCollapse", true), v => d.SetB("fxCollapse", v)));
             into.Add(HudProp.F("  collapse strength", () => d.GetF("fxCollapseAmt", 1f),
                 v => d.SetF("fxCollapseAmt", Mathf.Clamp(v, 0f, 2f)), 0f, 2f));
@@ -476,6 +536,83 @@ namespace StationeersUIMod.UI.Hud
                 v => d.SetF("glow", Mathf.Clamp(v, -1f, 2f)), -1f, 2f));
             into.Add(HudProp.F("Glow in (-1=global)", () => d.GetF("glowIn", -1f),
                 v => d.SetF("glowIn", Mathf.Clamp(v, -1f, 2f)), -1f, 2f));
+            into.Add(HudProp.F("Glow width px (-1=global)", () => d.GetF("glowWidth", -1f),
+                v => d.SetF("glowWidth", v < 0f ? -1f : Mathf.Clamp(v, 6f, 160f)), -1f, 160f));
+            into.Add(HudProp.F("Glow diffuse (-1=global)", () => d.GetF("glowDiffuse", -1f),
+                v => d.SetF("glowDiffuse", v < 0f ? -1f : Mathf.Clamp01(v)), -1f, 1f));
+            into.Add(HudProp.F("Edge ripple (-1=global)", () => d.GetF("ripple", -1f),
+                v => d.SetF("ripple", v < 0f ? -1f : Mathf.Clamp(v, 0f, 2.5f)), -1f, 2.5f));
+            into.Add(HudProp.F("Ripple freq — low = wider (-1=global)", () => d.GetF("rippleFreq", -1f),
+                v => d.SetF("rippleFreq", v < 0f ? -1f : Mathf.Clamp(v, 0.05f, 8f)), -1f, 8f));
+            into.Add(HudProp.F("Ripple gradient (0=noisy, 1=smooth)", () => d.GetF("rippleSmooth", 0f),
+                v => d.SetF("rippleSmooth", Mathf.Clamp01(v)), 0f, 1f));
+            // Whole-box edge fade: the far ends of THIS box dissolve to transparent so a wide
+            // bar melts into the visor (concept art). Fades the box/border/glow, not the text.
+            into.Add(HudProp.F("Fade box ends L/R (0=off)", () => d.GetF("edgeFadeX", 0f),
+                v => d.SetF("edgeFadeX", Mathf.Clamp(v, 0f, 0.5f)), 0f, 0.5f));
+            into.Add(HudProp.F("Fade box top/bottom (0=off)", () => d.GetF("edgeFadeY", 0f),
+                v => d.SetF("edgeFadeY", Mathf.Clamp(v, 0f, 0.5f)), 0f, 0.5f));
+        }
+
+        // ---- Follow-global helpers (the two per-element checkboxes) ----------------------------
+
+        /// <summary>The per-element "-1 = follow global" mesh-effect params, each paired with the
+        /// global slider it defers to. This is the set the "Follow global effects" checkbox governs
+        /// (glass/feather/corners are handled by their own controls). Colours are separate.</summary>
+        private static readonly string[] _fxKeys =
+            { "bfade", "softEdge", "glow", "glowIn", "glowWidth", "glowDiffuse", "ripple", "rippleFreq" };
+
+        private static float FxGlobal(string key)
+        {
+            switch (key)
+            {
+                case "bfade": return HudConfig.FxBorderFade != null ? HudConfig.FxBorderFade.Value : 0f;
+                case "softEdge": return HudConfig.FxSoftEdge != null ? HudConfig.FxSoftEdge.Value : 0f;
+                case "glow": return HudConfig.FxGlow != null ? HudConfig.FxGlow.Value : 0f;
+                case "glowIn": return HudConfig.FxGlowInner != null ? HudConfig.FxGlowInner.Value : 0f;
+                case "glowWidth": return HudConfig.FxGlowWidth != null ? HudConfig.FxGlowWidth.Value : 24f;
+                case "glowDiffuse": return HudConfig.FxGlowDiffuse != null ? HudConfig.FxGlowDiffuse.Value : 0f;
+                case "ripple": return HudConfig.FxEdgeRipple != null ? HudConfig.FxEdgeRipple.Value : 0f;
+                case "rippleFreq": return HudConfig.FxEdgeRippleFreq != null ? HudConfig.FxEdgeRippleFreq.Value : 2f;
+                default: return -1f;
+            }
+        }
+
+        /// <summary>True when ANY of the mesh-effect params carries its own value (>= 0) rather than
+        /// the "-1 = follow global" sentinel — i.e. the element has been separated from the globals.
+        /// The "Follow global effects" checkbox shows the inverse of this.</summary>
+        private static bool EffectsAreSeparated(HudElementDef d)
+        {
+            if (d == null) return false;
+            for (int i = 0; i < _fxKeys.Length; i++)
+                if (d.GetF(_fxKeys[i], -1f) >= 0f) return true;
+            return false;
+        }
+
+        /// <summary>Separate: freeze each still-following (-1) mesh-effect param at the current global
+        /// value, so the element looks identical but is now independently editable.</summary>
+        private static void SeedEffectsFromGlobal(HudElementDef d)
+        {
+            if (d == null) return;
+            for (int i = 0; i < _fxKeys.Length; i++)
+                if (d.GetF(_fxKeys[i], -1f) < 0f) d.SetF(_fxKeys[i], FxGlobal(_fxKeys[i]));
+        }
+
+        /// <summary>Re-follow: drop every mesh-effect param back to -1 so it tracks the global sliders.</summary>
+        private static void ResetEffectsToGlobal(HudElementDef d)
+        {
+            if (d == null) return;
+            for (int i = 0; i < _fxKeys.Length; i++) d.SetF(_fxKeys[i], -1f);
+        }
+
+        /// <summary>Separate the colours: freeze the CURRENT global palette (what a following element
+        /// shows) into this element's own refs as hex literals, so it stays that colour independently.</summary>
+        private static void SeedColoursFromGlobal(HudElementDef d)
+        {
+            if (d == null) return;
+            d.Fill = HudPalette.ToHexRef(HudPalette.PanelFill.Value);
+            d.Border = HudPalette.ToHexRef(HudPalette.PanelBorder.Value);
+            d.TextColor = HudPalette.ToHexRef(HudPalette.TextValue.Value);
         }
 
         /// <summary>Effective per-element strength for an effect: 0 when its checkbox is off,

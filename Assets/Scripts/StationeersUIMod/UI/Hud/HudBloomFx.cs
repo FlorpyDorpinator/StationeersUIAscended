@@ -47,6 +47,11 @@ namespace StationeersUIMod.UI.Hud
         private static RenderTexture[] _down;   // [0] = bright base, each further level halves
         private static RenderTexture[] _up;      // upsample buffers matching _down[0..steps-1]
         private static int _baseW, _baseH, _steps;
+        // Second bloom band ("border/highlight bloom") — its own pyramid so its reach/width are
+        // independent. Same base dims as band 1 (shares the anamorphic squash).
+        private static RenderTexture[] _down2;
+        private static RenderTexture[] _up2;
+        private static int _baseW2, _baseH2, _steps2;
 
         private static readonly int _idOffset = Shader.PropertyToID("_Offset");
         private static readonly int _idThreshold = Shader.PropertyToID("_BloomThreshold");
@@ -54,11 +59,26 @@ namespace StationeersUIMod.UI.Hud
         private static readonly int _idStrength = Shader.PropertyToID("_BloomStrength");
         private static readonly int _idTint = Shader.PropertyToID("_BloomTint");
         private static readonly int _idSaturation = Shader.PropertyToID("_BloomSaturation");
+        // Saturation selectivity of the bright-pass (2026-07-15+ bundle; SetFloat on a missing
+        // property is silently ignored, so an older resident bundle degrades to no-op).
+        private static readonly int _idSatBias = Shader.PropertyToID("_BloomSatBias");
 
         // Tint parse cache: ColorUtility parses only when the config STRING changes (a per-frame
         // parse would allocate). White fallback on garbage input, matching FrostTint's behaviour.
         private static string _tintStr;
         private static Color _tint = Color.white;
+        private static string _tint2Str;
+        private static Color _tint2 = Color.white;
+
+        // ── State-reactive inputs, pushed by HudSystem each frame right before Dispatch (the
+        // snapshot lives there). Read-only here; folded into strength/tint only when the react
+        // toggle is on. Reset in Shutdown so a hot-reload never carries stale state.
+        /// <summary>Suit battery percent 0..100, or -1 when unknown/no suit.</summary>
+        public static float ReactPowerPct = -1f;
+        /// <summary>True while a critical state is active (low power / critical health).</summary>
+        public static bool ReactAlarm;
+        /// <summary>Boot-sequence envelope 1 → 0 while the boot dissolve plays, else 0.</summary>
+        public static float BootFlare01;
 
         private const int PassBright = 0;
         private const int PassComposite = 1;
@@ -89,15 +109,28 @@ namespace StationeersUIMod.UI.Hud
                     int steps = 3;
                     if (HudConfig.FxBloomBlurSteps != null)
                         steps = Mathf.Clamp(HudConfig.FxBloomBlurSteps.Value, 1, 5);
-                    int divisor = HudConfig.FxBloomFineDetail == null || HudConfig.FxBloomFineDetail.Value ? 2 : 4;
 
-                    EnsurePyramid(hudRt.width, hudRt.height, steps, divisor);
+                    // Base resolution: the explicit mode wins (0 full / 1 half / 2 quarter);
+                    // -1 keeps the legacy FineDetail toggle's half/quarter behaviour.
+                    int res = HudConfig.FxBloomRes != null ? HudConfig.FxBloomRes.Value : -1;
+                    float divisor = res == 0 ? 1f : res == 1 ? 2f : res == 2 ? 4f
+                        : (HudConfig.FxBloomFineDetail == null || HudConfig.FxBloomFineDetail.Value ? 2f : 4f);
+
+                    // Anamorphic streak: downsample ONE axis harder — each blur tap then covers
+                    // more screen distance along it, so the glow smears into streaks. +1 =
+                    // horizontal streaks (x squashed), -1 = vertical halation. Free: it is just
+                    // an asymmetric pyramid; EnsurePyramid rebuilds only when the sizes change.
+                    float ana = HudConfig.FxBloomAnamorph != null ? HudConfig.FxBloomAnamorph.Value : 0f;
+                    float dx = divisor * (ana > 0f ? 1f + 2.2f * ana : 1f);
+                    float dy = divisor * (ana < 0f ? 1f - 2.2f * ana : 1f);
+
+                    EnsurePyramid(Mathf.Max(1, Mathf.RoundToInt(hudRt.width / dx)),
+                        Mathf.Max(1, Mathf.RoundToInt(hudRt.height / dy)), steps);
                     if (_down == null || _down.Length == 0 || _down[0] == null) return;
 
                     // Uniforms (one SetFloat each — no per-frame allocation).
                     _bloomMat.SetFloat(_idThreshold, HudConfig.FxBloomThreshold != null ? HudConfig.FxBloomThreshold.Value : 0.55f);
                     _bloomMat.SetFloat(_idKnee, HudConfig.FxBloomKnee != null ? HudConfig.FxBloomKnee.Value : 0.5f);
-                    _bloomMat.SetFloat(_idStrength, HudConfig.FxBloomStrength != null ? HudConfig.FxBloomStrength.Value : 0.8f);
                     _bloomMat.SetFloat(_idSaturation, HudConfig.FxBloomSaturation != null ? HudConfig.FxBloomSaturation.Value : 1f);
                     string ts = HudConfig.FxBloomTint != null ? HudConfig.FxBloomTint.Value : "#FFFFFF";
                     if (!ReferenceEquals(ts, _tintStr))
@@ -105,33 +138,127 @@ namespace StationeersUIMod.UI.Hud
                         _tintStr = ts;
                         if (!ColorUtility.TryParseHtmlString(ts, out _tint)) _tint = Color.white;
                     }
-                    _bloomMat.SetColor(_idTint, _tint);
+
+                    // ── Dynamic strength/tint (0.9.0 round 2). Material params only — the HUD
+                    // meshes never rebuild for these, so animating per frame is free. The factor
+                    // is computed ONCE (dynMult + alarm tint pull) and applied to BOTH bands, so
+                    // pulse/power/alarm/boot move the whole glow coherently.
+                    float dynMult = 1f;
+                    float alarmPull = 0f;
+                    float now = Time.unscaledTime;
+
+                    // Breathing pulse: a slow sine breathes away up to PulseDepth of the glow.
+                    if (HudConfig.FxBloomPulseOn != null && HudConfig.FxBloomPulseOn.Value)
+                    {
+                        float spd = HudConfig.FxBloomPulseSpeed != null ? HudConfig.FxBloomPulseSpeed.Value : 0.25f;
+                        float dep = HudConfig.FxBloomPulseDepth != null ? HudConfig.FxBloomPulseDepth.Value : 0.25f;
+                        float ph = 0.5f + 0.5f * Mathf.Sin(now * spd * 2f * Mathf.PI);
+                        dynMult *= 1f - Mathf.Clamp01(dep) * ph;
+                    }
+
+                    // State-reactive: suit power dims, critical alarms pulse red, boot flares.
+                    if (HudConfig.FxBloomReactOn != null && HudConfig.FxBloomReactOn.Value)
+                    {
+                        float pAmt = HudConfig.FxBloomReactPower != null ? HudConfig.FxBloomReactPower.Value : 0.6f;
+                        if (pAmt > 0.001f && ReactPowerPct >= 0f)
+                            dynMult *= Mathf.Lerp(1f - pAmt, 1f, Mathf.Clamp01(ReactPowerPct / 100f));
+
+                        float aAmt = HudConfig.FxBloomReactAlarm != null ? HudConfig.FxBloomReactAlarm.Value : 0.6f;
+                        if (aAmt > 0.001f && ReactAlarm)
+                        {
+                            // ~1.1 Hz urgency pulse: brighter at the crest and pulled toward red.
+                            float ap = 0.5f + 0.5f * Mathf.Sin(now * 1.1f * 2f * Mathf.PI);
+                            dynMult *= 1f + aAmt * 0.8f * ap;
+                            alarmPull = aAmt * 0.65f * ap;
+                        }
+
+                        float bAmt = HudConfig.FxBloomReactBoot != null ? HudConfig.FxBloomReactBoot.Value : 0.8f;
+                        if (bAmt > 0.001f && BootFlare01 > 0.001f)
+                            dynMult *= 1f + bAmt * 2.5f * Mathf.Clamp01(BootFlare01);
+                    }
+
+                    Color alarmRed = new Color(1f, 0.25f, 0.2f);
+                    float strength1 = (HudConfig.FxBloomStrength != null ? HudConfig.FxBloomStrength.Value : 0.8f) * dynMult;
+                    Color tint1 = alarmPull > 0f ? Color.Lerp(_tint, alarmRed, alarmPull) : _tint;
+
+                    // Second band ("border/highlight bloom"): its own threshold/strength/reach/tint.
+                    bool band2 = HudConfig.FxBloom2On != null && HudConfig.FxBloom2On.Value;
+                    if (!band2 && _down2 != null) ReleasePyramid2(); // free its RTs while off
+                    if (band2)
+                    {
+                        int steps2 = HudConfig.FxBloom2Steps != null ? Mathf.Clamp(HudConfig.FxBloom2Steps.Value, 1, 5) : 2;
+                        EnsurePyramid2(_baseW, _baseH, steps2); // same base dims — shares the anamorphic squash
+                        if (_down2 == null || _down2.Length == 0 || _down2[0] == null) band2 = false;
+                    }
+
                     // The Kawase sample offset is the CONTINUOUS width knob (play-test ask: "can bloom
                     // step be more adjustable than integers?" — steps double the reach; this slides
                     // smoothly between the doublings).
                     float spread = HudConfig.FxBloomSpread != null ? HudConfig.FxBloomSpread.Value : KawaseOffset;
+
+                    // BOTH bright-passes extract from the CLEAN HUD RT before either composite
+                    // writes back onto it — no feedback between the bands.
+
+                    // Band 1: bright-pass + pyramid (uniforms already set: threshold/knee/sat).
+                    _bloomMat.SetFloat(_idStrength, strength1);
+                    _bloomMat.SetColor(_idTint, tint1);
+                    _bloomMat.SetFloat(_idSatBias, HudConfig.FxBloomSatBias != null ? HudConfig.FxBloomSatBias.Value : 0f);
                     _blurMat.SetFloat(_idOffset, Mathf.Clamp(spread, 0.5f, 3f));
-
-                    // Bright-pass: extract + downsample the HUD RT into the pyramid base.
                     Graphics.Blit(hudRt, _down[0], _bloomMat, PassBright);
-
-                    // Dual-Kawase DOWN (blur pass 0), successively halving.
                     for (int i = 1; i < _down.Length; i++)
                         Graphics.Blit(_down[i - 1], _down[i], _blurMat, 0);
-
-                    // Dual-Kawase UP (blur pass 1) back to base res. _up[i] matches _down[i]'s size.
                     RenderTexture prev = _down[_down.Length - 1];
                     for (int i = _up.Length - 1; i >= 0; i--)
                     {
                         Graphics.Blit(prev, _up[i], _blurMat, 1);
                         prev = _up[i];
                     }
-
                     RenderTexture top = _up.Length > 0 ? _up[0] : _down[0];
 
-                    // Additive composite the blurred glow back onto the HUD RT (Blend One One in the
-                    // shader). hudRt is guaranteed non-MSAA by the caller, so this write is safe.
+                    // Band 2: bright-pass + pyramid with ITS uniforms (higher threshold etc).
+                    RenderTexture top2 = null;
+                    float strength2 = 0f;
+                    Color tint2 = Color.white;
+                    if (band2)
+                    {
+                        string ts2 = HudConfig.FxBloom2Tint != null ? HudConfig.FxBloom2Tint.Value : "#FFFFFF";
+                        if (!ReferenceEquals(ts2, _tint2Str))
+                        {
+                            _tint2Str = ts2;
+                            if (!ColorUtility.TryParseHtmlString(ts2, out _tint2)) _tint2 = Color.white;
+                        }
+                        strength2 = (HudConfig.FxBloom2Strength != null ? HudConfig.FxBloom2Strength.Value : 1.2f) * dynMult;
+                        tint2 = alarmPull > 0f ? Color.Lerp(_tint2, alarmRed, alarmPull) : _tint2;
+                        float spread2 = HudConfig.FxBloom2Spread != null ? HudConfig.FxBloom2Spread.Value : KawaseOffset;
+
+                        _bloomMat.SetFloat(_idThreshold, HudConfig.FxBloom2Threshold != null ? HudConfig.FxBloom2Threshold.Value : 0.85f);
+                        _bloomMat.SetFloat(_idStrength, strength2);
+                        _bloomMat.SetColor(_idTint, tint2);
+                        _bloomMat.SetFloat(_idSatBias, HudConfig.FxBloom2SatBias != null ? HudConfig.FxBloom2SatBias.Value : 0f);
+                        _blurMat.SetFloat(_idOffset, Mathf.Clamp(spread2, 0.5f, 3f));
+                        Graphics.Blit(hudRt, _down2[0], _bloomMat, PassBright);
+                        for (int i = 1; i < _down2.Length; i++)
+                            Graphics.Blit(_down2[i - 1], _down2[i], _blurMat, 0);
+                        RenderTexture prev2 = _down2[_down2.Length - 1];
+                        for (int i = _up2.Length - 1; i >= 0; i--)
+                        {
+                            Graphics.Blit(prev2, _up2[i], _blurMat, 1);
+                            prev2 = _up2[i];
+                        }
+                        top2 = _up2.Length > 0 ? _up2[0] : _down2[0];
+                    }
+
+                    // Additive composites back onto the HUD RT (Blend One One in the shader), each
+                    // band with its own strength/tint. hudRt is guaranteed non-MSAA by the caller.
+                    _bloomMat.SetFloat(_idStrength, strength1);
+                    _bloomMat.SetColor(_idTint, tint1);
                     Graphics.Blit(top, hudRt, _bloomMat, PassComposite);
+                    if (band2 && top2 != null)
+                    {
+                        _bloomMat.SetFloat(_idStrength, strength2);
+                        _bloomMat.SetColor(_idTint, tint2);
+                        Graphics.Blit(top2, hudRt, _bloomMat, PassComposite);
+                    }
                 }
                 catch (Exception e)
                 {
@@ -159,10 +286,8 @@ namespace StationeersUIMod.UI.Hud
         /// <summary>(Re)builds the RT pyramid on first use and whenever the RT size or step count
         /// changes. Persistent RTs (held across frames) use <c>new RenderTexture</c>; released in
         /// <see cref="ReleasePyramid"/>. No depth/stencil (bloom is colour-only), no mips.</summary>
-        private static void EnsurePyramid(int rtW, int rtH, int steps, int divisor)
+        private static void EnsurePyramid(int bw, int bh, int steps)
         {
-            int bw = Mathf.Max(1, rtW / divisor);
-            int bh = Mathf.Max(1, rtH / divisor);
             if (_down != null && _up != null && bw == _baseW && bh == _baseH && steps == _steps) return;
 
             ReleasePyramid();
@@ -204,6 +329,35 @@ namespace StationeersUIMod.UI.Hud
             _steps = 0;
         }
 
+        /// <summary>Band-2 pyramid, mirroring <see cref="EnsurePyramid"/> with its own statics
+        /// (its step count is independent, so the arrays can't be shared).</summary>
+        private static void EnsurePyramid2(int bw, int bh, int steps)
+        {
+            if (_down2 != null && _up2 != null && bw == _baseW2 && bh == _baseH2 && steps == _steps2) return;
+
+            ReleasePyramid2();
+            _baseW2 = bw;
+            _baseH2 = bh;
+            _steps2 = steps;
+
+            _down2 = new RenderTexture[steps + 1];
+            for (int i = 0; i <= steps; i++)
+                _down2[i] = NewRt(Mathf.Max(1, bw >> i), Mathf.Max(1, bh >> i));
+
+            _up2 = new RenderTexture[steps];
+            for (int i = 0; i < steps; i++)
+                _up2[i] = NewRt(Mathf.Max(1, bw >> i), Mathf.Max(1, bh >> i));
+        }
+
+        private static void ReleasePyramid2()
+        {
+            ReleaseArray(_down2); _down2 = null;
+            ReleaseArray(_up2); _up2 = null;
+            _baseW2 = 0;
+            _baseH2 = 0;
+            _steps2 = 0;
+        }
+
         private static void ReleaseArray(RenderTexture[] arr)
         {
             if (arr == null) return;
@@ -223,10 +377,16 @@ namespace StationeersUIMod.UI.Hud
         public static void Shutdown()
         {
             ReleasePyramid();
+            ReleasePyramid2();
             if (_bloomMat != null) { try { UnityEngine.Object.DestroyImmediate(_bloomMat); } catch { } _bloomMat = null; }
             if (_blurMat != null) { try { UnityEngine.Object.DestroyImmediate(_blurMat); } catch { } _blurMat = null; }
             _tintStr = null;
             _tint = Color.white;
+            _tint2Str = null;
+            _tint2 = Color.white;
+            ReactPowerPct = -1f;
+            ReactAlarm = false;
+            BootFlare01 = 0f;
         }
     }
 }

@@ -22,6 +22,10 @@ Shader "UIA/HudBloom"
         // Defaults = identity so a C# build older than this shader (or vice versa) is unchanged.
         _BloomTint ("Glow tint", Color) = (1,1,1,1)
         _BloomSaturation ("Glow saturation", Float) = 1
+        // Saturation SELECTIVITY of the bright-pass: +1 = only SATURATED pixels bloom (coloured
+        // borders/accents — white text stays dark), -1 = only unsaturated (white-hot text/ice),
+        // 0 (default) = off, output identical to the previous bundle.
+        _BloomSatBias ("Saturation bias", Float) = 0
     }
 
     SubShader
@@ -39,6 +43,7 @@ Shader "UIA/HudBloom"
         float _BloomStrength;
         fixed4 _BloomTint;     // multiplies the glow colour (white = the HUD's own hues)
         float _BloomSaturation; // 0 = white-hot monochrome glow, 1 = source hues, >1 oversaturated
+        float _BloomSatBias;   // bright-pass selectivity: + = saturated pixels only, - = unsaturated only
 
         struct appdata
         {
@@ -83,6 +88,20 @@ Shader "UIA/HudBloom"
                 float contribution = max(soft, brightness - _BloomThreshold) / max(brightness, 1e-5);
 
                 contribution *= col.a; // transparent RT areas stay black
+
+                // Saturation selectivity (uniform branch — single variant, free when 0):
+                // sat = chroma/brightness. +bias multiplies by sat (white text -> 0, coloured
+                // borders -> ~1) so only saturated pixels reach the bloom; -bias inverts.
+                if (abs(_BloomSatBias) > 0.001)
+                {
+                    float mn = min(col.r, min(col.g, col.b));
+                    float sat = (brightness - mn) / max(brightness, 1e-4);
+                    float w = _BloomSatBias >= 0.0
+                        ? lerp(1.0, sat, _BloomSatBias)
+                        : lerp(1.0, 1.0 - sat, -_BloomSatBias);
+                    contribution *= w;
+                }
+
                 return fixed4(col.rgb * contribution, 1.0);
             }
             ENDCG

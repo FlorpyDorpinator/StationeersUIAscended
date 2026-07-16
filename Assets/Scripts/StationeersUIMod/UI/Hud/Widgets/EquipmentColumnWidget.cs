@@ -124,6 +124,7 @@ namespace StationeersUIMod.UI.Hud.Widgets
                 // then-override: a per-frame flip-flop would defeat the dirty-guard).
                 b.Panel.Sheen = GlassSheenFor();
                 b.Panel.Spec = filled ? GlassEdgeFor() : 0f;
+                b.Panel.FeatherOverride = FeatherFor();
                 ApplyMeshFx(b.Panel); // full 0.9.0 push (trio + ripple + uv0 + material) — sheen/spec above stay custom
 
                 // #4: drop cue — light this equipment box while a dragged item is over it and fits.

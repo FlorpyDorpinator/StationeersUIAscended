@@ -17,6 +17,7 @@ namespace StationeersUIMod.UI.Hud
         private PanelGraphic _box;
         private TextMeshProUGUI _text;
         private PolylineGraphic _line;
+        private PolygonPanelGraphic _shape;   // freeform pen shape (HudElementType.Shape)
         private HudIconGraphic _glyph;
         private Image _sprite;          // PNG-override icons render as a plain Image
         private TextMeshProUGUI _placeholderText;
@@ -24,6 +25,8 @@ namespace StationeersUIMod.UI.Hud
 
         private static readonly List<Vector2> _pointScratch = new List<Vector2>(16);
         private static readonly List<Vector2> _curveScratch = new List<Vector2>(128); // smoothed spline
+        private static readonly List<Vector2> _hinScratch = new List<Vector2>(16);    // Shape Bézier handles
+        private static readonly List<Vector2> _houtScratch = new List<Vector2>(16);
 
         // Only the Box primitive draws a framed panel the trapezoid insets can shape (Label/
         // Polyline/Icon have no background box); the base supplies the two sliders for it.
@@ -49,6 +52,20 @@ namespace StationeersUIMod.UI.Hud
                     go.transform.SetParent(root, false);
                     _line = go.AddComponent<PolylineGraphic>();
                     _line.raycastTarget = false;
+                    go.AddComponent<VisorWarp>();
+                    var rt = (RectTransform)go.transform;
+                    rt.anchorMin = rt.anchorMax = new Vector2(0.5f, 0.5f);
+                    break;
+                }
+
+                case HudElementType.Shape:
+                {
+                    // A freeform FILLED glass shape from the pen tool. Same rig as the polyline
+                    // (point list + warp), but a PolygonPanelGraphic that fills the closed contour.
+                    var go = new GameObject("Shape", typeof(RectTransform));
+                    go.transform.SetParent(root, false);
+                    _shape = go.AddComponent<PolygonPanelGraphic>();
+                    _shape.raycastTarget = false;
                     go.AddComponent<VisorWarp>();
                     var rt = (RectTransform)go.transform;
                     rt.anchorMin = rt.anchorMax = new Vector2(0.5f, 0.5f);
@@ -141,6 +158,26 @@ namespace StationeersUIMod.UI.Hud
                 _line.Width = Mathf.Max(minW, Def.GetF("width", 2f) * scale);
                 _line.FadeEnds = Def.GetF("fadeEnds", 0f);
             }
+            if (_shape != null)
+            {
+                ((RectTransform)_shape.transform).anchoredPosition = c;
+                var pts = Def.GetPoints("pts");
+                _pointScratch.Clear();
+                for (int i = 0; i < pts.Length; i++) _pointScratch.Add(pts[i] * scale);
+                // curveMode: explicit (0 straight / 1 smooth / 2 Bézier) or derived from the legacy
+                // "smooth" bool. Bézier handle data (hin/hout) is threaded in a later phase.
+                int curveMode = Def.GetI("curveMode", Def.GetB("smooth", false) ? 1 : 0);
+                int steps = Mathf.Clamp(Def.GetI("curveSteps", 12), 2, 32);
+                _hinScratch.Clear(); _houtScratch.Clear();
+                if (curveMode == 2)
+                {
+                    var hin = Def.GetPoints("hin");
+                    var hout = Def.GetPoints("hout");
+                    for (int i = 0; i < hin.Length; i++) _hinScratch.Add(hin[i] * scale);
+                    for (int i = 0; i < hout.Length; i++) _houtScratch.Add(hout[i] * scale);
+                }
+                _shape.SetPoints(_pointScratch, _hinScratch, _houtScratch, curveMode, steps);
+            }
             if (_sprite != null)
             {
                 _sprite.rectTransform.anchoredPosition = c;
@@ -175,6 +212,16 @@ namespace StationeersUIMod.UI.Hud
                 _box.BorderSides = sides;
                 ApplyGlass(_box);
             }
+            if (_shape != null)
+            {
+                _shape.color = FillColor();
+                _shape.BorderColor = BorderColor();
+                _shape.BorderWidth = BorderWidthFor();
+                int sides = (Def.GetB("bTop", true) ? 1 : 0) | (Def.GetB("bRight", true) ? 2 : 0)
+                          | (Def.GetB("bBottom", true) ? 4 : 0) | (Def.GetB("bLeft", true) ? 8 : 0);
+                _shape.BorderSides = sides;
+                ApplyGlass(_shape);   // sheen/spec/border-fade/soft-edge/ripple/FX, same as a Box
+            }
             if (_text != null)
             {
                 HudText.Sync(_text);
@@ -190,8 +237,12 @@ namespace StationeersUIMod.UI.Hud
                 bool tierA = HudConfig.FxTierA != null && HudConfig.FxTierA.Value;
                 bool edgeOn = tierA && HudConfig.FxEdgeLightOn != null && HudConfig.FxEdgeLightOn.Value;
                 _line.EdgeLight = edgeOn && HudConfig.FxEdgeLight != null ? HudConfig.FxEdgeLight.Value : 0f;
+                // Track the configurable key-light DIRECTION so lines catch light from the same
+                // angle as the borders (the default reproduces the old upper-left direction).
+                _line.EdgeLightDir = new Vector2(PanelGraphic.LightX, PanelGraphic.LightY);
                 _line.EdgeRipple = edgeOn && HudConfig.FxEdgeRipple != null ? HudConfig.FxEdgeRipple.Value : 0f;
                 _line.EdgeRippleFreq = HudConfig.FxEdgeRippleFreq != null ? HudConfig.FxEdgeRippleFreq.Value : 2f;
+                _line.RippleSmooth = Def.GetF("rippleSmooth", 0f);
                 _line.FxStrength = FxStrengthFor();
             }
             if (_sprite != null) _sprite.color = TextColor();
@@ -242,10 +293,50 @@ namespace StationeersUIMod.UI.Hud
                     into.Add(HudProp.Text("Icon (glyph or PNG name)", () => d.Icon ?? "", v => d.Icon = v));
                     into.Add(HudProp.F("Stroke scale", () => d.GetF("stroke", 1f), v => d.SetF("stroke", Mathf.Clamp(v, 0.4f, 3f)), 0.4f, 3f));
                     break;
+                case HudElementType.Shape:
+                    // The silhouette itself is drawn/edited with the pen tool (F9 gizmo layer); these
+                    // tune it. Fill/border/glass come from the base props (it is a glass panel).
+                    // Curve style: Straight corners / Smooth (Catmull through the points) / Bézier
+                    // (drag per-point handles in Edit-points mode). Choosing Bézier seeds smooth
+                    // handles from the point tangents so it curves immediately.
+                    into.Add(HudProp.Enum("Curve style",
+                        () => d.GetI("curveMode", d.GetB("smooth", false) ? 1 : 0),
+                        v => { d.SetI("curveMode", Mathf.Clamp(v, 0, 2)); if (v == 2) EnsureBezierHandles(d); },
+                        CurveStyleNames));
+                    into.Add(HudProp.I("Curve smoothness", () => d.GetI("curveSteps", 12), v => d.SetI("curveSteps", Mathf.Clamp(v, 2, 32)), 2, 32));
+                    into.Add(HudProp.Bool("Border: top", () => d.GetB("bTop", true), v => d.SetB("bTop", v)));
+                    into.Add(HudProp.Bool("Border: right", () => d.GetB("bRight", true), v => d.SetB("bRight", v)));
+                    into.Add(HudProp.Bool("Border: bottom", () => d.GetB("bBottom", true), v => d.SetB("bBottom", v)));
+                    into.Add(HudProp.Bool("Border: left", () => d.GetB("bLeft", true), v => d.SetB("bLeft", v)));
+                    break;
             }
         }
 
         private static readonly string[] AlignNames = { "Left", "Center", "Right" };
+        private static readonly string[] CurveStyleNames = { "Straight", "Smooth", "Bezier" };
+
+        /// <summary>Seed a shape's Bézier handles (if not already sized to the points) with smooth
+        /// tangents derived from each point's neighbours, so switching to Bézier immediately reads
+        /// as a smooth curve the user can then reshape by dragging the handles.</summary>
+        internal static void EnsureBezierHandles(HudElementDef d)
+        {
+            var pts = d.GetPoints("pts");
+            int m = pts.Length;
+            if (m < 2) return;
+            if (d.GetPoints("hout").Length == m && d.GetPoints("hin").Length == m) return; // already set
+            var hin = new List<Vector2>(m);
+            var hout = new List<Vector2>(m);
+            for (int i = 0; i < m; i++)
+            {
+                Vector2 prev = pts[(i - 1 + m) % m];
+                Vector2 next = pts[(i + 1) % m];
+                Vector2 tan = (next - prev) * 0.16f; // fraction of the local tangent = gentle curve
+                hout.Add(tan);
+                hin.Add(-tan);
+            }
+            d.SetPoints("hin", hin);
+            d.SetPoints("hout", hout);
+        }
 
         private static int AlignIndex(string align)
         {

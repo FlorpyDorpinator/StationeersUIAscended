@@ -38,7 +38,10 @@ namespace StationeersUIMod.UI.Hud
         VitalsPanel, DamageDoll, JetpackBox, StateChips,
         // A body doll assembled from user PNG art (config/StationeersUIMod/HudIcons), each
         // part tinted per-region by damage. Append-only.
-        PngDoll
+        PngDoll,
+        // A freeform FILLED glass shape drawn with the F9 pen tool: an arbitrary closed (and
+        // possibly concave) contour rendered by PolygonPanelGraphic. Append-only.
+        Shape
     }
 
     /// <summary>Which live value a <see cref="HudElementType.Readout"/> samples. Kept as a
@@ -76,6 +79,17 @@ namespace StationeersUIMod.UI.Hud
 
         [XmlAttribute] public string Name;
 
+        /// <summary>Optional per-profile TMP font name (substring match). Empty/null = inherit the
+        /// global <see cref="HudConfig.FontName"/>. Lets a shipped "default UI" ship its own type
+        /// face without changing the global setting. Resolved in <see cref="HudText"/>.</summary>
+        [XmlAttribute] public string Font;
+
+        /// <summary>Optional one-line blurb shown on the profile's card in the Control Center.</summary>
+        [XmlAttribute] public string Description;
+
+        /// <summary>Optional author credit shown on the profile's card.</summary>
+        [XmlAttribute] public string Author;
+
         [XmlElement("El")] public List<HudElementDef> Elements = new List<HudElementDef>();
 
         /// <summary>Deep copy WITHOUT a serialize/deserialize round-trip. The editor's undo
@@ -83,7 +97,7 @@ namespace StationeersUIMod.UI.Hud
         /// session — an XmlSerializer round-trip per snapshot would be needless GC and CPU.</summary>
         public HudDocument Clone()
         {
-            var copy = new HudDocument { Schema = Schema, Name = Name };
+            var copy = new HudDocument { Schema = Schema, Name = Name, Font = Font, Description = Description, Author = Author };
             copy.Elements = new List<HudElementDef>(Elements.Count);
             for (int i = 0; i < Elements.Count; i++)
             {

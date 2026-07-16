@@ -127,6 +127,20 @@ namespace StationeersUIMod.UI.Hud.Widgets
             var sz = SizeFor(scale);
             float w = sz.x;
             float h = sz.y;
+
+            // The clip WINDOW must ride the same bend as the content: the barrel modes (and
+            // their bloom-forced RT variants) displace and FIT-SCALE x/y — at the top of the
+            // screen that is tens of px of drift at full strength — and a static mask window
+            // then clips the whole bent ribbon away (play-test: "compass gets hid when I
+            // curve the screen"). Warp the mask's own anchor per frame; PlaceOnCurve subtracts
+            // the CURRENT mask anchor, so children keep landing at their correct absolute spot.
+            Vector2 maskC = _center + new Vector2(0f, 2f * scale);
+            if (HudWarp.Enabled)
+            {
+                var wm = HudWarp.Warp(new Vector3(maskC.x, maskC.y, 0f));
+                maskC = new Vector2(wm.x, wm.y);
+            }
+            _mask.anchoredPosition = maskC;
             float span = Def.GetF("fov", 90f);
             float tickEvery = Mathf.Max(1f, Def.GetF("tickDeg", 15f));
             float cardinalEvery = Mathf.Max(tickEvery, Def.GetF("cardinalDeg", 45f));

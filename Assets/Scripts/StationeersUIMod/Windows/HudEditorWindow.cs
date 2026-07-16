@@ -29,6 +29,10 @@ namespace StationeersUIMod.Windows
         // Bloom-tint swatch cache: config stores a #RRGGBB string, the wheel wants a vector.
         private static string _bloomTintStr;
         private static Vector3 _bloomTintVec = Vector3.one;
+        private static string _bloom2TintStr;
+        private static Vector3 _bloom2TintVec = Vector3.one;
+        private static string _edgeTintStr;
+        private static Vector3 _edgeTintVec = Vector3.one;
 
         /// <summary>Keep the CURRENT ImGui window on screen: a window resized/dragged past the
         /// bottom edge became unreachable (play-test) — clamp size to the screen and keep the
@@ -131,6 +135,27 @@ namespace StationeersUIMod.Windows
                 FloatSlider(HudConfig.FxHairlineMin, "  thinnest line (px)", 0.05f, 1f);
                 Toggle(HudConfig.FxEdgeLightOn, "Edge light (borders + lines)");
                 FloatSlider(HudConfig.FxEdgeLight, "  edge-light strength", 0f, 2f);
+                if (HudConfig.FxEdgeLightColor != null)
+                {
+                    string es = HudConfig.FxEdgeLightColor.Value ?? "#FFFFFF";
+                    if (!ReferenceEquals(es, _edgeTintStr))
+                    {
+                        _edgeTintStr = es;
+                        Color ec;
+                        if (!ColorUtility.TryParseHtmlString(es, out ec)) ec = Color.white;
+                        _edgeTintVec = new Vector3(ec.r, ec.g, ec.b);
+                    }
+                    if (ImGui.ColorEdit3("  edge-light colour", ref _edgeTintVec, ImGuiColorEditFlags.PickerHueWheel))
+                    {
+                        string hex = "#" + ColorUtility.ToHtmlStringRGB(
+                            new Color(_edgeTintVec.x, _edgeTintVec.y, _edgeTintVec.z, 1f));
+                        HudConfig.FxEdgeLightColor.Value = hex;
+                        _edgeTintStr = hex;
+                    }
+                }
+                FloatSlider(HudConfig.FxEdgeLightAngle, "  light angle (0=R,90=top,180=L)", 0f, 360f);
+                FloatSlider(HudConfig.FxEdgeLightRim, "  opposing-rim catch", 0f, 2f);
+                FloatSlider(HudConfig.FxEdgeLightSharp, "  falloff (high=tight, low=broad)", 1f, 8f);
                 FloatSlider(HudConfig.FxEdgeRipple, "  ripple (irregular shimmer)", 0f, 2.5f);
                 FloatSlider(HudConfig.FxEdgeRippleFreq, "  ripple frequency", 0.5f, 8f);
                 Toggle(HudConfig.FxPulseOn, "Pulse (elements still opt in individually)");
@@ -165,6 +190,7 @@ namespace StationeersUIMod.Windows
                 ImGui.Separator();
                 ImGui.TextColored(new Vector4(1f, 0.72f, 0.25f, 1f), "TIER C — frosted glass (EXPERIMENTAL)");
                 Toggle(HudConfig.FxTierC, "Enable frosted-glass backdrop (Flat/Warp curvature only)");
+                FloatSlider(HudConfig.FrostStrength, "Frost strength (all elements)", 0f, 1f);
                 FloatSlider(HudConfig.FrostDarken, "Frost darkening", 0f, 1f);
                 IntSliderCfg(HudConfig.FrostUpdateEveryN, "Re-blur every N frames", 1, 8);
                 ImGui.TextDisabled("Downsample + tint live in the config (F10) / cfg file.");
@@ -180,8 +206,10 @@ namespace StationeersUIMod.Windows
                 FloatSlider(HudConfig.FxBloomKnee, "  soft knee", 0f, 1f);
                 IntSliderCfg(HudConfig.FxBloomBlurSteps, "  blur steps (reach doubles per step)", 1, 5);
                 FloatSlider(HudConfig.FxBloomSpread, "  spread (continuous width fine-adjust)", 0.5f, 3f);
-                Toggle(HudConfig.FxBloomFineDetail, "  fine-detail bloom (thin borders + lines glow too)");
+                BloomResCombo();
+                FloatSlider(HudConfig.FxBloomAnamorph, "  anamorphic streak (-1 vertical, +1 horizontal)", -1f, 1f);
                 FloatSlider(HudConfig.FxBloomSaturation, "  glow saturation (0 white-hot, 1 own hues)", 0f, 2f);
+                FloatSlider(HudConfig.FxBloomSatBias, "  saturation bias (+ = coloured pixels only bloom)", -1f, 1f);
                 // Glow tint: the standard hue-wheel swatch (same control as the palette rows).
                 // Stored as #RRGGBB in the cfg so the file stays hand-editable; the cache keeps
                 // the per-frame path parse-free while the header is open.
@@ -202,6 +230,54 @@ namespace StationeersUIMod.Windows
                         HudConfig.FxBloomTint.Value = hex;
                         _bloomTintStr = hex;
                     }
+                }
+
+                // ── Dynamic bloom (each optional; material params only, so animating is free).
+                Toggle(HudConfig.FxBloomPulseOn, "  breathing pulse (the glow breathes)");
+                if (HudConfig.FxBloomPulseOn != null && HudConfig.FxBloomPulseOn.Value)
+                {
+                    FloatSlider(HudConfig.FxBloomPulseSpeed, "    breaths per second", 0.05f, 2f);
+                    FloatSlider(HudConfig.FxBloomPulseDepth, "    breath depth", 0f, 1f);
+                }
+                Toggle(HudConfig.FxBloomReactOn, "  state-reactive glow (power / alarms / boot)");
+                if (HudConfig.FxBloomReactOn != null && HudConfig.FxBloomReactOn.Value)
+                {
+                    FloatSlider(HudConfig.FxBloomReactPower, "    low suit power dims the glow", 0f, 1f);
+                    FloatSlider(HudConfig.FxBloomReactAlarm, "    critical alarms pulse it red", 0f, 1f);
+                    FloatSlider(HudConfig.FxBloomReactBoot, "    boot sequence flares it", 0f, 1f);
+                }
+
+                // Second bloom band: an independent glow for the BRIGHTEST pixels — style the
+                // borders above its threshold (edge light / spec / border colour) and the frame
+                // lines carry their own glow, tuned separately from the base bloom.
+                Toggle(HudConfig.FxBloom2On, "  BORDER / HIGHLIGHT bloom (second band, brightest pixels)");
+                if (HudConfig.FxBloom2On != null && HudConfig.FxBloom2On.Value)
+                {
+                    FloatSlider(HudConfig.FxBloom2Threshold, "    band threshold (above = border glow)", 0f, 1.5f);
+                    FloatSlider(HudConfig.FxBloom2SatBias, "    saturation bias (+ = borders, not white text)", -1f, 1f);
+                    FloatSlider(HudConfig.FxBloom2Strength, "    band strength", 0f, 3f);
+                    IntSliderCfg(HudConfig.FxBloom2Steps, "    band reach (blur steps)", 1, 5);
+                    FloatSlider(HudConfig.FxBloom2Spread, "    band width fine-adjust", 0.5f, 3f);
+                    if (HudConfig.FxBloom2Tint != null)
+                    {
+                        string ts2 = HudConfig.FxBloom2Tint.Value ?? "#FFFFFF";
+                        if (!ReferenceEquals(ts2, _bloom2TintStr))
+                        {
+                            _bloom2TintStr = ts2;
+                            Color tc2;
+                            if (!ColorUtility.TryParseHtmlString(ts2, out tc2)) tc2 = Color.white;
+                            _bloom2TintVec = new Vector3(tc2.r, tc2.g, tc2.b);
+                        }
+                        if (ImGui.ColorEdit3("    band tint", ref _bloom2TintVec, ImGuiColorEditFlags.PickerHueWheel))
+                        {
+                            string hex2 = "#" + ColorUtility.ToHtmlStringRGB(
+                                new Color(_bloom2TintVec.x, _bloom2TintVec.y, _bloom2TintVec.z, 1f));
+                            HudConfig.FxBloom2Tint.Value = hex2;
+                            _bloom2TintStr = hex2;
+                        }
+                    }
+                    ImGui.TextDisabled("    Tip: raise 'Glass edge light' so borders outshine text,");
+                    ImGui.TextDisabled("    then set the threshold between them.");
                 }
 
                 ImGui.TextDisabled("Measure any of this with the Profiler below (uiaprof ab <effect>).");
@@ -236,6 +312,9 @@ namespace StationeersUIMod.Windows
                     if (ImGui.Button("Make ALL elements follow global glass"))
                         HudEditorMode.ResetAllGlassToGlobal();
                     ImGui.TextDisabled("Clears every element's own sheen/edge (colours & layout untouched).");
+                    if (ImGui.Button("Flatten ALL boxes (strip glass / glow)"))
+                        HudEditorMode.MakeAllFlat();
+                    ImGui.TextDisabled("Zeros sheen + edge light + glow on every element -> plain bordered boxes.");
                 }
             }
             else if (ImGui.CollapsingHeader("Layout & sizes"))
@@ -343,6 +422,32 @@ namespace StationeersUIMod.Windows
             {
                 HudEditorMode.BeginDrawLine();
             }
+            if (HudEditorMode.DrawingShape)
+            {
+                ImGui.TextColored(new Vector4(1f, 0.62f, 0.15f, 1f),
+                    "PEN: click points - click the first dot / Enter / RMB to CLOSE - Esc cancel");
+                if (ImGui.Button("Cancel shape")) HudEditorMode.CancelDrawShape();
+            }
+            else if (ImGui.Button("Draw a shape (pen: click points, close for a filled glass shape)"))
+            {
+                HudEditorMode.BeginDrawShape();
+            }
+            // Edit the anchors of a selected shape/line (drag / Alt+click delete / click-segment add).
+            if (HudEditorMode.SelectedElement != null && HudEditorMode.IsPointEditable(HudEditorMode.SelectedElement.Def))
+            {
+                if (HudEditorMode.EditingPoints)
+                {
+                    ImGui.TextColored(new Vector4(1f, 0.62f, 0.15f, 1f),
+                        "EDIT POINTS: drag anchors - Alt+click deletes - click a segment inserts");
+                    ImGui.TextColored(new Vector4(1f, 0.62f, 0.15f, 1f),
+                        "Bezier: Ctrl+click an anchor = CORNER point (straight) / smooth toggle");
+                    if (ImGui.Button("Done editing points")) HudEditorMode.EndEditPoints();
+                }
+                else if (ImGui.Button("Edit points (drag / add / delete anchors)"))
+                {
+                    HudEditorMode.BeginEditPoints();
+                }
+            }
             ImGui.Spacing();
 
             // (No BeginDisabled in the game's ImGui binding — dead buttons just no-op.)
@@ -359,6 +464,8 @@ namespace StationeersUIMod.Windows
                 if (ImGui.Button("Duplicate")) HudEditorMode.DuplicateSelected();
                 ImGui.SameLine();
                 if (ImGui.Button("Delete")) HudEditorMode.DeleteSelected();
+                if (ImGui.Button("Make flat (strip glass / glow)")) HudEditorMode.MakeSelectedFlat();
+                ImGui.TextDisabled("Zeros this box's sheen + edge light + glow -> a plain bordered box.");
 
                 // Per-curvature-mode placement: dragging writes to the CURRENT mode's own layout
                 // for the LIVE HUD (bare stays shared). Show which, and let it snap back to base.
@@ -480,11 +587,57 @@ namespace StationeersUIMod.Windows
             if (sel != null)
             {
                 var r = sel.CanvasRect(scale);
-                OutlineRect(dl, r, selCol, 1.8f);
-                for (int i = 0; i < 8; i++)
+                // Push the selection OUTLINE a few px OUTSIDE the element so it never sits on top of
+                // the element's own border — you couldn't see the border you were tuning (FlorpyDorp:
+                // "the orange box covers the borders"). The HANDLES stay on the TRUE rect corners
+                // (that's where you grab) and are drawn HOLLOW so the border shows through their
+                // centres. SampledEdge/ToImGui warp per-sample, so the inflated rect still bows.
+                float m = 5f * scale;
+                var ro = Rect.MinMaxRect(r.xMin - m, r.yMin - m, r.xMax + m, r.yMax + m);
+                OutlineRect(dl, ro, selCol, 1.4f);
+                if (HudEditorMode.EditingPoints && HudEditorMode.IsPointEditable(sel.Def))
                 {
-                    var s = ToImGui(HudEditorMode.HandlePoint(r, i));
-                    dl.AddRectFilled(new Vector2(s.x - 4f, s.y - 4f), new Vector2(s.x + 4f, s.y + 4f), handleCol);
+                    // Point-edit sub-mode: draggable ANCHOR handles instead of the 8 resize handles.
+                    uint ringCol = ImGui.GetColorU32(new Vector4(0.1f, 0.1f, 0.1f, 1f));
+                    var pts = sel.Def.GetPoints("pts");
+                    bool bez = sel.Def.GetI("curveMode", sel.Def.GetB("smooth", false) ? 1 : 0) == 2;
+                    if (bez)
+                    {
+                        // Bézier tangent handles (cyan): a line from each anchor to its in/out control.
+                        uint hCol = ImGui.GetColorU32(new Vector4(0.25f, 0.85f, 0.93f, 0.95f));
+                        uint hLine = ImGui.GetColorU32(new Vector4(0.25f, 0.85f, 0.93f, 0.5f));
+                        var hin = sel.Def.GetPoints("hin");
+                        var hout = sel.Def.GetPoints("hout");
+                        for (int i = 0; i < pts.Length; i++)
+                        {
+                            var a = ToImGui(HudEditorMode.PointCanvas(sel, pts[i], scale));
+                            if (i < hout.Length)
+                            {
+                                var ho = ToImGui(HudEditorMode.PointCanvas(sel, pts[i] + hout[i], scale));
+                                dl.AddLine(a, ho, hLine, 1.4f); dl.AddCircleFilled(ho, 3.5f, hCol, 12);
+                            }
+                            if (i < hin.Length)
+                            {
+                                var hp = ToImGui(HudEditorMode.PointCanvas(sel, pts[i] + hin[i], scale));
+                                dl.AddLine(a, hp, hLine, 1.4f); dl.AddCircleFilled(hp, 3.5f, hCol, 12);
+                            }
+                        }
+                    }
+                    for (int i = 0; i < pts.Length; i++) // anchors on top of the handle lines
+                    {
+                        var s = ToImGui(HudEditorMode.PointCanvas(sel, pts[i], scale));
+                        dl.AddCircleFilled(s, 4.5f, handleCol, 16);
+                        dl.AddCircle(s, 4.5f, ringCol, 16, 1f);
+                    }
+                }
+                else
+                {
+                    for (int i = 0; i < 8; i++)
+                    {
+                        var s = ToImGui(HudEditorMode.HandlePoint(r, i));
+                        dl.AddRect(new Vector2(s.x - 4f, s.y - 4f), new Vector2(s.x + 4f, s.y + 4f),
+                            handleCol, 0f, ImDrawFlags.None, 1.4f);
+                    }
                 }
             }
 
@@ -502,7 +655,7 @@ namespace StationeersUIMod.Windows
                 dl.AddRect(mn, mx, mqCol, 0f, ImDrawFlags.None, 1.4f);
             }
 
-            if (HudEditorMode.DrawingLine)
+            if (HudEditorMode.DrawingLine || HudEditorMode.DrawingShape)
             {
                 var pts = HudEditorMode.DrawPoints;
                 for (int i = 0; i < pts.Count; i++)
@@ -510,6 +663,13 @@ namespace StationeersUIMod.Windows
                     var s = ToImGui(pts[i]);
                     dl.AddCircleFilled(s, 3.5f, selCol, 12);
                     if (i > 0) dl.AddLine(ToImGui(pts[i - 1]), s, selCol, 2f);
+                }
+                // Pen tool: hint the closing segment back to the first point + mark the close target.
+                if (HudEditorMode.DrawingShape && pts.Count >= 2)
+                {
+                    uint closeCol = ImGui.GetColorU32(new Vector4(1f, 0.62f, 0.15f, 0.45f));
+                    dl.AddLine(ToImGui(pts[pts.Count - 1]), ToImGui(pts[0]), closeCol, 1.6f);
+                    dl.AddCircle(ToImGui(pts[0]), 7f, selCol, 16, 2f);
                 }
             }
         }
@@ -644,6 +804,8 @@ namespace StationeersUIMod.Windows
                     if (ImGui.Button("Duplicate##pop")) HudEditorMode.DuplicateSelected();
                     ImGui.SameLine();
                     if (ImGui.Button("Delete##pop")) HudEditorMode.DeleteSelected();
+                    if (ImGui.Button("Make flat (strip glass / glow)##pop")) HudEditorMode.MakeSelectedFlat();
+                    ImGui.TextDisabled("Zeros this box's sheen + edge light + glow -> a plain bordered box.");
                 }
                 ImGui.End();
                 if (!elOpen) HudEditorMode.ClearElementSelection();
@@ -739,6 +901,27 @@ namespace StationeersUIMod.Windows
             // exact signal that routes writes, so the cue can never disagree with what's edited.
             if (UI.Hud.HudElementView.EditBareTier)
                 ImGui.TextDisabled("Editing BARE layout — moves bare-mode positions.");
+        }
+
+        /// <summary>Bloom bright-pass base resolution: Full = crisp hairline glow (priciest),
+        /// Quarter = soft dreamy haze (cheapest). -1 in the cfg = legacy "fine detail" toggle
+        /// mapping (half when on, quarter when off) — shown as its resolved value here.</summary>
+        private static void BloomResCombo()
+        {
+            if (HudConfig.FxBloomRes == null) return;
+            int res = HudConfig.FxBloomRes.Value;
+            if (res < 0) // legacy: resolve the FineDetail toggle for display
+                res = HudConfig.FxBloomFineDetail == null || HudConfig.FxBloomFineDetail.Value ? 1 : 2;
+            string current = res == 0 ? "Full (crisp hairlines, priciest)"
+                : res == 1 ? "Half (balanced)"
+                : "Quarter (soft haze, cheapest)";
+            if (ImGui.BeginCombo("  glow resolution", current))
+            {
+                if (ImGui.Selectable("Full (crisp hairlines, priciest)", res == 0)) HudConfig.FxBloomRes.Value = 0;
+                if (ImGui.Selectable("Half (balanced)", res == 1)) HudConfig.FxBloomRes.Value = 1;
+                if (ImGui.Selectable("Quarter (soft haze, cheapest)", res == 2)) HudConfig.FxBloomRes.Value = 2;
+                ImGui.EndCombo();
+            }
         }
 
         private static void CurvatureCombo()

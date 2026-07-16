@@ -47,6 +47,13 @@ namespace StationeersUIMod.Features
                     string dst = Path.Combine(Dir, Path.GetFileName(f));
                     if (!File.Exists(dst)) File.Copy(f, dst);
                 }
+                // Preview art travels beside the profile as a <name>.png sidecar so the Control
+                // Center can show a thumbnail for each shipped "default UI". Same no-overwrite rule.
+                foreach (string f in Directory.GetFiles(src, "*.png"))
+                {
+                    string dst = Path.Combine(Dir, Path.GetFileName(f));
+                    if (!File.Exists(dst)) File.Copy(f, dst);
+                }
             }
             catch (Exception e) { UIALog.Warn("HudProfileStore.ImportShipped: " + e.Message); }
         }
@@ -285,6 +292,20 @@ namespace StationeersUIMod.Features
             _saveAt = 0f;
             _warned.Clear();
             ActiveReplaced = null;
+        }
+
+        /// <summary>Full path to a profile's preview image (<c>&lt;name&gt;.png</c> beside its xml),
+        /// or null if none exists. Used by the Control Center to show a thumbnail on each card.</summary>
+        public static string PreviewPath(string name)
+        {
+            string file = SafeFileName(name);
+            if (file == null) return null;
+            try
+            {
+                string path = Path.Combine(Dir, file + ".png");
+                return File.Exists(path) ? path : null;
+            }
+            catch { return null; }
         }
 
         // ---------- helpers ----------
