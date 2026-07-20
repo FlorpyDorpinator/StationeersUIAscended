@@ -2,7 +2,7 @@
   <Name>StationeersUIMod</Name>
   <ModID>StationeersUIAscended</ModID>
   <Author>FlorpyDorp + JXSN</Author>
-  <Version>0.9.0.1</Version>
+  <Version>0.9.1.0</Version>
   <Description>
 	  [h1]Stationeers UI Mod[/h1]
 	  
@@ -19,6 +19,24 @@ Ported from BepInEx proof-of-concept into Unity mod project. Radials are now dra
 <br>
 ]]></InGameDescription>
   <ChangeLog>
+    [h3]Version 0.9.1.0 EXPERIMENTAL — THE UNIVERSAL INVENTORY + THE BELT WHEEL:[/h3]
+    [list]
+    [*] THE UNIVERSAL INVENTORY (press B): one window showing EVERY slot you own — worn equipment, your hands' contents, and every bag nested inside them, however deep. Laid out as one flat grid: each storage bag is a bordered block of item boxes with a trapezoidal manila-folder tab, while tools that merely have slots (drills, welders, tablets) stay a single box instead of unfolding
+    [*] PIN A BAG OUT: drag a bag's folder tab out of the window and it becomes its own movable, resizable window with a shrink button to send it back. Shift+1-6 pops that worn bag out (press again to close it); mouse-mod + click a HUD equipment slot pins it too. Pinned bags stay on screen when you close the main window — only the vanilla close-all (`) puts everything away
+    [*] It never steals your mouse: B opens the window with the cursor still locked so you keep looking around and moving. Free the mouse with your mouse-modifier only when you actually want to click something
+    [*] Move items by dragging box to box (move / swap / merge onto a stack), click an item to put it in your hand, right-click for that item's radial, and Sort each container from its own corner button
+    [*] Resize from the bottom-right grip, drag it around by the title bar, and it remembers where and how big it was. The grid re-flows as you resize, and an F10 slider sets the box size (icons scale with it)
+    [*] Fully themed: it inherits your global box look — colour, border width, corner radius, glass sheen, edge light and frost — and you can click it in the F9 designer to restyle it like any other box
+    [*] THE BELT WHEEL (the middle-mouse tool radial, renamed): press Q to swap which tool belt you are wearing — the belt IS the loadout, so a second belt is a second kit
+    [*] Tools remember their home: smart-stow (G) puts each tool type back in the slot it lives in, per belt, remembered per save — so your wrench is always in the same place. Slots keep their angle even while the tool is in your hand, with the bound tool's name ghosted in place
+    [*] New radial feel: flick-commit (flick straight to a tool without the ring ever drawing), double-tap to repeat your last pick, hover/commit/denied sounds, hint text that fades away as you learn it, and hold-MMB to look around without closing the radial
+    [*] HUD glass hunt: the halo corner rays were root-caused (the specular light lobe) and reshaped with a soft cosine; ray streaks now fade with depth; the halo X crease fix is ungated; freeform pen shapes get halos and corner fans; halos can breathe and flow organically, with per-element ripple desync
+    [*] Designer: pen tool reworked to an Illustrator-style Bezier model with point editing in the popup, resolution-independent HUD scaling (authoring resolution travels with the profile), off-screen element self-heal, stacked readout row heights, custom elements reach parity with the global Effects tab, and a full inspector audit of missing/lying controls
+    [*] Bare senses overhauled (layout, editable sense catalog, nested tabs) and per-mode bare-suit visual overrides; suit warnings now tint and breathe the whole HUD
+    [*] F10 Control Center is real HUD glass now, follows your F9 theme, is click-to-edit, and keeps its scroll position
+    [*] Drag items out of the HUD hand and 1-6 boxes — and drop a world item straight INTO a HUD slot; double-tap the mouse modifier to latch the cursor
+    [*] Fixes: the bowtie "X" artifact is gone from EVERY inventory box; the smart-stow flash was root-caused (an InventoryTweaks conflict) and the leak/damage icons are the real ones; the vanilla controls-conflict banner is gone; dragging an item out of a HUD slot no longer opens the inventory
+    [/list]
     [h3]Version 0.9.0.1 EXPERIMENTAL — THE PEN, THE CONTROL CENTER + LIGHT YOU AIM:[/h3]
     [list]
     [*] THE PEN TOOL: draw your own filled glass shapes — click points to lay a path, close it, then edit it like Adobe: drag anchors, Bezier handles for smooth curves, corner points, insert/delete points. Every glass effect (sheen, edge light, glow, frost) works on your own shapes
@@ -43,7 +61,7 @@ Ported from BepInEx proof-of-concept into Unity mod project. Radials are now dra
     [*] Inner + outer GLOW, separately dialable — frames glow into the glass and out of it, with a diffuseness slider (tight rim -> wide soft haze), overdrivable edge-light ripple (lines break up into light and dark), and per-element overrides. A week of artifact-hunting fixed: banded halos, corner rays, radial spokes, inner-glow corner crosses, and glow escaping through trapezoid slants
     [*] Radial menus join the effects: frosted-glass wedges + sheen + rim edge light, controlled from a new "Effects (0.9.0)" section in the F10 radial editor
     [*] Frosted glass no longer sees THROUGH the first-person helmet (the capture now includes the helmet camera); frost + glow reach the hand boxes and 1-6 slots
-    [*] Built-in profiler (Profilicus by JacksonTheMaster, vendored with permission): F9 > Profiler or console `uiaprof`; `uiaprof ab <effect>` measures any effect's real frame cost ON vs OFF and prints the delta — now including MEMORY (allocation KB/frame + GC collections); snapshots to BepInEx/config/StationeersUIMod/ProfilerSnapshots
+    [*] Built-in profiler (Profilicus by JacksonTheMaster, vendored with permission): F9 > Profiler or console `uiaprof`; `uiaprof ab &lt;effect&gt;` measures any effect's real frame cost ON vs OFF and prints the delta — now including MEMORY (allocation KB/frame + GC collections); snapshots to BepInEx/config/StationeersUIMod/ProfilerSnapshots
     [*] Shipped HUD layout profiles now install themselves on first run; the play-test default layout is "Smaller Test"
     [*] Packaging fix: releases no longer ship the dev hot-reload shim (settings migrate automatically); fixed a latent mode-C bug where elements added in the editor lost their world-space material
     [/list]

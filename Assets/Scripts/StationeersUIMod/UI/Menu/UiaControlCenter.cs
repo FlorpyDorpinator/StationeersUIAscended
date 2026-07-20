@@ -34,6 +34,9 @@ namespace StationeersUIMod.UI.Menu
         private const string InputStateKey = "UIA_ControlCenter";
 
         private static GameObject _root;
+        private static RectTransform _window;          // the centred window panel (hit-test target)
+        private static UI.Hud.PanelGraphic _windowPanel; // the window's glass surface (HUD PanelGraphic)
+        private static GraphicRaycaster _raycaster;    // toggled off in edit-preview (F9 owns clicks)
         private static RectTransform _contentArea;
         private static RectTransform _popupLayer;
         private static readonly Modal _modal = new Modal();
@@ -44,10 +47,23 @@ namespace StationeersUIMod.UI.Menu
         private static bool _advanced;
         private static bool _open;
         private static bool _modalHeld;
+        private static bool _editPreview;              // open behind the active F9 editor = click-to-edit
+        private static int _builtThemeHash;            // UiaMenuTheme.StyleHash at last (re)build
+        private static float _lastRestyle;             // unscaled time of the last live restyle
+        private const float RestyleMinInterval = 0.14f; // throttle: a live palette drag can't rebuild every frame
 
         private static UiaControls.UiaButton _simpleBtn, _advancedBtn;
 
         public static bool IsOpen => _open;
+
+        /// <summary>True screen-point-over-the-window test (menu canvas is ScreenSpaceOverlay, so
+        /// the camera arg is null). Used by the F9 editor to route a click onto the menu as an
+        /// editable surface. False when closed or not yet built.</summary>
+        public static bool HitTestWindow(Vector2 screenPoint)
+        {
+            if (!_open || _window == null) return false;
+            return RectTransformUtility.RectangleContainsScreenPoint(_window, screenPoint, null);
+        }
 
         public static void Toggle() { if (_open) Close(); else Open(); }
 
@@ -57,14 +73,62 @@ namespace StationeersUIMod.UI.Menu
             if (_root == null) return;
             _open = true;
             _root.SetActive(true);
-            AcquireModal();
+            // Opened behind the active HUD editor = "edit preview": the menu becomes a live-themed
+            // static surface the F9 editor can click to edit, so it must not grab input/cursor or
+            // absorb clicks through its own raycaster.
+            ApplyEditPreview(Windows.HudEditorMode.Active);
             BuildActiveTab();
+        }
+
+        /// <summary>Push the window's glass: theme fill/border + the F9 global effect stack (glow
+        /// halo + edge light + ripple + sheen + frost). Sized from the RectTransform, cornered to
+        /// the global HUD radius so it matches a HUD box. Cheap — every setter is dirty-guarded.</summary>
+        private static void StyleWindowPanel()
+        {
+            if (_windowPanel == null || _window == null) return;
+            var size = _window.sizeDelta;
+            float corner = UI.Hud.HudConfig.CornerRadius != null ? UI.Hud.HudConfig.CornerRadius.Value : 10f;
+            _windowPanel.color = UiaTheme.Window;
+            _windowPanel.BorderColor = UiaTheme.Accent;
+            float bw = UI.Hud.HudConfig.BorderWidth != null ? UI.Hud.HudConfig.BorderWidth.Value : 1.4f;
+            _windowPanel.BorderWidth = bw;
+            _windowPanel.SetShape(size.x, size.y, corner);
+            // The outer window gets the full stack INCLUDING the glow halo. The material-driven
+            // Tier B (shine) + Tier C (frost) only look right while the HUD's FX clock is running —
+            // with the Visor HUD master off that clock stops, so gate them on it and fall back to
+            // the static Tier-A glow/edge/ripple (adversarial review 2026-07-17). FrostDemand keeps
+            // the backdrop capture alive for us while the clock is live and Tier C is on.
+            bool fxLive = UI.Hud.HudSystem.FxClockLive;
+            UI.Hud.HudGlobalGlass.FrostDemand =
+                fxLive && UI.Hud.HudConfig.FxTierC != null && UI.Hud.HudConfig.FxTierC.Value;
+            UI.Hud.HudGlobalGlass.Apply(_windowPanel, includeGlow: true, wantFrost: fxLive, wantTierB: fxLive);
+        }
+
+        /// <summary>Enter/leave edit-preview: in preview the menu yields all input to the F9
+        /// editor (raycaster off, no game modal); out of preview it is the normal modal window.</summary>
+        private static void ApplyEditPreview(bool on)
+        {
+            _editPreview = on;
+            if (_raycaster != null) _raycaster.enabled = !on;
+            if (on) ReleaseModal();   // F9 already owns cursor + input for editing
+            else AcquireModal();
         }
 
         public static void Close()
         {
             if (!_open) return;
             _open = false;
+            _editPreview = false;
+            // The window is hidden — stop asking HudSystem to keep the frost backdrop alive, and
+            // drop its shared glass/edgefx material NOW (symmetric with Restyle/Shutdown) so a
+            // reopen after Tier C is disabled can't flash one stale-frost frame before the next
+            // StyleWindowPanel re-evaluates (adversarial review 2026-07-17).
+            UI.Hud.HudGlobalGlass.FrostDemand = false;
+            if (_windowPanel != null) UI.Hud.HudFxMaterials.Unassign(_windowPanel);
+            // If the F9 editor had the menu selected as its edit target, drop that — else its
+            // theme popup keeps drawing over the now-hidden menu (adversarial review 2026-07-17).
+            Windows.HudEditorMode.MenuSelected = false;
+            if (_raycaster != null) _raycaster.enabled = true; // restore for a normal reopen
             Kit.UiaItemPicker.Reset();
             Kit.UiaRebindCapture.Reset();
             // Clear any floating dropdown popups / catchers so none reactivate on reopen.
@@ -89,12 +153,70 @@ namespace StationeersUIMod.UI.Menu
         public static void Update()
         {
             if (!_open) return;
+            // The window is live HUD glass — push this frame's theme colour + F9 global effects
+            // (glow, edge light, ripple, frost) onto it, exactly like a HUD box updates each frame.
+            StyleWindowPanel();
+            // Keep edit-preview in lock-step with the F9 editor: entering/leaving the editor while
+            // the menu is open flips it between "editable surface" and normal modal window.
+            if (_editPreview != Windows.HudEditorMode.Active)
+                ApplyEditPreview(Windows.HudEditorMode.Active);
+            // Follow the live HUD theme: rebuild when the derived (or overridden) palette changes,
+            // so an F9 palette drag re-skins the menu. THROTTLED — a continuous colour-wheel drag
+            // changes the hash every frame, and a full canvas teardown+rebuild 60x/s is a GC
+            // hitch (adversarial review 2026-07-17); ~7 rebuilds/s reads as live and settles on the
+            // final value one interval after release.
+            if (UiaMenuTheme.StyleHash() != _builtThemeHash
+                && Time.unscaledTime - _lastRestyle >= RestyleMinInterval)
+                Restyle();
             // A rebind is capturing the next key — it owns input (Esc cancels the capture, not
             // the window).
             if (UiaRebindCapture.Active) { UiaRebindCapture.Tick(); return; }
-            if (Input.GetKeyDown(KeyCode.Escape)) { Close(); return; }
+            // In edit-preview the F9 editor owns Escape (and F10 re-press closes the menu); outside
+            // it, Escape closes the window as usual.
+            if (!_editPreview && Input.GetKeyDown(KeyCode.Escape)) { Close(); return; }
             // If the world goes away (menu/loading), never leave the window stranded.
             if (!Guards.CanDraw()) Close();
+        }
+
+        /// <summary>Rebuild the whole window in place to re-skin frozen-colour widgets (buttons,
+        /// outlines) after a live theme change. Preserves open/active/advanced/edit-preview.</summary>
+        private static void Restyle()
+        {
+            _lastRestyle = Time.unscaledTime;
+            bool wasOpen = _open;
+            bool wasPreview = _editPreview;
+            int active = _active;
+            bool advanced = _advanced;
+            // Capture scroll BEFORE the whole root (incl. the scroll view) is destroyed, so a
+            // live theme drag while scrolled down doesn't fling the view to the top each rebuild.
+            float scrollY;
+            bool hadScroll = TryCaptureScroll(out scrollY);
+            // Forget any frost material on the window graphic before it dies, so its dictionary
+            // entry doesn't dangle across restyle churn.
+            if (_windowPanel != null) UI.Hud.HudFxMaterials.Unassign(_windowPanel);
+            if (_root != null) Object.Destroy(_root);
+            _root = null;
+            _window = null;
+            _windowPanel = null;
+            _raycaster = null;
+            _contentArea = null;
+            _popupLayer = null;
+            _tabButtons = null;
+            _simpleBtn = null;
+            _advancedBtn = null;
+            UiaControls.PopupLayer = null;
+            EnsureBuilt();
+            _active = Mathf.Clamp(active, 0, _tabs != null ? _tabs.Count - 1 : 0);
+            _advanced = advanced;
+            RefreshDensityButtons();
+            if (wasOpen && _root != null)
+            {
+                _open = true;
+                _root.SetActive(true);
+                ApplyEditPreview(wasPreview);
+                BuildActiveTab();
+                if (hadScroll) RestoreScroll(scrollY);
+            }
         }
 
         // ---------- modal ----------
@@ -150,7 +272,7 @@ namespace StationeersUIMod.UI.Menu
             scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
             scaler.referenceResolution = new Vector2(1920f, 1080f);
             scaler.matchWidthOrHeight = 0.5f;
-            _root.AddComponent<GraphicRaycaster>();
+            _raycaster = _root.AddComponent<GraphicRaycaster>();
 
             // Full-screen scrim (absorbs clicks behind the window; does not itself close).
             var scrim = UiaUi.Panel(_root.transform, UiaTheme.Scrim, "scrim");
@@ -158,13 +280,19 @@ namespace StationeersUIMod.UI.Menu
             // Window panel — centered, fixed reference size.
             var winGo = UiaUi.Go("window", _root.transform);
             var win = (RectTransform)winGo.transform;
+            _window = win;
             win.anchorMin = win.anchorMax = new Vector2(0.5f, 0.5f);
             win.pivot = new Vector2(0.5f, 0.5f);
             win.sizeDelta = new Vector2(980f, 660f);
-            var winImg = winGo.AddComponent<Image>();
-            winImg.color = UiaTheme.Window;
-            Kit.UiaImages.Round(winImg); // rounded window corners (the kit-wide curved look)
-            UiaUi.OutlineOf(winImg, UiaTheme.AccentDim, 1.5f);
+            // The window is a REAL HUD glass panel (PanelGraphic), not a flat Image, so it carries
+            // the full F9 effect stack — the glowing edge-lit border a HUD box has. Shape + effects
+            // are pushed every frame in StyleWindowPanel(); the corners/border/glow come from the
+            // panel itself (no 9-slice sprite, no Outline component).
+            _windowPanel = winGo.AddComponent<UI.Hud.PanelGraphic>();
+            _windowPanel.raycastTarget = true; // still blocks clicks to the world behind it
+            _windowPanel.color = UiaTheme.Window;
+            _windowPanel.BorderColor = UiaTheme.Accent;
+            StyleWindowPanel();
             UiaUi.VLayout(win, 0f, (int)UiaTheme.Pad, (int)UiaTheme.Pad, (int)UiaTheme.Pad, (int)UiaTheme.Pad);
 
             BuildTitleBar(win);
@@ -183,6 +311,7 @@ namespace StationeersUIMod.UI.Menu
             _popupLayer.SetAsLastSibling();
             UiaControls.PopupLayer = _popupLayer;
 
+            _builtThemeHash = UiaMenuTheme.StyleHash(); // chrome now reflects this theme
             _root.SetActive(false);
         }
 
@@ -272,10 +401,12 @@ namespace StationeersUIMod.UI.Menu
         }
 
         /// <summary>Rebuild the current tab in place (tabs call this after an action that changes
-        /// what the tab should show — applying a profile, toggling a setting that reveals more, …).</summary>
+        /// what the tab should show — applying a profile, toggling a setting that reveals more, …).
+        /// Preserves the scroll position: a same-tab rebuild (e.g. picking a profile in a dropdown)
+        /// must not fling the view back to the top.</summary>
         public static void Refresh()
         {
-            if (_open) BuildActiveTab();
+            if (_open) BuildActiveTab(true);
         }
 
         public static bool Advanced => _advanced;
@@ -285,7 +416,7 @@ namespace StationeersUIMod.UI.Menu
             if (_advanced == adv) return;
             _advanced = adv;
             RefreshDensityButtons();
-            BuildActiveTab();
+            BuildActiveTab(true);
         }
 
         private static void RefreshDensityButtons()
@@ -294,9 +425,17 @@ namespace StationeersUIMod.UI.Menu
             if (_advancedBtn != null) _advancedBtn.SetSelected(_advanced);
         }
 
-        private static void BuildActiveTab()
+        private static void BuildActiveTab() => BuildActiveTab(false);
+
+        private static void BuildActiveTab(bool preserveScroll)
         {
             if (_contentArea == null || _tabs == null) return;
+
+            // A same-tab rebuild (Refresh from a dropdown/toggle) should keep the reader where they
+            // were, not reset to the top. Capture the outgoing scroll fraction before we clear.
+            float scrollY = 1f;
+            bool hadScroll = preserveScroll && TryCaptureScroll(out scrollY);
+
             // Clear (hide immediately to avoid a one-frame overlap, then destroy).
             for (int i = _contentArea.childCount - 1; i >= 0; i--)
             {
@@ -309,15 +448,48 @@ namespace StationeersUIMod.UI.Menu
 
             try { _tabs[_active].Build(_contentArea, _advanced); }
             catch (System.Exception e) { UIALog.Error("Control Center tab build failed: " + e); }
+
+            if (hadScroll) RestoreScroll(scrollY);
+        }
+
+        /// <summary>Read the current tab's scroll fraction (1 = top). False when there is no
+        /// scroll view (some tabs don't use one).</summary>
+        private static bool TryCaptureScroll(out float y)
+        {
+            y = 1f;
+            if (_contentArea == null) return false;
+            var sr = _contentArea.GetComponentInChildren<ScrollRect>();
+            if (sr == null) return false;
+            y = sr.verticalNormalizedPosition;
+            return true;
+        }
+
+        /// <summary>Restore a scroll fraction onto the freshly-built tab. The ContentSizeFitter
+        /// needs a layout pass before verticalNormalizedPosition is meaningful, so force one.</summary>
+        private static void RestoreScroll(float y)
+        {
+            if (_contentArea == null) return;
+            var sr = _contentArea.GetComponentInChildren<ScrollRect>();
+            if (sr == null) return;
+            Canvas.ForceUpdateCanvases();
+            if (sr.content != null) LayoutRebuilder.ForceRebuildLayoutImmediate(sr.content);
+            sr.verticalNormalizedPosition = Mathf.Clamp01(y);
         }
 
         public static void Shutdown()
         {
             ReleaseModal();
             _open = false;
+            _editPreview = false;
+            _builtThemeHash = 0;
+            UI.Hud.HudGlobalGlass.FrostDemand = false;
+            if (_windowPanel != null) UI.Hud.HudFxMaterials.Unassign(_windowPanel);
             UiaControls.PopupLayer = null;
             if (_root != null) Object.Destroy(_root);
             _root = null;
+            _window = null;
+            _windowPanel = null;
+            _raycaster = null;
             _contentArea = null;
             _popupLayer = null;
             _tabs = null;

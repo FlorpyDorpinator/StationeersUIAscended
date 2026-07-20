@@ -120,7 +120,7 @@ namespace StationeersUIMod.UI.Hud
                 // Insets pull the top/bottom corners inward — a positive bottom inset
                 // makes the visor-bar trapezoid (top edge wider, angled sides).
                 _box.SetShape(s.x, s.y,
-                    Radius(Def.RTL), Radius(Def.RTR), Radius(Def.RBR), Radius(Def.RBL),
+                    Radius(Def.RTLFor(LayoutBare)), Radius(Def.RTRFor(LayoutBare)), Radius(Def.RBRFor(LayoutBare)), Radius(Def.RBLFor(LayoutBare)),
                     InsetTop(scale), InsetBottom(scale));
             }
             if (_text != null)
@@ -154,9 +154,14 @@ namespace StationeersUIMod.UI.Hud
                 }
                 // Hairlines: the floor is the global knob (default 0.15px) — below 1px the
                 // renderer holds 1px and fades alpha by coverage instead of vanishing.
-                float minW = HudConfig.FxHairlineMin != null ? HudConfig.FxHairlineMin.Value : 0.15f;
-                _line.Width = Mathf.Max(minW, Def.GetF("width", 2f) * scale);
-                _line.FadeEnds = Def.GetF("fadeEnds", 0f);
+                // Hairline floor: per-element override with the -1 = global convention (the
+                // F9 "thinnest line" slider). State-independent like width itself — it is
+                // stroke geometry, not theme.
+                float minW = Def.GetFFor(LayoutBare, "hairlineMin", -1f);
+                if (minW < 0f)
+                    minW = HudConfig.FxHairlineMin != null ? HudConfig.FxHairlineMin.Value : 0.15f;
+                _line.Width = Mathf.Max(minW, Def.GetFFor(LayoutBare, "width", 2f) * scale);
+                _line.FadeEnds = Def.GetFFor(LayoutBare, "fadeEnds", 0f);
             }
             if (_shape != null)
             {
@@ -207,8 +212,8 @@ namespace StationeersUIMod.UI.Hud
                 _box.BorderWidth = BorderWidthFor();
                 // Per-side border visibility ("make one of the 4 sides transparent"): bits
                 // 1=Top 2=Right 4=Bottom 8=Left; a disabled side melts away around its corners.
-                int sides = (Def.GetB("bTop", true) ? 1 : 0) | (Def.GetB("bRight", true) ? 2 : 0)
-                          | (Def.GetB("bBottom", true) ? 4 : 0) | (Def.GetB("bLeft", true) ? 8 : 0);
+                int sides = (Def.GetBFor(LayoutBare, "bTop", true) ? 1 : 0) | (Def.GetBFor(LayoutBare, "bRight", true) ? 2 : 0)
+                          | (Def.GetBFor(LayoutBare, "bBottom", true) ? 4 : 0) | (Def.GetBFor(LayoutBare, "bLeft", true) ? 8 : 0);
                 _box.BorderSides = sides;
                 ApplyGlass(_box);
             }
@@ -217,39 +222,67 @@ namespace StationeersUIMod.UI.Hud
                 _shape.color = FillColor();
                 _shape.BorderColor = BorderColor();
                 _shape.BorderWidth = BorderWidthFor();
-                int sides = (Def.GetB("bTop", true) ? 1 : 0) | (Def.GetB("bRight", true) ? 2 : 0)
-                          | (Def.GetB("bBottom", true) ? 4 : 0) | (Def.GetB("bLeft", true) ? 8 : 0);
+                int sides = (Def.GetBFor(LayoutBare, "bTop", true) ? 1 : 0) | (Def.GetBFor(LayoutBare, "bRight", true) ? 2 : 0)
+                          | (Def.GetBFor(LayoutBare, "bBottom", true) ? 4 : 0) | (Def.GetBFor(LayoutBare, "bLeft", true) ? 8 : 0);
                 _shape.BorderSides = sides;
                 ApplyGlass(_shape);   // sheen/spec/border-fade/soft-edge/ripple/FX, same as a Box
             }
             if (_text != null)
             {
                 HudText.Sync(_text);
-                _text.fontSize = HudText.Size(Def.GetF("size", 14f) * Def.FontScale) * scale;
+                _text.fontSize = HudText.Size(Def.GetFFor(LayoutBare, "size", 14f) * Def.FontScaleFor(LayoutBare)) * scale;
                 _text.color = TextColor();
                 HudText.Set(_text, Def.Text ?? "");
             }
             if (_line != null)
             {
-                _line.color = TextColor();
-                // Directional edge-light (Tier A): global strength × the per-element master;
-                // the light direction is the shared panel key light, so lines and borders agree.
+                // PolylineGraphic has NO BorderColor — its halo hue IS the stroke colour, so this is
+                // the only way a drawn line joins the alert. Note this tints the line STROKE, which
+                // is right for lines; TextColor() itself is deliberately NOT hooked, or every
+                // readout's numbers would go amber and become unreadable mid-emergency.
+                _line.color = HudAlertPulse.Tint(TextColor(), AlertSeed);
+                // The line resolves through the SAME two-state contract as the panels (the
+                // 2026-07-16 standardisation — it was the last surface on raw -1 sentinels,
+                // blind to styleSource, which is why a "separated" polyline kept rendering the
+                // global halo it could not turn off). Global = pure F9 values; Custom = the
+                // seeded snapshot, gated by the same custom*On checkboxes as every panel.
                 bool tierA = HudConfig.FxTierA != null && HudConfig.FxTierA.Value;
-                bool edgeOn = tierA && HudConfig.FxEdgeLightOn != null && HudConfig.FxEdgeLightOn.Value;
-                _line.EdgeLight = edgeOn && HudConfig.FxEdgeLight != null ? HudConfig.FxEdgeLight.Value : 0f;
+                bool rippleOn = tierA && StyleFeatureOn("customRippleOn", HudConfig.FxEdgeLightOn);
+                _line.EdgeLight = rippleOn ? OwnOrGlobal("edgeLight", HudConfig.FxEdgeLight) : 0f;
                 // Track the configurable key-light DIRECTION so lines catch light from the same
                 // angle as the borders (the default reproduces the old upper-left direction).
                 _line.EdgeLightDir = new Vector2(PanelGraphic.LightX, PanelGraphic.LightY);
-                _line.EdgeRipple = edgeOn && HudConfig.FxEdgeRipple != null ? HudConfig.FxEdgeRipple.Value : 0f;
-                _line.EdgeRippleFreq = HudConfig.FxEdgeRippleFreq != null ? HudConfig.FxEdgeRippleFreq.Value : 2f;
-                _line.RippleSmooth = Def.GetF("rippleSmooth", 0f);
+                _line.EdgeRipple = rippleOn ? OwnOrGlobal("ripple", HudConfig.FxEdgeRipple) : 0f;
+                _line.EdgeRippleFreq = RippleFreqFor(OwnOrGlobal("rippleFreq", HudConfig.FxEdgeRippleFreq));
+                _line.RippleSmooth = UsesGlobalStyle ? 0f : Def.GetFFor(LayoutBare, "rippleSmooth", 0f);
+                bool glowOn = tierA && StyleFeatureOn("customGlowOn", HudConfig.FxGlowOn);
+                // Same Tier-A-gated constant floor as the panels (see ApplyMeshFx).
+                _line.Glow = tierA ? HudAlertPulse.Glow(glowOn ? OwnOrGlobal("glow", HudConfig.FxGlow) : 0f) : 0f;
+                _line.GlowWidth = OwnOrGlobal("glowWidth", HudConfig.FxGlowWidth);
+                _line.GlowDiffuse = OwnOrGlobal("glowDiffuse", HudConfig.FxGlowDiffuse);
+                _line.GlowExtraDiffuse = Mathf.Clamp01(
+                    NewSdfOwnOrGlobal("glowExtraDiffuse", HudConfig.FxGlowExtraDiffuse, 0f));
                 _line.FxStrength = FxStrengthFor();
+                // Moving flow (Tier B): the travelling edge-energy wave. Gated on the PROVEN
+                // flow ABI — an old resident bundle after F6 ignores uv1 — AND the ripple gate
+                // (the wave IS the ripple, animated). Binding the edgefx material lets HudEdgeFX
+                // animate the baked uv1 payload; with no bound bundle material the payload is
+                // inert, so this fails soft to the static ripple bake. Mirrors the Shape path
+                // (HudElementView.ApplyFx meshFlow) since a line is not an IGlassSurface.
+                bool flowWanted = rippleOn && Core.HudShaderStore.FlowAbiAvailable;
+                _line.FlowSpeed = flowWanted ? RippleFlowSpeedFor(OwnOrGlobal("edgeFlow", HudConfig.FxEdgeFlowSpeed)) : 0f;
+                bool meshFlow = _line.FlowSpeed > 0.004f && _line.EdgeRipple > 0.004f;
+                if (meshFlow)
+                {
+                    if (!HudFxMaterials.Assign(_line, "edgefx")) HudFxMaterials.Unassign(_line);
+                }
+                else HudFxMaterials.Unassign(_line);
             }
             if (_sprite != null) _sprite.color = TextColor();
             if (_glyph != null)
             {
                 _glyph.color = TextColor();
-                _glyph.StrokeScale = Def.GetF("stroke", 1f);
+                _glyph.StrokeScale = Def.GetFFor(LayoutBare, "stroke", 1f);
             }
             if (_placeholderText != null)
             {
@@ -272,10 +305,10 @@ namespace StationeersUIMod.UI.Hud
                 case HudElementType.Box:
                 {
                     int appearanceStart = into.Count;
-                    into.Add(HudProp.Bool("Border: top", () => d.GetB("bTop", true), v => d.SetB("bTop", v)));
-                    into.Add(HudProp.Bool("Border: right", () => d.GetB("bRight", true), v => d.SetB("bRight", v)));
-                    into.Add(HudProp.Bool("Border: bottom", () => d.GetB("bBottom", true), v => d.SetB("bBottom", v)));
-                    into.Add(HudProp.Bool("Border: left", () => d.GetB("bLeft", true), v => d.SetB("bLeft", v)));
+                    into.Add(HudProp.Bool("Border: top", () => d.GetBFor(EditBare(d), "bTop", true), v => d.SetBFor(EditBare(d), "bTop", v)));
+                    into.Add(HudProp.Bool("Border: right", () => d.GetBFor(EditBare(d), "bRight", true), v => d.SetBFor(EditBare(d), "bRight", v)));
+                    into.Add(HudProp.Bool("Border: bottom", () => d.GetBFor(EditBare(d), "bBottom", true), v => d.SetBFor(EditBare(d), "bBottom", v)));
+                    into.Add(HudProp.Bool("Border: left", () => d.GetBFor(EditBare(d), "bLeft", true), v => d.SetBFor(EditBare(d), "bLeft", v)));
                     for (int i = appearanceStart; i < into.Count; i++) into[i].Group = HudPropGroup.Appearance;
                     break;
                 }
@@ -290,7 +323,7 @@ namespace StationeersUIMod.UI.Hud
                     for (int i = layoutStart; i < into.Count; i++) into[i].Group = HudPropGroup.Layout;
 
                     int appearanceStart = into.Count;
-                    into.Add(HudProp.F("Text size", () => d.GetF("size", 14f), v => d.SetF("size", v), 6f, 64f));
+                    into.Add(HudProp.F("Text size", () => d.GetFFor(EditBare(d), "size", 14f), v => d.SetFFor(EditBare(d), "size", v), 6f, 64f));
                     for (int i = appearanceStart; i < into.Count; i++) into[i].Group = HudPropGroup.Appearance;
                     break;
                 }
@@ -303,26 +336,33 @@ namespace StationeersUIMod.UI.Hud
                     for (int i = layoutStart; i < into.Count; i++) into[i].Group = HudPropGroup.Layout;
 
                     int appearanceStart = into.Count;
-                    into.Add(HudProp.F("Line width", () => d.GetF("width", 2f), v => d.SetF("width", Mathf.Max(0.05f, v)), 0.05f, 24f));
+                    into.Add(HudProp.F("Line width", () => d.GetFFor(EditBare(d), "width", 2f), v => d.SetFFor(EditBare(d), "width", Mathf.Max(0.05f, v)), 0.05f, 24f));
                     for (int i = appearanceStart; i < into.Count; i++) into[i].Group = HudPropGroup.Appearance;
 
+                    // The light/ripple/halo family now comes from the base inspector's
+                    // F9-mirrored line block (HudElementView.AddUnifiedEffectProps), governed
+                    // by the same follow-global checkbox as every panel. Only the line's own
+                    // geometry-participation knobs live here.
                     int effectsStart = into.Count;
-                    into.Add(HudProp.F("Fade ends (0=off)", () => d.GetF("fadeEnds", 0f), v => d.SetF("fadeEnds", Mathf.Clamp(v, 0f, 0.49f)), 0f, 0.49f));
+                    into.Add(HudProp.F("Fade ends (0=off)", () => d.GetFFor(EditBare(d), "fadeEnds", 0f), v => d.SetFFor(EditBare(d), "fadeEnds", Mathf.Clamp(v, 0f, 0.49f)), 0f, 0.49f));
+                    into.Add(HudProp.F("Hairline floor px (-1 = global)", () => d.GetFFor(EditBare(d), "hairlineMin", -1f),
+                        v => d.SetFFor(EditBare(d), "hairlineMin", v < 0f ? -1f : Mathf.Clamp(v, 0.05f, 1f)), -1f, 1f));
                     for (int i = effectsStart; i < into.Count; i++) into[i].Group = HudPropGroup.Effects;
                     break;
                 }
                 case HudElementType.Icon:
                     into.Add(HudProp.Text("Icon (glyph or PNG name)", () => d.Icon ?? "", v => d.Icon = v));
-                    into.Add(HudProp.F("Stroke scale", () => d.GetF("stroke", 1f), v => d.SetF("stroke", Mathf.Clamp(v, 0.4f, 3f)), 0.4f, 3f));
+                    into.Add(HudProp.F("Stroke scale", () => d.GetFFor(EditBare(d), "stroke", 1f), v => d.SetFFor(EditBare(d), "stroke", Mathf.Clamp(v, 0.4f, 3f)), 0.4f, 3f));
                     into[into.Count - 1].Group = HudPropGroup.Appearance;
                     break;
                 case HudElementType.Shape:
                 {
                     // The silhouette itself is drawn/edited with the pen tool (F9 gizmo layer); these
                     // tune it. Fill/border/glass come from the base props (it is a glass panel).
-                    // Curve style: Straight corners / Smooth (Catmull through the points) / Bézier
-                    // (drag per-point handles in Edit-points mode). Choosing Bézier seeds smooth
-                    // handles from the point tangents so it curves immediately.
+                    // Curve style: Straight corners / Smooth (Catmull through the points) / Bézier.
+                    // Choosing Bézier changes NOTHING visually (handles start zero = straight); in
+                    // Edit-points mode you PULL a segment to curve it, Illustrator-style, so curves
+                    // are chosen per segment, never imposed on the whole shape.
                     int layoutStart = into.Count;
                     into.Add(HudProp.Enum("Curve style",
                         () => d.GetI("curveMode", d.GetB("smooth", false) ? 1 : 0),
@@ -332,10 +372,10 @@ namespace StationeersUIMod.UI.Hud
                     for (int i = layoutStart; i < into.Count; i++) into[i].Group = HudPropGroup.Layout;
 
                     int appearanceStart = into.Count;
-                    into.Add(HudProp.Bool("Border: top", () => d.GetB("bTop", true), v => d.SetB("bTop", v)));
-                    into.Add(HudProp.Bool("Border: right", () => d.GetB("bRight", true), v => d.SetB("bRight", v)));
-                    into.Add(HudProp.Bool("Border: bottom", () => d.GetB("bBottom", true), v => d.SetB("bBottom", v)));
-                    into.Add(HudProp.Bool("Border: left", () => d.GetB("bLeft", true), v => d.SetB("bLeft", v)));
+                    into.Add(HudProp.Bool("Border: top", () => d.GetBFor(EditBare(d), "bTop", true), v => d.SetBFor(EditBare(d), "bTop", v)));
+                    into.Add(HudProp.Bool("Border: right", () => d.GetBFor(EditBare(d), "bRight", true), v => d.SetBFor(EditBare(d), "bRight", v)));
+                    into.Add(HudProp.Bool("Border: bottom", () => d.GetBFor(EditBare(d), "bBottom", true), v => d.SetBFor(EditBare(d), "bBottom", v)));
+                    into.Add(HudProp.Bool("Border: left", () => d.GetBFor(EditBare(d), "bLeft", true), v => d.SetBFor(EditBare(d), "bLeft", v)));
                     for (int i = appearanceStart; i < into.Count; i++) into[i].Group = HudPropGroup.Appearance;
                     break;
                 }
@@ -345,9 +385,12 @@ namespace StationeersUIMod.UI.Hud
         private static readonly string[] AlignNames = { "Left", "Center", "Right" };
         private static readonly string[] CurveStyleNames = { "Straight", "Smooth", "Bezier" };
 
-        /// <summary>Seed a shape's Bézier handles (if not already sized to the points) with smooth
-        /// tangents derived from each point's neighbours, so switching to Bézier immediately reads
-        /// as a smooth curve the user can then reshape by dragging the handles.</summary>
+        /// <summary>Size a shape's Bézier handle arrays to its point count with ZERO handles
+        /// (a zero-handle cubic degenerates to a straight line). Switching to Bézier therefore
+        /// changes nothing visually — every segment stays straight until the user PULLS it into
+        /// a curve in Edit-points mode (the Illustrator model: straight lines first, curvature
+        /// only where you ask for it). A shape whose handles are already point-aligned is left
+        /// alone so existing curves survive the mode being re-selected.</summary>
         internal static void EnsureBezierHandles(HudElementDef d)
         {
             var pts = d.GetPoints("pts");
@@ -358,11 +401,8 @@ namespace StationeersUIMod.UI.Hud
             var hout = new List<Vector2>(m);
             for (int i = 0; i < m; i++)
             {
-                Vector2 prev = pts[(i - 1 + m) % m];
-                Vector2 next = pts[(i + 1) % m];
-                Vector2 tan = (next - prev) * 0.16f; // fraction of the local tangent = gentle curve
-                hout.Add(tan);
-                hin.Add(-tan);
+                hin.Add(Vector2.zero);
+                hout.Add(Vector2.zero);
             }
             d.SetPoints("hin", hin);
             d.SetPoints("hout", hout);

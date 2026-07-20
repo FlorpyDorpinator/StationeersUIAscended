@@ -55,6 +55,32 @@ namespace StationeersUIMod
         public static ConfigEntry<bool> RadialHintBar;
         /// <summary>Set true once the first-run guide has been shown (so it only auto-opens once).</summary>
         public static ConfigEntry<bool> GuideShown;
+        public static ConfigEntry<bool> CursorLatchEnabled;
+        public static ConfigEntry<int> CursorLatchMs;
+
+        // --- Radial feel (interaction deltas: flick, double-tap, sounds, hints, head-look) ---
+        /// <summary>R2: enable flick-commit — a fast directional flick past the selection radius
+        /// commits the sector under the cursor without ever drawing the ring.</summary>
+        public static ConfigEntry<bool> RadialFlickCommit;
+        /// <summary>R2: the flick window in ms — a release faster than this (with enough travel)
+        /// counts as a flick.</summary>
+        public static ConfigEntry<int> RadialFlickMs;
+        /// <summary>R3: enable double-tap-repeat — a second tap of the same radial key within the
+        /// window re-runs the last committed action for that feature.</summary>
+        public static ConfigEntry<bool> RadialDoubleTapRepeat;
+        /// <summary>R3: the double-tap window in ms.</summary>
+        public static ConfigEntry<int> RadialDoubleTapMs;
+        /// <summary>R8: play a soft hover tick as the highlighted wedge changes and a click on
+        /// commit.</summary>
+        public static ConfigEntry<bool> RadialWedgeSounds;
+        /// <summary>R10: fade a contextual hint out once it has been used enough times.</summary>
+        public static ConfigEntry<bool> RadialHintFade;
+        /// <summary>Head-look: while a radial opened by ANOTHER key is up, holding the head-look
+        /// key lets the camera look around (the radial modal stops unlocking the cursor so the
+        /// game re-locks it and head-look resumes).</summary>
+        public static ConfigEntry<bool> RadialHeadLookHold;
+        /// <summary>Head-look key (default MMB) — hold while a radial is open to peek around.</summary>
+        public static ConfigEntry<KeyCode> RadialHeadLookKey;
 
         /// <summary>Shorthand for "the Option A behavior SET is active" — B is A plus the
         /// Hub gestures, so every A-gated behavior (STOW wedges, satellites, search,
@@ -70,6 +96,12 @@ namespace StationeersUIMod
         public static ConfigEntry<bool> ToolbeltRadialEnabled;
         public static ConfigEntry<KeyCode> ToolbeltRadialKey;
         public static ConfigEntry<bool> ToolbeltShowStowEntries;
+        /// <summary>1B.2: remember which slot each tool type lives in on a belt (home slots) so a
+        /// tool always returns to the same wedge position.</summary>
+        public static ConfigEntry<bool> ToolbeltHomeSlots;
+        /// <summary>1B.3: reserve a wedge for every belt slot (occupied or empty) so the ring
+        /// geometry is stable, and show a grey binding label on empty-but-bound slots.</summary>
+        public static ConfigEntry<bool> ToolbeltStableGeometry;
 
         // --- Tool radial ---
         public static ConfigEntry<bool> ToolRadialEnabled;
@@ -99,6 +131,35 @@ namespace StationeersUIMod
         public static ConfigEntry<bool> StowUseTypeMemory;
         public static ConfigEntry<bool> StowIntoNestedBags;
         public static ConfigEntry<bool> StowToolsToToolbeltFirst;
+
+        // --- The Grid ---
+        /// <summary>Master switch for The Grid — the full-inventory glass overlay (every worn slot
+        /// + every nested container). Off = the key does nothing and the panel never opens.</summary>
+        public static ConfigEntry<bool> GridEnabled;
+        /// <summary>Key that toggles / peeks The Grid. Default B. NOTE: KeyCode.B is vanilla's
+        /// KeyMap.InstantStop (rover/vehicle instant-stop) default — a soft collision; the mod's
+        /// hold/tap handler only fires while a human player is the active pilot, and B is
+        /// rebindable from the game's Controls screen (UIA group).</summary>
+        public static ConfigEntry<KeyCode> GridKey;
+        /// <summary>Hold-to-peek: holding the key shows The Grid only while held (momentary peek),
+        /// a quick tap toggles it open/closed. Off = tap-only toggle.</summary>
+        public static ConfigEntry<bool> GridHoldPeek;
+        /// <summary>How The Grid lays out the inventory. Grid = the flat, Diablo-style pack (each
+        /// storage container is a bordered region of cells, tools stay single cells); Nested = the
+        /// classic indented tree (tools expand into sub-sections). Flippable from the panel's title
+        /// bar toggle and the F10 menu; persists once chosen.</summary>
+        public static ConfigEntry<UI.Grid.GridDisplayMode> GridMode;
+        /// <summary>Remembered window geometry (top-left px from the screen's top-left) + size.
+        /// X/Y default to -1 = "centre on first open, then store". W/H are clamped on apply so
+        /// the window always fits on-screen. Persisted by <see cref="UI.Grid.TheGridPanel"/> on
+        /// the end of a move / resize drag (not per-frame).</summary>
+        public static ConfigEntry<float> GridWinX;
+        public static ConfigEntry<float> GridWinY;
+        public static ConfigEntry<float> GridWinW;
+        public static ConfigEntry<float> GridWinH;
+        /// <summary>Edge length in px of one inventory cell (icon scales with it). Live from the
+        /// F10 menu; a change relayouts the open window.</summary>
+        public static ConfigEntry<float> GridCellSize;
 
         // --- HUD ---
         public static ConfigEntry<bool> HudEnabled;
@@ -134,6 +195,29 @@ namespace StationeersUIMod
         public static ConfigEntry<string> RadialFontName;
         public static ConfigEntry<bool> RadialUppercaseLabels;
         public static ConfigEntry<bool> RadialShowStateText;
+        public static ConfigEntry<bool> RadialBindingCurved;
+
+        // --- Hint bar (the key-hint strip under an open wheel) ---
+        // Everything the strip's PanelGraphic can actually consume, so its look is authored in the
+        // F10 radial editor instead of being hand-tuned in code. Colours live in RadialPalette.
+        public static ConfigEntry<float> HintBarCorner;
+        public static ConfigEntry<float> HintBarBorderWidth;
+        public static ConfigEntry<float> HintBarFeather;
+        public static ConfigEntry<float> HintBarSheen;
+        public static ConfigEntry<float> HintBarSpec;
+        public static ConfigEntry<float> HintBarGlow;
+        public static ConfigEntry<float> HintBarGlowWidth;
+        public static ConfigEntry<float> HintBarFontSize;
+        public static ConfigEntry<bool> HintBarBold;
+        public static ConfigEntry<float> HintBarHeight;
+        public static ConfigEntry<float> HintBarPadding;
+        public static ConfigEntry<float> HintBarDrop;
+        public static ConfigEntry<bool> HintBarFrost;
+        public static ConfigEntry<float> HintBarFrostStrength;
+        /// <summary>Editor-only: pin the strip on screen over a white swatch so its transparency and
+        /// colours can be judged without opening a wheel. Never persisted as "on" by intent — the
+        /// F10 menu clears it on close.</summary>
+        public static ConfigEntry<bool> HintBarPreview;
         public static ConfigEntry<float> RadialSatelliteScale;
         public static ConfigEntry<float> RadialShineIntensity;
         public static ConfigEntry<float> ParkedChipRadius;
@@ -193,6 +277,40 @@ namespace StationeersUIMod
                 "back, Alt reach, swap hand, page…). Follows your rebinds. Turn off for a cleaner wheel.");
             GuideShown = cfg.Bind("1. General", "GuideShown", false,
                 "Internal: set once the first-run how-to guide has been shown. Reset to false to see it again.");
+            CursorLatchEnabled = cfg.Bind("1. General", "CursorLatchOnDoubleTap", true,
+                "Double-tap the mouse-modifier key (the one you normally HOLD to free the cursor) to " +
+                "LATCH the cursor up, so you can click around hands-free. Press the same key once more " +
+                "to drop back to normal look/aim. Off = vanilla hold-only behaviour.");
+            CursorLatchMs = cfg.Bind("1. General", "CursorLatchWindowMs", 250,
+                new ConfigDescription("How close together the two taps must be to latch the cursor (ms).",
+                    new AcceptableValueRange<int>(120, 500)));
+
+            RadialFlickCommit = cfg.Bind("1b. Radial Feel", "FlickCommit", false,
+                "Flick-commit: a fast directional flick of the radial key (released before the ring " +
+                "would even draw, but past the selection radius) commits the wedge under the cursor " +
+                "straight away. Off = always open the ring first.");
+            RadialFlickMs = cfg.Bind("1b. Radial Feel", "FlickWindowMs", 180,
+                new ConfigDescription("How quick a release counts as a flick (ms). A release slower than " +
+                    "this opens the ring normally.",
+                    new AcceptableValueRange<int>(80, 400)));
+            RadialDoubleTapRepeat = cfg.Bind("1b. Radial Feel", "DoubleTapRepeat", false,
+                "Double-tap a radial key to repeat its last committed action without reopening the ring " +
+                "(e.g. re-equip the last tool). A single tap keeps today's open/close behaviour.");
+            RadialDoubleTapMs = cfg.Bind("1b. Radial Feel", "DoubleTapWindowMs", 250,
+                new ConfigDescription("How close together the two taps must be to count as a double-tap (ms).",
+                    new AcceptableValueRange<int>(120, 500)));
+            RadialWedgeSounds = cfg.Bind("1b. Radial Feel", "WedgeSounds", true,
+                "Play a soft tick as the highlighted wedge changes and a click on commit " +
+                "(uses the game's own UI sounds).");
+            RadialHintFade = cfg.Bind("1b. Radial Feel", "HintFade", true,
+                "Fade a contextual key-hint out once you've used that action enough times, so the hints " +
+                "teach then get out of the way. Reset the counters from the F10 menu.");
+            RadialHeadLookHold = cfg.Bind("1b. Radial Feel", "HeadLookHold", true,
+                "While a radial opened by ANOTHER key is up, hold the head-look key to look around " +
+                "(camera re-locks to the mouse for as long as it's held). A quick tap still closes " +
+                "the radial. When no radial is open the key does its normal job.");
+            RadialHeadLookKey = cfg.Bind("1b. Radial Feel", "HeadLookKey", KeyCode.Mouse2,
+                "Key to hold for head-look while a radial is open (default: middle mouse). Rebindable.");
 
             ToolbeltRadialEnabled = cfg.Bind("2. Toolbelt Radial", "Enabled", true,
                 "Hold a key to open a radial of everything on your toolbelt; release over a tool to equip it into the active hand.");
@@ -200,6 +318,12 @@ namespace StationeersUIMod
                 "Radial key (default: middle mouse; the vanilla PingHighlight binding on Mouse2 is currently unused by the game).");
             ToolbeltShowStowEntries = cfg.Bind("2. Toolbelt Radial", "ShowStowEntries", true,
                 "Always show empty belt slots in the radial, so you can put the held tool back (disabled entries when nothing fits).");
+            ToolbeltHomeSlots = cfg.Bind("2. Toolbelt Radial", "HomeSlots", true,
+                "Remember which slot each tool type lives in on a belt, so a tool always returns to the " +
+                "same wedge position (home slots). Bindings are per-save.");
+            ToolbeltStableGeometry = cfg.Bind("2. Toolbelt Radial", "StableGeometry", true,
+                "Reserve a wedge for every belt slot (occupied or empty) so the ring layout never " +
+                "shifts, and show a dim grey label on an empty slot that has a tool type bound to it.");
 
             ToolRadialEnabled = cfg.Bind("3. Tool Radial", "Enabled", true,
                 "Hold a key while holding a tool to open its Controls/Slots radial.");
@@ -251,7 +375,46 @@ namespace StationeersUIMod
             StowIntoNestedBags = cfg.Bind("6. SmartStow+", "StowIntoNestedBags", true,
                 "Allow SmartStow+ to target bags nested inside other bags.");
             StowToolsToToolbeltFirst = cfg.Bind("6. SmartStow+", "ToolsToToolbeltFirst", true,
-                "Highest priority: if the held item fits an empty slot on your worn toolbelt, stow it there first (tools belong on the belt).");
+                "Highest priority for tools: fill an empty slot on your directly-worn tool belt (equip slot 6) first, "
+                + "then the worn jetpack/backpack itself, BEFORE nesting into a belt tucked inside another bag.");
+
+            GridEnabled = cfg.Bind("9. The Grid", "Enabled", true,
+                "The Grid: a themed glass overlay showing EVERY inventory slot you carry — helmet, " +
+                "glasses, suit, back/backpack, uniform, toolbelt, both hands, and every nested " +
+                "container inside them. Left-click a cell to take/equip it to the active hand; sort " +
+                "per container. Off = the key does nothing and the panel never opens.");
+            GridKey = cfg.Bind("9. The Grid", "Key", KeyCode.B,
+                "Key that opens The Grid. Default B. Note: B is vanilla's rover instant-stop " +
+                "binding — rebind from the game's Controls screen (UI Ascended group) if that " +
+                "clashes with how you drive.");
+            GridHoldPeek = cfg.Bind("9. The Grid", "HoldToPeek", true,
+                "Hold the key to peek The Grid only while held (it hides on release); a quick tap " +
+                "toggles it open so it stays. Off = tap-only toggle, no momentary peek.");
+            GridMode = cfg.Bind("9. The Grid", "DisplayMode", UI.Grid.GridDisplayMode.Grid,
+                "DEPRECATED - no longer used. The Grid always renders the flat, packed grid " +
+                "layout: each storage container (bags, suit, backpack) is a bordered region of " +
+                "one-box cells, and tools stay a single cell. The old Nested tree mode and its " +
+                "toggles were removed; this value is ignored.");
+            GridWinX = cfg.Bind("9. The Grid", "WindowX", -1f,
+                "Internal: remembered window left edge in pixels from the screen's top-left. " +
+                "-1 = centre the window the first time it opens, then store the position here. " +
+                "Set by dragging the title bar.");
+            GridWinY = cfg.Bind("9. The Grid", "WindowY", -1f,
+                "Internal: remembered window top edge in pixels from the screen's top-left. " +
+                "-1 = centre on first open, then store. Set by dragging the title bar.");
+            GridWinW = cfg.Bind("9. The Grid", "WindowW", 560f,
+                new ConfigDescription("Remembered window width in pixels. Set by dragging the " +
+                    "bottom-right resize grip.",
+                    new AcceptableValueRange<float>(360f, 1100f)));
+            GridWinH = cfg.Bind("9. The Grid", "WindowH", 760f,
+                new ConfigDescription("Remembered window height in pixels. Set by dragging the " +
+                    "bottom-right resize grip.",
+                    new AcceptableValueRange<float>(300f, 1300f)));
+            GridCellSize = cfg.Bind("9. The Grid", "CellSize", 46f,
+                new ConfigDescription("Edge length in pixels of one inventory cell. Item icons " +
+                    "scale with it (icon = size x 0.7). Adjust from the F10 menu; the open " +
+                    "window relayouts live.",
+                    new AcceptableValueRange<float>(28f, 80f)));
 
             HudEnabled = cfg.Bind("7. HUD", "Enabled", true,
                 "Draw the UI Ascended visor HUD overlay.");
@@ -353,6 +516,55 @@ namespace StationeersUIMod
             RadialShowStateText = cfg.Bind("8. Radial Visuals", "ShowStateText", true,
                 "Show live state under wedge icons: battery %, canister kPa, stack counts, filter wear. " +
                 "Independent of the item-name labels.");
+            RadialBindingCurved = cfg.Bind("8. Radial Visuals", "BindingLabelCurved", true,
+                "Bend the bound-tool label around the hub GLYPH BY GLYPH so it truly follows the arc. " +
+                "Off = the label still sits on the arc, but is drawn as one straight tangential line.");
+
+            const string HB = "10. Hint Bar";
+            HintBarCorner = cfg.Bind(HB, "CornerRadius", 12f,
+                new ConfigDescription("Corner rounding of the strip. Half the height = a full pill.",
+                    new AcceptableValueRange<float>(0f, 24f)));
+            HintBarBorderWidth = cfg.Bind(HB, "BorderWidth", 0f,
+                new ConfigDescription("Rim thickness. 0 = no border (the rim colour's alpha also has to be > 0).",
+                    new AcceptableValueRange<float>(0f, 6f)));
+            HintBarFeather = cfg.Bind(HB, "EdgeSoftness", 1.25f,
+                new ConfigDescription("Edge anti-aliasing / softness in px.",
+                    new AcceptableValueRange<float>(0f, 4f)));
+            HintBarSheen = cfg.Bind(HB, "GlassSheen", 0.35f,
+                new ConfigDescription("Glass surface top-light. 0 = flat paint.",
+                    new AcceptableValueRange<float>(0f, 1f)));
+            HintBarSpec = cfg.Bind(HB, "GlassEdgeLight", 0f,
+                new ConfigDescription("Glass EDGE light. Note this lights the border run, so it can read " +
+                    "as a faint rim even with BorderWidth 0.",
+                    new AcceptableValueRange<float>(0f, 1f)));
+            HintBarGlow = cfg.Bind(HB, "Glow", 0f,
+                new ConfigDescription("Outward glow halo strength. 0 = off.",
+                    new AcceptableValueRange<float>(0f, 2f)));
+            HintBarGlowWidth = cfg.Bind(HB, "GlowRadius", 24f,
+                new ConfigDescription("Glow halo radius in px (only matters when Glow > 0).",
+                    new AcceptableValueRange<float>(6f, 160f)));
+            HintBarFontSize = cfg.Bind(HB, "FontSize", 11.2f,
+                new ConfigDescription("Hint text size. The strip auto-sizes to its text, so this is also " +
+                    "what makes the bar longer or shorter.",
+                    new AcceptableValueRange<float>(7f, 24f)));
+            HintBarBold = cfg.Bind(HB, "Bold", true, "Draw the hint text bold.");
+            HintBarHeight = cfg.Bind(HB, "Height", 30f,
+                new ConfigDescription("Strip height in px.", new AcceptableValueRange<float>(16f, 56f)));
+            HintBarPadding = cfg.Bind(HB, "SidePadding", 24f,
+                new ConfigDescription("Total left+right padding around the text.",
+                    new AcceptableValueRange<float>(0f, 80f)));
+            HintBarDrop = cfg.Bind(HB, "DropBelowWheel", 34f,
+                new ConfigDescription("Gap between the wheel's outer edge and the strip.",
+                    new AcceptableValueRange<float>(0f, 200f)));
+            HintBarFrost = cfg.Bind(HB, "FrostedGlass", false,
+                "Blur the screen behind the strip (frosted glass). Same requirements as the radial's " +
+                "own frost: HUD Tier C on, the shader bundle loaded, and the visor backdrop running.");
+            HintBarFrostStrength = cfg.Bind(HB, "FrostStrength", 0.85f,
+                new ConfigDescription("How strong the blur behind the strip is.",
+                    new AcceptableValueRange<float>(0f, 1f)));
+            HintBarPreview = cfg.Bind(HB, "PreviewOverWhite", false,
+                "Editor aid: pin the strip on screen over a white swatch so you can judge its colours " +
+                "and transparency without opening a wheel. Cleared when the F10 menu closes.");
             RadialSatelliteScale = cfg.Bind("8. Radial Visuals", "SatelliteScale", 1.0f,
                 new ConfigDescription("Size multiplier for child (satellite) radials.",
                     new AcceptableValueRange<float>(0.5f, 1.6f)));
@@ -406,6 +618,14 @@ namespace StationeersUIMod
 
             // The visor HUD: sizes, curvature, tiers, fonts + its own palette (F9 editor).
             UI.Hud.HudConfig.Bind(cfg);
+
+            // The F10 Control Center theme (follows the HUD palette by default). Bound AFTER
+            // HudConfig so its follow-mode derivation reads a live HudPalette.
+            UI.Menu.Kit.UiaMenuTheme.Bind(cfg);
+
+            // The Universal Inventory window's theme (follows the global box theme by default).
+            // Same ordering reason as above: it derives from a live HudPalette/HudConfig.
+            UI.Grid.GridTheme.Bind(cfg);
         }
     }
 }

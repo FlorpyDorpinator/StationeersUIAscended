@@ -63,6 +63,10 @@ namespace StationeersUIMod.UI.Hud
 
         // Layout / sizes
         public static ConfigEntry<float> HudScale;
+        public static ConfigEntry<bool> HudScaleWithRes;   // scale the HUD with the screen resolution
+        public static ConfigEntry<float> HudRefWidth;      // the resolution the layout was authored at
+        public static ConfigEntry<float> HudRefHeight;
+        public static ConfigEntry<float> HudScaleMatch;    // 0 = follow width, 1 = follow height, 0.5 = blend
         public static ConfigEntry<float> TopBarHeight;
         public static ConfigEntry<float> TopBarCurve;
         public static ConfigEntry<float> TopBarWidthPct;
@@ -130,9 +134,13 @@ namespace StationeersUIMod.UI.Hud
         public static ConfigEntry<float> FxEdgeLightAngle;  // key-light direction, deg (0=right, 90=top, 180=left)
         public static ConfigEntry<float> FxEdgeLightRim;    // opposing-rim catch on the far side (0..2, def 0.5)
         public static ConfigEntry<float> FxEdgeLightSharp;  // falloff exponent — high=tight catch, low=broad wash
+        public static ConfigEntry<float> FxEdgeFadeCurve;   // end-fade ramp shape (<1 hard edge, >1 long tail)
+        public static ConfigEntry<float> FxEdgeFadeBorder;  // how much the border joins the end fade (1 = with the box)
         public static ConfigEntry<float> FxEdgeRipple;      // irregular light/dark shimmer along edges (0 = smooth)
         public static ConfigEntry<float> FxEdgeRippleFreq;  // shimmer frequency, cycles per ~100px
         public static ConfigEntry<float> FxEdgeFlowSpeed;   // shader-time edge-energy animation speed
+        public static ConfigEntry<bool> FxRippleDesync;     // per-element ripple-frequency jitter (break lockstep)
+        public static ConfigEntry<float> FxRippleDesyncAmount; // how far each element's frequency may wander
         public static ConfigEntry<float> FxPulseSpeed;      // breathing pulse rate, Hz
         public static ConfigEntry<float> FxPulseDepth;      // 0..1 how deep the dim half of the pulse goes
         public static ConfigEntry<float> FxShine;           // shine sweep global strength (Tier B)
@@ -140,6 +148,28 @@ namespace StationeersUIMod.UI.Hud
         public static ConfigEntry<float> FxIridescence;     // iridescent edge global strength (Tier B)
         public static ConfigEntry<float> FxChroma;          // chromatic-aberration strength (Tier B)
         public static ConfigEntry<bool> FxDissolveBoot;     // dissolve reveal on boot/power transitions
+
+        // --- Power-down / transition animation (global masters) ---
+        // These exist because "follow the globals" previously meant "forced fully ON": EffectAmt
+        // returned a hard 1f for any global-styled element, so a per-element switch was ignored and
+        // there was no global switch either. Every transition now has a real master + strength.
+        public static ConfigEntry<bool> FxPowerDownMirrorsBoot;
+        public static ConfigEntry<bool> FxDissolveOnPowerDown;
+        public static ConfigEntry<bool> FxCollapseOn;
+        public static ConfigEntry<float> FxCollapseAmt;
+        public static ConfigEntry<bool> FxGlitchOn;
+        public static ConfigEntry<float> FxGlitchAmt;
+        public static ConfigEntry<bool> FxWarpOn;
+        public static ConfigEntry<float> FxWarpAmt;
+        // The rest of the transition registry (see HudTransitionFx): every effect owns a MASTER
+        // plus a default STRENGTH, and every element resolves against them through one tri-state
+        // (Inherit / On / Off). Masters that already existed are reused rather than duplicated —
+        // Flicker's master is FlickerAnimations, Dissolve's is FxDissolveBoot, Pulse's is FxPulseOn.
+        public static ConfigEntry<bool> FxTvOffOn;          // NEW: the classic CRT horizontal collapse
+        public static ConfigEntry<float> FxTvOffAmt;
+        public static ConfigEntry<float> FxFlickerAmt;      // strength for the existing FlickerAnimations
+        public static ConfigEntry<float> FxDissolveAmt;     // strength for the existing FxDissolveBoot
+        public static ConfigEntry<float> FxPulseAmt;        // default 0 — pulse stays opt-in per element
         // The concept-art trio (global defaults; per-element params override with -1 = these):
         public static ConfigEntry<bool> FxBorderFadeOn;
         public static ConfigEntry<bool> FxSoftEdgeOn;
@@ -150,6 +180,25 @@ namespace StationeersUIMod.UI.Hud
         public static ConfigEntry<float> FxGlowInner;       // glow intensity INTO the glass
         public static ConfigEntry<float> FxGlowWidth;       // halo width, px (shared by both sides)
         public static ConfigEntry<float> FxGlowDiffuse;     // halo shape: 0 tight rim, 1 wide soft haze
+        public static ConfigEntry<float> FxGlowExtraDiffuse; // softness beyond GlowDiffuse's ceiling (both glow bands)
+        public static ConfigEntry<float> FxGlowHaze;        // faint long-tail atmosphere beyond the core falloff
+        public static ConfigEntry<bool> FxGlowBreathOn;     // halo/aura-only breathing (does not tint the whole element)
+        public static ConfigEntry<float> FxGlowBreath;      // 0..1 halo/aura-only breath depth
+        public static ConfigEntry<float> FxGlowBreathSpeed; // shared unscaled halo breath rate, Hz
+        public static ConfigEntry<bool> FxGlowUnevenOn;     // stable local-space breakup of halo reach/energy
+        public static ConfigEntry<float> FxGlowUneven;      // 0..1 unevenness amount
+        public static ConfigEntry<float> FxGlowOrganicScale; // unevenness noise footprint, 0.25x..4x (1 = classic)
+        public static ConfigEntry<bool> FxGlowFlowAuraOn;   // moving edge-energy crests emit their own aura
+        public static ConfigEntry<float> FxGlowFlowAura;    // 0..2 flowing aura strength
+        // Status alert pulse: the game's own suit warnings tint + breathe the halo / edge ripple.
+        public static ConfigEntry<bool> FxAlertPulseOn;
+        public static ConfigEntry<float> FxAlertBreathSeconds; // duration of ONE breath, seconds
+        public static ConfigEntry<int> FxAlertCautionBreaths;  // how many flashes a caution runs
+        public static ConfigEntry<float> FxAlertPulseStrength; // 0..1 colour + brightness swing
+        // Per-level brightness gain on the alert hue. The COLOURS themselves are palette entries
+        // (HudAlertCaution / HudAlertCritical) so they get the normal picker + undo treatment.
+        public static ConfigEntry<float> FxAlertCautionBright;
+        public static ConfigEntry<float> FxAlertCriticalBright;
         public static ConfigEntry<float> FrostStrength;     // 0..1 global frost gate (scales every element's frost)
         public static ConfigEntry<float> FrostDepth;        // 0..1 blur-pyramid depth (per-element overridable)
         public static ConfigEntry<float> FrostDownsample;   // blur RT divisor (2/4/8)
@@ -191,6 +240,54 @@ namespace StationeersUIMod.UI.Hud
         // + = only SATURATED pixels bloom (coloured borders, not white text), - = only unsaturated.
         public static ConfigEntry<float> FxBloomSatBias;    // band 1
         public static ConfigEntry<float> FxBloom2SatBias;   // band 2 — THE borders-not-text knob
+
+        /// <summary>The scale EVERY HUD layout computation must use: the user's <see cref="HudScale"/>
+        /// multiplied by the RESOLUTION factor, so a layout authored at the reference resolution keeps
+        /// the same relative position and size on any screen.
+        ///
+        /// Element ANCHORS already track the screen (they're derived from Screen.width/height), but the
+        /// per-element offsets and sizes are reference pixels — without this factor they stay a fixed
+        /// pixel count, so on a bigger screen the HUD shrinks and creeps toward the corners. Multiplying
+        /// the same scale the offsets/sizes already ride keeps the whole layout proportional; the
+        /// screen-percent (WPct/HPct) fields were always proportional and are unaffected.
+        ///
+        /// The width/height blend is the same log-interpolation Unity's CanvasScaler.ScaleWithScreenSize
+        /// uses, so the behaviour matches what a UGUI layout would do. Every caller MUST go through this
+        /// (render, relayout, edit-targets, editor hit-test and gizmos) or the editor desyncs from the
+        /// rendered HUD. It also feeds LayoutHash, so changing resolution re-lays-out automatically.</summary>
+        public static float EffectiveHudScale()
+        {
+            float s = HudScale != null ? HudScale.Value : 1f;
+            if (HudScaleWithRes == null || !HudScaleWithRes.Value) return s;
+            int sw = Screen.width, sh = Screen.height;
+            if (sw <= 0 || sh <= 0) return s;
+            float rw, rh;
+            ReferenceResolution(out rw, out rh);
+            float m = HudScaleMatch != null ? Mathf.Clamp01(HudScaleMatch.Value) : 0.5f;
+            return s * Mathf.Pow(sw / rw, 1f - m) * Mathf.Pow(sh / rh, m);
+        }
+
+        /// <summary>The resolution the ACTIVE layout was designed at. The profile's own RefW/RefH win
+        /// (they ship inside the shareable XML, so a layout built on a 1440p screen scales correctly
+        /// on someone else's 1080p one); a profile that doesn't declare them falls back to this
+        /// player's global reference, then to 1920x1080.</summary>
+        public static void ReferenceResolution(out float w, out float h)
+        {
+            w = 0f; h = 0f;
+            try
+            {
+                var doc = Features.HudProfileStore.Active;
+                if (doc != null) { w = doc.RefW; h = doc.RefH; }
+            }
+            catch { }
+            if (w < 320f || h < 240f)
+            {
+                w = HudRefWidth != null ? HudRefWidth.Value : 1920f;
+                h = HudRefHeight != null ? HudRefHeight.Value : 1080f;
+            }
+            w = Mathf.Max(320f, w);
+            h = Mathf.Max(240f, h);
+        }
 
         public static void Bind(ConfigFile cfg)
         {
@@ -262,6 +359,24 @@ namespace StationeersUIMod.UI.Hud
 
             HudScale = cfg.Bind(S, "VisorHudScale", 1.0f,
                 new ConfigDescription("Overall visor HUD scale.", new AcceptableValueRange<float>(0.6f, 1.6f)));
+            HudScaleWithRes = cfg.Bind(S, "ScaleWithResolution", true,
+                "Scale the whole HUD with the screen resolution, so a layout keeps the SAME relative " +
+                "position and size on any monitor (the CanvasScaler idea, done in our own layout math). " +
+                "Off = element offsets/sizes stay fixed pixels, so the HUD shrinks toward the corners on " +
+                "a bigger screen. Anchors track the screen either way.");
+            HudRefWidth = cfg.Bind(S, "ScaleReferenceWidth", 1920f,
+                new ConfigDescription("The screen WIDTH your layout was designed at. At this resolution the " +
+                    "HUD renders 1:1; other resolutions scale from it. Use F9 > Global style > 'Use current " +
+                    "resolution' if you built your layout on a different screen.",
+                    new AcceptableValueRange<float>(640f, 7680f)));
+            HudRefHeight = cfg.Bind(S, "ScaleReferenceHeight", 1080f,
+                new ConfigDescription("The screen HEIGHT your layout was designed at. See ScaleReferenceWidth.",
+                    new AcceptableValueRange<float>(480f, 4320f)));
+            HudScaleMatch = cfg.Bind(S, "ScaleMatchWidthOrHeight", 0.5f,
+                new ConfigDescription("How the resolution scale blends: 0 = follow WIDTH only, 1 = follow " +
+                    "HEIGHT only, 0.5 = blend both (same curve as Unity's CanvasScaler). Height-match keeps " +
+                    "text size steady on ultrawide; width-match keeps full-width bars proportional.",
+                    new AcceptableValueRange<float>(0f, 1f)));
             TopBarHeight = cfg.Bind(S, "TopBarHeight", 64f,
                 new ConfigDescription("Top bar band thickness (px).", new AcceptableValueRange<float>(36f, 120f)));
             TopBarCurve = cfg.Bind(S, "TopBarCurve", 26f,
@@ -405,6 +520,18 @@ namespace StationeersUIMod.UI.Hud
                 new ConfigDescription("Falloff of the light along the border: HIGH = a tight catch on the " +
                     "edges most square-on to the light; LOW = a broad wash spread around the frame.",
                     new AcceptableValueRange<float>(1f, 8f)));
+            FxEdgeFadeCurve = cfg.Bind(FX, "EdgeFadeCurve", 1f,
+                new ConfigDescription("Shape of the per-element end fade ('Fade box ends L/R' / 'top/bottom' " +
+                    "say WHERE it fades; this says HOW). Below 1 the box holds its colour further out then " +
+                    "drops away hard (a crisp end); above 1 it starts fading sooner and trails off into a " +
+                    "long atmospheric tail. 1 = the classic ramp.",
+                    new AcceptableValueRange<float>(0.25f, 4f)));
+            FxEdgeFadeBorder = cfg.Bind(FX, "EdgeFadeBorder", 1f,
+                new ConfigDescription("How much the BORDER line joins the end fade. 1 = it fades with the box " +
+                    "(the classic look). Below 1 the border keeps its colour while the fill melts out from " +
+                    "under it, so the outline survives further into the fade. Above 1 the border surrenders " +
+                    "first and the plate outlives its own outline.",
+                    new AcceptableValueRange<float>(0f, 2f)));
             FxEdgeRipple = cfg.Bind(FX, "EdgeRipple", 0.45f,
                 new ConfigDescription("Irregular light/dark shimmer ALONG borders and lines (the concept art's " +
                     "'random glowy' look). 0 = the smooth single-light run. Above ~1.4 the shimmer " +
@@ -419,6 +546,18 @@ namespace StationeersUIMod.UI.Hud
                 new ConfigDescription("Animation speed of SDF edge energy. 0 freezes the pattern; " +
                     "higher values move luminous detail through the border band without rebuilding the Canvas.",
                     new AcceptableValueRange<float>(0f, 4f)));
+            FxRippleDesync = cfg.Bind(FX, "RippleDesync", false,
+                "Give every element a slightly different edge-ripple FREQUENCY and flow TEMPO, seeded " +
+                "stably per element, so identical settings no longer shimmer or flow in perfect " +
+                "lockstep — the pattern drifts apart and stays organic. The tempo nudge is what breaks " +
+                "the moving flow's unison even on small pips (frequency alone only varies the static " +
+                "wavelength). Off = every element in sync (the classic look). Applies to panels, pen " +
+                "shapes and lines; no restart needed.");
+            FxRippleDesyncAmount = cfg.Bind(FX, "RippleDesyncAmount", 0.4f,
+                new ConfigDescription("How far each element's ripple frequency and flow tempo may wander " +
+                    "from the authored value: 0 = no variation (locked), 1 = up to about a third " +
+                    "faster/slower per element (super organic). Only applies when RippleDesync is on.",
+                    new AcceptableValueRange<float>(0f, 1f)));
             FxBorderFadeOn = cfg.Bind(FX, "BorderFadeOn", true, "Unlit border sections dissolve away.");
             FxSoftEdgeOn = cfg.Bind(FX, "SoftEdgeOn", true, "Panel fills melt softly outward.");
             FxGlowOn = cfg.Bind(FX, "GlowOn", false,
@@ -442,14 +581,88 @@ namespace StationeersUIMod.UI.Hud
                     "Independent of the outward strength.",
                     new AcceptableValueRange<float>(0f, 2f)));
             FxGlowWidth = cfg.Bind(FX, "GlowWidthPx", 14f,
-                new ConfigDescription("Halo width in px. Wide halos on adjacent elements merge into " +
-                    "grey wash — keep modest on dense layouts.", new AcceptableValueRange<float>(6f, 160f)));
+                new ConfigDescription("Halo / flowing-aura reach in px. Wide halos on adjacent elements " +
+                    "merge into grey wash and increase transparent overdraw — keep extreme values for " +
+                    "sparse layouts.", new AcceptableValueRange<float>(6f, 320f)));
             FxGlowDiffuse = cfg.Bind(FX, "GlowDiffuse", 0.5f,
                 new ConfigDescription("How DIFFUSE the halo is: 0 hugs the frame as a tight rim glow, " +
                     "1 spreads it into a wide soft haze — dimmer at the frame, reaching further out, " +
                     "wrapping more of the perimeter, and free of the ripple's radial streaks. " +
                     "Pair high values with a larger GlowWidthPx.",
                     new AcceptableValueRange<float>(0f, 1f)));
+            FxGlowExtraDiffuse = cfg.Bind(FX, "GlowExtraDiffuse", 0f,
+                new ConfigDescription("Softness BEYOND GlowDiffuse's ceiling, for both the outer halo " +
+                    "and the inner glow: the falloff flattens toward the smoothest artifact-free curve " +
+                    "and the halo wraps nearly the whole perimeter. 0 = classic. Applies on every " +
+                    "render path (panels, pen shapes, lines).",
+                    new AcceptableValueRange<float>(0f, 1f)));
+            FxGlowHaze = cfg.Bind(FX, "GlowExtendedHaze", 0f,
+                new ConfigDescription("Adds a second, very faint long-tail atmosphere across the authored " +
+                    "halo radius. Unlike Diffuse this does not replace the core falloff. SDF panels only; " +
+                    "0 = off.", new AcceptableValueRange<float>(0f, 1f)));
+            FxGlowBreathOn = cfg.Bind(FX, "GlowBreathingOn", false,
+                "Let the normal halo and/or flowing edge aura breathe without dimming the panel, " +
+                "text, or border. SDF panels only.");
+            FxGlowBreath = cfg.Bind(FX, "GlowBreathDepth", 0.35f,
+                new ConfigDescription("Depth of halo/aura-only breathing. 0 = steady; 1 = a pronounced " +
+                    "but bounded inhale/exhale.", new AcceptableValueRange<float>(0f, 1f)));
+            FxGlowBreathSpeed = cfg.Bind(FX, "GlowBreathSpeedHz", 0.25f,
+                new ConfigDescription("Shared halo breathing rate in cycles per second. Uses unscaled UI " +
+                    "time so authoring remains visible while F9 is open.",
+                    new AcceptableValueRange<float>(0.03f, 2f)));
+            FxGlowUnevenOn = cfg.Bind(FX, "GlowUnevennessOn", false,
+                "Break up the normal halo and/or flowing aura with stable local-space variation so its " +
+                "reach and brightness are not perfectly straight/even. SDF panels only.");
+            FxGlowUneven = cfg.Bind(FX, "GlowUnevenness", 0.5f,
+                new ConfigDescription("Amount of stable organic variation in halo reach and energy. " +
+                    "This pattern does not shimmer or swim with the screen.",
+                    new AcceptableValueRange<float>(0f, 1f)));
+            FxGlowOrganicScale = cfg.Bind(FX, "GlowOrganicScale", 1f,
+                new ConfigDescription("Footprint of the unevenness pattern: above 1 the halo's reach " +
+                    "wanders in large, slow panel-scale blotches (super organic); below 1 it becomes " +
+                    "finer texture. 1 = the classic look. SDF panels only.",
+                    new AcceptableValueRange<float>(0.25f, 4f)));
+            FxGlowFlowAuraOn = cfg.Bind(FX, "FlowingEdgeAuraOn", false,
+                "Emit a separate halo from the animated edge-energy crests. It can work with the normal " +
+                "outward halo at zero and reuses GlowWidthPx / GlowDiffuse. SDF panels only.");
+            FxGlowFlowAura = cfg.Bind(FX, "FlowingEdgeAuraStrength", 0.6f,
+                new ConfigDescription("Strength of the aura emitted by moving edge-energy crests. " +
+                    "Irregular energy controls its contrast; EdgeFlowSpeed controls its motion.",
+                    new AcceptableValueRange<float>(0f, 2f)));
+            FxAlertPulseOn = cfg.Bind(FX, "AlertPulseOn", true,
+                "Suit warnings colour the HUD. A CAUTION (low air, hunger, battery...) makes the halo " +
+                "and edge ripple flash amber a few times and then clear completely - it annunciates " +
+                "and gets out of the way, and does not come back for that same warning. A CRITICAL " +
+                "warning breathes red indefinitely, until the warning itself clears. Read-only - it only reads the " +
+                "warnings the game already shows you. Suited (or robot) only - never in bare mode, " +
+                "which has no powered visor to carry it. Needs TierA_MeshEffects on for the halo; " +
+                "with Tier A off only the border line itself recolours.");
+            FxAlertBreathSeconds = cfg.Bind(FX, "AlertBreathSeconds", 1.4f,
+                new ConfigDescription("How long ONE breath lasts, in seconds (a full fade in and back " +
+                    "out). Applies to both the caution flashes and the critical breath. The 0.35s " +
+                    "floor is deliberate: faster than about 3 per second enters the photosensitivity " +
+                    "band - do not lower it. Total caution flash time = this x AlertCautionBreaths.",
+                    new AcceptableValueRange<float>(0.35f, 5f)));
+            FxAlertCautionBreaths = cfg.Bind(FX, "AlertCautionBreaths", 3,
+                new ConfigDescription("How many times a CAUTION breathes before it clears and gets out " +
+                    "of the way. Does not affect CRITICAL, which breathes for as long as it stands.",
+                    new AcceptableValueRange<int>(1, 10)));
+            FxAlertPulseStrength = cfg.Bind(FX, "AlertPulseStrength", 0.6f,
+                new ConfigDescription("How hard the alert reads. For the CAUTION flash " +
+                    "this scales its peak (it always fades back to nothing, so it can never become " +
+                    "invisible). For the persistent CRITICAL breath it scales the swing: 0 = a steady " +
+                    "red with no motion at all (the colour cue is kept), 1 = a hard bright/dark throb.",
+                    new AcceptableValueRange<float>(0f, 1f)));
+            FxAlertCautionBright = cfg.Bind(FX, "AlertCautionBrightness", 1f,
+                new ConfigDescription("Brightness gain on the CAUTION alert colour. 1 = the palette " +
+                    "colour as picked; above 1 drives it toward a hot, blown-out amber; below 1 " +
+                    "gives a subdued tint. Pairs with the HudAlertCaution palette entry.",
+                    new AcceptableValueRange<float>(0.25f, 3f)));
+            FxAlertCriticalBright = cfg.Bind(FX, "AlertCriticalBrightness", 1f,
+                new ConfigDescription("Brightness gain on the CRITICAL alert colour. 1 = the palette " +
+                    "colour as picked; above 1 drives it toward a hot, blown-out red; below 1 gives " +
+                    "a subdued tint. Pairs with the HudAlertCritical palette entry.",
+                    new AcceptableValueRange<float>(0.25f, 3f)));
             FxPulseSpeed = cfg.Bind(FX, "PulseSpeedHz", 0.5f,
                 new ConfigDescription("Breathing-pulse rate for elements that opt in, cycles per second.",
                     new AcceptableValueRange<float>(0.05f, 3f)));
@@ -468,6 +681,55 @@ namespace StationeersUIMod.UI.Hud
             FxChroma = cfg.Bind(FX, "ChromaticAberration", 0.3f,
                 new ConfigDescription("Colour fringing toward panel rims (0 = off).",
                     new AcceptableValueRange<float>(0f, 1f)));
+            FxPowerDownMirrorsBoot = cfg.Bind(FX, "PowerDownMirrorsBoot", true,
+                "Power DOWN plays as the reverse of power UP: the same seeded, staggered flicker, " +
+                "element by element. Off = the old all-at-once CRT death.");
+            FxDissolveOnPowerDown = cfg.Bind(FX, "DissolveOnPowerDown", true,
+                "Play the boot dissolve frontier in REVERSE on power-down, so the HUD dissolves away " +
+                "instead of just flickering off. Needs the same shader bundle as the boot dissolve.");
+            FxCollapseOn = cfg.Bind(FX, "DeathCollapseOn", false,
+                "Master for the CRT 'death collapse' squash on power loss. OFF by default — it is an " +
+                "opt-in flourish, not the standard way the HUD leaves.");
+            FxCollapseAmt = cfg.Bind(FX, "DeathCollapseStrength", 1f,
+                new ConfigDescription("Default collapse strength for elements that follow the globals.",
+                    new AcceptableValueRange<float>(0f, 2f)));
+            FxGlitchOn = cfg.Bind(FX, "GlitchTearOn", true,
+                "Master for the glitch tear on power transitions.");
+            FxGlitchAmt = cfg.Bind(FX, "GlitchTearStrength", 1f,
+                new ConfigDescription("Default glitch strength for elements that follow the globals.",
+                    new AcceptableValueRange<float>(0f, 2f)));
+            FxWarpOn = cfg.Bind(FX, "WarpParticipationOn", true,
+                "Master for whether elements take the visor warp/curve at all.");
+            FxWarpAmt = cfg.Bind(FX, "WarpStrength", 1f,
+                new ConfigDescription("Default warp strength for elements that follow the globals.",
+                    new AcceptableValueRange<float>(0f, 2f)));
+            FxTvOffOn = cfg.Bind(FX, "TvOffOn", false,
+                "Master for the CRT 'TV off' exit: the element squashes to a horizontal LINE and " +
+                "then pinches to a dot before blinking out. Off by default — like the death " +
+                "collapse it is an opt-in flourish, and the two are different exits for the same " +
+                "moment. Elements may force it on or off individually.");
+            FxTvOffAmt = cfg.Bind(FX, "TvOffStrength", 1f,
+                new ConfigDescription("Default TV-off strength for elements that follow the globals " +
+                    "(0 = no pinch, 1 = the full line-then-dot, 2 = an exaggerated snap).",
+                    new AcceptableValueRange<float>(0f, 2f)));
+            FxFlickerAmt = cfg.Bind(FX, "FlickerStrength", 1f,
+                new ConfigDescription("Default flicker strength for elements that follow the globals. " +
+                    "FlickerAnimations is the MASTER; this is how hard the strike-on / gutter-out " +
+                    "reads (0 = a clean fade with no flicker, 2 = a badly-wired tube).",
+                    new AcceptableValueRange<float>(0f, 2f)));
+            FxDissolveAmt = cfg.Bind(FX, "DissolveStrength", 1f,
+                new ConfigDescription("Default dissolve strength for elements that follow the globals. " +
+                    "DissolveOnBoot is the MASTER; this scales how pronounced the travelling " +
+                    "frontier is (0 = no dissolve, 2 = a wide, hot edge).",
+                    new AcceptableValueRange<float>(0f, 2f)));
+            FxPulseAmt = cfg.Bind(FX, "PulseStrength", 0f,
+                new ConfigDescription("Default breathing-pulse strength for elements that follow the " +
+                    "globals. DEFAULT 0 on purpose: the pulse has always been an opt-in per-element " +
+                    "accent, so inheriting elements must not start breathing on their own. Raise it " +
+                    "to make the whole HUD breathe; individual elements can still force their own " +
+                    "strength. Speed and depth remain the shared PulseSpeedHz / PulseDepth globals.",
+                    new AcceptableValueRange<float>(0f, 2f)));
+
             FxDissolveBoot = cfg.Bind(FX, "DissolveOnBoot", true,
                 "Elements power on with a travelling dissolve frontier during boot/power transitions " +
                 "(needs the shader bundle; falls back to the classic flicker otherwise).");

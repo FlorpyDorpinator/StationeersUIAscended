@@ -102,7 +102,7 @@ namespace StationeersUIMod.UI.Hud.Widgets
 
             int layoutStart = into.Count;
             into.Add(HudProp.Bool("Vertical", () => d.GetB("vertical", false), v => d.SetB("vertical", v)));
-            into.Add(HudProp.F("Gap", () => d.GetF("gap", 8f), v => d.SetF("gap", Mathf.Clamp(v, 0f, 40f)), 0f, 40f));
+            into.Add(HudProp.F("Gap", () => d.GetFFor(EditBare(d), "gap", 8f), v => d.SetFFor(EditBare(d), "gap", Mathf.Clamp(v, 0f, 40f)), 0f, 40f));
             for (int i = layoutStart; i < into.Count; i++) into[i].Group = HudPropGroup.Layout;
         }
 
@@ -112,7 +112,7 @@ namespace StationeersUIMod.UI.Hud.Widgets
         {
             var c = CenterFor(scale);
             var sz = SizeFor(scale);
-            float gap = Def.GetF("gap", 8f) * scale;
+            float gap = Def.GetFFor(LayoutBare, "gap", 8f) * scale;
             bool vertical = Def.GetB("vertical", false);
 
             int n = 0;

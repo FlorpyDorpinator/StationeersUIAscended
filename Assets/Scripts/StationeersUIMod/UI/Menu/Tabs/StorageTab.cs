@@ -92,6 +92,10 @@ namespace StationeersUIMod.UI.Menu.Tabs
                 UiaUi.HLayout((RectTransform)pickGo.transform, UiaTheme.Gap);
                 var ddHost = UiaUi.Go("ddh", pickGo.transform);
                 UiaUi.Size(ddHost, UiaTheme.RowH, flexW: 1f);
+                // ddHost is a flex SLOT in pickGo's row, but it needs its own layout group to
+                // stretch the DropdownRow inside it to the slot width — without this the dropdown
+                // row keeps its zero default size and the field collapses to just the caret.
+                UiaUi.HLayout((RectTransform)ddHost.transform, 0f, 0, 0, 0, 0, TextAnchor.MiddleLeft, true);
                 UiaControls.DropdownRow(ddHost.transform, "Profile", profNames, _selected, i => { _selected = i; UiaControlCenter.Refresh(); });
                 UiaControls.Button(pickGo.transform, "New", NewProfile, 70f, UiaTheme.RowH);
 

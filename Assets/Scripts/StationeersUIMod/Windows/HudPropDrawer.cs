@@ -86,6 +86,10 @@ namespace StationeersUIMod.Windows
                     case HudPropKind.TierMask: DrawTier(p, key, onBeginEdit, onCommitted, onChanged); break;
                     case HudPropKind.ColorRef: DrawColorRef(p, key, onBeginEdit, onCommitted, onCancelled, onChanged); break;
                     case HudPropKind.Points: DrawPoints(p); break;
+                    case HudPropKind.TabGroup:
+                        DrawTabGroup(p, key, onBeginEdit, onCommitted, onCancelled, onChanged); break;
+                    // A page never draws itself — only its owning TabGroup draws it.
+                    case HudPropKind.TabPage: break;
                     case HudPropKind.Header:
                         ImGui.Spacing();
                         ImGui.Separator();
@@ -94,6 +98,53 @@ namespace StationeersUIMod.Windows
                 }
             }
         }
+
+        // ------------------------------------------------------------------ containers
+
+        /// <summary>A NESTED tab bar: one tab per child <see cref="HudPropKind.TabPage"/>, and only
+        /// the selected page's props are drawn. Folds a long repeated block (one page per sense,
+        /// per body part…) into a compact section instead of a scrolling wall of rows. ImGui keeps
+        /// the selected tab itself, so nothing has to be stored on the element.
+        ///
+        /// Children are drawn with NO group filter — the TabGroup's own Group already decided which
+        /// inspector tab the whole block belongs to, so a page's props must not be filtered again.
+        /// The undo callbacks pass straight through, so an edit inside a page brackets exactly like
+        /// a top-level one.</summary>
+        private static void DrawTabGroup(HudProp p, string key, Action begin, Action commit,
+            Action cancel, Action changed)
+        {
+            if (p.Children == null || p.Children.Count == 0) return;
+            // EndTabBar is only legal when Begin returned true (same contract as the popup's own bar).
+            if (!ImGui.BeginTabBar("##tg_" + key)) return;
+            for (int i = 0; i < p.Children.Count; i++)
+            {
+                HudProp page = p.Children[i];
+                if (page == null) continue;
+                // Caption is the page label; the "##" suffix keeps ids unique when two pages share text.
+                if (ImGui.BeginTabItem(page.Label + "##tgp_" + key + "_" + i))
+                {
+                    // A PAGE SWITCH IS AN INTERRUPTION, exactly like the outer inspector tab switch
+                    // that HudEditorWindow.DrawElementPropTab already guards: the previous page's
+                    // active InputText/slider stops being submitted, so ImGui can never report its
+                    // deactivation and EndContinuous never fires. Without this flush the pending undo
+                    // snapshot is stranded — the next gesture reuses it (two edits collapse into one
+                    // undo) and, if an undo lands meanwhile, the stale document is written back over
+                    // the profile. Commit before the new page can start a gesture.
+                    int prev;
+                    if (!_tabPage.TryGetValue(key, out prev)) _tabPage[key] = i;
+                    else if (prev != i) { _tabPage[key] = i; commit?.Invoke(); }
+
+                    Draw(page.Children, null, begin, commit, cancel, changed);
+                    ImGui.EndTabItem();
+                }
+            }
+            ImGui.EndTabBar();
+        }
+
+        /// <summary>Last-drawn page index per TabGroup, so a page switch can be detected and the
+        /// in-flight edit flushed. Value types keyed by prop id — holds no scene or document
+        /// reference, so it is inert across an F6 reload (a stale int only names a tab index).</summary>
+        private static readonly Dictionary<string, int> _tabPage = new Dictionary<string, int>();
 
         // ------------------------------------------------------------------ scalar widgets
 
@@ -220,19 +271,21 @@ namespace StationeersUIMod.Windows
         private static void DrawTier(HudProp p, string key, Action begin, Action commit,
             Action changed)
         {
-            // Three flag bits shown as three boxes on one line — quicker to read and set than a
-            // three-item multi-select combo, and the B/S/R shorthand matches the tier labels
-            // everywhere else in the HUD.
+            // Two boxes, Bare and Suited — the human player's two HUD modes. The Robot bit still
+            // exists in the data model (append-only enum) but is deliberately NOT surfaced: a robot
+            // gets its OWN profile, so an author only ever thinks in Bare/Suited here (FlorpyDorp,
+            // 2026-07-19). Existing Robot bits are preserved untouched — we simply never toggle them.
             int mask = (int)p.Get();
             bool bare = (mask & (int)HudTierMask.Bare) != 0;
-            bool suited = (mask & (int)HudTierMask.Suited) != 0;
-            bool robot = (mask & (int)HudTierMask.Robot) != 0;
+            // "Suited" means "shows in the live/powered HUD". Robot is part of that live state, so
+            // the one visible checkbox drives Suited AND Robot together — keeping the hidden Robot
+            // bit in lockstep so it can never strand an element in a bare+robot-only state.
+            const HudTierMask Live = HudTierMask.Suited | HudTierMask.Robot;
+            bool suited = (mask & (int)Live) != 0;
 
-            if (ImGui.Checkbox("B##hp_" + key + "_B", ref bare)) SetTier(p, mask, HudTierMask.Bare, bare, begin, commit, changed);
+            if (ImGui.Checkbox("Bare##hp_" + key + "_B", ref bare)) SetTier(p, mask, HudTierMask.Bare, bare, begin, commit, changed);
             ImGui.SameLine();
-            if (ImGui.Checkbox("S##hp_" + key + "_S", ref suited)) SetTier(p, mask, HudTierMask.Suited, suited, begin, commit, changed);
-            ImGui.SameLine();
-            if (ImGui.Checkbox("R##hp_" + key + "_R", ref robot)) SetTier(p, mask, HudTierMask.Robot, robot, begin, commit, changed);
+            if (ImGui.Checkbox("Suited##hp_" + key + "_S", ref suited)) SetTier(p, mask, Live, suited, begin, commit, changed);
             ImGui.SameLine();
             ImGui.TextDisabled(p.Label);
             Tooltip(p);

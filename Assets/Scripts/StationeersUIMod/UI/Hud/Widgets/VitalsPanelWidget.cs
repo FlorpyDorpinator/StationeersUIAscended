@@ -115,7 +115,7 @@ namespace StationeersUIMod.UI.Hud.Widgets
         public override void UpdatePanel(HudSnapshot s, float scale)
         {
             _lastScale = scale;
-            bool words = Def.GetB("words", false);
+            bool words = Def.GetBFor(LayoutBare, "words", false);
 
             // --- membership (vanilla PlayerStateWindow logic) ---
             bool vHunger = true;
@@ -131,9 +131,9 @@ namespace StationeersUIMod.UI.Hud.Widgets
             bool vPressure = words && Def.GetB("rowPressure", false);
             bool vTemp = words && Def.GetB("rowTemp", false);
 
-            bool showBox = Def.GetB("box", true);
-            bool rowLines = Def.GetB("rowLines", true);
-            bool showIcons = Def.GetB("icons", true);
+            bool showBox = Def.GetBFor(LayoutBare, "box", true);
+            bool rowLines = Def.GetBFor(LayoutBare, "rowLines", true);
+            bool showIcons = Def.GetBFor(LayoutBare, "icons", true);
 
             // rowLines/icons feed the signature so toggling either re-flows (separators live in
             // Reflow, and the text column shifts left when the icons are gone).
@@ -403,7 +403,7 @@ namespace StationeersUIMod.UI.Hud.Widgets
         /// can read as bare value-only rows.</summary>
         private void EnableRowIcon(Row row, bool visible)
         {
-            bool showIcon = visible && Def.GetB("icons", true);
+            bool showIcon = visible && Def.GetBFor(LayoutBare, "icons", true);
             row.Icon.enabled = showIcon && !row.UsesGlyph && row.Icon.sprite != null;
             if (row.Glyph != null) row.Glyph.enabled = showIcon && row.UsesGlyph;
         }
@@ -426,8 +426,11 @@ namespace StationeersUIMod.UI.Hud.Widgets
         private void SyncValueFont(Row row, float scale)
         {
             HudText.Sync(row.Value);
-            float px = Def.GetF("rowHeight", 30f) * 0.5f;
-            row.Value.fontSize = HudText.Size(px * Def.FontScale) * scale;
+            // Default MUST match Reflow's and the inspector's (42f). At 30f an element without the
+            // key sized its fonts for a 30px row while the layout flowed 42px rows, and touching
+            // the slider once "fixed" it permanently — reading as a font bug, not a default bug.
+            float px = Def.GetFFor(LayoutBare, "rowHeight", 42f) * 0.5f;
+            row.Value.fontSize = HudText.Size(px * Def.FontScaleFor(LayoutBare)) * scale;
         }
 
         // ---- layout ----
@@ -438,11 +441,11 @@ namespace StationeersUIMod.UI.Hud.Widgets
             _lastScale = scale;
             var c = CenterFor(scale);
             var s = SizeFor(scale);
-            float rowH = Def.GetF("rowHeight", 42f) * scale;
+            float rowH = Def.GetFFor(LayoutBare, "rowHeight", 42f) * scale;
             float pad = 5f * scale;
-            float iconScale = Def.GetF("iconScale", 0.92f);
-            bool rowLines = Def.GetB("rowLines", true);
-            bool icons = Def.GetB("icons", true);
+            float iconScale = Def.GetFFor(LayoutBare, "iconScale", 0.92f);
+            bool rowLines = Def.GetBFor(LayoutBare, "rowLines", true);
+            bool icons = Def.GetBFor(LayoutBare, "icons", true);
 
             // Build the visible-order list.
             var order = new List<int>(RowCount);
@@ -464,7 +467,7 @@ namespace StationeersUIMod.UI.Hud.Widgets
                 float boxCy = top - stackH * 0.5f;
                 ((RectTransform)_box.transform).anchoredPosition = new Vector2(c.x, boxCy);
                 _box.SetShape(s.x, Mathf.Max(2f, stackH),
-                    Radius(Def.RTL), Radius(Def.RTR), Radius(Def.RBR), Radius(Def.RBL),
+                    Radius(Def.RTLFor(LayoutBare)), Radius(Def.RTRFor(LayoutBare)), Radius(Def.RBRFor(LayoutBare)), Radius(Def.RBLFor(LayoutBare)),
                     InsetTop(scale), InsetBottom(scale));
             }
 
@@ -514,23 +517,23 @@ namespace StationeersUIMod.UI.Hud.Widgets
             var d = Def;
 
             int appearanceStart = into.Count;
-            into.Add(HudProp.Bool("Background box", () => d.GetB("box", true), v => d.SetB("box", v)));
-            into.Add(HudProp.Bool("Row lines", () => d.GetB("rowLines", true), v => d.SetB("rowLines", v)));
+            into.Add(HudProp.Bool("Background box", () => d.GetBFor(EditBare(d), "box", true), v => d.SetBFor(EditBare(d), "box", v)));
+            into.Add(HudProp.Bool("Row lines", () => d.GetBFor(EditBare(d), "rowLines", true), v => d.SetBFor(EditBare(d), "rowLines", v)));
             for (int i = appearanceStart; i < into.Count; i++) into[i].Group = HudPropGroup.Appearance;
 
-            into.Add(HudProp.Bool("Row icons", () => d.GetB("icons", true), v => d.SetB("icons", v)));
-            into.Add(HudProp.Bool("Words mode (bare)", () => d.GetB("words", false), v => d.SetB("words", v)));
+            into.Add(HudProp.Bool("Row icons", () => d.GetBFor(EditBare(d), "icons", true), v => d.SetBFor(EditBare(d), "icons", v)));
+            into.Add(HudProp.Bool("Words mode (bare)", () => d.GetBFor(EditBare(d), "words", false), v => d.SetBFor(EditBare(d), "words", v)));
             into.Add(HudProp.Bool("Pressure row (words)", () => d.GetB("rowPressure", false), v => d.SetB("rowPressure", v)));
             into.Add(HudProp.Bool("Temp row (words)", () => d.GetB("rowTemp", false), v => d.SetB("rowTemp", v)));
 
             int layoutStart = into.Count;
-            into.Add(HudProp.F("Row height", () => d.GetF("rowHeight", 42f),
-                v => d.SetF("rowHeight", Mathf.Clamp(v, 16f, 96f)), 16f, 96f));
+            into.Add(HudProp.F("Row height", () => d.GetFFor(EditBare(d), "rowHeight", 42f),
+                v => d.SetFFor(EditBare(d), "rowHeight", Mathf.Clamp(v, 16f, 96f)), 16f, 96f));
             for (int i = layoutStart; i < into.Count; i++) into[i].Group = HudPropGroup.Layout;
 
             appearanceStart = into.Count;
-            into.Add(HudProp.F("Icon size (rel)", () => d.GetF("iconScale", 0.92f),
-                v => d.SetF("iconScale", Mathf.Clamp(v, 0.2f, 1.15f)), 0.2f, 1.15f));
+            into.Add(HudProp.F("Icon size (rel)", () => d.GetFFor(EditBare(d), "iconScale", 0.92f),
+                v => d.SetFFor(EditBare(d), "iconScale", Mathf.Clamp(v, 0.2f, 1.15f)), 0.2f, 1.15f));
             for (int i = appearanceStart; i < into.Count; i++) into[i].Group = HudPropGroup.Appearance;
         }
     }

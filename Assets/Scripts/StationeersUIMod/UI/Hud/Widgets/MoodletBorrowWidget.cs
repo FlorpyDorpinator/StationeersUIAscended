@@ -154,7 +154,7 @@ namespace StationeersUIMod.UI.Hud.Widgets
 
             // Scale the whole 192px-cell strip down to a bar-friendly size; the F9 slider
             // tunes it. Cells keep their 192px cell so each moodlet renders pixel-identical.
-            float sc = Mathf.Clamp(Def.GetF("moodletScale", 0.32f), 0.08f, 1.5f) * scale;
+            float sc = Mathf.Clamp(Def.GetFFor(LayoutBare, "moodletScale", 0.32f), 0.08f, 1.5f) * scale;
             var want = new Vector3(sc, sc, 1f);
             if (_stripRt.localScale != want) _stripRt.localScale = want;
             if (_stripRt.anchoredPosition != Vector2.zero) _stripRt.anchoredPosition = Vector2.zero;
@@ -164,7 +164,7 @@ namespace StationeersUIMod.UI.Hud.Widgets
             // alpha is the moodlets' final opacity — nothing else fights it.
             if (_holderGroup != null)
             {
-                float a = 1f - Mathf.Clamp01(Def.GetF("moodletTransparency", 0f));
+                float a = 1f - Mathf.Clamp01(Def.GetFFor(LayoutBare, "moodletTransparency", 0f));
                 if (!Mathf.Approximately(_holderGroup.alpha, a)) _holderGroup.alpha = a;
             }
 
@@ -197,7 +197,7 @@ namespace StationeersUIMod.UI.Hud.Widgets
             // so it can only darken — a colour multiply can't lift a coloured sprite to pure white.
             // Alpha stays 1 so icon transparency and the holder's transparency slider are untouched.
             // At 1.0 the tint is white = identity, which also resets any earlier darkening for free.
-            float bright = Mathf.Clamp01(Def.GetF("moodletBrightness", 1f));
+            float bright = Mathf.Clamp01(Def.GetFFor(LayoutBare, "moodletBrightness", 1f));
             var tint = new Color(bright, bright, bright, 1f);
 
             for (int k = 0; k < n; k++)
@@ -281,15 +281,15 @@ namespace StationeersUIMod.UI.Hud.Widgets
         {
             base.DescribeProps(into);
             var d = Def;
-            into.Add(HudProp.F("Moodlet scale", () => d.GetF("moodletScale", 0.32f),
-                v => d.SetF("moodletScale", Mathf.Clamp(v, 0.08f, 1.5f)), 0.08f, 1.5f));
+            into.Add(HudProp.F("Moodlet scale", () => d.GetFFor(EditBare(d), "moodletScale", 0.32f),
+                v => d.SetFFor(EditBare(d), "moodletScale", Mathf.Clamp(v, 0.08f, 1.5f)), 0.08f, 1.5f));
             into[into.Count - 1].Group = HudPropGroup.Layout;
 
             int appearanceStart = into.Count;
-            into.Add(HudProp.F("Moodlet transparency", () => d.GetF("moodletTransparency", 0f),
-                v => d.SetF("moodletTransparency", Mathf.Clamp01(v)), 0f, 1f));
-            into.Add(HudProp.F("Moodlet brightness", () => d.GetF("moodletBrightness", 1f),
-                v => d.SetF("moodletBrightness", Mathf.Clamp01(v)), 0f, 1f));
+            into.Add(HudProp.F("Moodlet transparency", () => d.GetFFor(EditBare(d), "moodletTransparency", 0f),
+                v => d.SetFFor(EditBare(d), "moodletTransparency", Mathf.Clamp01(v)), 0f, 1f));
+            into.Add(HudProp.F("Moodlet brightness", () => d.GetFFor(EditBare(d), "moodletBrightness", 1f),
+                v => d.SetFFor(EditBare(d), "moodletBrightness", Mathf.Clamp01(v)), 0f, 1f));
             for (int i = appearanceStart; i < into.Count; i++) into[i].Group = HudPropGroup.Appearance;
         }
     }

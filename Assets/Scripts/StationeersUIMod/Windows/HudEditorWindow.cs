@@ -175,6 +175,31 @@ namespace StationeersUIMod.Windows
             if (ImGui.CollapsingHeader("Panel surface", ImGuiTreeNodeFlags.DefaultOpen))
             {
                 FloatSlider(HudConfig.HudScale, "Overall HUD scale", 0.6f, 1.6f);
+                Toggle(HudConfig.HudScaleWithRes, "Scale HUD with resolution (keep the layout proportional)");
+                if (HudConfig.HudScaleWithRes != null && HudConfig.HudScaleWithRes.Value)
+                {
+                    float user = Mathf.Max(0.0001f, HudConfig.HudScale != null ? HudConfig.HudScale.Value : 1f);
+                    float resFactor = HudConfig.EffectiveHudScale() / user;
+                    float rw, rh;
+                    HudConfig.ReferenceResolution(out rw, out rh);
+                    var doc = Features.HudProfileStore.Active;
+                    bool stamped = doc != null && doc.RefW >= 320f && doc.RefH >= 240f;
+                    ImGui.TextDisabled(string.Format("  designed at {0}x{1} ({2})  ->  screen {3}x{4}  =  x{5:0.000}",
+                        (int)rw, (int)rh, stamped ? "from this profile" : "global default",
+                        Screen.width, Screen.height, resFactor));
+                    // Stamps THIS profile only. Deliberately does NOT touch the global fallback: the
+                    // shipped profiles (Glassy 4.0 etc.) declare no reference and were authored at
+                    // 1920x1080, so moving the global would make THEM scale wrong.
+                    if (ImGui.Button("Stamp THIS profile as designed at my resolution") && doc != null)
+                    {
+                        doc.RefW = Screen.width;
+                        doc.RefH = Screen.height;
+                        Features.HudProfileStore.MarkChanged();
+                    }
+                    ImGui.TextDisabled("  ^ saves your screen size INTO the profile, so when you share it");
+                    ImGui.TextDisabled("    everyone gets your proportions (1080p players render it smaller).");
+                    FloatSlider(HudConfig.HudScaleMatch, "  match: 0 = width, 1 = height", 0f, 1f);
+                }
                 FloatSlider(HudConfig.CornerRadius, "Default corner rounding (px)", 0f, 28f);
                 FloatSlider(HudConfig.BorderWidth, "Default line thickness (px)", 0f, 6f);
                 FloatSlider(HudConfig.EdgeFeather, "Edge softness / AA (px)", 0f, 4f);
@@ -259,6 +284,15 @@ namespace StationeersUIMod.Windows
                         FloatSlider(HudConfig.FxEdgeRipple, "  irregular energy", 0f, 2.5f);
                         FloatSlider(HudConfig.FxEdgeRippleFreq, "  energy frequency", 0.05f, 8f);
                         FloatSlider(HudConfig.FxEdgeFlowSpeed, "  flow speed (0 = frozen)", 0f, 4f);
+                        Toggle(HudConfig.FxRippleDesync, "  Desync per element (break lockstep)");
+                        if (HudConfig.FxRippleDesync.Value)
+                            FloatSlider(HudConfig.FxRippleDesyncAmount, "    desync amount", 0f, 1f);
+                        Toggle(HudConfig.FxGlowFlowAuraOn, "  Flowing edge aura (SDF)");
+                        if (HudConfig.FxGlowFlowAuraOn.Value)
+                        {
+                            FloatSlider(HudConfig.FxGlowFlowAura, "    aura strength", 0f, 2f);
+                            ImGui.TextDisabled("    Moving edge crests emit through the shared halo radius/spread.");
+                        }
                     }
 
                     Toggle(HudConfig.FxBorderFadeOn, "Border fade (unlit sections dissolve)");
@@ -267,20 +301,154 @@ namespace StationeersUIMod.Windows
                     Toggle(HudConfig.FxSoftEdgeOn, "Soft edge (boxes melt together)");
                     if (HudConfig.FxSoftEdgeOn.Value)
                         FloatSlider(HudConfig.FxSoftEdge, "  Width (px)##softEdgeWidth", 0f, 48f);
+
+                    // Shape of the per-element "Fade box ends L/R" / "top/bottom" ramps. The
+                    // amounts stay per-element; the shape is shared so a HUD full of faded bars
+                    // ends the same way. Both default to an exact no-op.
+                    ImGui.TextColored(new Vector4(0.25f, 0.85f, 0.93f, 1f), "BOX END FADE (shape)");
+                    ImGui.TextDisabled("  Per-element sliders set WHERE a box fades; these set HOW.");
+                    FloatSlider(HudConfig.FxEdgeFadeCurve,
+                        "  Fade curve (low = hard edge, high = long tail)##edgeFadeCurve", 0.25f, 4f);
+                    FloatSlider(HudConfig.FxEdgeFadeBorder,
+                        "  Border joins the fade (1 = with the box)##edgeFadeBorder", 0f, 2f);
+                    if (HudConfig.FxEdgeFadeBorder != null
+                        && Mathf.Abs(HudConfig.FxEdgeFadeBorder.Value - 1f) > 0.01f)
+                    {
+                        bool sdfOn = HudConfig.SdfPanels != null && HudConfig.SdfPanels.Value
+                            && Core.HudShaderStore.SdfAvailable;
+                        ImGui.TextDisabled(HudConfig.FxEdgeFadeBorder.Value < 1f
+                            ? "    Below 1: the outline keeps its colour while the fill melts away."
+                            : "    Above 1: the border surrenders before the plate does.");
+                        if (!sdfOn)
+                            ImGui.TextColored(new Vector4(1f, 0.72f, 0.25f, 1f),
+                                "    Border influence needs analytic SDF panels — the mesh fallback fades all vertices alike.");
+                    }
                     Toggle(HudConfig.FxGlowOn, "Glow halo");
                     if (HudConfig.FxGlowOn.Value)
                     {
                         FloatSlider(HudConfig.FxGlow, "  outward strength", 0f, 2f);
                         FloatSlider(HudConfig.FxGlowInner, "  inward strength", 0f, 2f);
-                        FloatSlider(HudConfig.FxGlowWidth, "  Width (px)##glowWidth", 6f, 160f);
-                        FloatSlider(HudConfig.FxGlowDiffuse, "  diffuseness (haze)", 0f, 1f);
+                        FloatSlider(HudConfig.FxGlowHaze, "  extended atmospheric haze (SDF)", 0f, 1f);
                     }
-                    Toggle(HudConfig.FxPulseOn, "Allow per-element breathing pulse");
+                    bool haloEnvelopeOn = HudConfig.FxGlowOn.Value
+                        || (HudConfig.FxEdgeLightOn.Value && HudConfig.FxGlowFlowAuraOn.Value);
+                    if (haloEnvelopeOn)
+                    {
+                        ImGui.TextColored(new Vector4(0.25f, 0.85f, 0.93f, 1f),
+                            "SHARED HALO / FLOWING-AURA ENVELOPE");
+                        FloatSlider(HudConfig.FxGlowWidth, "  Halo / aura radius (px)##glowWidth", 6f, 320f);
+                        FloatSlider(HudConfig.FxGlowDiffuse, "  spread (tight rim -> diffuse)", 0f, 1f);
+                        FloatSlider(HudConfig.FxGlowExtraDiffuse, "  extra diffuse (beyond max spread)", 0f, 1f);
+                        Toggle(HudConfig.FxGlowUnevenOn, "  Uneven / organic reach (SDF)");
+                        if (HudConfig.FxGlowUnevenOn.Value)
+                        {
+                            FloatSlider(HudConfig.FxGlowUneven, "    unevenness amount", 0f, 1f);
+                            FloatSlider(HudConfig.FxGlowOrganicScale, "    organic scale (1 = classic)", 0.25f, 4f);
+                        }
+                        Toggle(HudConfig.FxGlowBreathOn, "  Halo / aura breathing (SDF)");
+                        if (HudConfig.FxGlowBreathOn.Value)
+                            FloatSlider(HudConfig.FxGlowBreath, "    breath depth", 0f, 1f);
+                        ImGui.TextDisabled("  Extreme radius increases transparent GPU overdraw.");
+                    }
+                    FloatSlider(HudConfig.FxGlowBreathSpeed,
+                        "Shared Global + Custom breath speed (Hz)", 0.03f, 2f);
+                    ImGui.TextDisabled("  Shared timing stays editable even when only Custom elements breathe.");
+                    bool sdfEnabled = HudConfig.SdfPanels != null && HudConfig.SdfPanels.Value;
+                    bool sdfReady = Core.HudShaderStore.SdfAvailable;
+                    bool advancedHaloRequested = (HudConfig.FxGlowOn.Value && HudConfig.FxGlowHaze.Value > 0.001f)
+                        || (haloEnvelopeOn && (HudConfig.FxGlowBreathOn.Value || HudConfig.FxGlowUnevenOn.Value))
+                        || (HudConfig.FxEdgeLightOn.Value && HudConfig.FxGlowFlowAuraOn.Value);
+                    if (advancedHaloRequested && (!sdfEnabled || !sdfReady))
+                    {
+                        ImGui.TextColored(new Vector4(1f, 0.72f, 0.25f, 1f),
+                            !sdfEnabled
+                                ? "  Advanced halo motion is inactive: enable analytic SDF glass panels in Theme."
+                                : "  Advanced halo motion requires the ABI-2 SDF bundle and a full restart.");
+                    }
+                    if (haloEnvelopeOn && HudConfig.FxGlowWidth.Value > 160f && (!sdfEnabled || !sdfReady))
+                        ImGui.TextColored(new Vector4(1f, 0.72f, 0.25f, 1f),
+                            "  Mesh fallback caps the visible halo radius at 160 px.");
+                    // The pulse MASTER moved to "Suit power & transitions" with the rest of the
+                    // registry effects (one switch, one place — two live checkboxes on the same
+                    // ConfigEntry read as two settings). Its shape knobs stay here, where the
+                    // per-element inspector still points for them.
+                    ImGui.TextDisabled("Breathing pulse master: see \"Suit power & transitions\".");
                     if (HudConfig.FxPulseOn.Value)
                     {
                         FloatSlider(HudConfig.FxPulseSpeed, "  pulse speed (Hz)", 0.05f, 3f);
                         FloatSlider(HudConfig.FxPulseDepth, "  pulse depth", 0f, 1f);
                     }
+                }
+            }
+
+            // Top-level, NOT nested under the Tier A block: with Tier A off the alarm still
+            // recolours border lines, so the control must stay reachable.
+            if (ImGui.CollapsingHeader("Alert pulse (suit warnings)", ImGuiTreeNodeFlags.DefaultOpen))
+            {
+                Toggle(HudConfig.FxAlertPulseOn, "Warnings tint and breathe the HUD");
+                ImGui.TextDisabled("  Suited / robot only - never in bare mode.");
+                if (HudConfig.FxAlertPulseOn.Value)
+                {
+                    // The ##id suffixes are load-bearing: ImGui keys widgets by label, and a bare
+                    // "  breath speed (Hz)" would collide with the shared halo-breath slider above.
+                    FloatSlider(HudConfig.FxAlertBreathSeconds, "  breath length (sec)##alertBreathSecs", 0.35f, 5f);
+                    IntSliderCfg(HudConfig.FxAlertCautionBreaths, "  caution flashes##alertBreathCount", 1, 10);
+                    FloatSlider(HudConfig.FxAlertPulseStrength, "  breath strength##alertPulseStrength", 0f, 1f);
+                    ImGui.TextDisabled("  A caution flash lasts "
+                        + (HudConfig.FxAlertBreathSeconds.Value * HudConfig.FxAlertCautionBreaths.Value)
+                            .ToString("0.0") + "s in total.");
+
+                    // The two alert hues, editable right here rather than only from the Palette tab —
+                    // tuning an alarm means watching it breathe while you drag. These are the same
+                    // HudPalette entries the Palette tab lists, so edits, undo and profile save all
+                    // behave identically; PushID keeps the shared entry.Name labels from colliding
+                    // with that tab's copies. Refresh the undo baseline first: _frameSnapshot is
+                    // otherwise only set while the Palette tab draws, so a picker here would push a
+                    // STALE undo step that reverts to whenever that tab was last open.
+                    _frameSnapshot = HudPalette.Snapshot();
+                    ImGui.PushID("alertfx");
+
+                    ImGui.TextDisabled("  Caution (yellow) - flashes, then clears for good:");
+                    if (HudPalette.AlertCaution != null) ColorWheel(HudPalette.AlertCaution);
+                    FloatSlider(HudConfig.FxAlertCautionBright, "  caution brightness##alertCautionBright", 0.25f, 3f);
+
+                    ImGui.TextDisabled("  Critical (red) - breathes until the warning clears:");
+                    if (HudPalette.AlertCritical != null) ColorWheel(HudPalette.AlertCritical);
+                    FloatSlider(HudConfig.FxAlertCriticalBright, "  critical brightness##alertCriticalBright", 0.25f, 3f);
+
+                    ImGui.PopID();
+
+                    ImGui.TextDisabled("  Brightness is a gain on the picked colour: above 1 blows it");
+                    ImGui.TextDisabled("  out toward white, below 1 gives a subdued tint.");
+                    ImGui.TextDisabled("  Strength scales the caution flash's peak, and the critical");
+                    ImGui.TextDisabled("  breath's swing (0 = steady red, no motion).");
+
+                    // The alert is normally suppressed while this designer is open, which would make
+                    // the colour pickers above impossible to judge. Preview forces a level so the HUD
+                    // breathes live while you drag. It breathes continuously rather than running the
+                    // caution burst and stopping, and only works while F9 is open.
+                    ImGui.Separator();
+                    ImGui.TextDisabled("  Live preview (designer only):");
+                    int pv = UI.Hud.HudAlertPulse.PreviewMode;
+                    if (ImGui.RadioButton("off##alertPv", pv == 0)) UI.Hud.HudAlertPulse.PreviewMode = 0;
+                    ImGui.SameLine();
+                    if (ImGui.RadioButton("caution##alertPv", pv == 1)) UI.Hud.HudAlertPulse.PreviewMode = 1;
+                    ImGui.SameLine();
+                    if (ImGui.RadioButton("critical##alertPv", pv == 2)) UI.Hud.HudAlertPulse.PreviewMode = 2;
+                    if (pv != 0)
+                    {
+                        ImGui.TextColored(new Vector4(1f, 0.72f, 0.25f, 1f),
+                            "  Previewing - breathing continuously, real warnings ignored.");
+                        ImGui.TextDisabled("  Clears itself the moment this designer closes.");
+                    }
+                    else
+                    {
+                        ImGui.TextDisabled("  Alerts are suppressed while this designer is open -");
+                        ImGui.TextDisabled("  use the preview above to judge these colours.");
+                    }
+                    if (HudConfig.FxTierA == null || !HudConfig.FxTierA.Value)
+                        ImGui.TextColored(new Vector4(1f, 0.72f, 0.25f, 1f),
+                            "  Tier A is off: alerts recolour the border line only, with no halo.");
                 }
             }
 
@@ -305,8 +473,56 @@ namespace StationeersUIMod.Windows
                     Toggle(HudConfig.FxChromaOn, "Chromatic fringe (uses frosted backdrop)");
                     if (HudConfig.FxChromaOn.Value)
                         FloatSlider(HudConfig.FxChroma, "  Strength##chromaStrength", 0f, 1f);
-                    Toggle(HudConfig.FxDissolveBoot, "Dissolve reveal on boot/power transitions");
+                    // Dissolve's master is a TRANSITION and now lives (with its strength, and its
+                    // per-element Inherit/On/Off) in "Suit power & transitions" below.
+                    ImGui.TextDisabled("Dissolve reveal: see \"Suit power & transitions\" below.");
                 }
+            }
+
+            // ---- Suit power & transitions --------------------------------------------------
+            // These used to have NO global switch at all: EffectAmt returned a hard 1f for any
+            // element following the globals, so a transition could not be turned off from the
+            // element OR from here. Each one now has a real master + a default strength, and the
+            // per-element toggles are honoured in both style states.
+            if (ImGui.CollapsingHeader("Suit power & transitions", ImGuiTreeNodeFlags.DefaultOpen))
+            {
+                Toggle(HudConfig.FxPowerDownMirrorsBoot, "Power DOWN mirrors power UP (staggered flicker)");
+                ImGui.TextDisabled("  On: the HUD leaves the same way it arrives, element by element.");
+                ImGui.TextDisabled("  Off: the old all-at-once power-death.");
+                Toggle(HudConfig.FxDissolveOnPowerDown, "Dissolve frontier also runs on power DOWN");
+                ImGui.TextDisabled("  Off: the dissolve reveals on boot only; power-down just fades.");
+
+                ImGui.Spacing();
+                ImGui.TextColored(new Vector4(0.25f, 0.85f, 0.93f, 1f), "TRANSITION EFFECTS");
+
+                // ONE row per registry effect rather than a hand-written list: the labels, the
+                // masters and the strength entries all come from HudTransitionFx.All, which is the
+                // same table the per-element inspector reads — so the two menus cannot drift, and a
+                // new effect appears in both the moment it is added to the registry.
+                for (int i = 0; i < HudTransitionFx.All.Length; i++)
+                {
+                    HudTransitionFxDef fx = HudTransitionFx.All[i];
+                    if (fx == null) continue;
+                    // Unbound entry (config bind failed / very early frame): skip the row rather
+                    // than NRE inside Toggle and take the whole tab down with it.
+                    ConfigEntry<bool> master = fx.MasterEntry;
+                    if (master == null) continue;
+                    ImGui.PushID(fx.Key);          // every effect's "  Strength" shares a caption
+                    Toggle(master, fx.Label);
+                    if (master.Value)
+                    {
+                        ConfigEntry<float> amt = fx.AmountEntry;
+                        if (amt != null) FloatSlider(amt, "  Strength", 0f, 2f);
+                        TipLines(fx.Tip);
+                    }
+                    ImGui.PopID();
+                }
+
+                ImGui.Spacing();
+                ImGui.TextDisabled("A master OFF here wins over every element's own setting:");
+                ImGui.TextDisabled("an element set to On still stays still while its master is off.");
+                ImGui.TextDisabled("Per element: click it, Effects tab > Motion & power transitions,");
+                ImGui.TextDisabled("then pick Inherit (follow these) / On / Off for each effect.");
             }
 
             if (ImGui.CollapsingHeader("Frosted glass", ImGuiTreeNodeFlags.DefaultOpen))
@@ -368,7 +584,9 @@ namespace StationeersUIMod.Windows
             if (ImGui.CollapsingHeader("Suit power & transitions", ImGuiTreeNodeFlags.DefaultOpen))
             {
                 Toggle(HudConfig.DiegeticTiers, "Diegetic tiers (no suit power = words only)");
-                Toggle(HudConfig.FlickerAnimations, "Flicker animations (off/boot/death)");
+                // Flicker's master is a registry effect: it is toggled (with its strength, and its
+                // per-element Inherit/On/Off) on the Effects tab, so it is named here, not duplicated.
+                ImGui.TextDisabled("Flicker animations: Effects tab > Suit power & transitions.");
                 Toggle(HudConfig.LowPowerDropouts, "Low-power dropout glitches");
                 if (HudConfig.LowPowerDropouts.Value)
                     FloatSlider(HudConfig.LowPowerThreshold, "  low-power threshold (%)", 0f, 40f);
@@ -386,7 +604,8 @@ namespace StationeersUIMod.Windows
                     Toggle(HudConfig.GlitchOnPowerUp, "  fire on power UP / boot");
                     if (ImGui.Button("Test glitch now")) HudGlitch.TriggerTest();
                 }
-                ImGui.TextDisabled("Each element can opt out of collapse, glitch and warp in its inspector.");
+                ImGui.TextDisabled("Every transition (collapse, TV off, dissolve, flicker, glitch,");
+                ImGui.TextDisabled("warp, pulse) is Inherit/On/Off per element in its inspector.");
             }
 
             if (ImGui.CollapsingHeader("Vanilla panels", ImGuiTreeNodeFlags.DefaultOpen))
@@ -505,22 +724,8 @@ namespace StationeersUIMod.Windows
             {
                 HudEditorMode.BeginDrawShape();
             }
-            // Edit the anchors of a selected shape/line (drag / Alt+click delete / click-segment add).
-            if (HudEditorMode.SelectedElement != null && HudEditorMode.IsPointEditable(HudEditorMode.SelectedElement.Def))
-            {
-                if (HudEditorMode.EditingPoints)
-                {
-                    ImGui.TextColored(new Vector4(1f, 0.62f, 0.15f, 1f),
-                        "EDIT POINTS: drag anchors - Alt+click deletes - click a segment inserts");
-                    ImGui.TextColored(new Vector4(1f, 0.62f, 0.15f, 1f),
-                        "Bezier: Ctrl+click an anchor = CORNER point (straight) / smooth toggle");
-                    if (ImGui.Button("Done editing points")) HudEditorMode.EndEditPoints();
-                }
-                else if (ImGui.Button("Edit points (drag / add / delete anchors)"))
-                {
-                    HudEditorMode.BeginEditPoints();
-                }
-            }
+            // Point editing lives in the ELEMENT POPUP (the whole context for editing one
+            // element is there); the F9 window keeps only the global creation tools above.
             ImGui.Spacing();
 
             ImGui.TextColored(new Vector4(0.25f, 0.85f, 0.93f, 1f), "SELECTION");
@@ -631,7 +836,7 @@ namespace StationeersUIMod.Windows
         {
             if (!HudSystem.DocumentMode) return;
             var dl = ImGui.GetForegroundDrawList();
-            float scale = HudConfig.HudScale.Value;
+            float scale = HudConfig.EffectiveHudScale();
             uint selCol = ImGui.GetColorU32(new Vector4(1f, 0.62f, 0.15f, 0.95f));
             uint hovCol = ImGui.GetColorU32(new Vector4(0.25f, 0.85f, 0.93f, 0.55f));
             uint handleCol = ImGui.GetColorU32(new Vector4(1f, 0.62f, 0.15f, 1f));
@@ -686,12 +891,14 @@ namespace StationeersUIMod.Windows
                         for (int i = 0; i < pts.Length; i++)
                         {
                             var a = ToImGui(HudEditorMode.PointCanvas(sel, pts[i], scale));
-                            if (i < hout.Length)
+                            // Zero-length handles are STRAIGHT segments — drawing their dots on
+                            // top of the anchor would just bury it (and the hit-test skips them).
+                            if (i < hout.Length && hout[i].sqrMagnitude > 0.25f)
                             {
                                 var ho = ToImGui(HudEditorMode.PointCanvas(sel, pts[i] + hout[i], scale));
                                 dl.AddLine(a, ho, hLine, 1.4f); dl.AddCircleFilled(ho, 3.5f, hCol, 12);
                             }
-                            if (i < hin.Length)
+                            if (i < hin.Length && hin[i].sqrMagnitude > 0.25f)
                             {
                                 var hp = ToImGui(HudEditorMode.PointCanvas(sel, pts[i] + hin[i], scale));
                                 dl.AddLine(a, hp, hLine, 1.4f); dl.AddCircleFilled(hp, 3.5f, hCol, 12);
@@ -820,18 +1027,73 @@ namespace StationeersUIMod.Windows
         private static int _popupStamp = -1;
 
         private static int _elementPopupStamp = -1;
+        private static int _menuPopupStamp = -1;
         private static readonly List<UI.Hud.HudProp> _propScratch = new List<UI.Hud.HudProp>();
+        private static readonly List<UI.Hud.HudProp> _menuPropScratch = new List<UI.Hud.HudProp>();
+        private static int _gridPopupStamp = -1;
+        private static readonly List<UI.Hud.HudProp> _gridPropScratch = new List<UI.Hud.HudProp>();
         private static UI.Hud.HudDocument _pendingElementUndo;
         private static UI.Hud.HudDocument _pendingElementDocument;
         private static string _pendingElementProfile;
         private static bool _pendingElementChanged;
         private static UI.Hud.HudPropGroup? _activeElementPropGroup;
 
+        /// <summary>The F10 Control Center theme popup: the same HudPropDrawer surface an element
+        /// uses, built over the menu's config (follow toggle + per-colour overrides). Config-backed,
+        /// so no undo — BepInEx persists on write and UiaControlCenter restyles from the change.</summary>
+        private static void DrawMenuThemePopup()
+        {
+            bool moved = _menuPopupStamp != HudEditorMode.ElementStamp;
+            _menuPopupStamp = HudEditorMode.ElementStamp;
+            ImGui.SetNextWindowPos(new Vector2(Screen.width * 0.5f, Screen.height * 0.5f),
+                moved ? ImGuiCond.Always : ImGuiCond.Appearing, new Vector2(0.5f, 0.5f));
+            ImGui.SetNextWindowSizeConstraints(new Vector2(320f, 120f),
+                new Vector2(Screen.width * 0.6f, Screen.height * 0.92f));
+            bool open = true;
+            if (ImGui.Begin("Edit: Control Center menu###UIAMenuThemePopup",
+                ref open, ImGuiWindowFlags.NoCollapse))
+            {
+                _menuPropScratch.Clear();
+                try { UI.Menu.Kit.UiaMenuTheme.DescribeProps(_menuPropScratch); }
+                catch { }
+                // No undo callbacks: config writes persist immediately, and the live restyle poll
+                // in UiaControlCenter.Update repaints the menu when the theme hash changes.
+                HudPropDrawer.DrawAll(_menuPropScratch, null, null, null, null);
+            }
+            ImGui.End();
+            if (!open) HudEditorMode.MenuSelected = false;
+        }
+
+        /// <summary>The Universal Inventory (Grid) style popup: the same HudPropDrawer surface an
+        /// element uses, built over <see cref="UI.Grid.GridTheme"/>'s config (follow-the-global-box-
+        /// theme toggle + per-value overrides). Config-backed, so no undo brackets — BepInEx
+        /// persists on write and TheGridPanel restyles from the StyleHash poll in its tick.</summary>
+        private static void DrawGridStylePopup()
+        {
+            bool moved = _gridPopupStamp != HudEditorMode.ElementStamp;
+            _gridPopupStamp = HudEditorMode.ElementStamp;
+            ImGui.SetNextWindowPos(new Vector2(Screen.width * 0.5f, Screen.height * 0.5f),
+                moved ? ImGuiCond.Always : ImGuiCond.Appearing, new Vector2(0.5f, 0.5f));
+            ImGui.SetNextWindowSizeConstraints(new Vector2(320f, 120f),
+                new Vector2(Screen.width * 0.6f, Screen.height * 0.92f));
+            bool open = true;
+            if (ImGui.Begin("Edit: Universal Inventory###UIAGridStylePopup",
+                ref open, ImGuiWindowFlags.NoCollapse))
+            {
+                _gridPropScratch.Clear();
+                try { UI.Grid.GridTheme.DescribeProps(_gridPropScratch); }
+                catch { }
+                HudPropDrawer.DrawAll(_gridPropScratch, null, null, null, null);
+            }
+            ImGui.End();
+            if (!open) HudEditorMode.GridSelected = false;
+        }
+
         /// <summary>Finish an in-flight property gesture before selection/profile/editor state
         /// changes can make ImGui omit its normal deactivation callback. The old document is still
         /// persisted if an external profile swap beat us here; its undo snapshot is intentionally
         /// not mixed into the new profile's history.</summary>
-        private static void FlushPendingElementEdit()
+        internal static void FlushPendingElementEdit()
         {
             if (_pendingElementUndo != null && _pendingElementChanged
                 && _pendingElementDocument != null
@@ -868,6 +1130,32 @@ namespace StationeersUIMod.Windows
 
             DrawGizmos();
 
+            // The F10 Control Center window, clicked while open behind the editor, gets its own
+            // theme popup — the same HudPropDrawer surface an element uses, over the menu's config.
+            // Guard on IsOpen so the popup can never strand over a closed/hidden menu (the menu
+            // closing, or the document HUD being switched off, would otherwise leave it drawing).
+            if (HudEditorMode.MenuSelected)
+            {
+                if (UI.Menu.UiaControlCenter.IsOpen)
+                {
+                    DrawMenuThemePopup();
+                    return;
+                }
+                HudEditorMode.MenuSelected = false;
+            }
+
+            // The Universal Inventory window, clicked while open behind the editor, gets its own
+            // style popup. Same IsOpen guard: the popup can never strand over a closed Grid.
+            if (HudEditorMode.GridSelected)
+            {
+                if (UI.Grid.TheGridPanel.IsOpen)
+                {
+                    DrawGridStylePopup();
+                    return;
+                }
+                HudEditorMode.GridSelected = false;
+            }
+
             // Document mode: the selected ELEMENT gets the generic property popup.
             if (HudSystem.DocumentMode)
             {
@@ -896,6 +1184,27 @@ namespace StationeersUIMod.Windows
                 if (ImGui.Begin("Edit: " + el.Def.Type + "###UIAHudElementPopup",
                     ref elOpen, ImGuiWindowFlags.NoCollapse))
                 {
+                    // Per-mode edit selector. A "Both" element (shown in bare AND suited) can be
+                    // styled differently for each mode; these two buttons pick which mode every
+                    // Layout / Appearance / Effects value below reads and writes. They drive the
+                    // live preview tier (HudSystem.ForceTier) so what you SEE is what you're
+                    // editing, and EditBareTier — the edit target — follows it. Hidden for
+                    // single-mode elements: there is nothing to fork, so all edits hit the base.
+                    if (UI.Hud.HudElementView.IsBoth(el.Def.Tiers))
+                    {
+                        bool editingBare = HudSystem.ForceTier.HasValue
+                            && HudSystem.ForceTier.Value == HudTier.Bare;
+                        ImGui.TextDisabled("Editing mode:");
+                        ImGui.SameLine();
+                        if (ModeTabButton("SUITED", !editingBare)) HudSystem.ForceTier = HudTier.Suited;
+                        ImGui.SameLine();
+                        if (ModeTabButton("BARE", editingBare)) HudSystem.ForceTier = HudTier.Bare;
+                        ImGui.SameLine();
+                        ImGui.TextDisabled(editingBare
+                            ? "bare — unset values inherit Suited"
+                            : "suited — the base bare inherits from");
+                        ImGui.Separator();
+                    }
                     _propScratch.Clear();
                     try { el.DescribeProps(_propScratch); }
                     catch { }
@@ -945,6 +1254,31 @@ namespace StationeersUIMod.Windows
                     try { editing = ImGui.IsAnyItemActive(); } catch { }
                     if (editing) HudSystem.RelayoutElement(el);
                     ImGui.Separator();
+                    // Point editing for shapes/lines rides the element popup — the whole context
+                    // for editing THIS element is here (moved out of the F9 window, play-test ask).
+                    if (HudEditorMode.IsPointEditable(el.Def))
+                    {
+                        if (HudEditorMode.EditingPoints)
+                        {
+                            var hintCol = new Vector4(1f, 0.62f, 0.15f, 1f);
+                            ImGui.TextColored(hintCol,
+                                "EDIT POINTS: drag anchors - Alt+click deletes - click anywhere adds");
+                            bool bez = el.Def.GetI("curveMode", el.Def.GetB("smooth", false) ? 1 : 0) == 2;
+                            if (bez)
+                            {
+                                ImGui.TextColored(hintCol,
+                                    "Bezier: PULL a segment to curve it - Ctrl+click a segment = straight");
+                                ImGui.TextColored(hintCol,
+                                    "Ctrl+click an anchor = corner/smooth - Alt+drag a handle = cusp");
+                            }
+                            if (ImGui.Button("Done editing points##pop")) HudEditorMode.EndEditPoints();
+                        }
+                        else if (ImGui.Button("Edit points (drag / add / delete / curve)##pop"))
+                        {
+                            HudEditorMode.BeginEditPoints();
+                        }
+                        ImGui.Separator();
+                    }
                     if (ImGui.Button("Duplicate##pop")) HudEditorMode.DuplicateSelected();
                     ImGui.SameLine();
                     if (ImGui.Button("Delete##pop")) HudEditorMode.DeleteSelected();
@@ -990,6 +1324,22 @@ namespace StationeersUIMod.Windows
             }
             ImGui.End();
             if (!open) HudEditorMode.Selected = null;
+        }
+
+        /// <summary>A segmented-style button for the per-mode edit selector: the ACTIVE mode is
+        /// drawn filled (accent blue), the inactive one flat, so the pair reads as a two-tab toggle.
+        /// Returns true on click.</summary>
+        private static bool ModeTabButton(string label, bool active)
+        {
+            if (active)
+            {
+                ImGui.PushStyleColor(ImGuiCol.Button, new Vector4(0.16f, 0.45f, 0.62f, 1f));
+                ImGui.PushStyleColor(ImGuiCol.ButtonHovered, new Vector4(0.20f, 0.52f, 0.70f, 1f));
+                ImGui.PushStyleColor(ImGuiCol.ButtonActive, new Vector4(0.24f, 0.58f, 0.78f, 1f));
+            }
+            bool clicked = ImGui.Button(label + "##uiaModeTab");
+            if (active) ImGui.PopStyleColor(3);
+            return clicked;
         }
 
         private static void DrawElementPropTab(string title, UI.Hud.HudPropGroup group,
@@ -1393,6 +1743,29 @@ namespace StationeersUIMod.Windows
         {
             float v = entry.Value;
             if (ImGui.SliderFloat(label, ref v, min, max)) entry.Value = v;
+        }
+
+        /// <summary>Print an explanatory blurb as indented, word-wrapped TextDisabled lines.
+        /// ImGui's TextDisabled does not wrap, and the registry's tips are full sentences that
+        /// would otherwise run off the 470px window; hard-wrapping here keeps the tip text a
+        /// property of the effect (one string, shared with the inspector) instead of forcing every
+        /// registry row to pre-split itself into display-width fragments.</summary>
+        private static void TipLines(string text, int width = 62)
+        {
+            if (string.IsNullOrEmpty(text)) return;
+            string[] words = text.Split(' ');
+            string line = "";
+            for (int i = 0; i < words.Length; i++)
+            {
+                if (words[i].Length == 0) continue;
+                if (line.Length > 0 && line.Length + 1 + words[i].Length > width)
+                {
+                    ImGui.TextDisabled("  " + line);
+                    line = words[i];
+                }
+                else line = line.Length == 0 ? words[i] : line + " " + words[i];
+            }
+            if (line.Length > 0) ImGui.TextDisabled("  " + line);
         }
 
         private static void IntSliderCfg(ConfigEntry<int> entry, string label, int min, int max)

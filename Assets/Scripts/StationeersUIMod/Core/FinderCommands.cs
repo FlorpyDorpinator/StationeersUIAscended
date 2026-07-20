@@ -80,6 +80,64 @@ namespace StationeersUIMod.Core
         public static void FindLargeBox(string input)
             => Run<CardboardBox>(input, "findlargebox", IsLarge, b => b.DisplayName);
 
+        /// <summary>`uiaflash` — force the smart-stow "it went in here" flash onto every worn 1-6 box
+        /// for one cycle, using the icon of whatever is in your hand (falling back to each box's own
+        /// item). Pure diagnostic; mutates NO game state.
+        ///
+        /// It exists to BISECT this feature, which has now failed several times for reasons outside
+        /// our code (a third-party mod owning smart-stow). If the boxes visibly swap icons, the
+        /// renderer AND the SlotFlash registry are both proven good, so any real-stow failure is in
+        /// the TRIGGER — i.e. who moved the item and whether we observed it. If nothing swaps, the
+        /// fault is on the render side instead. One command, one answer.</summary>
+        public static void FlashTest(string input)
+        {
+            try
+            {
+                var human = Guards.LocalHuman;
+                if (human == null) { ConsoleWindow.Print("uiaflash: no local player in the world.", ConsoleColor.Yellow); return; }
+
+                // Prefer the held item's icon, so the swap is unmistakable against the box's own art.
+                Sprite icon = null;
+                try
+                {
+                    var held = human.RightHandSlot != null ? human.RightHandSlot.Get() : null;
+                    if (held == null && human.LeftHandSlot != null) held = human.LeftHandSlot.Get();
+                    if (held != null) icon = held.GetThumbnail();
+                }
+                catch { }
+
+                var slots = new List<Slot>();
+                try
+                {
+                    slots.Add(human.HelmetSlot); slots.Add(human.GlassesSlot); slots.Add(human.SuitSlot);
+                    slots.Add(human.BackpackSlot); slots.Add(human.UniformSlot); slots.Add(human.ToolbeltSlot);
+                }
+                catch { }
+
+                int posted = 0;
+                for (int i = 0; i < slots.Count; i++)
+                {
+                    var s = slots[i];
+                    if (s == null) continue;
+                    Sprite use = icon;
+                    if (use == null) { try { var occ = s.Get(); if (occ != null) use = occ.GetThumbnail(); } catch { } }
+                    if (use == null) continue;
+                    SlotFlash.Post(s, use);
+                    posted++;
+                }
+
+                ConsoleWindow.Print("uiaflash: posted " + posted + " box flash(es) - watch the 1-6 boxes now.", ConsoleColor.Cyan);
+                if (posted == 0)
+                    ConsoleWindow.Print("  (nothing to flash: hold an item, or wear some equipment)", ConsoleColor.Yellow);
+                else
+                    ConsoleWindow.Print("  swapped = renderer OK (any stow failure is in the trigger); no swap = renderer fault.", ConsoleColor.White);
+            }
+            catch (Exception e)
+            {
+                ConsoleWindow.Print("uiaflash failed: " + e.Message, ConsoleColor.Red);
+            }
+        }
+
         // The large box shares the CardboardBox class with the small one; only the prefab
         // differs ("CardboardBoxLarge"), so filter on the prefab name.
         private static bool IsLarge(CardboardBox b)
@@ -106,6 +164,7 @@ namespace StationeersUIMod.Core
                 if (Matches(cmd, "finddead")) { FinderCommands.FindDead(cmd); return false; }
                 if (Matches(cmd, "findlargebox")) { FinderCommands.FindLargeBox(cmd); return false; }
                 if (Matches(cmd, "uiaprof")) { UiaProfCommand(cmd); return false; }
+                if (Matches(cmd, "uiaflash")) { FinderCommands.FlashTest(cmd); return false; }
             }
             catch { }
             return true;

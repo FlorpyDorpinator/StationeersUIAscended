@@ -23,10 +23,23 @@ namespace StationeersUIMod.UI.Menu.Tabs
             UiaControls.ToggleRow(col, "Show the key-hint bar under an open wheel",
                 UIAConfig.RadialHintBar.Value, v => UIAConfig.RadialHintBar.Value = v);
 
+            UiaControls.Header(col, "Mouse cursor");
+            UiaControls.ToggleRow(col, "Double-tap the mouse modifier to latch the cursor up",
+                UIAConfig.CursorLatchEnabled.Value, v =>
+                {
+                    UIAConfig.CursorLatchEnabled.Value = v;
+                    if (!v) CursorLatch.Reset(); // never leave a latched cursor behind when switched off
+                });
+            UiaControls.Note(col,
+                "Normally you HOLD the mouse-modifier key to free the cursor. With this on, tapping it " +
+                "twice quickly keeps the cursor up hands-free — press the key once more to go back to " +
+                "normal look/aim.");
+
             UiaControls.Header(col, "Key bindings");
             UiaControls.Note(col,
-                "Click a key to rebind it. These single-key actions also appear in the game's own " +
-                "Controls screen under \"UI Ascended\", so you can rebind them there too.");
+                "Click a key to rebind it. This is the home for UI Ascended's keys — they are not " +
+                "listed in the game's own Controls screen, because most of them only do anything " +
+                "while a wheel or overlay is open and the game would report them as conflicts.");
             foreach (var b in UiaKeybinds.All)
                 BindRow(col, b);
 

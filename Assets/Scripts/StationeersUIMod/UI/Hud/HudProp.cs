@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 
 namespace StationeersUIMod.UI.Hud
 {
@@ -6,7 +7,18 @@ namespace StationeersUIMod.UI.Hud
     /// How a <see cref="HudProp"/> wants to be edited. The editor window maps each kind to a
     /// widget (checkbox, slider, combo, colour swatch…) — the descriptor itself never draws.
     /// </summary>
-    public enum HudPropKind { Bool, Float, Int, Text, Enum, ColorRef, Anchor, TierMask, Points, Header }
+    public enum HudPropKind
+    {
+        Bool, Float, Int, Text, Enum, ColorRef, Anchor, TierMask, Points, Header,
+        /// <summary>A NESTED tab bar. Its <see cref="HudProp.Children"/> are <see cref="TabPage"/>
+        /// props; only the selected page's own children draw. Lets a widget fold a long repeated
+        /// block (e.g. one page per sense) into a compact, browsable section instead of a wall of rows.</summary>
+        TabGroup,
+        /// <summary>One page of a <see cref="TabGroup"/>: <see cref="HudProp.Label"/> is the tab
+        /// caption and <see cref="HudProp.Children"/> are the props shown while it is selected.
+        /// Never drawn on its own — only inside a TabGroup.</summary>
+        TabPage,
+    }
 
     /// <summary>Inspector destination for a property. Widget-specific descriptors default to
     /// Content; HudElementView marks its shared ranges explicitly so F9 can present a short,
@@ -58,6 +70,11 @@ namespace StationeersUIMod.UI.Hud
         /// <summary>Runtime fallback for an empty colour reference. Without this, the inspector
         /// cannot know that (for example) an empty warning-bar ref means HudWarn rather than white.</summary>
         public Func<UnityEngine.Color> ColorFallback;
+
+        /// <summary>Nested props, for the container kinds only (<see cref="HudPropKind.TabGroup"/>
+        /// and <see cref="HudPropKind.TabPage"/>). Null for every leaf kind. Children are drawn by
+        /// their container and ignore <see cref="Group"/> — the container's group already placed them.</summary>
+        public List<HudProp> Children;
 
         public static HudProp Bool(string label, Func<bool> get, Action<bool> set)
         {
@@ -161,6 +178,20 @@ namespace StationeersUIMod.UI.Hud
         public static HudProp Header(string label)
         {
             return new HudProp { Label = label, Kind = HudPropKind.Header };
+        }
+
+        /// <summary>One page of a nested tab bar. <paramref name="label"/> is the tab caption.</summary>
+        public static HudProp TabPage(string label, List<HudProp> children)
+        {
+            return new HudProp { Label = label, Kind = HudPropKind.TabPage, Children = children };
+        }
+
+        /// <summary>A nested tab bar over <paramref name="pages"/> (each a <see cref="TabPage"/>).
+        /// Only the selected page's props draw, so a long repeated block stays compact.
+        /// <paramref name="id"/> only has to be unique within the element's prop list.</summary>
+        public static HudProp TabGroup(string id, List<HudProp> pages)
+        {
+            return new HudProp { Label = id, Kind = HudPropKind.TabGroup, Children = pages };
         }
     }
 }

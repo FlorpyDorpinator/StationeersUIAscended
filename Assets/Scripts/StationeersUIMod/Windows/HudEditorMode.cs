@@ -59,6 +59,8 @@ namespace StationeersUIMod.Windows
             Active = false;
             Selected = null;
             SelectedElement = null;
+            MenuSelected = false;
+            GridSelected = false;
             HoverElement = null;
             _selectedId = null;
             _pendingSelectId = null;
@@ -235,7 +237,7 @@ namespace StationeersUIMod.Windows
         {
             _views.Clear();
             HudSystem.CollectElementViews(_views);
-            float scale = HudConfig.HudScale.Value;
+            float scale = HudConfig.EffectiveHudScale();
 
             // Re-resolve the selection by Id — views are rebuilt on structural edits.
             if (_pendingSelectId != null) { _selectedId = _pendingSelectId; _pendingSelectId = null; }
@@ -339,7 +341,15 @@ namespace StationeersUIMod.Windows
                 }
                 UpdateDrag(p, scale);
                 if (Input.GetMouseButtonUp(0))
+                {
+                    // A segment-bend grab that never moved is a plain CLICK on the segment:
+                    // insert an anchor there instead (Bézier keeps click-to-add this way).
+                    bool insertClick = _dragHandle == PointHandle && _pointDragKind == 3 && !_dragMoved;
+                    var clicked = SelectedElement;
                     CommitActiveDrag();
+                    if (insertClick && clicked != null)
+                        TryInsertShapePoint(clicked, p, scale);
+                }
                 return;
             }
 
@@ -362,6 +372,42 @@ namespace StationeersUIMod.Windows
                 return;
             }
 
+            // The F10 Control Center, open behind the editor, is a click-to-EDIT surface: a click
+            // anywhere inside its window selects the MENU (opens its theme popup) instead of the
+            // HUD elements behind it. Test the raw screen point — the menu canvas isn't warped.
+            if (UI.Menu.UiaControlCenter.HitTestWindow(mouseScreen))
+            {
+                if (!MenuSelected || SelectedElement != null)
+                {
+                    MenuSelected = true;
+                    GridSelected = false;
+                    SelectedElement = null;
+                    _selectedId = null;
+                    _multiIds.Clear();
+                    ElementStamp++;
+                }
+                return;
+            }
+
+            // Same adapter deal for the Universal Inventory window: a click anywhere inside it
+            // selects the GRID (opens its style popup) instead of the HUD elements behind it.
+            // Tested AFTER the Control Center because that canvas (5200) draws above the Grid
+            // (5020), so an overlap must resolve to the top-most window. Raw screen point again —
+            // the Grid canvas is a plain un-warped ScreenSpaceOverlay.
+            if (UI.Grid.TheGridPanel.IsOpen && UI.Grid.TheGridPanel.HitTestWindow(mouseScreen))
+            {
+                if (!GridSelected || SelectedElement != null)
+                {
+                    GridSelected = true;
+                    MenuSelected = false;
+                    SelectedElement = null;
+                    _selectedId = null;
+                    _multiIds.Clear();
+                    ElementStamp++;
+                }
+                return;
+            }
+
             // Handle grab beats element grab; both beat empty-space deselect.
             if (SelectedElement != null)
             {
@@ -379,6 +425,8 @@ namespace StationeersUIMod.Windows
                 if (!_multiIds.Contains(HoverElement.Def.Id)) _multiIds.Clear();
                 if (!ReferenceEquals(HoverElement, SelectedElement))
                 {
+                    MenuSelected = false;
+                    GridSelected = false;
                     _selectedId = HoverElement.Def.Id;
                     SelectedElement = HoverElement;
                     ElementStamp++;
@@ -389,6 +437,8 @@ namespace StationeersUIMod.Windows
             }
             else
             {
+                MenuSelected = false;
+                GridSelected = false;
                 _selectedId = null;
                 SelectedElement = null;
                 _multiIds.Clear();
@@ -439,6 +489,17 @@ namespace StationeersUIMod.Windows
 
         /// <summary>Bumped whenever a NEW element is selected so the popup follows.</summary>
         public static int ElementStamp;
+
+        /// <summary>The F10 Control Center window is the current edit target (clicked while open
+        /// behind the editor). Mutually exclusive with an element selection; drives the
+        /// menu-theme popup in <see cref="HudEditorWindow"/>.</summary>
+        public static bool MenuSelected;
+
+        /// <summary>The Universal Inventory window (<c>TheGridPanel</c>) is the current edit target
+        /// (clicked while open behind the editor). Mutually exclusive with an element selection and
+        /// with <see cref="MenuSelected"/>; drives the Grid style popup in
+        /// <see cref="HudEditorWindow"/>.</summary>
+        public static bool GridSelected;
 
         private static void BeginDrag(UI.Hud.HudElementView v, Vector2 p, int handle)
         {
@@ -506,6 +567,29 @@ namespace StationeersUIMod.Windows
                         if (snap) np = new Vector2(Snap(np.x, true, grid), Snap(np.y, true, grid));
                         pl[_dragPointIndex] = np;
                         d.SetPoints("pts", pl);
+                        HudSystem.RelayoutElement(v);
+                    }
+                }
+                else if (_pointDragKind == 3)
+                {
+                    // Pull a SEGMENT into a curve (Illustrator's curvature tool). Both facing
+                    // handles get the same vector d, so the cubic is the straight line plus a
+                    // symmetric bulge 3t(1-t)·d that passes through the cursor at t = 0.5
+                    // (B(0.5) = mid + 0.75·d). Pulling back onto the line straightens it again.
+                    var ptsL = d.GetPoints("pts");
+                    int i = _dragPointIndex;
+                    if (i >= 0 && i < ptsL.Length && ptsL.Length >= 2)
+                    {
+                        int j = (i + 1) % ptsL.Length;
+                        Vector2 pe = (p - v.CanvasRect(scale).center) / Mathf.Max(0.01f, scale);
+                        Vector2 mid = (ptsL[i] + ptsL[j]) * 0.5f;
+                        Vector2 bow = (pe - mid) / 0.75f;
+                        var hinL = EnsureHandleList(d, "hin");
+                        var houtL = EnsureHandleList(d, "hout");
+                        houtL[i] = bow;
+                        hinL[j] = bow;
+                        d.SetPoints("hin", hinL);
+                        d.SetPoints("hout", houtL);
                         HudSystem.RelayoutElement(v);
                     }
                 }
@@ -648,9 +732,11 @@ namespace StationeersUIMod.Windows
         private static void HandlePointEditClick(UI.Hud.HudElementView v, Vector2 mouseScreen, Vector2 p, float scale)
         {
             bool alt = Input.GetKey(KeyCode.LeftAlt) || Input.GetKey(KeyCode.RightAlt);
+            bool ctrl = Input.GetKey(KeyCode.LeftControl) || Input.GetKey(KeyCode.RightControl);
             bool bezier = v.Def.GetI("curveMode", v.Def.GetB("smooth", false) ? 1 : 0) == 2;
 
-            // Bézier: a curve HANDLE (in/out) grabs before its anchor.
+            // Bézier: a curve HANDLE (in/out) grabs before its anchor. Zero-length handles are
+            // skipped by the hit-test (they sit exactly ON the anchor and would shadow it).
             if (bezier)
             {
                 int kind; int hi = BezierHandleAt(v, mouseScreen, scale, out kind);
@@ -660,13 +746,63 @@ namespace StationeersUIMod.Windows
             int pi = PointHandleAt(v, mouseScreen, scale);
             if (pi >= 0)
             {
-                bool ctrl = Input.GetKey(KeyCode.LeftControl) || Input.GetKey(KeyCode.RightControl);
                 if (alt) DeleteShapePoint(v, pi);            // Alt+click an anchor deletes it
                 else if (ctrl && bezier) ToggleCornerPoint(v, pi); // Ctrl+click = corner/smooth toggle
                 else BeginPointDrag(v, p, pi, 0);
                 return;
             }
-            TryInsertShapePoint(v, p, scale);           // clicking a segment inserts an anchor
+
+            // Segment interactions are measured against the RENDERED curve (a bowed Bézier
+            // segment can run far from its straight chord), in screen px.
+            Vector2 pe = (p - v.CanvasRect(scale).center) / Mathf.Max(0.01f, scale);
+            float distSq; Vector2 onCurve;
+            int seg = NearestSegment(v.Def, pe, out distSq, out onCurve);
+            bool nearSegment = seg >= 0 && Mathf.Sqrt(distSq) * scale <= 12f;
+
+            if (nearSegment && bezier)
+            {
+                // Illustrator's curvature model: PULL a segment to bend it; a plain click
+                // (release without movement) inserts an anchor instead; Ctrl+click makes the
+                // segment straight again (zeroes the two handles that face it).
+                if (ctrl) StraightenSegment(v, seg);
+                else BeginSegmentBend(v, p, seg);
+                return;
+            }
+
+            // Click ANYWHERE else adds an anchor at the click, spliced into the nearest segment.
+            TryInsertShapePoint(v, p, scale);
+        }
+
+        /// <summary>Ctrl+click on a Bézier segment: zero the two handles that shape it
+        /// (this anchor's OUT + the next anchor's IN), returning the segment to a straight
+        /// line without touching the neighbours' other sides.</summary>
+        private static void StraightenSegment(UI.Hud.HudElementView v, int seg)
+        {
+            var d = v.Def;
+            var pts = d.GetPoints("pts");
+            if (pts.Length < 2 || seg < 0 || seg >= pts.Length) return;
+            int j = (seg + 1) % pts.Length;
+            PushUndoNow();
+            var hin = EnsureHandleList(d, "hin");
+            var hout = EnsureHandleList(d, "hout");
+            hout[seg] = Vector2.zero;
+            hin[j] = Vector2.zero;
+            d.SetPoints("hin", hin);
+            d.SetPoints("hout", hout);
+            Features.HudProfileStore.MarkChanged();
+            HudSystem.RelayoutElement(v);
+        }
+
+        private static void BeginSegmentBend(UI.Hud.HudElementView v, Vector2 p, int seg)
+        {
+            _dragging = true;
+            _dragHandle = PointHandle;
+            _dragPointIndex = seg;
+            _pointDragKind = 3;      // segment bend (see UpdateDrag)
+            _dragStart = p;
+            _dragMoved = false;
+            _origPoint = Vector2.zero;
+            ArmDragSnapshot();
         }
 
         /// <summary>The Bézier handle (in/out) under the mouse, or -1. <paramref name="kind"/>: 1=in, 2=out.</summary>
@@ -678,12 +814,15 @@ namespace StationeersUIMod.Windows
             var hout = v.Def.GetPoints("hout");
             for (int i = 0; i < pts.Length; i++)
             {
-                if (i < hout.Length)
+                // A zero-length handle doesn't exist visually (it sits exactly ON its anchor)
+                // and must not shadow the anchor's own hit-test — else after straightening,
+                // clicking the anchor grabs a dead handle and re-curves the segment.
+                if (i < hout.Length && hout[i].sqrMagnitude > 0.25f)
                 {
                     var s = CanvasToScreen(PointCanvas(v, pts[i] + hout[i], scale));
                     if ((s - mouseScreen).sqrMagnitude <= HandleScreenR * HandleScreenR * 4f) { kind = 2; return i; }
                 }
-                if (i < hin.Length)
+                if (i < hin.Length && hin[i].sqrMagnitude > 0.25f)
                 {
                     var s = CanvasToScreen(PointCanvas(v, pts[i] + hin[i], scale));
                     if ((s - mouseScreen).sqrMagnitude <= HandleScreenR * HandleScreenR * 4f) { kind = 1; return i; }
@@ -801,6 +940,12 @@ namespace StationeersUIMod.Windows
             d.SetPoints(key, list);
         }
 
+        /// <summary>Insert a new anchor AT the clicked position, spliced into whichever segment
+        /// runs nearest the click. NO distance gate — in edit-points mode a click that isn't an
+        /// anchor/handle/segment gesture always places a point (the "I should be able to place new
+        /// points anywhere" ask): clicking on the outline splits it in place, clicking away from it
+        /// pulls the outline out to the click. Nearness is measured against the RENDERED curve, so
+        /// a bowed Bézier segment splits where it is drawn, not at its invisible straight chord.</summary>
         private static bool TryInsertShapePoint(UI.Hud.HudElementView v, Vector2 p, float scale)
         {
             var d = v.Def;
@@ -808,19 +953,12 @@ namespace StationeersUIMod.Windows
             if (pts.Length < 2) return false;
             // Work in element-relative reference px (the space `pts` live in).
             Vector2 pe = (p - v.CanvasRect(scale).center) / Mathf.Max(0.01f, scale);
-            bool closed = d.Type == UI.Hud.HudElementType.Shape || d.GetB("closed", false);
-            int segs = closed ? pts.Length : pts.Length - 1;
-            float best = float.MaxValue; int bestSeg = -1; Vector2 bestProj = pe;
-            for (int i = 0; i < segs; i++)
-            {
-                Vector2 proj = ClosestOnSegment(pe, pts[i], pts[(i + 1) % pts.Length]);
-                float dd = (proj - pe).sqrMagnitude;
-                if (dd < best) { best = dd; bestSeg = i; bestProj = proj; }
-            }
-            if (bestSeg < 0 || best > 14f * 14f) return false; // only when the click is on a segment
+            float distSq; Vector2 onCurve;
+            int bestSeg = NearestSegment(d, pe, out distSq, out onCurve);
+            if (bestSeg < 0) return false;
             PushUndoNow();
             var list = new List<Vector2>(pts);
-            list.Insert(bestSeg + 1, bestProj);
+            list.Insert(bestSeg + 1, pe);
             d.SetPoints("pts", list);
             InsertHandleAt(d, "hin", bestSeg + 1);   // keep Bézier handles index-aligned
             InsertHandleAt(d, "hout", bestSeg + 1);
@@ -828,6 +966,73 @@ namespace StationeersUIMod.Windows
             Features.HudProfileStore.MarkChanged();
             HudSystem.RelayoutElement(v);
             return true;
+        }
+
+        /// <summary>The segment (by start-anchor index) whose RENDERED run passes nearest
+        /// <paramref name="pe"/> (element space). Bézier/Catmull segments are sampled with the
+        /// same evaluators the mesh uses, so the hit-test follows the drawn curve. Returns -1
+        /// for a degenerate shape.</summary>
+        private static int NearestSegment(UI.Hud.HudElementDef d, Vector2 pe, out float bestDistSq, out Vector2 bestPt)
+        {
+            bestDistSq = float.MaxValue;
+            bestPt = pe;
+            var pts = d.GetPoints("pts");
+            int m = pts.Length;
+            if (m < 2) return -1;
+            bool closed = d.Type == UI.Hud.HudElementType.Shape || d.GetB("closed", false);
+            int mode = d.GetI("curveMode", d.GetB("smooth", false) ? 1 : 0);
+            var hin = d.GetPoints("hin");
+            var hout = d.GetPoints("hout");
+            int segs = closed ? m : m - 1;
+            const int Samples = 12; // per segment; plenty for a hit-test
+            int bestSeg = -1;
+            for (int i = 0; i < segs; i++)
+            {
+                int j = (i + 1) % m;
+                Vector2 a = pts[i];
+                for (int s = 1; s <= Samples; s++)
+                {
+                    float t = s / (float)Samples;
+                    Vector2 b;
+                    if (mode == 2)
+                    {
+                        Vector2 h1 = i < hout.Length ? hout[i] : Vector2.zero;
+                        Vector2 h2 = j < hin.Length ? hin[j] : Vector2.zero;
+                        b = CubicPoint(pts[i], pts[i] + h1, pts[j] + h2, pts[j], t);
+                    }
+                    else if (mode == 1 && m >= 3)
+                    {
+                        // Catmull neighbours: wrap when closed, clamp at open-line ends.
+                        Vector2 p0 = closed ? pts[(i - 1 + m) % m] : pts[Mathf.Max(i - 1, 0)];
+                        Vector2 p3 = closed ? pts[(j + 1) % m] : pts[Mathf.Min(j + 1, m - 1)];
+                        b = CatmullPoint(p0, pts[i], pts[j], p3, t);
+                    }
+                    else
+                        b = Vector2.Lerp(pts[i], pts[j], t);
+
+                    Vector2 proj = ClosestOnSegment(pe, a, b);
+                    float dd = (proj - pe).sqrMagnitude;
+                    if (dd < bestDistSq) { bestDistSq = dd; bestPt = proj; bestSeg = i; }
+                    a = b;
+                }
+            }
+            return bestSeg;
+        }
+
+        // Same evaluators PolygonPanelGraphic bakes with (theirs are private).
+        private static Vector2 CubicPoint(Vector2 p0, Vector2 p1, Vector2 p2, Vector2 p3, float t)
+        {
+            float u = 1f - t;
+            return u * u * u * p0 + 3f * u * u * t * p1 + 3f * u * t * t * p2 + t * t * t * p3;
+        }
+
+        private static Vector2 CatmullPoint(Vector2 p0, Vector2 p1, Vector2 p2, Vector2 p3, float t)
+        {
+            float t2 = t * t, t3 = t2 * t;
+            return 0.5f * ((2f * p1)
+                + (-p0 + p2) * t
+                + (2f * p0 - 5f * p1 + 4f * p2 - p3) * t2
+                + (-p0 + 3f * p1 - 3f * p2 + p3) * t3);
         }
 
         private static Vector2 ClosestOnSegment(Vector2 pt, Vector2 a, Vector2 b)
@@ -935,6 +1140,9 @@ namespace StationeersUIMod.Windows
             }
 
             ClearDragState();
+            // A drag released fully off-screen must not strand the element: arm the same
+            // rescue pass a resolution change runs (never fires mid-gesture — we just ended).
+            HudSystem.RequestOffscreenHeal();
         }
 
         private static void ClearDragState()
@@ -968,7 +1176,8 @@ namespace StationeersUIMod.Windows
         {
             if (ReferenceEquals(a, b)) return true;
             if (a == null || b == null || a.Schema != b.Schema || a.Name != b.Name
-                || a.Font != b.Font || a.Description != b.Description || a.Author != b.Author)
+                || a.Font != b.Font || a.Description != b.Description || a.Author != b.Author
+                || a.RefW != b.RefW || a.RefH != b.RefH)
                 return false;
             if (a.Elements == null || b.Elements == null) return a.Elements == b.Elements;
             if (a.Elements.Count != b.Elements.Count) return false;
@@ -1004,6 +1213,8 @@ namespace StationeersUIMod.Windows
         {
             _selectedId = null;
             SelectedElement = null;
+            MenuSelected = false;
+            GridSelected = false;
         }
 
         public static void DeleteSelected()
@@ -1083,33 +1294,6 @@ namespace StationeersUIMod.Windows
             CommitDocumentMutation(before);
         }
 
-        /// <summary>Make every element's glass match the global sliders without changing its
-        /// source contract: Custom receives explicit current values, Legacy restores -1 sentinels,
-        /// and coherent Global already follows. A real change is one undo step; an idempotent click
-        /// leaves undo/redo untouched.</summary>
-        public static void ResetAllGlassToGlobal()
-        {
-            CommitActiveDrag();
-            var doc = Features.HudProfileStore.Active;
-            if (doc == null || doc.Elements == null) return;
-            var before = doc.Clone();
-            foreach (var e in doc.Elements)
-            {
-                if (e == null) continue;
-                if (HudElementView.IsCustomStyleDefinition(e))
-                {
-                    e.SetF("sheen", HudConfig.GlassSheen != null ? HudConfig.GlassSheen.Value : 0f);
-                    e.SetF("spec", HudConfig.GlassEdge != null ? HudConfig.GlassEdge.Value : 0f);
-                }
-                else if (e.GetI("styleSource", 0) == 0)
-                {
-                    e.SetF("sheen", -1f);
-                    e.SetF("spec", -1f);
-                }
-            }
-            CommitDocumentMutation(before);
-        }
-
         /// <summary>Reset every element's effect values to the current globals. Legacy/Global
         /// elements drop their old override keys; Custom receives explicit values so its complete
         /// local contract remains truthful. A real change is one undo step; an idempotent click
@@ -1133,7 +1317,9 @@ namespace StationeersUIMod.Windows
             string[] inheritedEffectKeys =
             {
                 "bfade", "softEdge", "glow", "glowIn", "glowWidth", "glowDiffuse",
-                "ripple", "rippleFreq", "rippleSmooth", "edgeFlow", "frostDepth",
+                "glowExtraDiffuse", "glowHaze", "glowBreath", "glowUneven", "glowOrganicScale",
+                "glowFlowAura", "ripple", "rippleFreq", "rippleSmooth", "edgeFlow", "frostDepth",
+                "edgeLight",
             };
             foreach (var e in doc.Elements)
             {
@@ -1142,8 +1328,14 @@ namespace StationeersUIMod.Windows
 
                 // Custom is a complete explicit snapshot, so never remove its keys and let the
                 // runtime silently fall through to globals while the inspector shows defaults.
+                // Conversely, Reset is allowed to discard a DORMANT Custom design while Global
+                // or Legacy is active, but it must invalidate the snapshot as one unit. The next
+                // switch to Custom will then seed a fresh, complete snapshot instead of restoring
+                // a half-cleared mixture of stale flags and global fall-through values.
                 if (!HudElementView.IsCustomStyleDefinition(e))
                 {
+                    if (e.GetB("customStyleReady", false))
+                        e.SetB("customStyleReady", false);
                     for (int i = 0; i < inheritedEffectKeys.Length; i++)
                         e.Set(inheritedEffectKeys[i], null);
                     for (int i = 0; i < motionKeys.Length; i++) e.Set(motionKeys[i], null);
@@ -1153,14 +1345,27 @@ namespace StationeersUIMod.Windows
                 e.SetB("customSoftEdgeOn", HudConfig.FxSoftEdgeOn != null && HudConfig.FxSoftEdgeOn.Value);
                 e.SetB("customGlowOn", HudConfig.FxGlowOn != null && HudConfig.FxGlowOn.Value);
                 e.SetB("customRippleOn", HudConfig.FxEdgeLightOn != null && HudConfig.FxEdgeLightOn.Value);
+                e.SetB("customGlowBreathOn", HudConfig.FxGlowBreathOn != null && HudConfig.FxGlowBreathOn.Value);
+                e.SetB("customGlowUnevenOn", HudConfig.FxGlowUnevenOn != null && HudConfig.FxGlowUnevenOn.Value);
+                e.SetB("customGlowFlowOn", HudConfig.FxGlowFlowAuraOn != null && HudConfig.FxGlowFlowAuraOn.Value);
                 e.SetF("bfade", HudConfig.FxBorderFade != null ? HudConfig.FxBorderFade.Value : 0f);
                 e.SetF("softEdge", HudConfig.FxSoftEdge != null ? HudConfig.FxSoftEdge.Value : 0f);
                 e.SetF("glow", HudConfig.FxGlow != null ? HudConfig.FxGlow.Value : 0f);
                 e.SetF("glowIn", HudConfig.FxGlowInner != null ? HudConfig.FxGlowInner.Value : 0f);
                 e.SetF("glowWidth", HudConfig.FxGlowWidth != null ? HudConfig.FxGlowWidth.Value : 24f);
                 e.SetF("glowDiffuse", HudConfig.FxGlowDiffuse != null ? HudConfig.FxGlowDiffuse.Value : 0f);
+                e.SetF("glowExtraDiffuse", HudConfig.FxGlowExtraDiffuse != null ? HudConfig.FxGlowExtraDiffuse.Value : 0f);
+                e.SetF("glowHaze", HudConfig.FxGlowHaze != null ? HudConfig.FxGlowHaze.Value : 0f);
+                e.SetF("glowBreath", HudConfig.FxGlowBreath != null ? HudConfig.FxGlowBreath.Value : 0f);
+                e.SetF("glowUneven", HudConfig.FxGlowUneven != null ? HudConfig.FxGlowUneven.Value : 0f);
+                e.SetF("glowOrganicScale", HudConfig.FxGlowOrganicScale != null ? HudConfig.FxGlowOrganicScale.Value : 1f);
+                e.SetF("glowFlowAura", HudConfig.FxGlowFlowAura != null ? HudConfig.FxGlowFlowAura.Value : 0f);
                 e.SetF("ripple", HudConfig.FxEdgeRipple != null ? HudConfig.FxEdgeRipple.Value : 0f);
                 e.SetF("rippleFreq", HudConfig.FxEdgeRippleFreq != null ? HudConfig.FxEdgeRippleFreq.Value : 2f);
+                // The line's own edge-light strength key resets with its family (review 2026-07-17:
+                // it was the one Custom effect value this button silently skipped).
+                if (e.Type == UI.Hud.HudElementType.Polyline)
+                    e.SetF("edgeLight", HudConfig.FxEdgeLight != null ? HudConfig.FxEdgeLight.Value : 0f);
                 e.SetF("rippleSmooth", 0f);
                 e.SetF("edgeFlow", HudConfig.FxEdgeFlowSpeed != null ? HudConfig.FxEdgeFlowSpeed.Value : 0.22f);
                 e.SetF("frostDepth", HudConfig.FrostDepth != null ? HudConfig.FrostDepth.Value : 1f);
@@ -1202,12 +1407,20 @@ namespace StationeersUIMod.Windows
             d.SetF("spec", 0f);       // 0 (not -1) = also opts out of the GLOBAL edge-light boost
             d.SetF("glow", 0f);
             d.SetF("glowIn", 0f);
+            d.SetF("glowExtraDiffuse", 0f);
+            d.SetF("glowHaze", 0f);
+            d.SetF("glowBreath", 0f);
+            d.SetF("glowUneven", 0f);
+            d.SetF("glowFlowAura", 0f);
             d.SetF("softEdge", 0f);
             d.SetF("bfade", 0f);      // solid border, no light-driven dissolve
             d.SetF("ripple", 0f);     // no edge shimmer
             d.SetB("customBorderFadeOn", false);
             d.SetB("customSoftEdgeOn", false);
             d.SetB("customGlowOn", false);
+            d.SetB("customGlowBreathOn", false);
+            d.SetB("customGlowUnevenOn", false);
+            d.SetB("customGlowFlowOn", false);
             d.SetB("customRippleOn", false);
             d.SetB("customShineOn", false);
             d.SetF("customShine", 0f);
@@ -1307,9 +1520,20 @@ namespace StationeersUIMod.Windows
                         e.Border = "#B9BEC259";
                         e.SetF("sheen", 0.5f);
                         e.SetF("spec", 0.8f);
+                        // The dress renders under the Custom contract, and Custom promises a
+                        // COMPLETE snapshot — stamping styleSource alone left every other key
+                        // missing, so the popup's checkboxes contradicted the render and a
+                        // follow-toggle round trip destroyed the dress (review 2026-07-17).
+                        // The raw styleSource is still absent here, so the snapshot folds the
+                        // dress keys in under legacy semantics and completes the rest.
+                        UI.Hud.HudElementView.SetUnifiedStyleSourceWithoutView(e, false, true);
                         break;
                 }
             }
+            // Fresh elements follow the F9 globals unless the Glassy dress above claimed
+            // them: coherent from birth, never the extinct legacy state.
+            if (e.GetI("styleSource", 0) == 0)
+                e.SetI("styleSource", UI.Hud.HudElementView.StyleGlobal);
             doc.Elements.Add(e);
             _pendingSelectId = e.Id;
             Features.HudProfileStore.MarkChanged();
@@ -1356,6 +1580,12 @@ namespace StationeersUIMod.Windows
         {
             // Commit first so Ctrl+Z during a drag immediately restores its pre-drag geometry.
             CommitActiveDrag();
+            // Same for an in-flight PROPERTY gesture. The toolbar button flushes before calling us,
+            // but the Ctrl+Z hotkey path did not: undoing with a stranded snapshot leaves
+            // _pendingElementDocument pointing at the pre-undo clone, and the later flush then fails
+            // its ReferenceEquals check and SAVES that stale document over the profile — silently
+            // discarding the undo. Flushing here covers every caller.
+            HudEditorWindow.FlushPendingElementEdit();
             var doc = Features.HudProfileStore.Active;
             if (doc == null || !UI.Hud.HudDocumentHistory.CanUndo) return;
             var prev = UI.Hud.HudDocumentHistory.Undo(doc);
@@ -1369,6 +1599,7 @@ namespace StationeersUIMod.Windows
         {
             // A changed drag is a new history branch and therefore correctly clears redo.
             CommitActiveDrag();
+            HudEditorWindow.FlushPendingElementEdit();   // see DoUndo — same stranded-snapshot hazard
             var doc = Features.HudProfileStore.Active;
             if (doc == null || !UI.Hud.HudDocumentHistory.CanRedo) return;
             var next = UI.Hud.HudDocumentHistory.Redo(doc);
@@ -1519,11 +1750,18 @@ namespace StationeersUIMod.Windows
         {
             string prof = Features.HudProfileStore.Active != null ? Features.HudProfileStore.Active.Name : null;
             bool glassy = prof != null && prof.IndexOf("Glassy", System.StringComparison.OrdinalIgnoreCase) >= 0;
-            if (!glassy) return;
-            e.Fill = "#05080DA6";
-            e.Border = "#B9BEC259";
-            e.SetF("sheen", 0.5f);
-            e.SetF("spec", 0.8f);
+            if (glassy)
+            {
+                e.Fill = "#05080DA6";
+                e.Border = "#B9BEC259";
+                e.SetF("sheen", 0.5f);
+                e.SetF("spec", 0.8f);
+                // Complete Custom snapshot, not a bare flag — see AddElement's dress case.
+                UI.Hud.HudElementView.SetUnifiedStyleSourceWithoutView(e, false, true);
+            }
+            // Coherent from birth — never the extinct legacy state.
+            if (e.GetI("styleSource", 0) == 0)
+                e.SetI("styleSource", UI.Hud.HudElementView.StyleGlobal);
         }
 
         /// <summary>Inverse of the screen warp — shared with the radial drop zones.</summary>

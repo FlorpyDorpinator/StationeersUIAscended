@@ -17,6 +17,9 @@ Shader "UIA/HudGlass"
     {
         [PerRendererData] _MainTex ("Sprite Texture", 2D) = "white" {}
         _Color ("Tint", Color) = (1,1,1,1)
+        // See HudEdgeFX: probed by HudShaderStore so an old resident bundle degrades to the
+        // static ripple bake instead of losing shape shimmer entirely.
+        [HideInInspector] _UiaFlowAbiVersion ("UIA Flow ABI Version", Float) = 1
 
         // --- stencil block, copied verbatim from UI/Default ---
         _StencilComp ("Stencil Comparison", Float) = 8
@@ -91,7 +94,10 @@ Shader "UIA/HudGlass"
             {
                 float4 vertex   : POSITION;
                 float4 color    : COLOR;
-                float2 texcoord : TEXCOORD0;
+                float4 texcoord : TEXCOORD0; // uv0: x=FxStrength, y=marker, z=ripple harmonic weight
+                // Moving-ripple payload from PolygonPanelGraphic (see HudEdgeFX.shader) —
+                // all-zero on every other mesh, making the flow term below inert.
+                float4 uv1      : TEXCOORD1;
                 UNITY_VERTEX_INPUT_INSTANCE_ID
             };
 
@@ -99,9 +105,10 @@ Shader "UIA/HudGlass"
             {
                 float4 vertex        : SV_POSITION;
                 fixed4 color         : COLOR;
-                float2 texcoord      : TEXCOORD0;
+                float4 texcoord      : TEXCOORD0;
                 float4 worldPosition : TEXCOORD1;
                 float4 screenPos     : TEXCOORD2;
+                float4 flow          : TEXCOORD3;
                 UNITY_VERTEX_OUTPUT_STEREO
             };
 
@@ -153,15 +160,16 @@ Shader "UIA/HudGlass"
                 UNITY_INITIALIZE_VERTEX_OUTPUT_STEREO(OUT);
                 OUT.worldPosition = v.vertex;
                 OUT.vertex = UnityObjectToClipPos(OUT.worldPosition);
-                OUT.texcoord = TRANSFORM_TEX(v.texcoord, _MainTex);
+                OUT.texcoord = float4(TRANSFORM_TEX(v.texcoord.xy, _MainTex), v.texcoord.zw);
                 OUT.screenPos = ComputeScreenPos(OUT.vertex);
                 OUT.color = v.color * _Color;
+                OUT.flow = v.uv1;
                 return OUT;
             }
 
             fixed4 frag(v2f IN) : SV_Target
             {
-                half4 vertexCol = (tex2D(_MainTex, IN.texcoord) + _TextureSampleAdd) * IN.color;
+                half4 vertexCol = (tex2D(_MainTex, IN.texcoord.xy) + _TextureSampleAdd) * IN.color;
 
                 #ifdef UNITY_UI_CLIP_RECT
                 vertexCol.a *= UnityGet2DClipping(IN.worldPosition.xy, _ClipRect);
@@ -222,6 +230,19 @@ Shader "UIA/HudGlass"
                 {
                     float w = frac((uv.x + uv.y) * (_IridScale * 0.25));
                     col.rgb += spectral_zucconi6(w) * (_IridStrength * 0.4 * strength * rim * vertexCol.a);
+                }
+
+                // MOVING EDGE RIPPLE (freeform Shapes) — identical term to HudEdgeFX so a
+                // frosted shape flows the same as an unfrosted one. uv1 all-zero = free skip.
+                if (IN.flow.y > 0.0001 && IN.flow.w > 0.0001)
+                {
+                    float ft = IN.flow.x * (IN.flow.z * 0.0628) - _Time.y * IN.flow.w * 3.0;
+                    // harm = uv0.z = 1 - RippleSmooth (matches HudEdgeFX and the static bake).
+                    float harm = IN.texcoord.z;
+                    float wave = 0.32 * sin(ft)
+                        + harm * (0.24 * sin(ft * 2.417 + 1.7) + 0.14 * sin(ft * 5.089 + 4.2));
+                    col.rgb *= clamp(1.0 + IN.flow.y * wave, 0.0, 2.0);
+                    col.a = saturate(col.a * (1.0 + 0.5 * IN.flow.y * wave));
                 }
 
                 #ifdef UNITY_UI_ALPHACLIP

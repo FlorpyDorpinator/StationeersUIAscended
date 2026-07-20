@@ -61,6 +61,14 @@ namespace StationeersUIMod.Core
         /// the matching material can actually be assigned.</summary>
         public static bool SdfAvailable { get; private set; }
 
+        /// <summary>True when the resident mesh-FX shaders (HudEdgeFX/HudGlass) understand the
+        /// uv1 flow payload (<c>_UiaFlowAbiVersion</c> >= 1). A pre-flow RESIDENT bundle after
+        /// F6 still registers the edgefx/glass families (TierBAvailable stays true), but its
+        /// shaders ignore uv1 — pushing a FlowSpeed then suppresses the static ripple bake and
+        /// nothing animates it, so shapes lose their shimmer entirely. Gating FlowSpeed on this
+        /// keeps the documented fail-soft: old bundle -> the static look.</summary>
+        public static bool FlowAbiAvailable { get; private set; }
+
         /// <summary>Idempotent lazy loader. No-op after the first attempt (success OR failure) this
         /// life. Safe on a headless server (batch mode short-circuits). Never throws.</summary>
         public static void EnsureLoaded()
@@ -113,9 +121,18 @@ namespace StationeersUIMod.Core
                 bool anyRegistered = false;
                 if (edgeFx != null) { HudFxMaterials.Register("edgefx", edgeFx); anyRegistered = true; }
                 if (glass != null) { HudFxMaterials.Register("glass", glass); anyRegistered = true; }
+                // Both mesh-FX shaders ship in the same bundle, so probing edgefx speaks for
+                // glass too; an older resident copy simply leaves the flow contract off.
+                FlowAbiAvailable = edgeFx != null
+                    && SupportsAbi(edgeFx, "_UiaFlowAbiVersion", 1f);
                 if (panelSdf != null)
                 {
-                    SdfAvailable = HudFxMaterials.Register("sdfglass", panelSdf) != null;
+                    if (SupportsSdfAbi(panelSdf, 2f))
+                        SdfAvailable = HudFxMaterials.Register("sdfglass", panelSdf) != null;
+                    else
+                        UIALog.Warn("HudShaderStore: resident UIA/HudPanelSdf is ABI 1 or unknown. " +
+                            "Analytic panels remain on the mesh fallback until the rebuilt bundle is " +
+                            "loaded by a full game restart.");
                     anyRegistered |= SdfAvailable;
                 }
 
@@ -132,6 +149,26 @@ namespace StationeersUIMod.Core
                 SdfAvailable = false;
                 UIALog.Warn("HudShaderStore: shader bundle load failed (" + e.Message +
                             "). Tier B/C disabled; Tier A fallbacks active.");
+            }
+        }
+
+        private static bool SupportsSdfAbi(Shader shader, float minimum)
+            => SupportsAbi(shader, "_UiaSdfAbiVersion", minimum);
+
+        private static bool SupportsAbi(Shader shader, string versionProperty, float minimum)
+        {
+            if (shader == null) return false;
+            Material probe = null;
+            try
+            {
+                probe = new Material(shader) { hideFlags = HideFlags.DontSave };
+                return probe.HasProperty(versionProperty)
+                    && probe.GetFloat(versionProperty) >= minimum;
+            }
+            catch { return false; }
+            finally
+            {
+                if (probe != null) UnityEngine.Object.Destroy(probe);
             }
         }
 
@@ -260,6 +297,7 @@ namespace StationeersUIMod.Core
             BloomShader = null;
             TierBAvailable = false;
             SdfAvailable = false;
+            FlowAbiAvailable = false;
             _attempted = false; // let the next life re-attempt the load
         }
     }

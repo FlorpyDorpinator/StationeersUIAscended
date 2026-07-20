@@ -107,13 +107,13 @@ namespace StationeersUIMod.UI.Hud.Widgets
             into.Add(HudProp.Bool("Jetpack chip", () => d.GetB("jetpack", true), v => d.SetB("jetpack", v)));
 
             int layoutStart = into.Count;
-            into.Add(HudProp.F("Gap (px)", () => d.GetF("gap", 2f),
-                v => d.SetF("gap", Mathf.Clamp(v, 0f, 12f)), 0f, 12f));
+            into.Add(HudProp.F("Gap (px)", () => d.GetFFor(EditBare(d), "gap", 2f),
+                v => d.SetFFor(EditBare(d), "gap", Mathf.Clamp(v, 0f, 12f)), 0f, 12f));
             for (int i = layoutStart; i < into.Count; i++) into[i].Group = HudPropGroup.Layout;
 
             int appearanceStart = into.Count;
-            into.Add(HudProp.F("Icon inset (0..0.4)", () => d.GetF("inset", 0.14f),
-                v => d.SetF("inset", Mathf.Clamp(v, 0f, 0.4f)), 0f, 0.4f));
+            into.Add(HudProp.F("Icon inset (0..0.4)", () => d.GetFFor(EditBare(d), "inset", 0.14f),
+                v => d.SetFFor(EditBare(d), "inset", Mathf.Clamp(v, 0f, 0.4f)), 0f, 0.4f));
             for (int i = appearanceStart; i < into.Count; i++) into[i].Group = HudPropGroup.Appearance;
         }
 
@@ -126,8 +126,8 @@ namespace StationeersUIMod.UI.Hud.Widgets
         {
             var c = CenterFor(scale);
             var sz = SizeFor(scale);
-            float gap = Def.GetF("gap", 2f) * scale;
-            float inset = Mathf.Clamp(Def.GetF("inset", 0.14f), 0f, 0.4f);
+            float gap = Def.GetFFor(LayoutBare, "gap", 2f) * scale;
+            float inset = Mathf.Clamp(Def.GetFFor(LayoutBare, "inset", 0.14f), 0f, 0.4f);
 
             int n = 0;
             for (int i = 0; i < N; i++) if (_sprite[i] != null) _order[n++] = i;
@@ -148,7 +148,7 @@ namespace StationeersUIMod.UI.Hud.Widgets
 
                 ((RectTransform)_panel[idx].transform).anchoredPosition = pos;
                 _panel[idx].SetShape(chipW, chipH,
-                    Radius(Def.RTL), Radius(Def.RTR), Radius(Def.RBR), Radius(Def.RBL));
+                    Radius(Def.RTLFor(LayoutBare)), Radius(Def.RTRFor(LayoutBare)), Radius(Def.RBRFor(LayoutBare)), Radius(Def.RBLFor(LayoutBare)));
 
                 var irt = _icon[idx].rectTransform;
                 irt.anchoredPosition = pos;

@@ -63,7 +63,7 @@ namespace StationeersUIMod.UI.Hud.Widgets
 
             ((RectTransform)_box.transform).anchoredPosition = c;
             _box.SetShape(s.x, s.y,
-                Radius(Def.RTL), Radius(Def.RTR), Radius(Def.RBR), Radius(Def.RBL),
+                Radius(Def.RTLFor(LayoutBare)), Radius(Def.RTRFor(LayoutBare)), Radius(Def.RBRFor(LayoutBare)), Radius(Def.RBLFor(LayoutBare)),
                 InsetTop(scale), InsetBottom(scale));
 
             float pad = 6f * scale;
@@ -85,7 +85,9 @@ namespace StationeersUIMod.UI.Hud.Widgets
             _thrustRt.sizeDelta = new Vector2(cw, 20f * scale);
 
             // Propellant row: canister glyph pinned to the left, value text filling the rest.
-            float isz = Mathf.Clamp((topEdge - botEdge) * 0.28f, 10f * scale, 24f * scale);
+            // 0.28 was hard-coded; keep it as the default so un-keyed profiles are unchanged.
+            float isz = Mathf.Clamp((topEdge - botEdge) * Mathf.Clamp(Def.GetFFor(LayoutBare, "iconScale", 0.28f), 0.1f, 1f),
+                10f * scale, 24f * scale);
             _canisterRt.anchoredPosition = new Vector2(left + isz * 0.5f, propY);
             _canisterRt.sizeDelta = new Vector2(isz, isz);
 
@@ -98,7 +100,7 @@ namespace StationeersUIMod.UI.Hud.Widgets
         public override void UpdatePanel(HudSnapshot s, float scale)
         {
             // --- chrome ---
-            bool showBox = Def.GetB("box", true);
+            bool showBox = Def.GetBFor(LayoutBare, "box", true);
             _box.enabled = showBox;
             if (showBox)
             {
@@ -164,7 +166,7 @@ namespace StationeersUIMod.UI.Hud.Widgets
                 : low ? HudPalette.Warn.Value
                 : HudPalette.TextValue.Value;
 
-            float vs = Def.GetF("valueSize", 14f) * Def.FontScale;
+            float vs = Def.GetFFor(LayoutBare, "valueSize", 14f) * Def.FontScaleFor(LayoutBare);
             HudText.Sync(_title); HudText.Sync(_thrust); HudText.Sync(_prop);
             _title.fontSize = HudText.Size(vs * 0.82f) * scale;
             _thrust.fontSize = HudText.Size(vs) * scale;
@@ -183,10 +185,14 @@ namespace StationeersUIMod.UI.Hud.Widgets
         {
             base.DescribeProps(into);
             var d = Def;
-            into.Add(HudProp.Bool("Background box", () => d.GetB("box", true), v => d.SetB("box", v)));
-            into.Add(HudProp.F("Value size", () => d.GetF("valueSize", 14f), v => d.SetF("valueSize", v), 8f, 48f));
-            into[into.Count - 2].Group = HudPropGroup.Appearance;
-            into[into.Count - 1].Group = HudPropGroup.Appearance;
+            int appearanceStart = into.Count;
+            into.Add(HudProp.Bool("Background box", () => d.GetBFor(EditBare(d), "box", true), v => d.SetBFor(EditBare(d), "box", v)));
+            into.Add(HudProp.F("Value size", () => d.GetFFor(EditBare(d), "valueSize", 14f), v => d.SetFFor(EditBare(d), "valueSize", v), 8f, 48f));
+            // The canister glyph was locked to 28% of the row with no knob, unlike ReadoutWidget's
+            // icon. Clamped by the same 10..24 px band as before, so extremes stay sane.
+            into.Add(HudProp.F("Canister icon scale", () => d.GetFFor(EditBare(d), "iconScale", 0.28f),
+                v => d.SetFFor(EditBare(d), "iconScale", Mathf.Clamp(v, 0.1f, 1f)), 0.1f, 1f));
+            for (int i = appearanceStart; i < into.Count; i++) into[i].Group = HudPropGroup.Appearance;
         }
     }
 }

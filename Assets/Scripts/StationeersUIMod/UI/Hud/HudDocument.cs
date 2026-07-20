@@ -90,14 +90,36 @@ namespace StationeersUIMod.UI.Hud
         /// <summary>Optional author credit shown on the profile's card.</summary>
         [XmlAttribute] public string Author;
 
+        /// <summary>The screen resolution this layout was DESIGNED at. 0 (unset) = fall back to the
+        /// player's global reference (HudConfig.HudRefWidth/Height, default 1920x1080).
+        ///
+        /// This lives in the PROFILE, not the config, because profiles are shareable: element offsets
+        /// and sizes are reference pixels, so a layout built on a 2560x1440 screen only reads correctly
+        /// elsewhere if the resolution it was authored at travels WITH it. With this set, everyone gets
+        /// the author's proportions — a 1920x1080 player renders the same layout at x0.75.
+        /// See <see cref="HudConfig.EffectiveHudScale"/>.</summary>
+        [XmlAttribute] public float RefW;
+        [XmlAttribute] public float RefH;
+
         [XmlElement("El")] public List<HudElementDef> Elements = new List<HudElementDef>();
+
+        /// <summary>Transient: set by <see cref="Sanitize"/> when the style migration rewrote
+        /// elements, so the store can write the repaired XML back ONCE. Without the write-back
+        /// the migration would re-run on every load and re-freeze Custom snapshots from
+        /// whatever the F9 globals happen to be THAT session (adversarial review 2026-07-17:
+        /// "frozen" values silently drifted across sessions). Never serialized.</summary>
+        [XmlIgnore] public bool RepairedOnLoad;
 
         /// <summary>Deep copy WITHOUT a serialize/deserialize round-trip. The editor's undo
         /// stack snapshots the whole document on every drag, so this runs many times a
         /// session — an XmlSerializer round-trip per snapshot would be needless GC and CPU.</summary>
         public HudDocument Clone()
         {
-            var copy = new HudDocument { Schema = Schema, Name = Name, Font = Font, Description = Description, Author = Author };
+            var copy = new HudDocument
+            {
+                Schema = Schema, Name = Name, Font = Font, Description = Description, Author = Author,
+                RefW = RefW, RefH = RefH,
+            };
             copy.Elements = new List<HudElementDef>(Elements.Count);
             for (int i = 0; i < Elements.Count; i++)
             {
@@ -143,15 +165,17 @@ namespace StationeersUIMod.UI.Hud
 
                 if (el.Params == null) el.Params = new List<HudParam>();
 
-                // A bare-layout override only means something for a "Both" element (shown in bare
-                // AND a live tier). If the element is single-mode (Bare-only or Live-only), the
-                // override is dead data — strip it so it can't bloat the profile or desync a drag
-                // (render vs edit tier). Idempotent, so it settles after one save.
+                // A per-mode BARE override (layout OR the new visual overrides: colour/sizing/glass/
+                // effects, all "b_"-keyed) only means something for a "Both" element (shown in bare
+                // AND a live tier). If the element is single-mode (Bare-only or Live-only), those
+                // overrides are dead data — strip them so they can't bloat the profile or desync a
+                // drag (render vs edit tier). Idempotent, so it settles after one save.
                 bool both = (el.Tiers & HudTierMask.Bare) != 0
                          && (el.Tiers & (HudTierMask.Suited | HudTierMask.Robot)) != 0;
-                if (el.HasBareLayout && !both)
+                if (!both && (el.HasBareLayout || el.HasAnyVisualBareOverride()))
                 {
                     el.SetBareLayout(false);
+                    el.ClearVisualBareOverrides();
                     bareOrphan++;
                 }
 
@@ -170,7 +194,39 @@ namespace StationeersUIMod.UI.Hud
                 }
             }
 
+            // The 2026-07-19 transition tri-state: the per-element power-transition flags were
+            // plain bools defaulting TRUE, so "inherit the global" and "explicitly on" were the
+            // same stored value and "off" could not be expressed at all. Fold every stored legacy
+            // bool into "<key>Mode" (0 Inherit / 1 On / 2 Off) — an explicit "off" ALWAYS survives.
+            // Idempotent (a stored mode is never rewritten) and writes nothing for elements that
+            // never had a flag, so untouched profiles stay byte-identical. Fail-soft per element.
+            int fxModes = 0;
+            for (int i = 0; i < Elements.Count; i++)
+            {
+                var el = Elements[i];
+                if (el == null) continue;
+                try { fxModes += HudTransitionFx.MigrateElement(el); }
+                catch (Exception e)
+                {
+                    UIALog.Warn("HudDocument: transition-mode migration failed on element '"
+                        + el.Id + "' (" + e.Message + ") — left on the legacy flag.");
+                }
+            }
+            if (fxModes > 0) RepairedOnLoad = true;
+
+            // The 2026-07-16 style regression: rewrite every pre-standardisation ("legacy
+            // mixed") element into the coherent two-state contract. Idempotent (keyed on the
+            // stored styleSource) and fail-soft per element; see HudStyleMigration.
+            int styleMigrated = 0;
+            try { styleMigrated = HudStyleMigration.Migrate(this); }
+            catch (Exception e) { UIALog.Warn("HudDocument: style migration failed (" + e.Message + ")."); }
+            if (styleMigrated > 0) RepairedOnLoad = true;
+
             string label = string.IsNullOrEmpty(Name) ? "HudDocument" : "HudDocument '" + Name + "'";
+            if (styleMigrated > 0)
+                UIALog.Warn($"{label}: migrated {styleMigrated} legacy-styled element(s) to the two-state style contract.");
+            if (fxModes > 0)
+                UIALog.Warn($"{label}: folded {fxModes} legacy transition flag(s) into the Inherit/On/Off tri-state.");
             if (dropped > 0) UIALog.Warn($"{label}: dropped {dropped} null element(s).");
             if (mintedId > 0) UIALog.Warn($"{label}: minted {mintedId} missing/duplicate element Id(s).");
             if (clamped > 0) UIALog.Warn($"{label}: clamped {clamped} sub-minimum element size(s) to 2px.");
@@ -592,6 +648,142 @@ namespace StationeersUIMod.UI.Hud
             var k = ModeKey(mode);
             if (k != null) { SetModeLayout(mode, true); SetF(k + "HPct", v); } else HPct = v;
         }
+
+        // ---- per-tier (bare) VISUAL override: colours, sizing, glass and effects ------------
+        // The layout override above lets a "Both" element sit somewhere different in bare; this
+        // extends the SAME idea to how it LOOKS. Each visual property can be independently forked
+        // for bare — Fill, Border, corners, glass sheen, glow, frost, every effect knob — while
+        // bare INHERITS the base (suit) value for anything not forked. Overrides live in the param
+        // bag under a "b_" prefix, deliberately distinct from the layout keys ("bX"/"bLayout", no
+        // underscore), so nothing an author already built for bare is disturbed and profiles
+        // authored before this feature load unchanged (absent b_* key ⇒ bare inherits the base).
+        //
+        // Reads are ZERO-ALLOC and skip all extra work in the common (non-bare) path — the visor
+        // is only bare when powered down, so the suited HUD pays nothing. A malformed override
+        // degrades to the base value rather than throwing (rule 5).
+        private const string BarePrefix = "b_";
+
+        /// <summary>Zero-alloc lookup of the "b_"+key override WITHOUT concatenating a string on
+        /// the draw path (matches the "no per-frame alloc" discipline for the bag accessors).</summary>
+        private HudParam FindBareOverride(string key)
+        {
+            if (Params == null || key == null) return null;
+            int kl = key.Length;
+            for (int i = 0; i < Params.Count; i++)
+            {
+                var p = Params[i];
+                if (p == null || p.K == null) continue;
+                string k = p.K;
+                if (k.Length == kl + 2 && k[0] == 'b' && k[1] == '_'
+                    && string.CompareOrdinal(k, 2, key, 0, kl) == 0)
+                    return p;
+            }
+            return null;
+        }
+
+        /// <summary>True when this element carries a bare override for <paramref name="key"/> — used
+        /// by the editor to mark a forked property and by Sanitize's orphan strip.</summary>
+        public bool HasBareOverride(string key) => FindBareOverride(key) != null;
+
+        /// <summary>True when ANY visual bare override is present (any "b_" key). Cheap gate for
+        /// the "reset bare to inherit" affordance.</summary>
+        public bool HasAnyVisualBareOverride()
+        {
+            if (Params == null) return false;
+            for (int i = 0; i < Params.Count; i++)
+            {
+                var p = Params[i];
+                if (p != null && p.K != null && p.K.Length >= 2 && p.K[0] == 'b' && p.K[1] == '_')
+                    return true;
+            }
+            return false;
+        }
+
+        /// <summary>Drop every visual bare override so bare reverts to fully inheriting the base
+        /// (suit) look. Leaves the layout override family ("bX"/"bLayout", "mA*"…) untouched.</summary>
+        public void ClearVisualBareOverrides()
+        {
+            if (Params == null) return;
+            for (int i = Params.Count - 1; i >= 0; i--)
+            {
+                var p = Params[i];
+                if (p != null && p.K != null && p.K.Length >= 2 && p.K[0] == 'b' && p.K[1] == '_')
+                    Params.RemoveAt(i);
+            }
+        }
+
+        // Generic bag accessors, tier-aware. bare ⇒ the "b_"+key override wins when present (and
+        // valid); otherwise the base key. Every effect/appearance param a widget stores in the bag
+        // forks through these — one code path covers the whole glass/effects family.
+        public float GetFFor(bool bare, string key, float def)
+        {
+            if (bare)
+            {
+                var p = FindBareOverride(key);
+                float v;
+                if (p != null && float.TryParse(p.V, NumberStyles.Float, CultureInfo.InvariantCulture, out v)) return v;
+            }
+            return GetF(key, def);
+        }
+        public bool GetBFor(bool bare, string key, bool def)
+        {
+            if (bare)
+            {
+                var p = FindBareOverride(key);
+                bool v;
+                if (p != null && bool.TryParse(p.V, out v)) return v;
+            }
+            return GetB(key, def);
+        }
+        public int GetIFor(bool bare, string key, int def)
+        {
+            if (bare)
+            {
+                var p = FindBareOverride(key);
+                int v;
+                if (p != null && int.TryParse(p.V, NumberStyles.Integer, CultureInfo.InvariantCulture, out v)) return v;
+            }
+            return GetI(key, def);
+        }
+        public string GetSFor(bool bare, string key, string def)
+        {
+            if (bare)
+            {
+                var p = FindBareOverride(key);
+                if (p != null && p.V != null) return p.V;
+            }
+            return GetS(key, def);
+        }
+
+        // Writers concatenate "b_"+key, but only ever run at EDIT time (an F9 drag/slide), never on
+        // the per-frame draw path, so the concat is harmless. A null value removes the override
+        // (the shared Set contract), which is exactly "reset this property to inherit the base".
+        public void SetFFor(bool bare, string key, float v) { if (bare) SetF(BarePrefix + key, v); else SetF(key, v); }
+        public void SetBFor(bool bare, string key, bool v)  { if (bare) SetB(BarePrefix + key, v); else SetB(key, v); }
+        public void SetIFor(bool bare, string key, int v)   { if (bare) SetI(BarePrefix + key, v); else SetI(key, v); }
+        public void SetSFor(bool bare, string key, string v){ if (bare) Set(BarePrefix + key, v); else Set(key, v); }
+
+        // First-class visual FIELDS (attributes, not bag params) get their own bare overrides,
+        // stored in the bag under fixed "b_" literals so no string is built on the draw path.
+        public string FillFor(bool bare)      { if (bare) { var p = Find("b_fill");   if (p != null && p.V != null) return p.V; } return Fill; }
+        public string BorderFor(bool bare)    { if (bare) { var p = Find("b_border"); if (p != null && p.V != null) return p.V; } return Border; }
+        public string TextColorFor(bool bare) { if (bare) { var p = Find("b_text");   if (p != null && p.V != null) return p.V; } return TextColor; }
+        public float BorderWidthFor(bool bare) => bare ? GetF("b_bw", BorderWidth) : BorderWidth;
+        public float RTLFor(bool bare) => bare ? GetF("b_rtl", RTL) : RTL;
+        public float RTRFor(bool bare) => bare ? GetF("b_rtr", RTR) : RTR;
+        public float RBRFor(bool bare) => bare ? GetF("b_rbr", RBR) : RBR;
+        public float RBLFor(bool bare) => bare ? GetF("b_rbl", RBL) : RBL;
+        public float FontScaleFor(bool bare) => bare ? GetF("b_fs", FontScale) : FontScale;
+
+        public void SetFillFor(bool bare, string v)       { if (bare) Set("b_fill", v);   else Fill = v; }
+        public void SetBorderFor(bool bare, string v)     { if (bare) Set("b_border", v); else Border = v; }
+        public void SetTextColorFor(bool bare, string v)  { if (bare) Set("b_text", v);   else TextColor = v; }
+        public void SetBorderWidthFor(bool bare, float v) { if (bare) SetF("b_bw", v);     else BorderWidth = v; }
+        public void SetRTLFor(bool bare, float v) { if (bare) SetF("b_rtl", v); else RTL = v; }
+        public void SetRTRFor(bool bare, float v) { if (bare) SetF("b_rtr", v); else RTR = v; }
+        public void SetRBRFor(bool bare, float v) { if (bare) SetF("b_rbr", v); else RBR = v; }
+        public void SetRBLFor(bool bare, float v) { if (bare) SetF("b_rbl", v); else RBL = v; }
+        public void SetFontScaleFor(bool bare, float v) { if (bare) SetF("b_fs", v); else FontScale = v; }
 
         /// <summary>The point on the element's own box that its anchor pins to, in canvas space
         /// (centre origin, +y up). Half-extents are passed in so both the layout host and the

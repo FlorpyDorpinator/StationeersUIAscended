@@ -61,6 +61,13 @@ namespace StationeersUIMod.UI.Hud
         /// <summary>False when no valid atmosphere reading exists this frame (network
         /// atmospheres expire after 5 s) — temperature shows "--" and no felt-temp word.</summary>
         public bool FeltValid;
+        // Raw felt-sense DRIVERS (the numeric values behind the bare-sense words), exposed so the
+        // bare-senses widget can evaluate its own author-editable thresholds/words/colours instead
+        // of the widget reading a pre-baked word. All still gated by the MP-safe reads above:
+        // BreathKPa/Toxins ride the same networked breathing atmosphere as FeltValid.
+        public float BreathKPa;         // breathable pressure you actually feel (0 in vacuum)
+        public float Toxins;            // partial pressure of human toxins in the breathed gas, kPa
+        public float Damage;            // whole-body DamageState.TotalRatio 0..1 (client-visible)
 
         // BARE felt senses (empty string = nominal, nothing to feel)
         public string WordTemp = "";
@@ -344,6 +351,7 @@ namespace StationeersUIMod.UI.Hud
             // replicated — never read it here). ----
             float hydration = 5f, damage = 0f;
             try { damage = human.DamageState.TotalRatio; } catch { }
+            s.Damage = Mathf.Clamp01(damage);
             try { hydration = human.Hydration; } catch { }
             try { s.FoodRatio = Mathf.Clamp01(human.NutritionRatio); } catch { }
             try { s.O2Quality = isRobot ? 1f : Mathf.Clamp01(human.OxygenQuality); } catch { }
@@ -444,6 +452,8 @@ namespace StationeersUIMod.UI.Hud
             catch { }
             s.FeltTempC = feltC;
             s.FeltValid = feltValid;
+            s.BreathKPa = breathKPa;
+            s.Toxins = toxins;
 
             // ---- BARE felt-sense words (empty = nominal). Bands anchored to the REAL
             // damage/warning thresholds so the words agree with what hurts you:
@@ -645,10 +655,21 @@ namespace StationeersUIMod.UI.Hud
             s.HelmetPresent = true; s.HelmetClosed = true; s.HelmetLightOn = true;
             s.SuitAcOn = true; s.HasInternals = true; s.InternalsOn = true;
 
-            // Bare-tier felt words, so the power-off preview has something in every row.
+            // Bare-tier felt words, so the power-off preview has something in every row (the
+            // legacy BareSensesPanel still reads these pre-baked words).
             s.WordTemp = "WARM"; s.WordAir = "THIN"; s.WordHunger = "PECKISH";
             s.WordThirst = "THIRSTY"; s.WordHealth = "AILING"; s.WordPressure = "LOW";
             s.WordCognition = "DAZED"; s.WordToilet = "NEED TO GO";
+
+            // Bare felt-sense DRIVERS in-band, so the catalog-driven BareSensesWidget lights every
+            // row for arranging (it evaluates real thresholds, not the pre-baked words above).
+            s.FeltValid = true; s.FeltTempC = 35f;              // WARM
+            s.BreathKPa = 15f; s.Toxins = 0f;                   // LOW PRESSURE
+            s.O2Quality = 0.85f;                                // THIN AIR + DAZED
+            s.WaterRatio = 0.48f; s.FoodRatio = 0.62f;          // THIRSTY + HUNGRY
+            s.Damage = 0.4f;                                    // AILING
+            s.Sanitation01 = 0.55f; s.SanitationValid = true;   // NEED TO GO
+            if (string.IsNullOrEmpty(s.DayPartWord)) s.DayPartWord = "NIGHT";
         }
 
         private static bool UsesTiers()

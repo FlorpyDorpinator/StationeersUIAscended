@@ -18,8 +18,8 @@ namespace StationeersUIMod
     /// </summary>
     public sealed class StationeersUIMod : MonoBehaviour
     {
-        public const string ModVersion = "0.9.0.1";
-        public const string VersionDisplay = "0.9.0.1 Experimental";
+        public const string ModVersion = "0.9.1.0";
+        public const string VersionDisplay = "0.9.1.0 Experimental";
         public const string ModGuid = "com.stationeersuimod.ui";
 
         public static StationeersUIMod Instance { get; private set; }
@@ -38,6 +38,15 @@ namespace StationeersUIMod
         private readonly List<EquipmentKeyRadialFeature> _equipFeatures
             = new List<EquipmentKeyRadialFeature>();
         private int _drawExceptions;
+
+        // The Grid (full-inventory glass overlay) hold-to-peek / tap-to-toggle bookkeeping.
+        private const float GridTapSeconds = 0.25f;
+        private float _gridKeyDownTime;
+        private bool _gridPeeking;
+        // Set when THIS press opened the Grid as an F9 edit preview, so the matching key-UP
+        // (which in hold-to-peek mode would read as a tap-to-close) is swallowed instead of
+        // shutting the window the user just opened to style. Reset in the cleanup path.
+        private bool _gridEditPreviewOpened;
 
         /// <summary>The mod's install folder under SLP (local or Workshop), from the injected
         /// ModData. NULL under the F6 ScriptEngine dev flow (no mod folder — the dev shim passes
@@ -113,10 +122,11 @@ namespace StationeersUIMod
                 // fresh install. No-overwrite, fail-soft; inert under F6 (ModDirectory null).
                 Features.HudProfileStore.ImportShipped(ModDirectory);
 
-                // Register our single-key actions in the game's native Controls screen. The
-                // SetupKeyBindings postfix also does this at game startup; doing it here as well
-                // re-hooks the OnControlsChanged sync after an F6 hot-reload (idempotent — it skips
-                // keys already registered and only re-subscribes if not already hooked).
+                // Register UIA_Menu in the game's native Controls screen (the only bind that gets a
+                // vanilla row — see UiaKeybinds' class remarks). The SetupKeyBindings postfix also
+                // does this at game startup; doing it here as well re-hooks the OnControlsChanged
+                // sync after an F6 hot-reload (idempotent — it skips keys already registered and
+                // only re-subscribes if not already hooked).
                 Core.UiaKeybinds.RegisterWithGame();
 
                 _toolRadial = new ToolRadialFeature();
@@ -137,17 +147,23 @@ namespace StationeersUIMod
                 PatchHarness.TryPatchAll(_harmony,
                     typeof(Patch_ImGuiWindowManager_Draw),
                     typeof(Patch_InventoryManager_SmartStow),
+                    typeof(Patch_InventoryManager_HiddenSlotMoveAnim),
                     typeof(Patch_InventoryManager_CheckDisplaySlot),
                     typeof(Patch_KeyManager_ToggleScoreboard),
                     typeof(Patch_Human_SpawnDynamicThing),
                     typeof(Patch_KeyManager_SpawnDynamicThing),
                     typeof(Patch_InventoryManager_CheckDisplaySlotInput),
                     typeof(Patch_InventoryManager_AllowMouseControl),
+                    typeof(Patch_MouseModeController_AltKeyDown), // double-tap cursor latch
                     typeof(Patch_MovementController_HandleJump),
                     typeof(Patch_PlayerStateWindow_UpdateJetpackPanels),
                     typeof(Patch_ThingRenderer_OverrideShadowMode), // names + silences the vanilla shadow-LOD NRE
                     typeof(Core.Patch_CommandLine_Process), // `finddead` console command
-                    typeof(Core.Patch_KeyManager_SetupKeyBindings)); // native Controls-screen rows for our keys
+                    typeof(Core.Patch_KeyManager_SetupKeyBindings), // native Controls-screen rows for our keys
+                    // Inbound world->visor-box drag. PRIVATE vanilla targets, so a rename in a game
+                    // update degrades only this feature (that is what the harness is for).
+                    typeof(Core.Patch_InputMouse_Drag),
+                    typeof(Core.Patch_InputMouse_DragSlot));
 
                 // The static `new Mod(...)` above registers us with LaunchPadBooster for the optional client-side mod list.
                 // (Proper direct reference - no reflection hack.)
@@ -221,15 +237,28 @@ namespace StationeersUIMod
                 // it is off we behave exactly like the loading-screen stand-down: close any open
                 // radial, hide the DontDestroyOnLoad canvases, and skip the controller so its keys
                 // fall back to vanilla (the ownership props below already yield when off).
+                // Grid PIN shortcuts are read BEFORE the radial half on purpose. Shift+1..6 shares
+                // its key-down frame with the 1..6 equipment radial keys, and RadialController arms
+                // its pending press on GetKeyDown — so a claimed pin gesture must consume that one
+                // frame, or releasing the key would ALSO open the equipment radial. Claiming skips
+                // exactly one _radials.Update() (and the wedge hotkeys, which could otherwise fire a
+                // bound number in the same frame); the key is held from here on, so no later frame
+                // sees a GetKeyDown and nothing is stranded. The MOUSE half never claims — a click
+                // is no radial key — so it cannot stall the controller.
+                bool pinClaimed = UIAConfig.GridEnabled.Value && HandleGridPinShortcuts();
+
                 if (UIAConfig.RadialEnabled.Value)
                 {
-                    _radials.Update();
+                    if (!pinClaimed)
+                    {
+                        _radials.Update();
 
-                    // #4: fire wedge-bound hotkeys only during real gameplay — no radial open
-                    // (that's binding/using-the-wheel time) and gameplay input accepted (so a
-                    // bound letter can't fire into a text field / open menu).
-                    if (!_radials.IsRadialOpen && Guards.CanAcceptGameplayInput())
-                        Core.WedgeHotkeys.TickExecute();
+                        // #4: fire wedge-bound hotkeys only during real gameplay — no radial open
+                        // (that's binding/using-the-wheel time) and gameplay input accepted (so a
+                        // bound letter can't fire into a text field / open menu).
+                        if (!_radials.IsRadialOpen && Guards.CanAcceptGameplayInput())
+                            Core.WedgeHotkeys.TickExecute();
+                    }
 
                     UI.RadialHintBar.Tick(_radials.IsRadialOpen);
                 }
@@ -258,6 +287,10 @@ namespace StationeersUIMod
                     UI.Hud.HudSystem.Update(Windows.HudEditorMode.Active);
                 if (Windows.HudEditorMode.Active) Windows.HudEditorMode.Update();
 
+                // Double-tap the mouse modifier to latch the cursor up. Suppressed while a radial is
+                // open: the wheel binds the SAME key for world-reach/Z-grab, so reaching twice there
+                // must not silently latch the cursor.
+                Core.CursorLatch.Tick(_radials != null && _radials.IsRadialOpen);
                 Core.UiaAbDriver.Tick(); // A/B capture state machine (inert unless a run is active)
 
                 // The UGUI Control Center (F10) is the player-facing front door. Pump it every
@@ -272,19 +305,398 @@ namespace StationeersUIMod
                     UI.Menu.UiaControlCenter.OpenGuide();
                 }
 
+                // F10 opens even while the F9 HUD editor is active: the menu then becomes a
+                // live-themed EDITABLE surface (click it in the editor to theme it). It refuses
+                // only during a radial.
                 if (Input.GetKeyDown(UIAConfig.SettingsWindowKey.Value) && Guards.CanToggleMenus()
-                    && !_radials.IsRadialOpen && !Windows.HudEditorMode.Active)
+                    && !_radials.IsRadialOpen)
                     UI.Menu.UiaControlCenter.Toggle();
 
                 if (Input.GetKeyDown(UI.Hud.HudConfig.HudEditorKey.Value) && Guards.CanToggleMenus()
                     && !_radials.IsRadialOpen && !Windows.RadialEditorMode.Active
                     && !UI.Menu.UiaControlCenter.IsOpen)
                     ToggleHudEditor();
+
+                // The Grid — its own master switch (independent of the radial/HUD halves).
+                // Tap the key to toggle, hold it to peek (hide on release) when HoldToPeek is on.
+                //
+                // Tick() is pumped whether or not the main window is OPEN, because pinned windows
+                // outlive it: the Grid key hides only the Universal Inventory, and the pins must keep
+                // refreshing, dragging, resizing and moving after it is gone. Tick() runs the pin pump
+                // (and the mouse-freed interactivity gate) BEFORE its own open check and both are
+                // no-ops while nothing is pinned, so the closed-window cost is one bool test plus an
+                // empty-list check. Standing down (world can't draw, or the master switch went off)
+                // takes the pin WINDOWS with it — CloseAll keeps the pin RECORDS, so they come back on
+                // the next open; only a pin's own X / shrink button truly unpins.
+                if (UIAConfig.GridEnabled.Value && Guards.CanDraw())
+                {
+                    HandleGridInput();
+                    UI.Grid.TheGridPanel.Tick();
+                }
+                else
+                {
+                    if (UI.Grid.TheGridPanel.IsOpen) UI.Grid.TheGridPanel.Hide();
+                    if (UI.Grid.PinnedInventoryWindow.LiveCount > 0)
+                        UI.Grid.PinnedInventoryWindow.CloseAll();
+                    // A stand-down eats the key-UP of a hold-to-peek press; drop the latch so the next
+                    // press is read fresh rather than as "peek already in progress".
+                    _gridPeeking = false;
+                    _gridEditPreviewOpened = false;
+                }
             }
             catch (Exception e)
             {
                 UIALog.Error("Update failed: " + e);
             }
+        }
+
+        /// <summary>Read the Grid key: tap = toggle, hold = momentary peek (when HoldToPeek is on).
+        /// Opening is gated by <see cref="Guards.CanAcceptGameplayInput"/> (a radial/menu that already
+        /// freed the cursor refuses); closing/peek-release is always honoured so the panel can never
+        /// strand. All state is reset in teardown via <see cref="UI.Grid.TheGridPanel.Shutdown"/>.
+        ///
+        /// <para>The Grid key does NOT free the mouse. The window opens with the cursor still locked
+        /// and head-look still live, so you can glance at your inventory while playing; you click and
+        /// drag in it only while holding the vanilla mouse-control key (<c>KeyMap.MouseControl</c>,
+        /// default Alt), which is the only thing that unlocks the cursor. Nothing here registers a
+        /// cursor modal, so no combination of open/closed windows can strand an unlocked cursor.</para>
+        ///
+        /// <para>ONE exception to the gameplay gate: while the F9 HUD editor is up the cursor is
+        /// already free, so <c>CanAcceptGameplayInput</c> refuses and the key would do nothing
+        /// silently — yet "open F9, press the Grid key, click the window to style it" is exactly the
+        /// authoring flow (the F10 menu is reachable the same way). So an editor-active press opens
+        /// the window as an EDIT PREVIEW instead: <see cref="UI.Grid.TheGridPanel.Show"/> sees the
+        /// active editor and comes up non-interactive (raycaster off, no cursor modal), a live-themed
+        /// surface the editor owns every click on. Gameplay behaviour is untouched.</para></summary>
+        private void HandleGridInput()
+        {
+            var key = UIAConfig.GridKey.Value;
+            if (key == KeyCode.None) return;
+
+            bool holdPeek = UIAConfig.GridHoldPeek.Value;
+
+            // The Grid key is a LETTER by default, and the F9 editor is full of ImGui text fields
+            // (element name, colour hex, profile name). While one owns the keyboard the press is a
+            // character, not a command: neither open nor close on it. (Same reasoning as the
+            // editor's own delete/undo hotkeys, which check WantCaptureKeyboard.)
+            if (Windows.HudEditorMode.Active && ImGuiOwnsKeyboard()) return;
+
+            if (Input.GetKeyDown(key))
+            {
+                _gridKeyDownTime = Time.unscaledTime;
+                _gridEditPreviewOpened = false;   // each press decides for itself
+                if (!UI.Grid.TheGridPanel.IsOpen)
+                {
+                    if (GridEditPreviewAllowed())
+                    {
+                        // Editor preview: always LATCHED, never a peek. Peeking is a momentary
+                        // gameplay glance whose release would hide the window mid-edit, and the
+                        // latch is what the window falls back into once the editor closes.
+                        _gridPeeking = false;
+                        _gridEditPreviewOpened = true;
+                        UI.Grid.TheGridPanel.ShowLatched();
+                        return;
+                    }
+                    // Fresh open only from a clean gameplay state (not typing / paused / cursor-free).
+                    if (!Guards.CanAcceptGameplayInput()) return;
+                    // With HoldToPeek on we can't yet know tap vs hold, so open as a LOCKED read-only
+                    // peek; the key-up below promotes a tap to the interactive latched state.
+                    if (holdPeek) { _gridPeeking = true; UI.Grid.TheGridPanel.ShowPeek(); }
+                    else UI.Grid.TheGridPanel.ShowLatched();
+                }
+                else
+                {
+                    // Already latched open. This press starts a possible tap-to-close.
+                    _gridPeeking = false;
+                    if (!holdPeek) UI.Grid.TheGridPanel.Toggle();
+                }
+            }
+
+            if (holdPeek && Input.GetKeyUp(key))
+            {
+                // This release belongs to the press that just opened the edit preview. In hold-to-peek
+                // mode it would otherwise read as "panel was already open + tap = close" and shut the
+                // window on the same keystroke that opened it.
+                if (_gridEditPreviewOpened) { _gridEditPreviewOpened = false; return; }
+
+                bool tap = (Time.unscaledTime - _gridKeyDownTime) <= GridTapSeconds;
+                if (_gridPeeking)
+                {
+                    // Opened by this press: a tap promotes the peek to the LATCHED state (it stays up
+                    // on release); a hold was just a glance → hide on release. Neither state frees the
+                    // cursor — the window is clickable only while the player holds the vanilla
+                    // mouse-control key, so the Grid key never takes head-look away.
+                    if (tap) { UI.Grid.TheGridPanel.Promote(); _gridPeeking = false; }
+                    else { UI.Grid.TheGridPanel.Hide(); _gridPeeking = false; }
+                }
+                else if (tap)
+                {
+                    // Panel was already open before this press; a tap closes it.
+                    UI.Grid.TheGridPanel.Hide();
+                }
+            }
+        }
+
+        /// <summary>May this press open the Universal Inventory as an F9 EDIT PREVIEW? Only while the
+        /// HUD editor is genuinely up and menus may be toggled at all (<see cref="Guards.CanToggleMenus"/>
+        /// — never over the console, a vanilla input window or the creative spawn menu), and never
+        /// during a radial, which owns the cursor. Deliberately does NOT consult
+        /// <c>CanAcceptGameplayInput</c>: the editor freeing the cursor is exactly why that gate says no.
+        /// Wrapped in a try so a missing/failed editor can never block the normal gameplay open.</summary>
+        private bool GridEditPreviewAllowed()
+        {
+            try
+            {
+                if (!Windows.HudEditorMode.Active) return false;
+                if (_radials != null && _radials.IsRadialOpen) return false;
+                return Guards.CanToggleMenus();
+            }
+            catch { return false; }
+        }
+
+        /// <summary>Does an ImGui text field currently own the keyboard? ImGui does not block Unity's
+        /// <c>Input</c>, so every letter hotkey must ask. Fails safe to "no" if ImGui is unavailable.</summary>
+        private static bool ImGuiOwnsKeyboard()
+        {
+            try { return ImGuiNET.ImGui.GetIO().WantCaptureKeyboard; }
+            catch { return false; }
+        }
+
+        // ---------- Grid PIN entry points (Shift+1..6, mouse-modifier + click a HUD equipment box) ----------
+
+        /// <summary>How far (screen px) the pointer may travel between press and release and still
+        /// count as a CLICK rather than a drag. Deliberately tiny — a real tear-out leaves the box
+        /// almost immediately, while a hand-held click wobbles a pixel or two.</summary>
+        private const float PinClickSlopPx = 5f;
+
+        // The armed mouse-modifier press (see TryPinFromHudEquipmentClick). All three reset together
+        // through ClearPinPress(), including from OnDestroy.
+        private static Assets.Scripts.Objects.Slot _pinPressSlot;
+        private static Vector2 _pinPressPos;
+        private static bool _pinPressSawDrag;
+
+        /// <summary>The two shortcuts that tear an equipment container out of the Universal Inventory
+        /// into its own pinned window. Both are pure VIEW state — they mutate no game state at all;
+        /// the whole gesture is a record in <see cref="Features.GridPinStore"/> plus a window.
+        /// Returns TRUE only when the KEYBOARD half claimed this frame's key-down, which the caller
+        /// uses to keep the same press from also arming an equipment radial. The mouse half never
+        /// claims (a click is no radial key). Called only while <c>UIAConfig.GridEnabled</c>.</summary>
+        private bool HandleGridPinShortcuts()
+        {
+            bool claimed = TryPinFromEquipmentKey();
+            TryPinFromHudEquipmentClick();
+            return claimed;
+        }
+
+        /// <summary>Shift + the vanilla 1..6 equipment button (read live through
+        /// <c>KeyManager.GetKey</c>, so a rebind in the game's own Controls screen is respected):
+        /// TOGGLE exactly the one container worn in that slot — never its nested bags, never anything
+        /// else. Already pinned, the second press UNPINS it and closes its window (identical to that
+        /// window's own X / shrink button), so the same key that tore the bag out puts it back.
+        /// The gesture is claimed on ANY of the six keys, even when the slot is empty or holds
+        /// something that is not a container — otherwise releasing the key would fall through into the
+        /// equipment radial, which is not what Shift asked for.
+        ///
+        /// <para>Allowed from clean gameplay, and additionally whenever one of our own windows is up
+        /// (the Universal Inventory, or a pinned window that outlived it): holding the mouse-control
+        /// key to use those windows frees the cursor, which <c>CanAcceptGameplayInput</c> deliberately
+        /// refuses, and Shift+# must still work with a bag window on screen.</para></summary>
+        private bool TryPinFromEquipmentKey()
+        {
+            if (_radials != null && _radials.IsRadialOpen) return false;
+            if (!Guards.CanAcceptGameplayInput()
+                && !UI.Grid.TheGridPanel.IsOpen
+                && UI.Grid.PinnedInventoryWindow.LiveCount == 0) return false;
+            if (!Guards.CanToggleMenus()) return false;   // never over the console / a text field
+            if (!Input.GetKey(KeyCode.LeftShift) && !Input.GetKey(KeyCode.RightShift)) return false;
+
+            var human = Guards.LocalHuman;
+            if (human == null) return false;
+
+            var names = EquipmentKeyRadialFeature.ButtonNames;
+            for (int i = 0; i < names.Length; i++)
+            {
+                KeyCode key;
+                try { key = KeyManager.GetKey(names[i]); }
+                catch { continue; }
+                if (key == KeyCode.None || !Input.GetKeyDown(key)) continue;
+                PinSlotContainer(EquipSlotAt(human, i), true);   // keyboard half TOGGLES
+                return true;   // one gesture per frame; the press belongs to the pin either way
+            }
+            return false;
+        }
+
+        /// <summary>The world-reach mouse modifier (vanilla <c>KeyMap.MouseControl</c>, default Alt —
+        /// the same one the radial uses for reach/Z-grab) plus a left click on one of the six HUD
+        /// equipment boxes pins that container. Hit-testing goes through
+        /// <see cref="UI.Hud.HudSystem.ZoneAt"/>, the existing HUD box hit test the drag layer already
+        /// uses (it inverse-warps the cursor, so a curved HUD is grabbed where it DRAWS); the hit is
+        /// then matched against the human's six equipment slots so a HAND box — which reports a zone
+        /// too — is ignored. Gated on <see cref="Guards.CanToggleMenus"/>, NOT
+        /// <c>CanAcceptGameplayInput</c>: holding the modifier frees the cursor, which that gate
+        /// deliberately refuses. ZoneAt() runs only on a press/release frame, never per frame.
+        ///
+        /// <para>CLICK, NOT DRAG. <see cref="UI.Hud.HudSlotDrag"/> polls raw <c>Input</c> over these
+        /// very boxes to tear an item OUT of a slot, and neither system sees an EventSystem
+        /// <c>eventData.dragging</c> to test (the boxes are pure renderers). So one press used to feed
+        /// both, and dragging the backpack onto the ground ALSO pinned its inventory. The pin now
+        /// resolves on mouse-UP and only for a genuine click: the press records the slot and the
+        /// pointer, and the release must land on the SAME slot, within <see cref="PinClickSlopPx"/> of
+        /// where it started, with no drag live (<c>HudSlotDrag.IsDragging</c>) and none finished during
+        /// this gesture (<c>LastDragEndFrame</c>, which is already cleared by the time we tick after
+        /// the drag layer). Anything else silently drops the press.</para></summary>
+        private void TryPinFromHudEquipmentClick()
+        {
+            if (_radials != null && _radials.IsRadialOpen) { ClearPinPress(); return; }
+
+            // A drag observed at ANY point in this gesture disqualifies it, permanently — the release
+            // frame itself is caught by LastDragEndFrame, because HudSlotDrag clears _source in its
+            // own tick before ours.
+            if (_pinPressSlot != null
+                && (UI.Hud.HudSlotDrag.IsDragging
+                    || UI.Hud.HudSlotDrag.LastDragEndFrame == Time.frameCount))
+                _pinPressSawDrag = true;
+
+            if (Input.GetMouseButtonDown(0))
+            {
+                ClearPinPress();
+
+                bool modifier = false;
+                try { modifier = KeyManager.GetButton(KeyMap.MouseControl); }
+                catch { modifier = false; }
+                if (!modifier) return;
+                if (!Guards.CanToggleMenus()) return;
+                if (UI.Hud.HudSlotDrag.IsDragging) return;   // the drag layer already claimed it
+
+                var down = EquipSlotUnderPointer();
+                if (down == null) return;
+                _pinPressSlot = down;
+                _pinPressPos = (Vector2)Input.mousePosition;
+                return;
+            }
+
+            if (!Input.GetMouseButtonUp(0))
+            {
+                // Self-heal: the button went up on a frame we did not run (a stand-down gap, a menu
+                // stealing the frame), so the press can never resolve — forget it.
+                if (_pinPressSlot != null && !Input.GetMouseButton(0)) ClearPinPress();
+                return;
+            }
+
+            var pressed = _pinPressSlot;
+            bool sawDrag = _pinPressSawDrag;
+            Vector2 pressAt = _pinPressPos;
+            ClearPinPress();
+
+            if (pressed == null || sawDrag) return;
+            if (UI.Hud.HudSlotDrag.IsDragging) return;
+            if (((Vector2)Input.mousePosition - pressAt).sqrMagnitude > PinClickSlopPx * PinClickSlopPx) return;
+            if (!Guards.CanToggleMenus()) return;
+            if (!ReferenceEquals(EquipSlotUnderPointer(), pressed)) return;   // released over another box
+
+            PinSlotContainer(pressed, false);
+        }
+
+        /// <summary>The equipment slot whose HUD box is under the cursor right now, or null. The hit
+        /// test is <see cref="UI.Hud.HudSystem.ZoneAt"/> (it inverse-warps the cursor, so a curved HUD
+        /// is grabbed where it DRAWS); the zone's slot is then matched against the human's six worn
+        /// slots, so a HAND box — which reports a zone too — comes back null.</summary>
+        private static Assets.Scripts.Objects.Slot EquipSlotUnderPointer()
+        {
+            var zone = UI.Hud.HudSystem.ZoneAt();
+            var slot = zone != null ? zone.Slot : null;
+            if (slot == null) return null;
+
+            var human = Guards.LocalHuman;
+            if (human == null) return null;
+            for (int i = 0; i < EquipmentKeyRadialFeature.ButtonNames.Length; i++)
+                if (ReferenceEquals(EquipSlotAt(human, i), slot)) return slot;
+            return null;
+        }
+
+        /// <summary>Forget the armed press. Called on every mouse-down, on every resolved/abandoned
+        /// mouse-up, whenever the gesture is cancelled (a radial opened over it, the button was
+        /// released while we were not ticking) and from teardown — no static may survive an F6.</summary>
+        private static void ClearPinPress()
+        {
+            _pinPressSlot = null;
+            _pinPressSawDrag = false;
+            _pinPressPos = Vector2.zero;
+        }
+
+        /// <summary>The human's worn slot for equipment index 0..5, in the vanilla 1..6 button order
+        /// (Helmet, Glasses, Suit, Back, Uniform, Toolbelt) — the same mapping
+        /// <see cref="EquipmentKeyRadialFeature.CreateAll"/> and the HUD equipment column use.</summary>
+        private static Assets.Scripts.Objects.Slot EquipSlotAt(
+            Assets.Scripts.Objects.Entities.Human human, int index)
+        {
+            if (human == null) return null;
+            try
+            {
+                switch (index)
+                {
+                    case 0: return human.HelmetSlot;
+                    case 1: return human.GlassesSlot;
+                    case 2: return human.SuitSlot;
+                    case 3: return human.BackpackSlot;
+                    case 4: return human.UniformSlot;
+                    case 5: return human.ToolbeltSlot;
+                }
+            }
+            catch { }
+            return null;
+        }
+
+        /// <summary>Pin the ONE container occupying <paramref name="slot"/> — that container only, not
+        /// the bags nested inside it. Read-only on the game side: <c>slot.Get()</c> for identity (never
+        /// the obsolete Occupant), then that single persistent ReferenceId into
+        /// <see cref="UI.Grid.TheGridPanel.PinContainer"/>, which records the one pin and FOCUSES an
+        /// existing window rather than duplicating it, so a repeat Shift+# raises the bag you already
+        /// tore out. The window then outlives the main one (only the vanilla close-all takes pins down;
+        /// a pin's own X / shrink button unpins it). An empty slot, or one holding something The Grid
+        /// would not render as its own region, is a NO-OP with the vanilla action-fail sound — a pinned
+        /// window for a leaf item would come up empty.
+        ///
+        /// <para><paramref name="toggle"/> (the keyboard half): if this container is ALREADY pinned the
+        /// call UNPINS it instead — <c>TheGridPanel.UnpinContainer</c> closes the window and folds the
+        /// container back into the main tree, exactly what that window's X / shrink button does. The
+        /// mouse half passes false and keeps the pin-or-focus behaviour.</para></summary>
+        private static void PinSlotContainer(Assets.Scripts.Objects.Slot slot, bool toggle)
+        {
+            if (slot == null) return;
+
+            Assets.Scripts.Objects.DynamicThing occupant = null;
+            try { occupant = slot.Get(); }
+            catch { occupant = null; }
+
+            if (occupant == null || !IsPinnableContainer(occupant))
+            {
+                try { UIAudioManager.Play(UIAudioManager.ActionFailHash); }
+                catch { }
+                return;
+            }
+
+            long refId = occupant.ReferenceId;
+            if (toggle && UI.Grid.TheGridPanel.IsPinned(refId))
+            {
+                UI.Grid.TheGridPanel.UnpinContainer(refId);
+                return;
+            }
+
+            UI.Grid.TheGridPanel.PinContainer(refId);
+        }
+
+        /// <summary>Would The Grid build a container REGION for this thing? Mirrors
+        /// <c>GridModel.ShouldRecurse</c> exactly so a shortcut can never pin something the tree walk
+        /// then refuses to produce a node for — which would leave a pin record with no window forever.
+        /// The renderer is unconditionally <see cref="UI.Grid.GridModel.ActiveMode"/> (Grid; Nested is
+        /// deprecated and unreachable), so this must NOT branch on the stale <c>UIAConfig.GridMode</c>
+        /// entry — a leftover "Nested" value in a user's config would otherwise let a shortcut pin a
+        /// non-storage tool that the Grid walk never produces a region for.</summary>
+        private static bool IsPinnableContainer(Assets.Scripts.Objects.DynamicThing thing)
+        {
+            if (thing == null || thing.Slots == null || thing.Slots.Count == 0) return false;
+            return UI.Grid.GridModel.IsStorageContainer(thing);
         }
 
         /// <summary>Called from the ImGuiWindowManager.Draw postfix — inside the game's ImGui frame.</summary>
@@ -418,6 +830,10 @@ namespace StationeersUIMod
             {
                 _radials?.ShutdownImmediate();
                 Core.WedgeHotkeys.Clear();
+                Core.SlotFlash.Reset(); // drop any live stow-flash so a reload never reads a stale sprite
+                // Release the cursor latch BEFORE unpatching: the AltKeyDown postfix is about to go
+                // away, so a latch left on would strand a freed cursor with nothing holding it.
+                Core.CursorLatch.Reset();
                 Core.UiaAbDriver.Reset();
                 // Profiler: hide + drop the sample window before unpatching (its Draw rides our
                 // ImGui postfix, which UnpatchSelf removes). Statics hold no Unity objects.
@@ -431,13 +847,19 @@ namespace StationeersUIMod
                 UI.Menu.UiaControlCenter.Shutdown();
                 UI.Menu.Kit.UiaRebindCapture.Reset();
                 UI.RadialHintBar.Shutdown();
-                Core.UiaKeybinds.Unhook();
+                UI.Grid.TheGridPanel.Shutdown();   // destroys its canvas + unhooks OnUIClose
+                Features.GridCollapseStore.Reset(); // drop the per-save collapse cache
+                Features.GridPinStore.Reset();      // drop the per-save pin cache (disk file survives)
+                UI.Grid.GridModel.Reset();          // drop the cached model/signature state
+                _gridPeeking = false;
+                _gridEditPreviewOpened = false;
+                ClearPinPress();                    // never carry an armed press across a reload
                 UI.Hud.HudSystem.Shutdown();
                 _hud?.RestoreVanillaIfNeeded();
                 BagProfileStore.SaveAssignments();
                 IconCache.Clear();
+                Core.VanillaIcons.Clear();          // drop borrowed vanilla sprites (dead refs after a reload)
                 HudIconStore.Shutdown();
-                _harmony?.UnpatchSelf();
                 UIALog.Info("Cleaned up (hot reload safe).");
                 try
                 {
@@ -451,6 +873,18 @@ namespace StationeersUIMod
             }
             finally
             {
+                // These two MUST NOT be skippable. The block above is one long try covering ~20
+                // teardown calls; anything that throws part-way used to skip whatever followed.
+                // Both of these leave live references from GAME statics into an assembly that F6
+                // is about to replace: KeyManager.OnControlsChanged would keep a delegate into
+                // dead code (and starve the later vanilla subscribers InventoryManager
+                // .RefreshDisplaySlotBindings and HotkeyDisplay.Refresh), and un-unpatched Harmony
+                // patches keep running dead detours. Each is independently guarded so one failing
+                // cannot skip the other.
+                try { Core.UiaKeybinds.Unhook(); }
+                catch (Exception e) { UIALog.Error("UiaKeybinds.Unhook failed: " + e); }
+                try { _harmony?.UnpatchSelf(); }
+                catch (Exception e) { UIALog.Error("UnpatchSelf failed: " + e); }
                 Instance = null;
                 _loaded = false;
             }

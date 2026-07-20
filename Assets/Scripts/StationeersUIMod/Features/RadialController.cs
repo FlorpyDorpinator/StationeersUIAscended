@@ -46,10 +46,108 @@ namespace StationeersUIMod.Features
         private bool _ctrlConsumed;
         private const float CtrlTapSec = 0.35f;
 
+        // R2 flick-commit: mouse position (ImGui space) captured at key-down, so a fast
+        // directional flick can resolve a wedge sector without ever drawing the ring.
+        private Vector2 _pendingMouse;
+
+        // R3 double-tap repeat: the last feature TAPPED and when, to detect a fast second tap
+        // (mirrors the _ctrlDownAt/CtrlTapSec pattern, but per-feature).
+        private IRadialFeature _lastTapFeature;
+        private float _lastTapAt = -1f;
+
+        // E.3 head-look: the head-look key (default MMB) held while a radial opened by ANOTHER
+        // key is up flips ModalScope.HeadLookPeek so MouseModeController re-locks the cursor and
+        // head-look resumes; a quick TAP instead closes the radial (the legacy MMB dismiss).
+        private bool _headLookArmed;
+        private float _headLookDownAt = -1f;
+        private bool _headLookEngaged;
+
+        // Ad-hoc radial (opened by a surface that is not a feature key — The Grid's right-click).
+        // Held so the opener can restore its OWN modal state the moment the radial's ModalScope
+        // closes (that close clears CursorManager.BlockCursorRaycast, which The Grid still wants).
+        private System.Action _adHocClosed;
+
         public bool IsRadialOpen => _menu.IsOpen;
         public IRadialFeature ActiveFeature => _active;
 
+        /// <summary>The live controller (there is exactly one, built by the plugin). Null before
+        /// construction and after <see cref="ShutdownImmediate"/>, so a stale reference can never
+        /// call into a dead assembly after an F6 reload.</summary>
+        public static RadialController Active { get; private set; }
+
+        /// <summary>True while ANY radial is on screen. Surfaces that share the cursor with the
+        /// radial (The Grid) gate their own pointer handling on this: the radial polls raw Input,
+        /// so a click meant for a wedge must not also land on a UGUI widget underneath.</summary>
+        public static bool AnyRadialOpen
+        {
+            get { var c = Active; return c != null && c._menu.IsOpen; }
+        }
+
+        public RadialController()
+        {
+            Active = this;
+        }
+
         public void Register(IRadialFeature feature) => _features.Add(feature);
+
+        /// <summary>Static shorthand for <see cref="OpenAdHoc"/> against the live controller.
+        /// Returns false (and does nothing) when there is no controller or it refused.
+        /// <para>No close callback: the one caller (The Grid) used to restore its cursor-raycast
+        /// block here, but that was a one-shot fired BEFORE the radial's deferred ModalScope close
+        /// cleared the flag again. The Grid now re-asserts the block every Tick while latched, which
+        /// is order-independent and idempotent, so the callback is gone.</para></summary>
+        public static bool OpenAdHocRadial(string title, System.Func<List<RadialEntry>> provider)
+        {
+            var c = Active;
+            return c != null && c.OpenAdHoc(title, provider, null);
+        }
+
+        /// <summary>
+        /// Open a STICKY radial that no feature key owns — the entry point for another surface
+        /// (The Grid's right-click-a-cell → that item's manage radial). Behaves exactly like a
+        /// tapped feature radial from here on: the same single <see cref="RadialMenu"/> and the same
+        /// single <see cref="ModalScope"/>, closed by Escape / RMB / selecting a wedge, which routes
+        /// through <see cref="CloseAll"/> and fires <paramref name="onClosed"/>.
+        /// <para>Refuses when the radial half is switched OFF — <c>Update()</c> is not pumped then,
+        /// so an opened radial would strand its modal (and the cursor) forever — when a radial is
+        /// already up, or when the provider yields nothing.</para>
+        /// </summary>
+        public bool OpenAdHoc(string title, System.Func<List<RadialEntry>> provider, System.Action onClosed)
+        {
+            if (provider == null) return false;
+            if (UIAConfig.RadialEnabled == null || !UIAConfig.RadialEnabled.Value) return false;
+            if (_menu.IsOpen || _modal.IsOpen) return false;
+            if (!Guards.CanKeepRadialOpen()) return false;
+
+            List<RadialEntry> probe;
+            try { probe = provider(); }
+            catch (System.Exception e) { UIALog.Warn("Ad-hoc radial build failed: " + e.Message); return false; }
+            if (probe == null || probe.Count == 0)
+            {
+                UIAudioManager.Play(UIAudioManager.ActionFailHash);
+                return false;
+            }
+
+            _pending = null;
+            _active = null;          // no owning feature: no owner key, no re-press-to-close
+            _adHocClosed = onClosed;
+            _modal.Open();
+            _menu.Open(title, provider, sticky: true);
+            UIAudioManager.Play(UIAudioManager.ClickLightHash);
+            return true;
+        }
+
+        /// <summary>Drop the ad-hoc close callback, optionally running it. Invoked on every close
+        /// path so the opening surface always gets its modal state back; NOT invoked on hot-reload
+        /// teardown (there is nothing left to restore, and the callback may be a dead delegate).</summary>
+        private void FinishAdHoc(bool invoke)
+        {
+            var cb = _adHocClosed;
+            _adHocClosed = null;
+            if (!invoke || cb == null) return;
+            try { cb(); }
+            catch (System.Exception e) { UIALog.Warn("Ad-hoc radial close callback failed: " + e.Message); }
+        }
 
         public void Update()
         {
@@ -120,8 +218,23 @@ namespace StationeersUIMod.Features
                 if (!feature.Enabled || feature.Key == KeyCode.None) continue;
                 if (Input.GetKeyDown(feature.Key))
                 {
+                    // R3 double-tap repeat: a fast second tap of the SAME feature re-runs the
+                    // last committed action for that feature without opening the ring. A miss
+                    // (toggle off, wrong feature, no cached action) falls through to the normal
+                    // pending resolve, so a lone tap keeps today's open-sticky behavior.
+                    if (UIAConfig.RadialDoubleTapRepeat != null && UIAConfig.RadialDoubleTapRepeat.Value
+                        && _lastTapFeature == feature && _lastTapAt >= 0f
+                        && UIAConfig.RadialDoubleTapMs != null
+                        && (Time.unscaledTime - _lastTapAt) * 1000f < UIAConfig.RadialDoubleTapMs.Value)
+                    {
+                        _lastTapFeature = null;
+                        _lastTapAt = -1f;
+                        if (RadialMenu.RepeatLast(feature.Title)) return;
+                    }
+
                     _pending = feature;
                     _pendingSince = Time.unscaledTime;
+                    _pendingMouse = Overlay.DrawUtil.MousePos(); // R2 flick origin
                     return;
                 }
             }
@@ -135,6 +248,19 @@ namespace StationeersUIMod.Features
             if (!Input.GetKey(feature.Key))
             {
                 _pending = null;
+
+                // R2 flick-commit: a fast release with the mouse flicked past the selection
+                // radius executes the wedge in that direction WITHOUT drawing the ring.
+                if (UIAConfig.RadialFlickCommit != null && UIAConfig.RadialFlickCommit.Value
+                    && UIAConfig.RadialFlickMs != null && heldMs < UIAConfig.RadialFlickMs.Value
+                    && TryFlickCommit(feature))
+                    return;
+
+                // R3: remember this tap so a fast second tap of the same feature can repeat the
+                // last commit (see the key-down scan). Recorded for every tap gesture.
+                _lastTapFeature = feature;
+                _lastTapAt = Time.unscaledTime;
+
                 if (feature.OpensOnBoth)
                 {
                     // Option B toolbelt: tap opens the same radial LATCHED (tap a wedge to select).
@@ -197,15 +323,24 @@ namespace StationeersUIMod.Features
             // #4: hover a setting wedge + press a letter to bind that key to the setting.
             _menu.UpdateHotkeyCapture();
 
+            // E.3 head-look: MMB (default) held while a radial opened by a DIFFERENT key is up
+            // re-locks the cursor and resumes head-look; a quick tap closes the radial. Returns
+            // true (radial closed) only on the tap path — self-gates on own-key/search.
+            if (UpdateHeadLook()) return;
+
             // E swaps the active hand while any radial is open (never while the search
-            // panel is typing — E is a letter there). Q flips pages on crowded rings.
+            // panel is typing — E is a letter there). Q flips pages on crowded rings, or on
+            // the toolbelt ring opens the belt-picker (swap the worn tool-belt).
             if (!_menu.IsSearchOpen)
             {
                 UpdateHandSwitch();
                 var pageKey = UIAConfig.RadialPageKey.Value;
                 if (pageKey != KeyCode.None && pageKey != (_active != null ? _active.Key : KeyCode.None)
                     && Input.GetKeyDown(pageKey))
-                    _menu.NextPage();
+                {
+                    if (_active is ToolbeltRadialFeature) OpenBeltPicker();
+                    else _menu.NextPage();
+                }
             }
 
             // #3: Ctrl-swap / 1–6 equipment jump / Ctrl+number bag-open / number-key bag bind.
@@ -273,9 +408,12 @@ namespace StationeersUIMod.Features
                         return;
                     }
                     // Option A only: tapping middle mouse dismisses any sticky radial it
-                    // doesn't own. In B the menu owns MMB (select / dismiss-on-empty).
+                    // doesn't own. In B the menu owns MMB (select / dismiss-on-empty). When
+                    // head-look owns MMB, UpdateHeadLook already runs the tap-to-close (and
+                    // the hold-to-peek), so this legacy path must stand down for MMB.
                     if (UIAConfig.IsA && !UIAConfig.IsB && Input.GetMouseButtonDown(2)
-                        && _active != null && _active.Key != KeyCode.Mouse2)
+                        && _active != null && _active.Key != KeyCode.Mouse2
+                        && !HeadLookOwnsMmb())
                     {
                         CloseAll();
                         return;
@@ -323,6 +461,138 @@ namespace StationeersUIMod.Features
             }
         }
 
+        // ---------- R2 flick-commit ----------
+
+        /// <summary>R2: resolve the wedge in the flick direction (mouse delta from the press
+        /// origin) and run it directly — no ring is ever drawn. The travel gate mirrors the
+        /// menu's own hub-claim radius so a stray micro-flick can't fire. Returns true when it
+        /// committed an enabled action.</summary>
+        private bool TryFlickCommit(IRadialFeature feature)
+        {
+            if (feature == null || !feature.CanOpen()) return false;
+
+            Vector2 delta = Overlay.DrawUtil.MousePos() - _pendingMouse;
+            float outerR = UIAConfig.RadialOuterRadius.Value;
+            // Same geometry the ring uses: inner radius clamped, then the hub-claim line.
+            float innerR = Mathf.Clamp(UIAConfig.RadialInnerRadius.Value, 104f, Mathf.Max(104f, outerR - 30f));
+            float selectR = innerR - 6f;
+            if (delta.magnitude < selectR) return false;
+
+            List<RadialEntry> root;
+            try { root = feature.BuildRoot(); }
+            catch (System.Exception e) { UIALog.Warn("Flick-commit build failed: " + e.Message); return false; }
+            if (root == null || root.Count == 0) return false;
+
+            int idx = RadialMenu.SectorFromMouse(delta, root.Count);
+            if (idx < 0 || idx >= root.Count) return false;
+
+            var entry = root[idx];
+            if (entry == null || entry.OnSelect == null || !entry.Enabled) return false;
+
+            try { entry.OnSelect(); }
+            catch (System.Exception e) { UIALog.Error("Flick-commit action '" + entry.Label + "' failed: " + e); return false; }
+
+            if (UIAConfig.RadialWedgeSounds != null && UIAConfig.RadialWedgeSounds.Value)
+                UIAudioManager.Play(UIAudioManager.ClickMediumHash);
+            else
+                UIAudioManager.Play(UIAudioManager.ClickLightHash);
+            return true;
+        }
+
+        // ---------- E.3 head-look (hold the head-look key while a radial is open) ----------
+
+        /// <summary>True while head-look is enabled AND bound to MMB — so the legacy Option-A
+        /// MMB dismiss must defer to <see cref="UpdateHeadLook"/>.</summary>
+        private static bool HeadLookOwnsMmb()
+        {
+            return UIAConfig.RadialHeadLookHold != null && UIAConfig.RadialHeadLookHold.Value
+                && UIAConfig.RadialHeadLookKey != null
+                && UIAConfig.RadialHeadLookKey.Value == KeyCode.Mouse2;
+        }
+
+        /// <summary>
+        /// E.3: while a radial opened by a DIFFERENT key is up, holding the head-look key
+        /// (default MMB) sets <c>ModalScope.HeadLookPeek</c> so <c>MouseModeController.Check()</c>
+        /// re-locks the cursor and head-look resumes; releasing clears it. A quick TAP instead
+        /// closes the radial (the legacy MMB dismiss). Self-gates: does nothing when the head-look
+        /// key IS the open radial's own key (e.g. the toolbelt's MMB gesture) or in search mode.
+        /// Returns true only when a tap closed the radial (the caller then stops the frame).
+        /// </summary>
+        private bool UpdateHeadLook()
+        {
+            if (UIAConfig.RadialHeadLookHold == null || !UIAConfig.RadialHeadLookHold.Value)
+            {
+                ClearHeadLook();
+                return false;
+            }
+            KeyCode key = UIAConfig.RadialHeadLookKey.Value;
+            KeyCode ownKey = _active != null ? _active.Key : KeyCode.None;
+            if (key == KeyCode.None || _active == null || key == ownKey || _menu.IsSearchOpen)
+            {
+                ClearHeadLook();
+                return false;
+            }
+
+            if (Input.GetKeyDown(key))
+            {
+                _headLookArmed = true;
+                _headLookDownAt = Time.unscaledTime;
+                _headLookEngaged = false;
+            }
+            if (!_headLookArmed) return false;
+
+            float threshold = UIAConfig.HoldThresholdMs != null ? UIAConfig.HoldThresholdMs.Value : 180f;
+            float heldMs = (Time.unscaledTime - _headLookDownAt) * 1000f;
+            if (!_headLookEngaged && heldMs >= threshold)
+            {
+                _headLookEngaged = true;
+                ModalScope.HeadLookPeek = true; // MouseModeController re-locks the cursor next frame
+            }
+
+            if (!Input.GetKey(key))
+            {
+                bool wasTap = !_headLookEngaged;
+                ClearHeadLook();
+                if (wasTap) { CloseAll(); return true; }
+            }
+            return false;
+        }
+
+        /// <summary>Reset the head-look timer AND clear the peek so the cursor is never left
+        /// re-locked once the gesture ends or the guard fails.</summary>
+        private void ClearHeadLook()
+        {
+            _headLookArmed = false;
+            _headLookDownAt = -1f;
+            _headLookEngaged = false;
+            ModalScope.HeadLookPeek = false;
+        }
+
+        // ---------- E.4 belt-swap (Q on the toolbelt ring) ----------
+
+        /// <summary>E.4: swap the ring's root to the belt-picker (choose which tool-belt to wear).
+        /// Keeps <c>_active</c> as the toolbelt feature so re-press/close still track the toolbelt
+        /// key. Selecting a belt runs its own OnSelect (the swap, built in ToolbeltRadialFeature).</summary>
+        private void OpenBeltPicker()
+        {
+            List<RadialEntry> picker;
+            try { picker = ToolbeltRadialFeature.BuildBeltPicker(); }
+            catch (System.Exception e)
+            {
+                UIALog.Warn("Belt-picker build failed: " + e.Message);
+                UIAudioManager.Play(UIAudioManager.ActionFailHash);
+                return;
+            }
+            if (picker == null || picker.Count == 0)
+            {
+                UIAudioManager.Play(UIAudioManager.ActionFailHash);
+                return;
+            }
+            if (!_modal.IsOpen) _modal.Open();
+            _menu.Open("Swap Belt", ToolbeltRadialFeature.BuildBeltPicker, sticky: true);
+            UIAudioManager.Play(UIAudioManager.ClickLightHash);
+        }
+
         // ---------- #3: radial switching + bag hotkeys ----------
 
         /// <summary>While a radial is open: Ctrl-tap swaps toolbelt&lt;-&gt;backpack, plain 1–6 jumps to
@@ -363,12 +633,19 @@ namespace StationeersUIMod.Features
                     return true;
                 }
 
-                // Plain 1–6: switch straight to that equipment's radial.
+                // Plain 1–6: switch straight to that equipment's radial — but pressing the
+                // digit of the ALREADY-OPEN radial closes it (toggle). This is the number-key
+                // twin of the re-press-to-close on line ~270, which only fires for non-number
+                // owner keys because these digits are consumed here first.
                 int digit = BagHotkeyStore.DisplayDigit(slot);
                 if (digit >= 1 && digit <= 6)
                 {
                     var eq = EquipFeatureForDigit(digit);
-                    if (eq != null) { SwitchToFeature(eq); return true; }
+                    if (eq != null)
+                    {
+                        if (_active == eq) { CloseAll(); return true; }
+                        SwitchToFeature(eq); return true;
+                    }
                 }
                 return true; // a number press is always consumed while a radial is open
             }
@@ -489,6 +766,13 @@ namespace StationeersUIMod.Features
             _modal.Pump(_releaseKey);
             _active = null;
             _pending = null;
+            // E.5: never strand the new radial-feel statics/timers past a close.
+            ClearHeadLook();             // also clears ModalScope.HeadLookPeek
+            _lastTapFeature = null;
+            _lastTapAt = -1f;
+            // Hand the opening surface (The Grid) its modal state back — the ModalScope close above
+            // cleared BlockCursorRaycast, which that surface's own modal still wants held.
+            FinishAdHoc(true);
         }
 
         /// <summary>Immediate teardown (plugin OnDestroy / hot reload) — no deferred release.</summary>
@@ -502,8 +786,21 @@ namespace StationeersUIMod.Features
             UI.SearchPanelView.Shutdown();
             Windows.RadialEditorMode.Shutdown();
             BagHotkeyStore.Reset(); // drop in-memory binds; the per-save file is untouched
+            BeltBindingStore.Reset(); // same for belt tool-home bindings; the per-save file is untouched
+            RadialMenu.ResetRepeatCache(); // R3: drop the cached last-commit delegate (it pins live game objects)
             _active = null;
             _pending = null;
+            // E.5 hot-reload: reset the new radial-feel statics/timers (a double-F6 must strand
+            // nothing — the head-look peek especially, or the cursor stays re-locked).
+            ClearHeadLook();
+            ModalScope.HeadLookPeek = false;
+            _lastTapFeature = null;
+            _lastTapAt = -1f;
+            _pendingMouse = Vector2.zero;
+            // Drop the ad-hoc callback WITHOUT running it (it points into the surface we are tearing
+            // down) and release the static handle, so nothing survives into the reloaded assembly.
+            FinishAdHoc(false);
+            if (Active == this) Active = null;
         }
 
         /// <summary>True while this controller owns the given key (pending hold or open radial).</summary>

@@ -23,6 +23,10 @@ Shader "UIA/HudEdgeFX"
     {
         [PerRendererData] _MainTex ("Sprite Texture", 2D) = "white" {}
         _Color ("Tint", Color) = (1,1,1,1)
+        // Version 1 = this shader animates the uv1 flow payload. HudShaderStore probes it so
+        // a pre-flow RESIDENT bundle (after F6) keeps shapes on the static ripple bake
+        // instead of silently losing their shimmer (FlowSpeed suppresses the bake).
+        [HideInInspector] _UiaFlowAbiVersion ("UIA Flow ABI Version", Float) = 1
 
         // --- stencil block, copied verbatim from UI/Default ---
         _StencilComp ("Stencil Comparison", Float) = 8
@@ -96,7 +100,12 @@ Shader "UIA/HudEdgeFX"
             {
                 float4 vertex   : POSITION;
                 float4 color    : COLOR;
-                float2 texcoord : TEXCOORD0;
+                float4 texcoord : TEXCOORD0; // uv0: x=FxStrength, y=marker, z=ripple harmonic weight
+                // Moving-ripple payload baked by PolygonPanelGraphic (freeform pen Shapes):
+                // (contour arc-length px, weight*amount, ripple freq, flow speed). All-zero on
+                // every other mesh (older meshes too) -> the term below is inert. See uv1 note
+                // in PolygonPanelGraphic.AddVertFx.
+                float4 uv1      : TEXCOORD1;
                 UNITY_VERTEX_INPUT_INSTANCE_ID
             };
 
@@ -104,9 +113,10 @@ Shader "UIA/HudEdgeFX"
             {
                 float4 vertex        : SV_POSITION;
                 fixed4 color         : COLOR;
-                float2 texcoord      : TEXCOORD0;
+                float4 texcoord      : TEXCOORD0;
                 float4 worldPosition : TEXCOORD1;
                 float4 screenPos     : TEXCOORD2;
+                float4 flow          : TEXCOORD3;
                 UNITY_VERTEX_OUTPUT_STEREO
             };
 
@@ -133,9 +143,10 @@ Shader "UIA/HudEdgeFX"
                 UNITY_INITIALIZE_VERTEX_OUTPUT_STEREO(OUT);
                 OUT.worldPosition = v.vertex;
                 OUT.vertex = UnityObjectToClipPos(OUT.worldPosition);
-                OUT.texcoord = TRANSFORM_TEX(v.texcoord, _MainTex);
+                OUT.texcoord = float4(TRANSFORM_TEX(v.texcoord.xy, _MainTex), v.texcoord.zw);
                 OUT.screenPos = ComputeScreenPos(OUT.vertex);
                 OUT.color = v.color * _Color;
+                OUT.flow = v.uv1;
                 return OUT;
             }
 
@@ -181,7 +192,7 @@ Shader "UIA/HudEdgeFX"
             fixed4 frag(v2f IN) : SV_Target
             {
                 // base = vertex color (the mesh is the art); multiply _MainTex for UGUI safety.
-                half4 col = (tex2D(_MainTex, IN.texcoord) + _TextureSampleAdd) * IN.color;
+                half4 col = (tex2D(_MainTex, IN.texcoord.xy) + _TextureSampleAdd) * IN.color;
 
                 #ifdef UNITY_UI_CLIP_RECT
                 col.a *= UnityGet2DClipping(IN.worldPosition.xy, _ClipRect);
@@ -230,6 +241,24 @@ Shader "UIA/HudEdgeFX"
 
                 // (d) CHROMA: intentionally NOT here. Chromatic aberration needs a backdrop TEXTURE
                 //     source, so it lives in HudGlass.shader (the frost/backdrop consumer) instead.
+
+                // (e) MOVING EDGE RIPPLE (freeform Shapes): a travelling shimmer keyed on the
+                //     contour arc-length baked into uv1 — the mesh-path twin of the analytic
+                //     panel's RippledEdgeLight flow. Same 3-harmonic mix as the static bake
+                //     (PolygonPanelGraphic.BorderLightW), which the mesh SUPPRESSES while
+                //     flowing, so the wave is the only ripple. uv1 all-zero = free skip.
+                if (IN.flow.y > 0.0001 && IN.flow.w > 0.0001)
+                {
+                    float ft = IN.flow.x * (IN.flow.z * 0.0628) - _Time.y * IN.flow.w * 3.0;
+                    // harm = uv0.z = 1 - RippleSmooth: fades the higher harmonics toward a
+                    // clean sine, matching the CPU static bake (was hardcoded 0.6).
+                    float harm = IN.texcoord.z;
+                    float wave = 0.32 * sin(ft)
+                        + harm * (0.24 * sin(ft * 2.417 + 1.7) + 0.14 * sin(ft * 5.089 + 4.2));
+                    float mod1 = clamp(1.0 + IN.flow.y * wave, 0.0, 2.0);
+                    col.rgb *= mod1;
+                    col.a = saturate(col.a * (1.0 + 0.5 * IN.flow.y * wave));
+                }
 
                 #ifdef UNITY_UI_ALPHACLIP
                 clip(col.a - 0.001);

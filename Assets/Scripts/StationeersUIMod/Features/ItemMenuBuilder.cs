@@ -43,6 +43,14 @@ namespace StationeersUIMod.Features
                 });
             }
 
+            // A sealed package (cereal / water / kit box) is unpack-only: no bag view, no slot
+            // wedges, no controls. Take-to-hand (above, when applicable) plus one Unpack action.
+            if (IsUnpackBox(thing))
+            {
+                entries.AddRange(BuildUnpackLevel(thing));
+                return entries;
+            }
+
             // A PLAIN stack (no storage slots) has nothing to manage but splitting — put the
             // split choices straight on the ring (Split one / half / count) instead of an extra
             // "Split" branch you'd have to click through. Swiping a stack lands on them directly.
@@ -152,6 +160,7 @@ namespace StationeersUIMod.Features
         public static bool HasInnards(DynamicThing thing)
         {
             if (thing == null) return false;
+            if (IsUnpackBox(thing)) return false; // a sealed package's slots are not user-openable innards
             if (thing.Slots != null && thing.Slots.Count > 0) return true;
             if (UIAConfig.IsA)
             {
@@ -237,6 +246,8 @@ namespace StationeersUIMod.Features
                 return BuildStowEntry(slot, slotName, held);
 
             var source = new ScannedSlot { Slot = slot, Holder = slot.Parent, Location = slotName }.Pin();
+            // Sealed package sitting in a slot: click takes the box to hand, child = Unpack only.
+            if (IsUnpackBox(occ)) return BuildUnpackBoxEntry(occ, source);
             var thing = occ;
             var entry = new RadialEntry
             {
@@ -614,6 +625,7 @@ namespace StationeersUIMod.Features
         public static bool LooksLikeContainer(DynamicThing thing)
         {
             if (thing?.Slots == null) return false;
+            if (IsUnpackBox(thing)) return false; // a sealed package is NOT a bag, despite its slots
             return thing.Slots.Count >= 4 && thing.InteractOnOff == null;
         }
 
@@ -621,8 +633,56 @@ namespace StationeersUIMod.Features
         /// slots and NO device controls (on/off, mode) — bags, boxes, crates, backpacks, but not
         /// tools or jetpacks. Broader than <see cref="LooksLikeContainer"/> (no 4-slot floor).</summary>
         public static bool IsBindableBag(DynamicThing thing)
-            => thing?.Slots != null && thing.Slots.Count > 0
+            => thing?.Slots != null && thing.Slots.Count > 0 && !IsUnpackBox(thing)
                && thing.InteractOnOff == null && thing.InteractMode == null;
+
+        /// <summary>
+        /// A sealed disposable package — the starting cereal / water-bottle boxes and every "kit"
+        /// package — which vanilla lets you ONLY unpack, never open and store into. They carry six
+        /// generic slots pre-filled with their contents, so slot-presence alone reads them as bags;
+        /// the vanilla distinction is purely the <c>DisposableCardboardBox</c> class (no interface
+        /// exists). Treat these as a plain item that goes to hand on click, with one "Unpack" child.
+        /// </summary>
+        public static bool IsUnpackBox(DynamicThing thing)
+            => thing is Assets.Scripts.Objects.Items.DisposableCardboardBox;
+
+        /// <summary>The wedge for a sealed package: click takes the WHOLE box to hand; its one child
+        /// is "Unpack" (vanilla's Button1), which pops a single item out. No bag view, no slots.</summary>
+        public static RadialEntry BuildUnpackBoxEntry(DynamicThing box, ScannedSlot source)
+        {
+            var b = box;
+            return new RadialEntry
+            {
+                Label = box.DisplayName,
+                ActionText = "Take to hand",
+                Sublabel = "sealed package — unpack only",
+                StateText = StateText.For(box),
+                Icon = box.GetThumbnail(),
+                DragSource = source,
+                OnSelect = () => { if (ItemActions.EquipToActiveHand(source)) RetrievalMemory.Record(b); },
+                ChildProvider = () => BuildUnpackLevel(b),
+                SlideOutProvider = () => BuildUnpackLevel(b),
+                SlideOutLabel = "Unpack",
+            };
+        }
+
+        /// <summary>The single "Unpack" action for a sealed package.</summary>
+        public static List<RadialEntry> BuildUnpackLevel(DynamicThing box)
+        {
+            var b = box;
+            return new List<RadialEntry>
+            {
+                new RadialEntry
+                {
+                    Label = "Unpack",
+                    ActionText = "Unpack one",
+                    Sublabel = "take an item out (hold it first)",
+                    AccentOverride = Theme.Accent,
+                    Icon = box.GetThumbnail(),
+                    OnSelect = () => ItemActions.Unpack(b),
+                },
+            };
+        }
     }
 
     /// <summary>Session memory of the last item type retrieved, powering "Grab another: X".</summary>

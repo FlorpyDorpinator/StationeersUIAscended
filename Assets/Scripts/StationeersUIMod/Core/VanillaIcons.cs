@@ -49,6 +49,134 @@ namespace StationeersUIMod.Core
             _rampFrontColor = Color.white;
             _canister = null;
             _toilet = null;
+            _brokenCross = null;
+            _leakIcon = null;
+            _fireIcon = null;
+            _shrinkIcon = null;
+        }
+
+        // ---- the game's own window SHRINK glyph (Stationpedia resize button) ----
+        //
+        // Vanilla's Stationpedia is a ResizableWindow whose resize button swaps between two
+        // sprite fields (27701, Assets/Scripts/UI/Stationpedia.cs:315):
+        //     this.ShrinkButton.sprite = (this.isExpanded ? this.ResizeShrinkIcon : this.ResizeExpandIcon);
+        // with `public Sprite ResizeShrinkIcon;` at :2968 and `public static Stationpedia Instance;`
+        // at :2986 (namespace Assets.Scripts.UI). We read the FIELD, never ShrinkButton.sprite, so the
+        // art is the shrink glyph regardless of the window's current expanded state.
+        //
+        // Late-resolving for the same reason as the rest of this file: the Stationpedia singleton only
+        // exists once its UI awakes in-world. A miss is NOT cached — callers retry — and the whole path
+        // is fail-soft to null so a button falls back to an ASCII label. Instance is the fast path;
+        // FindObjectsOfTypeAll is the fallback because the window is inactive until first opened.
+        private static Sprite _shrinkIcon;
+
+        /// <summary>Vanilla's shrink/restore glyph (Stationpedia.ResizeShrinkIcon) — the diagonal
+        /// arrows the game puts on a resizable window's collapse button. null until the Stationpedia
+        /// exists (world only); callers retry and should fall back to an ASCII label.</summary>
+        public static Sprite ShrinkIcon
+        {
+            get
+            {
+                if (_shrinkIcon != null) return _shrinkIcon;
+                try
+                {
+                    var sp = Assets.Scripts.UI.Stationpedia.Instance;
+                    if (sp != null && sp.ResizeShrinkIcon != null) return _shrinkIcon = sp.ResizeShrinkIcon;
+
+                    var all = Resources.FindObjectsOfTypeAll<Assets.Scripts.UI.Stationpedia>();
+                    for (int i = 0; i < all.Length; i++)
+                    {
+                        var s = all[i];
+                        if (s != null && s.ResizeShrinkIcon != null) return _shrinkIcon = s.ResizeShrinkIcon;
+                    }
+                }
+                catch { }
+                return null;
+            }
+        }
+
+        // The vanilla "damaged equipment" slot overlay, WHATEVER art the current build ships for it
+        // (a slash/claw mark in the live beta; older decompiles show an X). It's the DamageImage's
+        // sprite on SlotDisplayButton.StateImage. Grabbing it at runtime — rather than referencing a
+        // fixed asset — means we always draw the game's actual current damage icon, version-proof.
+        // It lives ONLY on the Slot/Interaction prefabs (NOT under PlayerStateWindow), so SpriteByName
+        // can't reach it; harvest it off a live SlotDisplayButton. StateImage starts DISABLED, so we
+        // need FindObjectsOfTypeAll (FindObjectsOfType skips inactive/disabled). Cached once found; a
+        // miss is never cached (the slot UI may not exist yet — callers retry). Vanilla draws it a
+        // STATIC red (#ED1C24); the red<->white pulse is the mod's own (EquipmentColumnWidget).
+        private static Sprite _brokenCross;
+
+        public static Sprite BrokenCross()
+        {
+            if (_brokenCross != null) return _brokenCross;
+            try
+            {
+                var buttons = Resources.FindObjectsOfTypeAll<Assets.Scripts.UI.SlotDisplayButton>();
+                for (int i = 0; i < buttons.Length; i++)
+                {
+                    var b = buttons[i];
+                    if (b != null && b.StateImage != null && b.StateImage.sprite != null)
+                    {
+                        _brokenCross = b.StateImage.sprite;
+                        break;
+                    }
+                }
+            }
+            catch { }
+            return _brokenCross;
+        }
+
+        // ---- the game's own LEAK / FIRE status glyphs ----
+        //
+        // Vanilla draws these OVER a slot's item, and they are a DIFFERENT asset from the broken-X
+        // above. SlotDisplay.RefreshState (decompile 27701, SlotDisplay.cs:429-437) is the whole
+        // contract:
+        //     SlotDisplayButton.StatusFire.SetVisible(occupant.IsBurning);
+        //     SlotDisplayButton.StatusLeak.SetVisible(!occupant.IsBurning && occupant.IsLeaking);
+        // — i.e. fire wins over leak, and the broken-X (StateImage) is a separate, break-only state.
+        // Both are UserInterfaceAnimated wrappers (a MonoBehaviour with an Animator), so the sprite
+        // lives on an Image somewhere in their children rather than on the component itself.
+        //
+        // Harvested live for the same reason as the broken-X: this art is NOT in the decompile's
+        // asset rip, so it can only come from the running game — and grabbing it at runtime means we
+        // always draw whatever the current build ships. Inactive by default (they only show on a
+        // damaged item), hence FindObjectsOfTypeAll + GetComponentInChildren(true). A miss is never
+        // cached: the slot UI may not exist yet, so callers simply retry next frame.
+        private static Sprite _leakIcon;
+        private static Sprite _fireIcon;
+
+        /// <summary>Vanilla's LEAK glyph (SlotDisplayButton.StatusLeak) — what the game overlays on a
+        /// leaking suit/helmet. This is the icon to use for a leak, NOT the broken-X.</summary>
+        public static Sprite LeakIcon()
+        {
+            if (_leakIcon == null) _leakIcon = StatusGlyph(true);
+            return _leakIcon;
+        }
+
+        /// <summary>Vanilla's FIRE glyph (SlotDisplayButton.StatusFire) — shown on a burning item.</summary>
+        public static Sprite FireIcon()
+        {
+            if (_fireIcon == null) _fireIcon = StatusGlyph(false);
+            return _fireIcon;
+        }
+
+        private static Sprite StatusGlyph(bool leak)
+        {
+            try
+            {
+                var buttons = Resources.FindObjectsOfTypeAll<Assets.Scripts.UI.SlotDisplayButton>();
+                for (int i = 0; i < buttons.Length; i++)
+                {
+                    var b = buttons[i];
+                    if (b == null) continue;
+                    var node = leak ? b.StatusLeak : b.StatusFire;
+                    if (node == null) continue;
+                    var img = node.GetComponentInChildren<UnityEngine.UI.Image>(true);
+                    if (img != null && img.sprite != null) return img.sprite;
+                }
+            }
+            catch { }
+            return null;
         }
 
         // ---- the game's own pressure-ramp bar art (PlayerStateWindow.cs:42-52,469-481) ----

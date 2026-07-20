@@ -127,7 +127,7 @@ namespace StationeersUIMod.UI.Hud.Widgets
             var crit = HudPalette.Critical.Value;
 
             // The chip backdrop is OPT-IN (default: bare icons over the world, per play-test).
-            bool boxed = Def.GetB("box", false);
+            bool boxed = Def.GetBFor(LayoutBare, "box", false);
 
             for (int i = 0; i < _active; i++)
             {
@@ -262,7 +262,7 @@ namespace StationeersUIMod.UI.Hud.Widgets
                     }
 
                     // --- pass B: resolve one chip per group ---
-                    bool stack = Def.GetB("stackWords", true);
+                    bool stack = Def.GetBFor(LayoutBare, "stackWords", true);
                     for (int g = 0; g < _grpCount; g++)
                     {
                         if (_active >= Pool)
@@ -281,7 +281,7 @@ namespace StationeersUIMod.UI.Hud.Widgets
                         try { sprite = su.Icon; } catch { }
                         // The GAME'S own moodlet art is the default (players already know these
                         // icons); the thin-line glyph set is the opt-in.
-                        HudIconKind kind = Def.GetB("glyphs", false)
+                        HudIconKind kind = Def.GetBFor(LayoutBare, "glyphs", false)
                             ? GlyphFor(su, sprite)
                             : (sprite != null ? HudIconKind.None : GlyphFor(su, null));
 
@@ -331,22 +331,22 @@ namespace StationeersUIMod.UI.Hud.Widgets
             float elemW = Mathf.Max(8f, size.x);
             float elemTop = center.y + size.y * 0.5f;
 
-            float chipHref = Def.GetF("chipH", 60f);
+            float chipHref = Def.GetFFor(LayoutBare, "chipH", 60f);
             float chipH = Mathf.Max(8f, chipHref * scale);
-            float chipW = Mathf.Max(8f, Def.GetF("chipWidth", 120f) * scale);
-            float iconScale = Mathf.Clamp(Def.GetF("iconScale", 0.95f), 0.3f, 1.6f);
-            float textScale = Mathf.Clamp(Def.GetF("textScale", 0.24f), 0.08f, 0.6f);
-            float colGap = Mathf.Max(0f, Def.GetF("colGap", 8f)) * scale;
-            float rowGap = Mathf.Max(0f, Def.GetF("rowGap", 6f)) * scale;
-            bool labels = Def.GetB("labels", true);
+            float chipW = Mathf.Max(8f, Def.GetFFor(LayoutBare, "chipWidth", 120f) * scale);
+            float iconScale = Mathf.Clamp(Def.GetFFor(LayoutBare, "iconScale", 0.95f), 0.3f, 1.6f);
+            float textScale = Mathf.Clamp(Def.GetFFor(LayoutBare, "textScale", 0.24f), 0.08f, 0.6f);
+            float colGap = Mathf.Max(0f, Def.GetFFor(LayoutBare, "colGap", 8f)) * scale;
+            float rowGap = Mathf.Max(0f, Def.GetFFor(LayoutBare, "rowGap", 6f)) * scale;
+            bool labels = Def.GetBFor(LayoutBare, "labels", true);
 
             float iconSz = chipH * iconScale;
             float iconGap = chipH * 0.06f;
-            float captionFont = HudText.Size(chipHref * textScale * Def.FontScale) * scale;
+            float captionFont = HudText.Size(chipHref * textScale * Def.FontScaleFor(LayoutBare)) * scale;
             float lineH = captionFont * 1.12f;
             float radius = Mathf.Min(chipH * 0.5f,
-                Mathf.Min(Mathf.Min(Radius(Def.RTL), Radius(Def.RTR)),
-                          Mathf.Min(Radius(Def.RBR), Radius(Def.RBL))));
+                Mathf.Min(Mathf.Min(Radius(Def.RTLFor(LayoutBare)), Radius(Def.RTRFor(LayoutBare))),
+                          Mathf.Min(Radius(Def.RBRFor(LayoutBare)), Radius(Def.RBLFor(LayoutBare)))));
 
             // Uniform row height keeps chips aligned even when only some names stack to two
             // lines: the tallest caption in the set sets the caption band for every chip.
@@ -452,20 +452,20 @@ namespace StationeersUIMod.UI.Hud.Widgets
             var d = Def;
 
             int layoutStart = into.Count;
-            into.Add(HudProp.F("Chip width", () => d.GetF("chipWidth", 120f), v => d.SetF("chipWidth", Mathf.Clamp(v, 24f, 480f)), 24f, 480f));
-            into.Add(HudProp.F("Chip height", () => d.GetF("chipH", 60f), v => d.SetF("chipH", Mathf.Clamp(v, 10f, 240f)), 10f, 240f));
-            into.Add(HudProp.F("Column gap", () => d.GetF("colGap", 8f), v => d.SetF("colGap", Mathf.Clamp(v, 0f, 40f)), 0f, 40f));
-            into.Add(HudProp.F("Row gap", () => d.GetF("rowGap", 6f), v => d.SetF("rowGap", Mathf.Clamp(v, 0f, 40f)), 0f, 40f));
-            into.Add(HudProp.Bool("Stack two-word names", () => d.GetB("stackWords", true), v => d.SetB("stackWords", v)));
+            into.Add(HudProp.F("Chip width", () => d.GetFFor(EditBare(d), "chipWidth", 120f), v => d.SetFFor(EditBare(d), "chipWidth", Mathf.Clamp(v, 24f, 480f)), 24f, 480f));
+            into.Add(HudProp.F("Chip height", () => d.GetFFor(EditBare(d), "chipH", 60f), v => d.SetFFor(EditBare(d), "chipH", Mathf.Clamp(v, 10f, 240f)), 10f, 240f));
+            into.Add(HudProp.F("Column gap", () => d.GetFFor(EditBare(d), "colGap", 8f), v => d.SetFFor(EditBare(d), "colGap", Mathf.Clamp(v, 0f, 40f)), 0f, 40f));
+            into.Add(HudProp.F("Row gap", () => d.GetFFor(EditBare(d), "rowGap", 6f), v => d.SetFFor(EditBare(d), "rowGap", Mathf.Clamp(v, 0f, 40f)), 0f, 40f));
+            into.Add(HudProp.Bool("Stack two-word names", () => d.GetBFor(EditBare(d), "stackWords", true), v => d.SetBFor(EditBare(d), "stackWords", v)));
             for (int i = layoutStart; i < into.Count; i++) into[i].Group = HudPropGroup.Layout;
 
-            into.Add(HudProp.Bool("Show labels", () => d.GetB("labels", true), v => d.SetB("labels", v)));
+            into.Add(HudProp.Bool("Show labels", () => d.GetBFor(EditBare(d), "labels", true), v => d.SetBFor(EditBare(d), "labels", v)));
 
             int appearanceStart = into.Count;
-            into.Add(HudProp.F("Icon scale (× chip height)", () => d.GetF("iconScale", 0.95f), v => d.SetF("iconScale", Mathf.Clamp(v, 0.3f, 1.6f)), 0.3f, 1.6f));
-            into.Add(HudProp.F("Text scale (× chip height)", () => d.GetF("textScale", 0.24f), v => d.SetF("textScale", Mathf.Clamp(v, 0.08f, 0.6f)), 0.08f, 0.6f));
-            into.Add(HudProp.Bool("Chip backdrop box", () => d.GetB("box", false), v => d.SetB("box", v)));
-            into.Add(HudProp.Bool("Thin-line glyphs (off = game icons)", () => d.GetB("glyphs", false), v => d.SetB("glyphs", v)));
+            into.Add(HudProp.F("Icon scale (× chip height)", () => d.GetFFor(EditBare(d), "iconScale", 0.95f), v => d.SetFFor(EditBare(d), "iconScale", Mathf.Clamp(v, 0.3f, 1.6f)), 0.3f, 1.6f));
+            into.Add(HudProp.F("Text scale (× chip height)", () => d.GetFFor(EditBare(d), "textScale", 0.24f), v => d.SetFFor(EditBare(d), "textScale", Mathf.Clamp(v, 0.08f, 0.6f)), 0.08f, 0.6f));
+            into.Add(HudProp.Bool("Chip backdrop box", () => d.GetBFor(EditBare(d), "box", false), v => d.SetBFor(EditBare(d), "box", v)));
+            into.Add(HudProp.Bool("Thin-line glyphs (off = game icons)", () => d.GetBFor(EditBare(d), "glyphs", false), v => d.SetBFor(EditBare(d), "glyphs", v)));
             for (int i = appearanceStart; i < into.Count; i++) into[i].Group = HudPropGroup.Appearance;
         }
     }

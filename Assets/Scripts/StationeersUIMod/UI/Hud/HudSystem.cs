@@ -79,12 +79,22 @@ namespace StationeersUIMod.UI.Hud
         /// sampled one (style BARE without undressing).</summary>
         public static HudTier? ForceTier;
 
+        /// <summary>True while the HUD's per-frame FX clock is actually running (Update did not
+        /// stand the HUD down). The animated Tier B material uniforms and the Tier C frost
+        /// backdrop only tick while this holds, so non-HUD glass surfaces (the F10 menu) gate
+        /// their advanced effects on it and degrade to the static Tier-A look otherwise.</summary>
+        public static bool FxClockLive { get; private set; }
+
         /// <summary>While a test animation plays, the per-frame visibility reconciliation
         /// stands down — otherwise it would cancel the demo on the very next frame.</summary>
         private static float _demoHoldUntil;
 
         public static void TestPowerDeath()
         {
+            // Mirror the REAL power-down (dissolve frontier first, then the death), or the preview
+            // the player tunes their TV-off / flicker / dissolve settings against is not the
+            // animation they will actually see when the suit dies.
+            TriggerPowerDownDissolve();
             _animator.PowerDeath();
             HudGlitch.Trigger(powerDown: true);
             _demoHoldUntil = Time.unscaledTime + 2.4f;
@@ -98,6 +108,7 @@ namespace StationeersUIMod.UI.Hud
                 if (p.SuitTier) _animator.SetVisible(p.Fader, false, instant: true);
             _animator.BootUp(BootEligible);
             HudGlitch.Trigger(powerDown: false);
+            TriggerBootDissolve();   // same order as the real boot (also clears OutDurOverride)
             _demoHoldUntil = Time.unscaledTime + 2.4f;
         }
 
@@ -233,6 +244,7 @@ namespace StationeersUIMod.UI.Hud
                     && string.Equals(name, "Default", System.StringComparison.OrdinalIgnoreCase))
                 {
                     var fresh = BuildStarterDocument();
+                    fresh.Sanitize(); // factory docs carry legacy-styled elements — migrate them
                     Features.HudProfileStore.SetActive(fresh, name);
                     Features.HudProfileStore.MarkChanged(); // persist the upgrade
                 }
@@ -240,6 +252,7 @@ namespace StationeersUIMod.UI.Hud
                     && string.Equals(name, "Glassy 2.0", System.StringComparison.OrdinalIgnoreCase))
                 {
                     var fresh = BuildGlassy2Document();
+                    fresh.Sanitize(); // factory docs carry legacy-styled elements — migrate them
                     Features.HudProfileStore.SetActive(fresh, name);
                     Features.HudProfileStore.MarkChanged();
                 }
@@ -326,10 +339,16 @@ namespace StationeersUIMod.UI.Hud
         /// <summary>One view per document element, Z-sorted into sibling order. The
         /// animator seed derives from the element Id so flicker desync survives both
         /// rebuilds and hot reloads.</summary>
+        /// <summary>Arms the stranded-element check for the next Update (see the heal block
+        /// there). Called after builds/swaps here and by the editor on drag commit.</summary>
+        internal static void RequestOffscreenHeal() { _healPending = true; }
+        private static bool _healPending;
+
         private static void BuildViewsFromDocument()
         {
             var doc = Features.HudProfileStore.Active;
             if (doc == null) return;
+            _healPending = true; // boot / profile swap: rescue anything stranded off-screen
 
             _docSorted.Clear();
             _docSorted.AddRange(doc.Elements);
@@ -813,6 +832,7 @@ namespace StationeersUIMod.UI.Hud
 
         public static void Shutdown()
         {
+            HudSlotDrag.Shutdown();   // drop the ghost + any pinned drag before the canvas dies
             RestoreAnyPortraits();
             RestoreVanillaIfNeeded();
             RestoreWorldMaterials();
@@ -845,6 +865,7 @@ namespace StationeersUIMod.UI.Hud
             HudBloomFx.Shutdown();       // Stage 2 bloom pyramid RTs + materials
             Core.HudShaderStore.Shutdown(); // the uia_effects.bundle (unload or F6 double-loads)
             HudGlitch.Shutdown(); // kill any camera image-effect + material before the reload
+            HudAlertPulse.Shutdown();   // alert latch + the StatusUpdates delegate binds
             HudText.Shutdown();
             HudWarp.Active = HudWarp.Kind.None;
             HudWarp.BareFlat = false; // reset alongside Active so a reload starts un-flattened
@@ -874,9 +895,20 @@ namespace StationeersUIMod.UI.Hud
 
         public static void Update(bool editorActive)
         {
+            // Resolve any in-flight smart-stow into a box flash. Runs BEFORE the enabled/guard
+            // checks below so a stow that lands while the HUD is briefly standing down still gets
+            // its landing observed rather than timing out unseen.
+            try { Core.SlotFlash.Tick(); } catch { }
+
             bool enabled = HudConfig.VisorHudEnabled != null && HudConfig.VisorHudEnabled.Value
                 && (HudConfig.LegacyImGuiHud == null || !HudConfig.LegacyImGuiHud.Value);
             if (editorActive) enabled = true;
+
+            // Non-HUD glass consumers (the F10 menu window) gate their Tier B/C on this so their
+            // material-driven shine + the frost backdrop degrade to the static Tier-A look instead
+            // of freezing when the HUD stands down — the FX clock (UpdateFxUniforms) and the
+            // backdrop Tick only run while this is true.
+            FxClockLive = enabled && Guards.CanDraw();
 
             if (!enabled || !Guards.CanDraw())
             {
@@ -893,6 +925,15 @@ namespace StationeersUIMod.UI.Hud
                 // Never pin the last world's Human across unloads / hot reloads.
                 LastSnapshot = null;
                 HudSampler.Clear();
+                // Alarms must not survive a stand-down: returning to a world would otherwise find
+                // the previous session's alert still latched.
+                HudAlertPulse.Reset();
+                Core.WarningSensor.Clear();
+                // Same rule for a live slot drag: its pinned ScannedSlot holds this world's Slot +
+                // DynamicThing, and HudSlotDrag.Tick() sits BELOW this return, so its own frame-gap
+                // self-heal cannot run until the HUD comes back. Cancel here or the dead world's
+                // object graph stays rooted in a static for the whole main-menu session.
+                HudSlotDrag.Cancel();
                 // MasterEnable off is a full stand-down: give vanilla its panels back
                 // (Guards.CanDraw is false then, so no later frame would do it).
                 if (!enabled || !UIAConfig.MasterEnable.Value) RestoreVanillaIfNeeded();
@@ -919,6 +960,11 @@ namespace StationeersUIMod.UI.Hud
             if (_canvas.sortingOrder != wantOrder) _canvas.sortingOrder = wantOrder;
 
             SyncVanillaVisibility();
+
+            // Mouse drag out of the hand / equipment boxes whenever the cursor is free. MUST run
+            // before the drop-cue resolve below: it publishes the carried item into HudDropCue, so
+            // the boxes light up their accepted targets on this same frame.
+            HudSlotDrag.Tick();
 
             // #4: while the radial drag-layer carries an item, resolve which HUD box the cursor is
             // over so the box widgets can light it up as they paint below.
@@ -958,9 +1004,17 @@ namespace StationeersUIMod.UI.Hud
             using (Profiling.ProfilicusUniversalis.Time("Hud.Sample"))
                 snap = HudSampler.Sample();
             LastSnapshot = snap;
-            if (!snap.Valid) return;
+            // The alert must stand down on THIS exit too: the canvas stays active and no widget
+            // UpdatePanel runs, so a latched tint would survive a sampling outage of any length.
+            if (!snap.Valid) { HudAlertPulse.Reset(); return; }
 
             HudTier tier = ForceTier ?? snap.Tier;
+
+            // Status alert pulse: sample the game's own caution/critical alarms and publish this
+            // frame's breath envelope BEFORE the content loop, so a severity change tints on the
+            // SAME frame rather than one frame late. Takes the RESOLVED tier because the alert is
+            // suited-only — see HudAlertPulse.Tick.
+            HudAlertPulse.Tick(snap, editorActive, tier);
 
             // Bare = no visor = FLAT HUD (FlorpyDorp: suit off/dead → everything goes flat,
             // uncurved). Only honoured when the user opted into flattening; the LayoutHash
@@ -988,17 +1042,31 @@ namespace StationeersUIMod.UI.Hud
             bool forcedChanged = ForceTier != _prevForceTier;
             _prevForceTier = ForceTier;
 
-            // Sync each element's per-element collapse strength to its fader BEFORE a death fires,
-            // so the CRT squash honours the element's setting (0 = the top bar won't collapse).
+            // Sync each element's per-element transition strengths to its fader BEFORE a death
+            // fires, so every power animation honours that element's tri-state (0 = the top bar
+            // won't collapse). All four go through the ONE resolver in HudTransitionFx:
+            // global master off -> 0, element Off -> 0, element On -> its own strength,
+            // element Inherit -> the global strength.
             foreach (var pan in _panels)
-                if (pan.Fader != null && pan is HudElementView ev && ev.Def != null)
-                    pan.Fader.CollapseAmt = ev.EffectAmt("fxCollapse", "fxCollapseAmt");
+            {
+                if (pan.Fader == null) continue;
+                var ev = pan as HudElementView;
+                if (ev == null || ev.Def == null) continue;
+                pan.Fader.CollapseAmt = ev.TransitionAmt("fxCollapse");
+                pan.Fader.TvOffAmt = ev.TransitionAmt("fxTvOff");
+                pan.Fader.FlickerAmt = ev.TransitionAmt("fxFlicker");
+                // The dissolve frontier is ONE shared uniform, so this cannot scale the sweep per
+                // element — it gates PARTICIPATION: 0 means this element does not wait for the
+                // frontier and gutters out at the normal flicker speed instead.
+                pan.Fader.DissolveAmt = ev.TransitionAmt("fxDissolve");
+            }
 
             // --- state transitions (flicker events) ---
             if (_hasPrev && HudConfig.FlickerAnimations.Value && !ForceTier.HasValue && !forcedChanged)
             {
                 if (_prevTier != HudTier.Bare && tier == HudTier.Bare)
                 {
+                    TriggerPowerDownDissolve();          // reverse frontier BEFORE the fade starts
                     _animator.PowerDeath();
                     HudGlitch.Trigger(powerDown: true); // suit died / taken off
                     // Document element views have no Toggle (null = always on) — same
@@ -1043,11 +1111,35 @@ namespace StationeersUIMod.UI.Hud
             _hasPrev = true;
 
             // --- layout / curvature ---
-            float scale = HudConfig.HudScale.Value;
+            float scale = HudConfig.EffectiveHudScale();
             using (Profiling.ProfilicusUniversalis.Time("Hud.Relayout"))
             {
                 float hash = LayoutHash(scale);
-                if (!Mathf.Approximately(hash, _layoutHash) || _screenW != Screen.width || _screenH != Screen.height)
+                bool resized = _screenW != Screen.width || _screenH != Screen.height;
+
+                // Stranded-element self-heal: a resolution/aspect hop (streaming the game to
+                // another device, windowed resize) can leave elements anchored entirely outside
+                // the screen we came back to — unreachable even by the editor. On a resize, a
+                // document build/swap, or an editor drag commit (never MID-drag, so it can't
+                // fight a gesture), any element with no usable screen overlap is pulled back in.
+                if (resized || _healPending)
+                {
+                    _healPending = false;
+                    int rescued = 0;
+                    foreach (var p in _panels)
+                    {
+                        var v = p as HudElementView;
+                        if (v != null && v.Def != null && v.EnsureOnScreen(scale)) rescued++;
+                    }
+                    if (rescued > 0)
+                    {
+                        Features.HudProfileStore.MarkChanged(); // persists via the autosave debounce
+                        Core.UIALog.Info(rescued + " HUD element(s) were fully off-screen and were pulled back into view.");
+                        hash = LayoutHash(scale); // the rescue moved layout inputs
+                    }
+                }
+
+                if (!Mathf.Approximately(hash, _layoutHash) || resized)
                 {
                     _layoutHash = hash;
                     _screenW = Screen.width;
@@ -1080,15 +1172,18 @@ namespace StationeersUIMod.UI.Hud
             // would then sample warped. RadialFrostWanted already requires the Tier C master, so this
             // never runs the capture with Tier C off.
             bool radialFrostWanted = frostCurveOk && global::StationeersUIMod.UI.UnityRadialView.RadialFrostWanted;
+            // The F10 Control Center window is a screen-space glass panel too: keep the backdrop
+            // alive while it wants frost (Tier C master gates it, same as the radial).
+            bool menuFrostWanted = frostCurveOk && HudGlobalGlass.FrostDemand;
             // The bundle loads when ANY shader consumer wants it (Tier B, Tier C frost, radial frost,
             // or Stage 2 bloom — each is independent). Idempotent + fail-soft. Bloom uses it to resolve
             // BloomShader/BlurShader; until then BloomActive() stays false and the HUD renders direct
             // (routing to the RT waits one frame for the load — invisible, flat-direct == flat-RT 1:1).
-            if (frostWanted || radialFrostWanted || (HudConfig.SdfPanels != null && HudConfig.SdfPanels.Value)
+            if (frostWanted || radialFrostWanted || menuFrostWanted || (HudConfig.SdfPanels != null && HudConfig.SdfPanels.Value)
                 || (HudConfig.FxTierB != null && HudConfig.FxTierB.Value)
                 || (HudConfig.FxBloomOn != null && HudConfig.FxBloomOn.Value))
                 Core.HudShaderStore.EnsureLoaded();
-            if (frostWanted || radialFrostWanted)
+            if (frostWanted || radialFrostWanted || menuFrostWanted)
             {
                 HudBackdrop.Tick();
             }
@@ -1192,14 +1287,40 @@ namespace StationeersUIMod.UI.Hud
         private static readonly int _idEdgeLightColor = Shader.PropertyToID("_EdgeLightColor");
         private static readonly int _idEdgeLightRim = Shader.PropertyToID("_EdgeLightRim");
         private static readonly int _idEdgeLightSharp = Shader.PropertyToID("_EdgeLightSharp");
+        private static readonly int _idEdgeFadeCurve = Shader.PropertyToID("_EdgeFadeCurve");
+        private static readonly int _idEdgeFadeBorder = Shader.PropertyToID("_EdgeFadeBorder");
+        private static readonly int _idHaloBreathWave = Shader.PropertyToID("_UiaHaloBreathWave");
         private static readonly Vector4 _defaultShineDir = new Vector4(1f, 0f, 0f, 0f);
+
+        /// <summary>Direction of the live dissolve envelope. IN (false) is the boot reveal the
+        /// frontier was written for (_DissolveAmt 1 -> 0); OUT (true) plays the identical sweep in
+        /// reverse (0 -> 1) so the HUD leaves the same way it arrives.</summary>
+        private static bool _dissolveOut;
 
         /// <summary>Kick the boot-dissolve envelope (called from the power-up transition).</summary>
         internal static void TriggerBootDissolve()
         {
             if (HudConfig.FxDissolveBoot != null && HudConfig.FxDissolveBoot.Value
                 && Core.HudShaderStore.TierBAvailable)
+            {
                 _dissolveUntil = Time.unscaledTime + DissolveSeconds;
+                _dissolveOut = false;
+                if (_animator != null) _animator.OutDurOverride = 0f;
+            }
+        }
+
+        /// <summary>Kick the dissolve envelope in REVERSE for a power-DOWN, so the frontier sweeps
+        /// back out instead of the panels simply flickering off. Also stretches the animator's
+        /// fade-out to the dissolve length — at the stock 0.4 s the panel would be gone before the
+        /// frontier had travelled, and the effect would never be seen.</summary>
+        internal static void TriggerPowerDownDissolve()
+        {
+            if (HudConfig.FxDissolveOnPowerDown == null || !HudConfig.FxDissolveOnPowerDown.Value) return;
+            if (HudConfig.FxDissolveBoot == null || !HudConfig.FxDissolveBoot.Value) return;
+            if (!Core.HudShaderStore.TierBAvailable) return;
+            _dissolveUntil = Time.unscaledTime + DissolveSeconds;
+            _dissolveOut = true;
+            if (_animator != null) _animator.OutDurOverride = DissolveSeconds;
         }
 
         /// <summary>Per-frame Tier B uniforms on the shared materials (plan §12.3: global
@@ -1217,8 +1338,17 @@ namespace StationeersUIMod.UI.Hud
             // The band spends ~1.2s crossing, then rests off-screen for the rest of the period.
             float t = (Time.unscaledTime % period) / 1.2f;
             float shinePos = t <= 1f ? Mathf.Lerp(-0.2f, 1.2f, t) : -10f;
-            float dis = _dissolveUntil > Time.unscaledTime
+            // Remaining fraction of the envelope: 1 at trigger, 0 when it ends. The IN sweep uses it
+            // as-is (dissolved -> solid); the OUT sweep inverts it (solid -> dissolved) and settles
+            // back at 0 so a later boot — or a power-up that never fires the frontier — can never
+            // leave a panel stranded invisible.
+            float env = _dissolveUntil > Time.unscaledTime
                 ? Mathf.Clamp01((_dissolveUntil - Time.unscaledTime) / DissolveSeconds) : 0f;
+            float dis = (_dissolveOut && env > 0f) ? 1f - env : env;
+            float haloBreathSpeed = HudConfig.FxGlowBreathSpeed != null
+                ? Mathf.Clamp(HudConfig.FxGlowBreathSpeed.Value, 0.03f, 2f) : 0.25f;
+            float haloBreathWave = 0.5f + 0.5f * Mathf.Sin(
+                Time.unscaledTime * haloBreathSpeed * Mathf.PI * 2f);
 
             var edgeFx = HudFxMaterials.Get("edgefx");
             if (edgeFx != null)
@@ -1280,13 +1410,21 @@ namespace StationeersUIMod.UI.Hud
                         HudConfig.FxEdgeLightRim != null ? HudConfig.FxEdgeLightRim.Value : 0.5f);
                     HudFxMaterials.SetFloat("sdfglass", _idEdgeLightSharp,
                         HudConfig.FxEdgeLightSharp != null ? HudConfig.FxEdgeLightSharp.Value : 3f);
+                    // End-fade shape. Shared uniforms rather than packed vertex lanes: the
+                    // per-element parameter block is full, and one shared ramp shape is what
+                    // keeps a HUD full of faded bars reading as one material.
+                    HudFxMaterials.SetFloat("sdfglass", _idEdgeFadeCurve,
+                        HudConfig.FxEdgeFadeCurve != null ? HudConfig.FxEdgeFadeCurve.Value : 1f);
+                    HudFxMaterials.SetFloat("sdfglass", _idEdgeFadeBorder,
+                        HudConfig.FxEdgeFadeBorder != null ? HudConfig.FxEdgeFadeBorder.Value : 1f);
+                    HudFxMaterials.SetFloat("sdfglass", _idHaloBreathWave, haloBreathWave);
                 }
             }
         }
 
         private static void RelayoutAll()
         {
-            float scale = HudConfig.HudScale.Value;
+            float scale = HudConfig.EffectiveHudScale();
             HudWarp.HalfW = Screen.width * 0.5f;
             HudWarp.HalfH = Screen.height * 0.5f;
             foreach (var p in _panels)
@@ -1887,7 +2025,7 @@ namespace StationeersUIMod.UI.Hud
 
         public static void CollectEditTargets(List<HudEditTarget> into)
         {
-            float scale = HudConfig.HudScale.Value;
+            float scale = HudConfig.EffectiveHudScale();
             foreach (var p in _panels)
             {
                 try { p.CollectEditTargets(into, scale); } catch { }
@@ -1924,7 +2062,7 @@ namespace StationeersUIMod.UI.Hud
             if (view == null || view.Root == null) return;
             try
             {
-                view.Layout(HudConfig.HudScale.Value);
+                view.Layout(HudConfig.EffectiveHudScale());
                 view.ApplyWarpMult();
                 foreach (var g in view.Root.GetComponentsInChildren<UnityEngine.UI.Graphic>(true))
                 {
@@ -1949,7 +2087,7 @@ namespace StationeersUIMod.UI.Hud
                 && HudConfig.Curvature.Value == HudCurvature.CurvedWorldCanvas) return;
             var snap = LastSnapshot;
             if (snap == null || !snap.Valid) return;
-            float scale = HudConfig.HudScale.Value;
+            float scale = HudConfig.EffectiveHudScale();
             foreach (var p in _panels)
             {
                 try
@@ -1961,6 +2099,10 @@ namespace StationeersUIMod.UI.Hud
                 catch { }
             }
         }
+
+        /// <summary>The HUD canvas transform, for overlays that must sit above the widgets (the
+        /// slot-drag ghost). Null before the HUD is built and after Shutdown.</summary>
+        internal static Transform OverlayRoot => _canvas != null ? _canvas.transform : null;
 
         private static readonly List<HudDropZone> _zoneScratch = new List<HudDropZone>();
 

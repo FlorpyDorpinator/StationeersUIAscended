@@ -131,6 +131,15 @@ namespace StationeersUIMod.Features
                 }
                 doc.Sanitize();
                 doc.Name = name;
+                // The style migration is a one-time regression: persist it immediately so the
+                // on-disk XML stops being legacy (else every load re-migrates and re-freezes
+                // Custom snapshots from THAT session's globals — the values would drift).
+                // Idempotent: the written file migrates to nothing on the next load.
+                if (doc.RepairedOnLoad)
+                {
+                    doc.RepairedOnLoad = false;
+                    Save(doc, name);
+                }
                 _warned.Remove(file); // a clean read re-arms the one-shot warning for next time
                 return doc;
             }

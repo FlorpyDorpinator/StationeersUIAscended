@@ -59,7 +59,7 @@ namespace StationeersUIMod.UI.Hud.Widgets
 
                 ((RectTransform)_chip[i].transform).anchoredPosition = new Vector2(cx, cy);
                 _chip[i].SetShape(cw, ch,
-                    Radius(Def.RTL), Radius(Def.RTR), Radius(Def.RBR), Radius(Def.RBL));
+                    Radius(Def.RTLFor(LayoutBare)), Radius(Def.RTRFor(LayoutBare)), Radius(Def.RBRFor(LayoutBare)), Radius(Def.RBLFor(LayoutBare)));
 
                 float keyW = Mathf.Max(2f, cw * 0.34f);
                 _key[i].rectTransform.sizeDelta = new Vector2(keyW, ch);
@@ -89,12 +89,12 @@ namespace StationeersUIMod.UI.Hud.Widgets
                 ResolveChip(i, out keyStr, out labelStr);
 
                 HudText.Sync(_key[i]);
-                _key[i].fontSize = HudText.Size(12f * Def.FontScale) * scale;
+                _key[i].fontSize = HudText.Size(12f * Def.FontScaleFor(LayoutBare)) * scale;
                 _key[i].color = keyCol;
                 HudText.Set(_key[i], keyStr);
 
                 HudText.Sync(_label[i]);
-                _label[i].fontSize = HudText.Size(10f * Def.FontScale) * scale;
+                _label[i].fontSize = HudText.Size(10f * Def.FontScaleFor(LayoutBare)) * scale;
                 _label[i].color = labelCol;
                 HudText.Set(_label[i], labelStr);
             }

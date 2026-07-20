@@ -29,6 +29,7 @@ namespace StationeersUIMod.Overlay
 
         // --- Option A additions ---
         public string StateText;            // live state under the icon: "87%", "5,301 kPa", "x25"
+        public string BindingLabel;         // 1B.3: grey tool-type label for a (possibly empty) belt slot wedge
         public Sprite HoverIcon;            // swapped in while hovered (STOW wedges preview the held item)
         public bool StowStyle;              // schema A stow wedge: neutral fill, orange only on hover
         public bool GroupStyle;             // sorting-class GROUP wedge: distinct edge/fill palette
@@ -161,7 +162,13 @@ namespace StationeersUIMod.Overlay
         private SatelliteRing _satellite;
         private bool _sticky;
         private int _hovered = -1;          // index on the main ring
+        private int _lastHovered = -1;      // R8: last-ticked main-ring hover (hover-tick de-dupe)
         private int _satHovered = -1;       // index on the satellite ring
+        // The source wedge whose satellite the user just RMB-closed. Its satellite sits PAST the
+        // ring's outer edge, so without this the slide-out dwell would instantly re-open it (RMB
+        // would appear to do nothing). Suppress re-open until the cursor returns inside the ring or
+        // moves onto a different wedge.
+        private int _slideOutSuppressIndex = -1;
         private float _mainDist;
         private float _satDist;
         private float _lastOuterR;          // main ring outer radius as of the last Draw
@@ -185,6 +192,15 @@ namespace StationeersUIMod.Overlay
         private bool _searchOpen;
         private float _pendingRefreshAt;   // MP: re-read labels after the server applied an action
         private static bool _searchRequested;
+
+        // --- R3 double-tap repeat: remember the last committed action, keyed by the active
+        // feature/root, so tapping the feature key twice re-runs it WITHOUT reopening the ring.
+        // Persists across Close (the commit that populates it also closes the radial, so the
+        // repeat necessarily happens after a close) — cleared only on hot-reload via
+        // ResetRepeatCache(). ---
+        private static System.Action _lastCommit;
+        private static string _lastCommitKey;
+
         private const float DragHoldSec = 0.25f;  // hold this long on an item wedge to start a drag
         private const float DragMovePx = 14f;     // ...or move this far while pressed
 
@@ -258,7 +274,9 @@ namespace StationeersUIMod.Overlay
             _satellite = null;
             _sticky = sticky;
             _hovered = -1;
+            _lastHovered = -1;
             _satHovered = -1;
+            _slideOutSuppressIndex = -1;
             _parking.Clear();
             _press = null;
             _searchOpen = false;
@@ -279,7 +297,9 @@ namespace StationeersUIMod.Overlay
             _satellite = null;
             _sticky = false;
             _hovered = -1;
+            _lastHovered = -1;
             _satHovered = -1;
+            _slideOutSuppressIndex = -1;
             _parking.Clear();
             _press = null;
             _searchOpen = false;
@@ -422,9 +442,12 @@ namespace StationeersUIMod.Overlay
 
             if (Input.GetMouseButtonDown(1))
             {
-                // Back out one step, mirroring sticky's RMB. At the root RMB does nothing:
-                // releasing MMB is the exit, and parking never runs in hold mode.
-                if (_satellite != null) { _satellite = null; return; }
+                // The child radial is transient — RMB ignores it and acts on the MAIN radial
+                // (as if the child were gone), mirroring sticky's RMB. At the root RMB does
+                // nothing here: releasing MMB is the exit, and parking never runs in hold mode.
+                if (_satellite != null) _slideOutSuppressIndex = _satellite.SourceIndex;
+                _satellite = null;
+                _satHovered = -1;
                 if (_stack.Count > 1)
                 {
                     _stack.RemoveAt(_stack.Count - 1);
@@ -533,7 +556,13 @@ namespace StationeersUIMod.Overlay
             {
                 _press = null; // whatever was pressed no longer means what it meant
                 if (_parking.Dragging != null) { _parking.Dragging = null; return; } // cancel the drag
-                if (_satellite != null) { _satellite = null; return; }
+                // A child radial (satellite) is TRANSIENT — RMB ignores it and acts on the MAIN
+                // radial as if the child were gone: drop the child, then go back one main level,
+                // or close everything when already at the first main level. Suppress an instant
+                // slide-out re-open on the wedge the cursor is sitting past.
+                if (_satellite != null) _slideOutSuppressIndex = _satellite.SourceIndex;
+                _satellite = null;
+                _satHovered = -1;
                 if (_stack.Count > 1)
                 {
                     _stack.RemoveAt(_stack.Count - 1);
@@ -541,7 +570,7 @@ namespace StationeersUIMod.Overlay
                     _hovered = -1;
                     return;
                 }
-                DumpChipsToGround(); // the deliberate RMB-out-of-everything: parked items drop
+                DumpChipsToGround(); // main first radial → close everything
                 Close();
                 return;
             }
@@ -1162,7 +1191,13 @@ namespace StationeersUIMod.Overlay
             RadialEntry entry = _satellite != null && _satHovered >= 0 ? SatEntry(_satHovered)
                               : _hovered >= 0 && _mainDist <= _lastOuterR * 1.2f ? MainEntry(_hovered)
                               : null;
-            if (entry == null || !entry.CanHotkey) return;
+            if (entry == null) return;
+            // 1B.4 anti-hotbar guard (belt-and-suspenders): a tool-equip wedge carries neither a
+            // BindableBag nor CanHotkey. It already can't bind (the CanHotkey gate below rejects
+            // it), but reject it explicitly first so no future change can key-bind a tool into
+            // the hand and grow a ten-slot hotbar — the one thing this UI must never become.
+            if (entry.BindableBag == null && !entry.CanHotkey) return;
+            if (!entry.CanHotkey) return;
             var k = Core.WedgeHotkeys.PressedBindableLetter();
             if (k != KeyCode.None)
             {
@@ -1239,6 +1274,41 @@ namespace StationeersUIMod.Overlay
         {
             try { entry.OnSelect?.Invoke(); }
             catch (Exception e) { UIALog.Error($"Radial action '{entry.Label}' failed: {e}"); }
+
+            // R3: cache the committed action under the active feature (the ROOT level title,
+            // stable across branch dives) so a double-tap of the feature key can repeat it.
+            if (entry.OnSelect != null)
+            {
+                _lastCommit = entry.OnSelect;
+                _lastCommitKey = _stack.Count > 0 ? _stack[0].Title : entry.Label;
+            }
+
+            // R8: audible confirm on a successful commit, gated by the same toggle as the
+            // hover tick. UIAudioManager.Play is a cheap pooled-source call.
+            if (UIAConfig.RadialWedgeSounds != null && UIAConfig.RadialWedgeSounds.Value)
+                UIAudioManager.Play(UIAudioManager.ClickMediumHash);
+        }
+
+        /// <summary>R3 double-tap repeat: re-invoke the last committed action if it belongs to
+        /// <paramref name="featureKey"/> (the feature's root title). Returns true when it fired.
+        /// Static so the controller can call it while no ring is open. Fail-soft — a stale
+        /// action (its target destroyed) is swallowed and reported false.</summary>
+        public static bool RepeatLast(string featureKey)
+        {
+            if (_lastCommit == null || string.IsNullOrEmpty(featureKey)) return false;
+            if (!string.Equals(featureKey, _lastCommitKey, StringComparison.Ordinal)) return false;
+            try { _lastCommit(); }
+            catch (Exception e) { UIALog.Warn("Radial repeat-last failed: " + e.Message); return false; }
+            return true;
+        }
+
+        /// <summary>Hot-reload teardown: drop the cached repeat action so a reloaded assembly
+        /// never invokes a delegate into the dead one. Call from the controller's
+        /// ShutdownImmediate()/CloseAll().</summary>
+        public static void ResetRepeatCache()
+        {
+            _lastCommit = null;
+            _lastCommitKey = null;
         }
 
         private void OpenSatellite(RadialEntry entry, int sourceIndex, Vector2 mainCenter, float mainOuterR, int mainCount)
@@ -1258,8 +1328,14 @@ namespace StationeersUIMod.Overlay
             float sector = Mathf.PI * 2f / Mathf.Max(1, mainCount);
             float aMid = -Mathf.PI * 0.5f + sector * sourceIndex;
             // Roomier satellites: scale up with entry count so wedge labels stay readable.
-            float outer = Mathf.Clamp(mainOuterR * 0.55f + Mathf.Max(0, entries.Count - 4) * 8f, 130f, 220f)
-                * (UIAConfig.RadialSatelliteScale != null ? UIAConfig.RadialSatelliteScale.Value : 1f);
+            float satScale = UIAConfig.RadialSatelliteScale != null ? UIAConfig.RadialSatelliteScale.Value : 1f;
+            float outer = Mathf.Clamp(mainOuterR * 0.55f + Mathf.Max(0, entries.Count - 4) * 8f, 130f, 220f) * satScale;
+            // 2a: the child readout's font tracks its hub radius (innerR/110 in ReadoutView), so a
+            // tiny hub made the "Stow X into Y" lines shrink to unreadable and overflow. Floor the
+            // hub radius, then grow `outer` in step so the larger hub doesn't crush the wedge band.
+            float hubRatio = UIAConfig.RadialSatelliteHubRatio != null ? UIAConfig.RadialSatelliteHubRatio.Value : 0.34f;
+            float innerR = Mathf.Max(outer * hubRatio, 76f * satScale);
+            outer = Mathf.Max(outer, innerR + 66f); // keep a usable wedge band around the bigger hub
             var dir = new Vector2(Mathf.Cos(aMid), Mathf.Sin(aMid));
             _satellite = new SatelliteRing
             {
@@ -1268,13 +1344,30 @@ namespace StationeersUIMod.Overlay
                 Entries = entries,
                 Center = mainCenter + dir * (mainOuterR + outer * 0.75f + 16f),
                 OuterR = outer,
-                InnerR = outer * (UIAConfig.RadialSatelliteHubRatio != null ? UIAConfig.RadialSatelliteHubRatio.Value : 0.34f),
+                InnerR = innerR,
                 SourceIndex = sourceIndex,
             };
             _satHovered = -1;
         }
 
-        private static int SectorFromMouse(Vector2 delta, int count)
+        /// <summary>R8: play a soft tick when the main-ring hover lands on a new ENABLED wedge.
+        /// De-duped against <c>_lastHovered</c> so a resting cursor is silent; gated by the
+        /// RadialWedgeSounds toggle. Called once per Draw after hover resolution.</summary>
+        private void HoverTick()
+        {
+            if (_hovered == _lastHovered) return;
+            _lastHovered = _hovered;
+            if (_hovered < 0) return;
+            if (UIAConfig.RadialWedgeSounds == null || !UIAConfig.RadialWedgeSounds.Value) return;
+            var e = MainEntry(_hovered);
+            if (e != null && e.Enabled)
+                UIAudioManager.Play(UIAudioManager.HoverLightHash);
+        }
+
+        /// <summary>Which wedge index a mouse delta from the ring centre points at (-1 if the
+        /// ring is empty). Exposed to <c>RadialController</c> for flick-commit (R2), which resolves
+        /// a sector without ever drawing the ring.</summary>
+        internal static int SectorFromMouse(Vector2 delta, int count)
         {
             if (count <= 0) return -1;
             float angle = Mathf.Atan2(delta.y, delta.x);
@@ -1397,6 +1490,10 @@ namespace StationeersUIMod.Overlay
                 if (_satellite != null) _hovered = -1;
             }
 
+            // R8: hover tick. _hovered is now final for the frame; a fresh landing on an
+            // ENABLED wedge ticks once. De-duped so a static hover never repeats the sound.
+            HoverTick();
+
             // --- slide-out trigger (dwell-gated so fast flick-releases aren't hijacked) ---
             // Never while dragging a chip: the hand is busy — a child radial popping up
             // mid-drag both steals the drop target and reads as noise (0.6.2 request).
@@ -1404,8 +1501,13 @@ namespace StationeersUIMod.Overlay
             // reaching into the world" (Z-grab / world-slot grab), so a child radial dwelling
             // open would fight the world interaction (resetting the candidate stops it firing
             // the instant the key is released).
-            if (_satellite == null && _hovered >= 0 && _mainDist > outerR + 14f
-                && _parking.Dragging == null && !altReach)
+            // Drop the RMB-close suppression once the cursor comes back inside the ring or moves
+            // onto a different wedge (so a later swipe on that same wedge can still open it).
+            if (_mainDist <= outerR + 14f || (_hovered >= 0 && _hovered != _slideOutSuppressIndex))
+                _slideOutSuppressIndex = -1;
+
+            if (_satellite == null && _hovered >= 0 && _hovered != _slideOutSuppressIndex
+                && _mainDist > outerR + 14f && _parking.Dragging == null && !altReach)
             {
                 var hoveredEntry = MainEntry(_hovered);
                 if (hoveredEntry != null && hoveredEntry.HasSlideOut)

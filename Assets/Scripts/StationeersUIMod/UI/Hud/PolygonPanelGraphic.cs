@@ -21,10 +21,15 @@ namespace StationeersUIMod.UI.Hud
     /// baked into the contour (Catmull-Rom / — later — Bézier), so the fill never needs to know
     /// about them; edges are densely subdivided so the visor <see cref="VisorWarp"/> can bow them.
     ///
-    /// NOT yet honoured (deferred; the props exist for <see cref="IGlassSurface"/> parity but the
-    /// mesh ignores them): the outer/inner GLOW halos, whose PanelGraphic implementation is bound
-    /// to the four-corner-arc miter machinery. Everything else (fill, border, feather, soft edge,
-    /// sheen, spec, border-fade, per-side border, ripple, FX uv0) renders like a panel.
+    /// The outer/inner GLOW halos render here too (same 8-stop decay + light-shaped intensity
+    /// recipe as PanelGraphic, emitted along the contour's own normal columns), with freeform
+    /// guards: the inner band's depth cap is tighter than the rectangle's (inward offsets can
+    /// cross at narrow necks — folds degrade fail-soft through EarClipFill's fan), the miter is
+    /// capped for glow stops so a sharp corner can't fan a 160px halo into a spike, and the
+    /// inner glow's alpha dissolves toward corners (the same seam-kill the panel uses).
+    /// Everything else (fill, border, feather, soft edge, sheen, spec, border-fade, per-side
+    /// border, ripple, FX uv0) renders like a panel. The ripple stays the STATIC baked shimmer —
+    /// the moving/flowing ripple is the analytic SDF path, which remains rectangle-only.
     /// </summary>
     [RequireComponent(typeof(CanvasRenderer))]
     public sealed class PolygonPanelGraphic : MaskableGraphic, IHudFxGraphic, IGlassSurface
@@ -55,7 +60,7 @@ namespace StationeersUIMod.UI.Hud
         // ── glass / FX knobs (IGlassSurface). Defaults match "off" so an unstyled shape is a
         // flat translucent fill + thin border, exactly like an unstyled panel.
         private float _sheen, _spec, _borderFade, _softEdge, _fxStrength;
-        private float _glow, _glowInner, _glowWidth = 24f, _glowDiffuse;   // stored; mesh ignores (see class note)
+        private float _glow, _glowInner, _glowWidth = 24f, _glowDiffuse, _glowExtraDiffuse;
         private float _edgeRipple, _edgeRippleFreq = 2f, _rippleSmooth;
         private float _featherOverride = -1f;
         private int _borderSides = 15;
@@ -69,9 +74,17 @@ namespace StationeersUIMod.UI.Hud
         public float GlowInner { get => _glowInner; set { SetClamp(ref _glowInner, value, 0f, 2f); } }
         public float GlowWidth { get => _glowWidth; set { SetClamp(ref _glowWidth, value, 6f, 160f, 24f); } }
         public float GlowDiffuse { get => _glowDiffuse; set { Set01(ref _glowDiffuse, value); } }
+        public float GlowExtraDiffuse { get => _glowExtraDiffuse; set { Set01(ref _glowExtraDiffuse, value); } }
         public float EdgeRipple { get => _edgeRipple; set { SetClamp(ref _edgeRipple, value, 0f, 2.5f); } }
         public float EdgeRippleFreq { get => _edgeRippleFreq; set { SetClamp(ref _edgeRippleFreq, value, 0.05f, 8f, 2f); } }
         public float RippleSmooth { get => _rippleSmooth; set { Set01(ref _rippleSmooth, value); } }
+
+        // The MOVING ripple (0 = static). When flowing, the mesh stops baking the static
+        // position-keyed shimmer and instead writes (arc-length, weight·amount, freq, speed)
+        // into uv1; HudEdgeFX/HudGlass animate a travelling 3-harmonic wave off _Time. An old
+        // resident bundle simply ignores uv1 → the static look (fail-soft both directions).
+        private float _flowSpeed;
+        public float FlowSpeed { get => _flowSpeed; set { SetClamp(ref _flowSpeed, value, 0f, 4f); } }
 
         /// <summary>Per-element AA-ramp width (px); -1 (default) = the global HudConfig.EdgeFeather.</summary>
         public float FeatherOverride
@@ -160,8 +173,13 @@ namespace StationeersUIMod.UI.Hud
         private static readonly List<Vector2> _nrm = new List<Vector2>(256);  // per-vertex outward normal
         private static readonly List<float> _miter = new List<float>(256);
         private static readonly List<int> _ring = new List<int>(256);         // ear-clip index ring
-        private static readonly float[] _stopD = new float[6];
-        private static readonly Color[] _stopC = new Color[6];
+        private static readonly List<int> _colOf = new List<int>(256);        // contour vertex -> first column index
+        private static readonly List<float> _arcLen = new List<float>(256);   // cumulative contour length (flow phase)
+        // Max stops per column: 4 inner-glow + 4 base + 8 outer-halo (same counts as PanelGraphic).
+        private static readonly float[] _stopD = new float[16];
+        private static readonly Color[] _stopC = new Color[16];
+        private static readonly float[] _stopM = new float[16];
+        private static readonly float[] _inW = new float[4];
 
         protected override void OnPopulateMesh(VertexHelper vh)
         {
@@ -234,59 +252,239 @@ namespace StationeersUIMod.UI.Hud
                 _nrm.Add(nn); _miter.Add(m);
             }
 
-            // 5. Colour-stop distances along each outward normal (mirrors PanelGraphic's base ramp).
+            // Cumulative arc length per contour vertex (px) — the moving ripple's phase axis
+            // (uv1.x). One seam where the loop closes; the static ripple has the same trait.
+            _arcLen.Clear();
+            float arcAcc = 0f;
+            for (int i = 0; i < n; i++)
+            {
+                _arcLen.Add(arcAcc);
+                arcAcc += (_contour[(i + 1) % n] - _contour[i]).magnitude;
+            }
+
+            // 5. Colour-stop distances along each outward normal — the same three-band ramp
+            //    PanelGraphic runs: [inner-glow band] [fill/border base stops] [outer halo].
             float f = Feather;
             float bw = Mathf.Max(0f, _borderWidth);
             bool hasBorder = bw > 0.05f && _borderColor.a > 0.004f;
             float rampD = f;
-            int stops;
+
+            // Inner glow: the depth cap is TIGHTER than PanelGraphic's rectangular 0.55 — a
+            // freeform contour's inward offsets can cross at narrow necks (the polygon's
+            // medial axis), and the cap keeps folds invisible before they become possible.
+            // A pathological neck degrades fail-soft: EarClipFill fans + warns once.
+            bool hasGlowIn = _glowInner > 0.004f;
+            float glowInD = 0f;
+            int inStops = 0;
+            if (hasGlowIn)
+            {
+                glowInD = Mathf.Min(Mathf.Min(_glowWidth, 160f), Mathf.Min(hw, hh) * 0.3f);
+                if (glowInD < rampD + 1.5f) hasGlowIn = false; else inStops = 4;
+            }
+            if (inStops > 0)
+            {
+                // Same smoothstep-complement power falloff as PanelGraphic (shared exponent).
+                float pIn = Mathf.Lerp(Mathf.Lerp(2f, 0.65f, _glowDiffuse), 0.5f,
+                    _glowExtraDiffuse);
+                for (int gs = 0; gs < inStops; gs++)
+                {
+                    float u = 1f - gs / (float)inStops; // 1 deepest .. toward the frame
+                    float sm = u * u * (3f - 2f * u);
+                    _inW[gs] = Mathf.Pow(1f - sm, pIn);
+                    _stopD[gs] = Mathf.Lerp(-glowInD, -rampD, gs / (float)inStops);
+                    _stopM[gs] = 1f - u;
+                }
+            }
+
+            int baseStops;
             if (hasBorder)
             {
-                _stopD[0] = -rampD;   // fill, ramping to the border
-                _stopD[1] = 0f;       // border inner
-                _stopD[2] = bw;       // border solid
-                _stopD[3] = bw + f;   // fade out
-                stops = 4;
+                _stopD[inStops + 0] = -rampD;   // fill, ramping to the border
+                _stopD[inStops + 1] = 0f;       // border inner
+                _stopD[inStops + 2] = bw;       // border solid
+                _stopD[inStops + 3] = bw + f;   // fade out
+                baseStops = 4;
             }
             else
             {
-                _stopD[0] = 0f;
-                _stopD[1] = f;
-                stops = 2;
+                _stopD[inStops + 0] = 0f;
+                _stopD[inStops + 1] = f;
+                baseStops = 2;
             }
-            if (_softEdge > 0.01f) _stopD[stops - 1] += _softEdge;   // wide melt-out skirt
+            if (_softEdge > 0.01f) _stopD[inStops + baseStops - 1] += _softEdge;   // wide melt-out skirt
+            for (int mi = 0; mi < baseStops; mi++) _stopM[inStops + mi] = 1f;
 
-            // 6. Emit one column of `stops` verts per contour vertex, coloured per the glass shading.
+            // Outer halo: eight decay stops in the same column system (PanelGraphic's
+            // Mach-band-killing count); uv0.y markers fade 1 -> 0 across the band.
+            bool hasGlow = _glow > 0.004f;
+            int stops = inStops + baseStops;
+            float outerD = _stopD[inStops + baseStops - 1];
+            if (hasGlow)
+            {
+                for (int gs = 0; gs < 8; gs++)
+                {
+                    float t = (gs + 1) / 8f;
+                    _stopD[inStops + baseStops + gs] = outerD + Mathf.Min(_glowWidth, 160f) * t;
+                    _stopM[inStops + baseStops + gs] = 1f - t;
+                }
+                stops += 8;
+            }
+            float pFall = Mathf.Lerp(Mathf.Lerp(2f, 0.65f, _glowDiffuse), 0.5f,
+                _glowExtraDiffuse);
+            float shapeFloor = Mathf.Lerp(0.08f + 0.27f * _glowDiffuse, 0.62f,
+                _glowExtraDiffuse);
+            float rippleShare = 0.35f * (1f - _glowDiffuse);
+
+            // 6. Emit columns of `stops` verts along the contour, coloured per the glass
+            //    shading. A sharp CONVEX corner emits a halo FAN — several columns rotating
+            //    from the incoming to the outgoing edge normal — instead of one mitered
+            //    column: a single 45°-mitered column stretched a square corner's halo into a
+            //    bright diamond ray with hard bevels between sparse columns (play-test
+            //    2026-07-16, "tighter squares"). Base/inner stops stay mitered and COINCIDENT
+            //    across the fan with identical colours (the coincident-verts lesson), so the
+            //    crisp border corner is untouched; only the halo wraps at constant width.
+            _colOf.Clear();
+            int totalCols = 0;
             for (int i = 0; i < n; i++)
             {
                 Vector2 p = _contour[i];
                 Vector2 pc = p - center;
                 Vector2 dir = _nrm[i];
+                float mm = _miter[i];
+                _colOf.Add(totalCols);
+                // Inward glow stops keep a nearly-flat miter (deep inward spikes cross the
+                // medial axis); halo stops fan on a capped miter so a sharp corner can't
+                // shoot a 160px-wide spike. Base stops keep the exact original behaviour.
+                float mmIn = Mathf.Min(mm, 1.25f);
+                float mmHalo = Mathf.Min(mm, 1.5f);
+
                 Color fillC = FillAt(pc.y, hh);
                 if (hasBorder)
                 {
                     Color bc = BorderAt(dir, pc, hw);
-                    _stopC[0] = fillC; _stopC[1] = bc; _stopC[2] = bc; _stopC[3] = Fade(bc);
+                    _stopC[inStops + 0] = fillC; _stopC[inStops + 1] = bc;
+                    _stopC[inStops + 2] = bc; _stopC[inStops + 3] = Fade(bc);
                 }
                 else
                 {
-                    _stopC[0] = fillC; _stopC[1] = Fade(fillC);
+                    _stopC[inStops + 0] = fillC; _stopC[inStops + 1] = Fade(fillC);
                 }
-                float mm = _miter[i];
-                for (int s = 0; s < stops; s++)
-                    AddVertFx(vh, p + dir * (_stopD[s] * mm), _stopC[s], 1f);
+
+                if (hasGlow || hasGlowIn)
+                {
+                    // PanelGraphic.ColumnColors' halo recipe, ported verbatim: accent-hued
+                    // (raw border colour, never the spec-whitened bc — whitened halos read as
+                    // grey fog), light-shaped so unlit stretches emit almost nothing (which
+                    // also tames overlap stacking at freeform corners), keeping only a
+                    // fraction of the border's ripple shimmer.
+                    Color halo = hasBorder ? Color.Lerp(color, _borderColor, 0.75f) : color;
+                    // Round 3 (2026-07-16): the halo shapes by the SOFT cosine lobe, never the
+                    // border's sharp specular exponent (thin radial rays out of square-shape
+                    // corners at high sharpness) — see PanelGraphic.KeyLightWeightSoft. The
+                    // ripple share rides the same soft base, keeping the flow-bake gate.
+                    float txH = Mathf.Clamp01((pc.x + hw) / (2f * hw));
+                    float lwS = PanelGraphic.KeyLightWeightSoft(dir, txH);
+                    float lwR = (_edgeRipple > 0.004f && _flowSpeed <= 0.004f)
+                        ? Mathf.Clamp(lwS * RippleGain(pc), 0f, 2f) : lwS;
+                    float lw = Mathf.Min(1.2f, Mathf.Lerp(lwS, lwR, rippleShare));
+                    float baseA = Mathf.Max(0.5f, halo.a);
+                    float shaped = 0.55f * baseA * (shapeFloor + (1f - shapeFloor) * lw)
+                        * (1f - 0.35f * _glowDiffuse);
+                    if (hasGlow)
+                    {
+                        float a0 = Mathf.Min(0.9f, _glow * shaped);
+                        for (int gs = 0; gs < 8; gs++)
+                        {
+                            float t = (gs + 1) / 8f;
+                            float s = t * t * (3f - 2f * t);
+                            Color g = halo; g.a = a0 * Mathf.Pow(1f - s, pFall);
+                            _stopC[inStops + baseStops + gs] = g;
+                        }
+                        // Continuity: the base fade lands ON the halo's inner value, so the
+                        // profile runs border -> glow -> nothing without a hard ring.
+                        Color h0 = halo; h0.a = a0;
+                        _stopC[inStops + baseStops - 1] = h0;
+                    }
+                    if (hasGlowIn)
+                    {
+                        // Corner dissolve (the panel's seam-kill): adjacent edges' inner bands
+                        // overlap at bends, so the inner glow's ALPHA fades out where the
+                        // contour turns. The shape's own corner signal is its miter length —
+                        // 1 on straight runs, >1 at bends. Colour only; no geometry change.
+                        float glowFade = Mathf.Clamp01(2f - mm);
+                        float aGi = Mathf.Min(0.9f, _glowInner * shaped) * glowFade;
+                        for (int gs = 0; gs < inStops; gs++)
+                        {
+                            // Position-true fill under the band stop (the panel's bowtie-X
+                            // lesson: sample the fill at the stop vertex's own y).
+                            float bd = _stopD[gs] * mmIn;
+                            Color fillHere = FillAt(pc.y + dir.y * bd, hh);
+                            _stopC[gs] = PanelGraphic.GlowOver(halo, aGi * _inW[gs], fillHere);
+                        }
+                        Color fillRamp = FillAt(pc.y - dir.y * rampD * mm, hh);
+                        _stopC[inStops] = PanelGraphic.GlowOver(halo, aGi, hasBorder ? fillRamp : fillC);
+                    }
+                }
+
+                // Fan test: raw edge normals (not the averaged _nrm) around this vertex.
+                Vector2 pPrev = _contour[(i - 1 + n) % n];
+                Vector2 pNext = _contour[(i + 1) % n];
+                Vector2 eIn = (p - pPrev).normalized;
+                Vector2 eOut = (pNext - p).normalized;
+                float turnDeg = Vector2.SignedAngle(eIn, eOut); // + = left turn = convex (CCW)
+                bool fanCorner = hasGlow && turnDeg > 24f;
+
+                float arc = _arcLen[i];
+                if (!fanCorner)
+                {
+                    for (int s = 0; s < stops; s++)
+                    {
+                        float d;
+                        if (s < inStops) d = _stopD[s] * mmIn;
+                        else if (s < inStops + baseStops) d = _stopD[s] * mm;
+                        else d = outerD * mm + (_stopD[s] - outerD) * mmHalo;
+                        AddVertFx(vh, p + dir * d, _stopC[s], _stopM[s], arc, FlowWeight(s, inStops));
+                    }
+                    totalCols++;
+                }
+                else
+                {
+                    // Halo fan: base/inner verts repeat the mitered positions (coincident,
+                    // same colours — degenerate strips), halo verts rotate at constant width
+                    // from the bevel radius, one column every ~18° of turn.
+                    Vector2 nIn = new Vector2(eIn.y, -eIn.x);
+                    float turnRad = turnDeg * Mathf.Deg2Rad;
+                    int fanCols = Mathf.Clamp(2 + Mathf.CeilToInt(turnDeg / 18f), 3, 9);
+                    for (int k = 0; k < fanCols; k++)
+                    {
+                        Vector2 dirK = Rot(nIn, turnRad * k / (fanCols - 1));
+                        for (int s = 0; s < stops; s++)
+                        {
+                            float d; Vector2 dd;
+                            if (s < inStops) { d = _stopD[s] * mmIn; dd = dir; }
+                            else if (s < inStops + baseStops) { d = _stopD[s] * mm; dd = dir; }
+                            else { d = outerD * mm + (_stopD[s] - outerD); dd = dirK; }
+                            AddVertFx(vh, p + dd * d, _stopC[s], _stopM[s], arc, FlowWeight(s, inStops));
+                        }
+                        totalCols++;
+                    }
+                }
             }
 
             // 7. Interior fill: ear-clip the contour, emit triangles over each vertex's stop-0 vert
-            //    (the on-contour / inner-ramp fill vertex). Convex or concave both handled; fill and
-            //    border share the same outer contour, so there is no internal seam ("fused").
-            EarClipFill(vh, _contour, stops);
+            //    (the deepest inner-glow vert when that band exists, else the inner-ramp fill vert).
+            //    Convex or concave both handled; fill and border share the same outer contour, so
+            //    there is no internal seam ("fused"). _colOf maps contour vertex -> first column
+            //    (corner fans add columns; their stop-0 verts are coincident, any one works).
+            EarClipFill(vh, _contour, stops, _colOf);
 
-            // 8. Ring strips between consecutive columns (border band + fade), like PanelGraphic.
-            for (int i = 0; i < n; i++)
+            // 8. Ring strips between consecutive columns (inner glow + border band + fade + halo),
+            //    like PanelGraphic. Fan columns ride the same loop: their base bands are degenerate
+            //    (coincident verts) and their halo bands form the corner wedge.
+            for (int c = 0; c < totalCols; c++)
             {
-                int ai = i * stops;
-                int aj = ((i + 1) % n) * stops;
+                int ai = c * stops;
+                int aj = ((c + 1) % totalCols) * stops;
                 for (int s = 0; s < stops - 1; s++)
                 {
                     vh.AddTriangle(ai + s, ai + s + 1, aj + s + 1);
@@ -294,6 +492,19 @@ namespace StationeersUIMod.UI.Hud
                 }
             }
         }
+
+        /// <summary>Rotate a 2D vector by <paramref name="rad"/> radians (CCW positive).</summary>
+        private static Vector2 Rot(Vector2 v, float rad)
+        {
+            float c = Mathf.Cos(rad), s = Mathf.Sin(rad);
+            return new Vector2(v.x * c - v.y * s, v.x * s + v.y * c);
+        }
+
+        /// <summary>How strongly the moving ripple modulates each stop: nothing on the fill
+        /// stop (the interior must never pulse), the rim marker's own ramp everywhere else
+        /// (full on the border band, decaying across the halo, ramping in across the inner glow).</summary>
+        private float FlowWeight(int s, int inStops)
+            => s == inStops ? 0f : _stopM[s];
 
         // ---- contour construction ----
 
@@ -389,9 +600,10 @@ namespace StationeersUIMod.UI.Hud
         // ---- interior triangulation (ear clipping) ----
 
         /// <summary>Ear-clip <paramref name="poly"/> (assumed CCW, simple) and emit fill triangles
-        /// over each vertex's stop-0 vertex (index i*stops). O(n²), no allocation beyond the index
-        /// ring. Fail-soft: if it stalls on self-intersecting input, fan the remainder + warn once.</summary>
-        private static void EarClipFill(VertexHelper vh, List<Vector2> poly, int stops)
+        /// over each vertex's stop-0 vertex (index colOf[i]*stops — corner fans make columns
+        /// per-vertex variable). O(n²), no allocation beyond the index ring. Fail-soft: if it
+        /// stalls on self-intersecting input, fan the remainder + warn once.</summary>
+        private static void EarClipFill(VertexHelper vh, List<Vector2> poly, int stops, List<int> colOf)
         {
             int n = poly.Count;
             _ring.Clear();
@@ -419,7 +631,7 @@ namespace StationeersUIMod.UI.Hud
                         if (PointInTri(poly[idx], a, b, c)) { empty = false; break; }
                     }
                     if (!empty) continue;
-                    vh.AddTriangle(i0 * stops, i1 * stops, i2 * stops);
+                    vh.AddTriangle(colOf[i0] * stops, colOf[i1] * stops, colOf[i2] * stops);
                     _ring.RemoveAt(k);
                     clipped = true;
                     break;
@@ -429,14 +641,14 @@ namespace StationeersUIMod.UI.Hud
 
             if (_ring.Count == 3)
             {
-                vh.AddTriangle(_ring[0] * stops, _ring[1] * stops, _ring[2] * stops);
+                vh.AddTriangle(colOf[_ring[0]] * stops, colOf[_ring[1]] * stops, colOf[_ring[2]] * stops);
             }
             else if (_ring.Count > 3)
             {
                 // Fallback: a naive fan (may look wrong on a concave remainder, but never crashes).
                 if (!_warnedEarClip) { _warnedEarClip = true; UIALog.Warn("PolygonPanelGraphic: ear-clip fell back to fan (self-intersecting contour?)."); }
                 for (int k = 1; k < _ring.Count - 1; k++)
-                    vh.AddTriangle(_ring[0] * stops, _ring[k] * stops, _ring[k + 1] * stops);
+                    vh.AddTriangle(colOf[_ring[0]] * stops, colOf[_ring[k]] * stops, colOf[_ring[k + 1]] * stops);
             }
         }
 
@@ -488,16 +700,22 @@ namespace StationeersUIMod.UI.Hud
         private float BorderLightW(Vector2 dir, Vector2 p, float hw)
         {
             float w = BorderLightSmooth(dir, p, hw);
-            if (_edgeRipple > 0.004f)
-            {
-                float t = (p.x + p.y * 0.7f) * (_edgeRippleFreq * 0.0628f);
-                float harm = 1f - _rippleSmooth;
-                float ripple = 1f + _edgeRipple * (0.32f * Mathf.Sin(t)
-                    + harm * (0.24f * Mathf.Sin(t * 2.417f + 1.7f)
-                    + 0.14f * Mathf.Sin(t * 5.089f + 4.2f)));
-                w = Mathf.Clamp(w * ripple, 0f, 2f);
-            }
+            // Flowing ripple replaces the static bake entirely (the shader animates the same
+            // wave off uv1) — baking both would stack a frozen copy under the moving one.
+            if (_edgeRipple > 0.004f && _flowSpeed <= 0.004f)
+                w = Mathf.Clamp(w * RippleGain(p), 0f, 2f);
             return w;
+        }
+
+        /// <summary>EdgeRipple's multiplicative gain at a contour point — PanelGraphic's
+        /// recipe. Split out so the halo can ripple its SOFT light weight.</summary>
+        private float RippleGain(Vector2 p)
+        {
+            float t = (p.x + p.y * 0.7f) * (_edgeRippleFreq * 0.0628f);
+            float harm = 1f - _rippleSmooth;
+            return 1f + _edgeRipple * (0.32f * Mathf.Sin(t)
+                + harm * (0.24f * Mathf.Sin(t * 2.417f + 1.7f)
+                + 0.14f * Mathf.Sin(t * 5.089f + 4.2f)));
         }
 
         private Color BorderAt(Vector2 dir, Vector2 p, float hw)
@@ -532,8 +750,18 @@ namespace StationeersUIMod.UI.Hud
 
         private static Color Fade(Color c) { c.a = 0f; return c; }
 
-        private void AddVertFx(VertexHelper vh, Vector3 pos, Color32 c, float marker)
-            => vh.AddVert(pos, c, new Vector2(_fxStrength, marker));
+        // uv0 = (per-element FX strength, centre/edge marker) — the established contract.
+        // uv1 = (contour arc-length px, flowWeight·rippleAmount, rippleFreq, flowSpeed) — the
+        // moving-ripple payload; all-zero when not flowing, which every shader treats as off.
+        private void AddVertFx(VertexHelper vh, Vector3 pos, Color32 c, float marker,
+            float arcLen = 0f, float flowW = 0f)
+            // uv0.z = the ripple's harmonic weight (1 - RippleSmooth), so the shader's moving
+            // wave honours RippleSmooth exactly like the static bake (was hardcoded 0.6).
+            => vh.AddVert(pos, c, new Vector4(_fxStrength, marker, 1f - _rippleSmooth, 0f),
+                _flowSpeed > 0.004f
+                    ? new Vector4(arcLen, flowW * _edgeRipple, _edgeRippleFreq, _flowSpeed)
+                    : Vector4.zero,
+                new Vector3(0f, 0f, -1f), new Vector4(1f, 0f, 0f, -1f));
 
         private static bool NearlySame(Vector2 a, Vector2 b) => (a - b).sqrMagnitude < 1e-6f;
     }

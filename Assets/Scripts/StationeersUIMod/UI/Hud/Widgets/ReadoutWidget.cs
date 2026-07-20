@@ -121,6 +121,14 @@ namespace StationeersUIMod.UI.Hud.Widgets
             _barRt.anchorMin = _barRt.anchorMax = new Vector2(0.5f, 0.5f);
         }
 
+        /// <summary>A stacked-layout row height as a fraction of the content region. Clamped rather
+        /// than validated: a hand-edited profile holding 5 or -2 pins the row to an edge instead of
+        /// flinging the text outside the box.</summary>
+        private float StackRow(string key, float def)
+        {
+            return Mathf.Clamp01(Def.GetF(key, def));
+        }
+
         public override void Layout(float scale)
         {
             Root.anchoredPosition = Vector2.zero;
@@ -129,7 +137,7 @@ namespace StationeersUIMod.UI.Hud.Widgets
 
             bool showBar = Def.GetB("bar", true);
             bool vertical = Def.GetB("barVertical", false);
-            float iconScale = Def.GetF("iconScale", 1f); // F9 "Icon scale" multiplier
+            float iconScale = Def.GetFFor(LayoutBare, "iconScale", 1f); // F9 "Icon scale" multiplier
 
             // Per-element "Wrap text": the label/target wrap to the box width or spill on one line.
             bool wrapText = Def.GetB("wrap", true);
@@ -138,7 +146,7 @@ namespace StationeersUIMod.UI.Hud.Widgets
 
             ((RectTransform)_box.transform).anchoredPosition = c;
             _box.SetShape(s.x, s.y,
-                Radius(Def.RTL), Radius(Def.RTR), Radius(Def.RBR), Radius(Def.RBL),
+                Radius(Def.RTLFor(LayoutBare)), Radius(Def.RTRFor(LayoutBare)), Radius(Def.RBRFor(LayoutBare)), Radius(Def.RBLFor(LayoutBare)),
                 InsetTop(scale), InsetBottom(scale));
 
             float pad = 6f * scale;
@@ -182,9 +190,13 @@ namespace StationeersUIMod.UI.Hud.Widgets
             // bar already reserved along the bottom.
             if (Def.GetB("stack", false))
             {
-                float lblY = Mathf.Lerp(cBot, cTop, 0.84f);
-                float tgtY = Mathf.Lerp(cBot, cTop, 0.54f);
-                float valY = Mathf.Lerp(cBot, cTop, 0.26f);
+                // Row heights are fractions of the content region (0 = bottom edge, 1 = top), so
+                // they hold their proportions at any box size or HUD scale. Editable in F9 —
+                // the shipped 0.84/0.54/0.26 leave the value crowding the TARGET line on a short
+                // box, and there was no way to open that gap up.
+                float lblY = Mathf.Lerp(cBot, cTop, StackRow("rowTitleY", 0.84f));
+                float tgtY = Mathf.Lerp(cBot, cTop, StackRow("rowTargetY", 0.54f));
+                float valY = Mathf.Lerp(cBot, cTop, StackRow("rowValueY", 0.26f));
                 _label.alignment = TMPro.TextAlignmentOptions.Center;
                 _value.alignment = TMPro.TextAlignmentOptions.Center;
                 _labelRt.anchoredPosition = new Vector2(cx, lblY);
@@ -257,7 +269,7 @@ namespace StationeersUIMod.UI.Hud.Widgets
             Reading r = Read(snap, src);
 
             // --- chrome (per-element ColorRef overrides via the base helpers) ---
-            bool showBox = Def.GetB("box", true);
+            bool showBox = Def.GetBFor(LayoutBare, "box", true);
             _box.enabled = showBox;
             if (showBox)
             {
@@ -336,7 +348,7 @@ namespace StationeersUIMod.UI.Hud.Widgets
 
             // Font tracks the box size (from Layout's _autoValueRef) times an optional F9
             // multiplier, so shrinking the box shrinks the text. "textScale" default 1.
-            float vs = _autoValueRef * Def.GetF("textScale", 1f) * Def.FontScale;
+            float vs = _autoValueRef * Def.GetFFor(LayoutBare, "textScale", 1f) * Def.FontScaleFor(LayoutBare);
             HudText.Sync(_label); HudText.Sync(_value); HudText.Sync(_target);
             _value.fontSize = HudText.Size(vs) * scale;
             _label.fontSize = HudText.Size(vs * 0.62f) * scale;
@@ -369,11 +381,11 @@ namespace StationeersUIMod.UI.Hud.Widgets
                 _bar.SetZones(r.WarnLow, r.CritLow, r.WarnHigh, r.CritHigh);
                 _bar.Value = r.Valid ? r.Raw : float.NaN;
                 _bar.Target = (showTarget && r.HasTarget) ? r.Target : float.NaN;
-                _bar.FillColor = GlobalOr(Def.GetS("barFill", ""), HudPalette.Good.Value);
-                _bar.WarnColor = GlobalOr(Def.GetS("barWarn", ""), HudPalette.Warn.Value);
-                _bar.CritColor = GlobalOr(Def.GetS("barCrit", ""), HudPalette.Critical.Value);
-                _bar.TrackColor = GlobalOr(Def.GetS("barTrack", ""), HudPalette.PanelBorder.Value);
-                _bar.TargetColor = GlobalOr(Def.GetS("barTarget", ""), HudPalette.TextValue.Value);
+                _bar.FillColor = GlobalOr(Def.GetSFor(LayoutBare, "barFill", ""), HudPalette.Good.Value);
+                _bar.WarnColor = GlobalOr(Def.GetSFor(LayoutBare, "barWarn", ""), HudPalette.Warn.Value);
+                _bar.CritColor = GlobalOr(Def.GetSFor(LayoutBare, "barCrit", ""), HudPalette.Critical.Value);
+                _bar.TrackColor = GlobalOr(Def.GetSFor(LayoutBare, "barTrack", ""), HudPalette.PanelBorder.Value);
+                _bar.TargetColor = GlobalOr(Def.GetSFor(LayoutBare, "barTarget", ""), HudPalette.TextValue.Value);
                 _bar.CornerRadius = 3f * scale;
                 _bar.TargetWidth = 2f * scale;
             }
@@ -384,7 +396,7 @@ namespace StationeersUIMod.UI.Hud.Widgets
         /// <summary>"Game" bar style: vanilla's own pressure-ramp sprites in the strip the
         /// procedural bar would occupy.</summary>
         private bool UseGameBar()
-            => string.Equals(Def.GetS("barStyle", ""), "game", System.StringComparison.OrdinalIgnoreCase);
+            => string.Equals(Def.GetSFor(LayoutBare, "barStyle", ""), "game", System.StringComparison.OrdinalIgnoreCase);
 
         private void EnsureRamp()
         {
@@ -688,27 +700,34 @@ namespace StationeersUIMod.UI.Hud.Widgets
             into.Add(HudProp.Bool("Wrap text (label/target)", () => d.GetB("wrap", true), v => d.SetB("wrap", v)));
             into.Add(HudProp.Bool("Stacked layout", () => d.GetB("stack", false), v => d.SetB("stack", v)));
             into.Add(HudProp.Bool("Vertical bar", () => d.GetB("barVertical", false), v => d.SetB("barVertical", v)));
+            // Stacked-only row heights (0 = bottom of the content region, 1 = top). Ignored by the
+            // tall-card and compact-row layouts, which stack their rows in a different order.
+            into.Add(HudProp.F("Stacked: title row Y", () => d.GetF("rowTitleY", 0.84f),
+                v => d.SetF("rowTitleY", Mathf.Clamp01(v)), 0f, 1f));
+            into.Add(HudProp.F("Stacked: target row Y", () => d.GetF("rowTargetY", 0.54f),
+                v => d.SetF("rowTargetY", Mathf.Clamp01(v)), 0f, 1f));
+            into.Add(HudProp.F("Stacked: value row Y", () => d.GetF("rowValueY", 0.26f),
+                v => d.SetF("rowValueY", Mathf.Clamp01(v)), 0f, 1f));
             for (int i = layoutStart; i < into.Count; i++) into[i].Group = HudPropGroup.Layout;
 
             int appearanceStart = into.Count;
-            into.Add(HudProp.Bool("Background box", () => d.GetB("box", true), v => d.SetB("box", v)));
+            into.Add(HudProp.Bool("Background box", () => d.GetBFor(EditBare(d), "box", true), v => d.SetBFor(EditBare(d), "box", v)));
             into.Add(HudProp.Enum("Bar style", () => UseGameBar() ? 1 : 0,
-                v => d.Set("barStyle", v == 1 ? "game" : null), BarStyleNames));
-            if (!FollowGlobal) // hidden for both legacy-follow and coherent Global style modes
-            {
-                into.Add(HudProp.Color("Bar fill", () => d.GetS("barFill", ""),
-                    v => d.Set("barFill", Empty(v)), () => HudPalette.Good.Value));
-                into.Add(HudProp.Color("Bar warn", () => d.GetS("barWarn", ""),
-                    v => d.Set("barWarn", Empty(v)), () => HudPalette.Warn.Value));
-                into.Add(HudProp.Color("Bar crit", () => d.GetS("barCrit", ""),
-                    v => d.Set("barCrit", Empty(v)), () => HudPalette.Critical.Value));
-                into.Add(HudProp.Color("Bar track", () => d.GetS("barTrack", ""),
-                    v => d.Set("barTrack", Empty(v)), () => HudPalette.PanelBorder.Value));
-                into.Add(HudProp.Color("Bar target", () => d.GetS("barTarget", ""),
-                    v => d.Set("barTarget", Empty(v)), () => HudPalette.TextValue.Value));
-            }
-            into.Add(HudProp.F("Icon scale", () => d.GetF("iconScale", 1f), v => d.SetF("iconScale", Mathf.Clamp(v, 0.2f, 4f)), 0.2f, 4f));
-            into.Add(HudProp.F("Text scale (× box-auto)", () => d.GetF("textScale", 1f), v => d.SetF("textScale", Mathf.Clamp(v, 0.3f, 3f)), 0.3f, 3f));
+                v => d.SetSFor(EditBare(d), "barStyle", v == 1 ? "game" : null), BarStyleNames));
+            // Bar refs are colours, and colours are per-element in BOTH style states (the
+            // 2026-07-16 standardisation): empty tracks the palette slot, hex stands alone.
+            into.Add(HudProp.Color("Bar fill", () => d.GetSFor(EditBare(d), "barFill", ""),
+                v => d.SetSFor(EditBare(d), "barFill", Empty(v)), () => HudPalette.Good.Value));
+            into.Add(HudProp.Color("Bar warn", () => d.GetSFor(EditBare(d), "barWarn", ""),
+                v => d.SetSFor(EditBare(d), "barWarn", Empty(v)), () => HudPalette.Warn.Value));
+            into.Add(HudProp.Color("Bar crit", () => d.GetSFor(EditBare(d), "barCrit", ""),
+                v => d.SetSFor(EditBare(d), "barCrit", Empty(v)), () => HudPalette.Critical.Value));
+            into.Add(HudProp.Color("Bar track", () => d.GetSFor(EditBare(d), "barTrack", ""),
+                v => d.SetSFor(EditBare(d), "barTrack", Empty(v)), () => HudPalette.PanelBorder.Value));
+            into.Add(HudProp.Color("Bar target", () => d.GetSFor(EditBare(d), "barTarget", ""),
+                v => d.SetSFor(EditBare(d), "barTarget", Empty(v)), () => HudPalette.TextValue.Value));
+            into.Add(HudProp.F("Icon scale", () => d.GetFFor(EditBare(d), "iconScale", 1f), v => d.SetFFor(EditBare(d), "iconScale", Mathf.Clamp(v, 0.2f, 4f)), 0.2f, 4f));
+            into.Add(HudProp.F("Text scale (× box-auto)", () => d.GetFFor(EditBare(d), "textScale", 1f), v => d.SetFFor(EditBare(d), "textScale", Mathf.Clamp(v, 0.3f, 3f)), 0.3f, 3f));
             for (int i = appearanceStart; i < into.Count; i++) into[i].Group = HudPropGroup.Appearance;
         }
 

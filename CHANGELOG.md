@@ -2,6 +2,102 @@
 
 All notable changes to the mod. Detailed engineering write-ups live in `Changes Reports/`.
 
+## 0.9.1.0 Experimental — 2026-07-20 — THE UNIVERSAL INVENTORY + THE BELT WHEEL
+
+The inventory half of the redesign lands: one window for everything you carry, bags you can pin out
+onto the screen, and the tool radial grown into a real loadout system. Plus a long artifact hunt
+through the HUD's glass and a large batch of designer/menu work.
+
+### The Universal Inventory (new)
+- **One window for everything you carry** (`B`): worn equipment, both hands' contents, and every bag
+  nested inside them — recursively, however deep.
+- **Flat grid layout**: each storage bag is a bordered block of one-item boxes with a trapezoidal
+  **manila-folder tab**; a tool that merely *has* slots (drill, welder, tablet) stays a **single box**
+  instead of unfolding. The storage-vs-tool test is decompile-verified (`is Tool` → box; `SlotType`
+  Back/Belt/Suit/Uniform → region; any `Slot.Class.None`/`Ore` general slot → region) — vanilla makes
+  no such distinction, it expands a drill exactly like a bag.
+- **Pin a bag out**: drag its folder tab out of the window and it becomes its own movable/resizable
+  window with a **shrink/restore** button (the game's own `ResizeShrinkIcon`, resolved live at
+  runtime). `Shift`+`1`–`6` toggles that worn bag's window; mouse-mod + click a HUD equipment slot
+  pins it. Pins persist per-save with their geometry.
+- **Pins outlive the window**: `B` closes only the main window — pinned bags stay up and keep
+  updating. The vanilla close-all (`` ` ``) is what puts everything away (keeping the pin records);
+  a pin's own ✕/shrink is what truly unpins.
+- **It never steals the mouse**: `B` opens with the cursor still **locked**, so head-look and movement
+  keep working. The window registers no cursor-unlocking modal at all — you free the mouse with the
+  vanilla mouse-modifier, and only then does it take clicks.
+- **Item drag-drop** box→box (move / swap / merge), click-to-hand, right-click → that item's radial,
+  and per-container **Sort** in each box's corner. Every mutation is one message through
+  `ItemActions` with the occupant identity pinned at **drag start** and re-verified at execute time.
+- **Resizable + movable with memory**: bottom-right grip (three diagonal lines) resizes, the title bar
+  moves it, and both persist. The grid **re-wraps** as the width changes; an F10 slider sets box size
+  and icons scale with it.
+- **Inherits the global box theme** — colour, border width, corner radius, sheen, edge light and frost
+  all resolve from your F9 globals (with per-value overrides), and the window is **click-editable in
+  the F9 designer** like any box.
+- A **"Nested" tree view** was built first; it is kept in the codebase but hidden and unreachable.
+
+### The Belt Wheel (the MMB tool radial)
+- Renamed from "Toolbelt". **`Q` swaps which tool belt you are wearing** — the belt *is* the loadout,
+  so a second belt is a second kit, swapped in one gated `OnServer.SwapSlots`.
+- **Tool home slots**: smart-stow returns each tool **type** to the slot it lives in, per belt, stored
+  per save; occupied home → nearest free slot, which becomes the new home. Manual placement rebinds.
+- **Stable wedge geometry** — a slot keeps its angle even when its tool is in your hand, with the
+  bound tool's name ghosted in place (moved onto the hub arc with its own colour).
+- **Flick-commit** (flick to a tool without the ring ever drawing) and **double-tap repeat-last**, both
+  opt-in in F10; a second normal tap still closes.
+- **Wedge sounds** (hover tick / commit / denied) using the game's own pooled UI sounds.
+- **Hint bar**: fades per hint as you learn it, restyled to black curved glass, and author-able from
+  the F10 radial editor.
+- **Head-look hold** — hold MMB while a radial is open to look around without closing it.
+- Radial value pills, hub text fit, value placement, RMB-back on satellites.
+- **Anti-hotbar guard**: tool-into-hand wedges can never be key-bound (bags keep Ctrl+1–0, device
+  settings keep letter binds).
+
+### HUD glass — the halo/artifact hunt
+- **Corner rays root-caused**: it was the *specular* light lobe, not geometry — halos now shape by a
+  soft cosine lobe. Ray streaks fade with skirt depth; a frame-projected, low-passed wave replaced the
+  old modulation.
+- The **halo X crease** fix is ungated; **freeform pen shapes** get halos and corner fans.
+- **Organic breathing + flowing SDF halo**; moving ripple on lines and shapes; **per-element ripple
+  desync** (frequency + tempo); `RippleSmooth` honoured while flowing; extra-diffuse + organic scale.
+- Box **end-fade** shape and border influence.
+
+### Designer + menus
+- **Pen tool reworked** to an Illustrator-style Bézier model, with point editing moved into the popup.
+- **Resolution-independent HUD scaling**; the authoring resolution now travels with the profile.
+- Off-screen element **self-heal**; **element inspector audit** (missing and lying controls); custom
+  elements reach parity with the global Effects tab; stacked readout row heights exposed.
+- **Bare senses overhaul** (layout, editable sense catalog, nested tabs); per-mode bare-suit visual
+  overrides (Robot checkbox removed).
+- **Status alert pulse** — suit warnings tint and breathe the HUD.
+- **F10 Control Center** is real HUD glass (`PanelGraphic`), follows the F9 theme, is click-to-edit,
+  matches the HUD panel fill, and keeps its scroll position; storage-tab dropdown collapse fixed.
+- Style standardization — legacy paths regressed to the two-state contract.
+
+### Inventory + interaction
+- **Drag items out of the HUD hand and 1–6 boxes**, and drop a **world item into a HUD slot** (inbound
+  drag) — vanilla's own drag lives on panels the mod hides, so this reimplements the gesture through
+  the MP-safe funnel.
+- **Cursor latch** (double-tap the mouse modifier).
+- Damage alert, unpack boxes, radial toggle, stow priority.
+
+### Fixes
+- The bowtie **"X" artifact is gone from every inventory box** — root cause was `PanelGraphic`'s
+  single-fan interior interpolating any interior gradient *radially* along corner→centre triangles;
+  the dense interior-ring fill is now applied to every Grid surface.
+- **Smart-stow flash root-caused** (an InventoryTweaks conflict) after several attempts; the leak and
+  broken-X damage icons are the real vanilla art.
+- The vanilla **controls-conflict banner** is gone (UIA keys un-register from the vanilla screen).
+- **Dragging an item out of a HUD slot no longer opens/pins the inventory** — the pin now requires a
+  genuine click (same slot, sub-threshold movement, no grab in the gesture).
+- **Scrolling fixed** in the inventory window (the viewport had no raycast target, so the wheel
+  produced no events over empty area); it is hover-gated and empty boxes drag-scroll.
+- **TMP glyph rule**: displayed strings are ASCII-only — arrow/dingbat glyphs rendered as tofu boxes.
+  Icons are drawn, not typed.
+- Verified: vanilla's `InstantStop` (`B`) is a **dead binding** with no consumer, so the inventory
+  hotkey does not conflict with it.
+
 ## 0.9.0.1 Experimental — 2026-07-16 — THE PEN, THE CONTROL CENTER + LIGHT YOU AIM
 
 A design-tooling pass on top of 0.9.0: draw your own shapes, aim the light, and take every effect

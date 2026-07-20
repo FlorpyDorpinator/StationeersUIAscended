@@ -110,7 +110,7 @@ namespace StationeersUIMod.UI.Hud.Widgets
             _center = c;
 
             ((RectTransform)_back.transform).anchoredPosition = c;
-            _back.SetShape(w, h, Mathf.Min(Radius(Def.RTL), h * 0.4f),
+            _back.SetShape(w, h, Mathf.Min(Radius(Def.RTLFor(LayoutBare)), h * 0.4f),
                 InsetTop(scale), InsetBottom(scale));
 
             // The mask stays at the (unwarped) centre; its children are individually bent
@@ -149,7 +149,7 @@ namespace StationeersUIMod.UI.Hud.Widgets
 
             // Boxless mode (Glassy 2.0 top bar): the strip fades straight into whatever
             // it sits on — no backdrop, no border.
-            bool showBox = Def.GetB("box", true);
+            bool showBox = Def.GetBFor(LayoutBare, "box", true);
             _back.enabled = showBox;
             if (showBox)
             {
@@ -171,7 +171,7 @@ namespace StationeersUIMod.UI.Hud.Widgets
                 _degrees.gameObject.SetActive(true);
                 PlaceOnCurveRoot(_degrees.rectTransform, new Vector2(0f, -h * 0.5f - 9f * scale));
                 HudText.Sync(_degrees);
-                _degrees.fontSize = HudText.Size(12f * Def.FontScale) * scale;
+                _degrees.fontSize = HudText.Size(12f * Def.FontScaleFor(LayoutBare)) * scale;
                 _degrees.color = HudPalette.CompassCardinal.Value;
                 int hd = Mathf.RoundToInt(heading);
                 if (hd != _lastDeg || _degStr == null) { _lastDeg = hd; _degStr = hd + "°"; }
@@ -216,7 +216,7 @@ namespace StationeersUIMod.UI.Hud.Widgets
                     var t = _labels[label++];
                     t.gameObject.SetActive(true);
                     HudText.Sync(t);
-                    t.fontSize = HudText.Size(12f * Def.FontScale) * scale;
+                    t.fontSize = HudText.Size(12f * Def.FontScaleFor(LayoutBare)) * scale;
                     t.color = cardColor;
                     HudText.Set(t, Cardinals[ci]);
                     t.rectTransform.sizeDelta = new Vector2(40f * scale, 16f * scale);
@@ -231,8 +231,8 @@ namespace StationeersUIMod.UI.Hud.Widgets
         {
             base.DescribeProps(into);
             var d = Def;
-            into.Add(HudProp.Bool("Backdrop box", () => d.GetB("box", true),
-                v => d.SetB("box", v)));
+            into.Add(HudProp.Bool("Backdrop box", () => d.GetBFor(EditBare(d), "box", true),
+                v => d.SetBFor(EditBare(d), "box", v)));
             into[into.Count - 1].Group = HudPropGroup.Appearance;
 
             into.Add(HudProp.F("Compass FOV°", () => d.GetF("fov", 90f),

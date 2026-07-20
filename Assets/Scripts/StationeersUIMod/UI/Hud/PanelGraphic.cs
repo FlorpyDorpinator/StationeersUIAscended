@@ -36,6 +36,8 @@ namespace StationeersUIMod.UI.Hud
         private float _sdfEdgeFlowSpeed = 0.22f;
         private float _sdfFrostAmount, _sdfFrostDepth = 1f, _sdfChromaAmount;
         private float _sdfShineAmount, _sdfIridAmount;
+        private float _sdfHaloHaze, _sdfHaloBreath, _sdfHaloUneven, _sdfHaloFlowAura;
+        private float _sdfHaloOrganicScale = 1f;
         private bool _sdfDissolve;
         private float _sdfEdgeFadeX, _sdfEdgeFadeY;
 
@@ -48,8 +50,12 @@ namespace StationeersUIMod.UI.Hud
         /// invokes this every content tick, but an unchanged panel never rebuilds.</summary>
         public void SetSdfStyle(bool enabled, float squircle, bool gaussianHalo,
             float edgeFlowSpeed, float frostAmount, float frostDepth, float chromaAmount,
-            float shineAmount, float iridAmount, bool dissolve, float edgeFadeX, float edgeFadeY)
+            float shineAmount, float iridAmount, bool dissolve, float edgeFadeX, float edgeFadeY,
+            float haloHaze, float haloBreath, float haloUneven, float haloFlowAura,
+            float haloOrganicScale)
         {
+            haloOrganicScale = float.IsNaN(haloOrganicScale)
+                ? 1f : Mathf.Clamp(haloOrganicScale, 0.25f, 4f);
             squircle = float.IsNaN(squircle) ? 2f : Mathf.Clamp(squircle, 2f, 8f);
             edgeFlowSpeed = float.IsNaN(edgeFlowSpeed) ? 0f : Mathf.Clamp(edgeFlowSpeed, 0f, 4f);
             frostAmount = float.IsNaN(frostAmount) ? 0f : Mathf.Clamp01(frostAmount);
@@ -59,6 +65,10 @@ namespace StationeersUIMod.UI.Hud
             iridAmount = float.IsNaN(iridAmount) ? 0f : Mathf.Clamp01(iridAmount);
             edgeFadeX = float.IsNaN(edgeFadeX) ? 0f : Mathf.Clamp(edgeFadeX, 0f, 0.5f);
             edgeFadeY = float.IsNaN(edgeFadeY) ? 0f : Mathf.Clamp(edgeFadeY, 0f, 0.5f);
+            haloHaze = float.IsNaN(haloHaze) ? 0f : Mathf.Clamp01(haloHaze);
+            haloBreath = float.IsNaN(haloBreath) ? 0f : Mathf.Clamp01(haloBreath);
+            haloUneven = float.IsNaN(haloUneven) ? 0f : Mathf.Clamp01(haloUneven);
+            haloFlowAura = float.IsNaN(haloFlowAura) ? 0f : Mathf.Clamp(haloFlowAura, 0f, 2f);
             if (_sdfMode == enabled
                 && Mathf.Approximately(_sdfSquircle, squircle)
                 && _sdfGaussianHalo == gaussianHalo
@@ -70,7 +80,12 @@ namespace StationeersUIMod.UI.Hud
                 && Mathf.Approximately(_sdfIridAmount, iridAmount)
                 && _sdfDissolve == dissolve
                 && Mathf.Approximately(_sdfEdgeFadeX, edgeFadeX)
-                && Mathf.Approximately(_sdfEdgeFadeY, edgeFadeY)) return;
+                && Mathf.Approximately(_sdfEdgeFadeY, edgeFadeY)
+                && Mathf.Approximately(_sdfHaloHaze, haloHaze)
+                && Mathf.Approximately(_sdfHaloBreath, haloBreath)
+                && Mathf.Approximately(_sdfHaloUneven, haloUneven)
+                && Mathf.Approximately(_sdfHaloFlowAura, haloFlowAura)
+                && Mathf.Approximately(_sdfHaloOrganicScale, haloOrganicScale)) return;
             _sdfMode = enabled;
             _sdfSquircle = squircle;
             _sdfGaussianHalo = gaussianHalo;
@@ -83,6 +98,11 @@ namespace StationeersUIMod.UI.Hud
             _sdfDissolve = dissolve;
             _sdfEdgeFadeX = edgeFadeX;
             _sdfEdgeFadeY = edgeFadeY;
+            _sdfHaloHaze = haloHaze;
+            _sdfHaloBreath = haloBreath;
+            _sdfHaloUneven = haloUneven;
+            _sdfHaloFlowAura = haloFlowAura;
+            _sdfHaloOrganicScale = haloOrganicScale;
             SetVerticesDirty();
         }
 
@@ -158,6 +178,7 @@ namespace StationeersUIMod.UI.Hud
         private float _glowInner;
         private float _glowWidth = 24f;
         private float _glowDiffuse;
+        private float _glowExtraDiffuse;
         private int _borderSides = 15;
 
         /// <summary>0..1 — at 1 the border's ALPHA follows the directional light term: lit
@@ -263,14 +284,14 @@ namespace StationeersUIMod.UI.Hud
             }
         }
 
-        /// <summary>6..160 — <see cref="Glow"/> halo radius in px. Default 24. Inert while Glow is
-        /// 0, so the default never perturbs the byte-identical baseline.</summary>
+        /// <summary>6..320 — halo / flowing-aura radius in px. Default 24. The wider range is
+        /// primarily for sparse atmospheric layouts; large skirts increase transparent overdraw.</summary>
         public float GlowWidth
         {
             get => _glowWidth;
             set
             {
-                value = float.IsNaN(value) ? 24f : Mathf.Clamp(value, 6f, 160f);
+                value = float.IsNaN(value) ? 24f : Mathf.Clamp(value, 6f, 320f);
                 if (!Mathf.Approximately(_glowWidth, value)) { _glowWidth = value; SetVerticesDirty(); }
             }
         }
@@ -288,6 +309,20 @@ namespace StationeersUIMod.UI.Hud
             {
                 value = float.IsNaN(value) ? 0f : Mathf.Clamp01(value);
                 if (!Mathf.Approximately(_glowDiffuse, value)) { _glowDiffuse = value; SetVerticesDirty(); }
+            }
+        }
+
+        /// <summary>0..1 — softness beyond <see cref="GlowDiffuse"/>'s ceiling: the falloff
+        /// exponent continues from 0.65 down to the C1 bound 0.5 (below that Mach bands
+        /// return) and the directional floor rises toward near-uniform wrap. 0 is exactly
+        /// the pre-existing look. Applies to both glow bands on every render path.</summary>
+        public float GlowExtraDiffuse
+        {
+            get => _glowExtraDiffuse;
+            set
+            {
+                value = float.IsNaN(value) ? 0f : Mathf.Clamp01(value);
+                if (!Mathf.Approximately(_glowExtraDiffuse, value)) { _glowExtraDiffuse = value; SetVerticesDirty(); }
             }
         }
 
@@ -411,10 +446,19 @@ namespace StationeersUIMod.UI.Hud
             float feather = Mathf.Max(0.05f, Feather);
             bool hasBorder = _borderWidth > 0.05f && _borderColor.a > 0.004f;
             float baseOuter = hasBorder ? Mathf.Max(0f, _borderWidth) : 0f;
+            bool haloV2 = _glowWidth > 160.001f
+                || _sdfHaloHaze > 0.0001f || _sdfHaloBreath > 0.0001f
+                || _sdfHaloUneven > 0.0001f || _sdfHaloFlowAura > 0.0001f;
+            // Flag-128 extension (independent of v2): the edge-fade tangent lane repacks as
+            // V2 so its payload nibbles carry extra-diffuse and the organic noise scale.
+            // Neutral values never set the flag — untouched panels stay byte-exact.
+            bool fadeV2 = _glowExtraDiffuse > 0.0001f
+                || !Mathf.Approximately(_sdfHaloOrganicScale, 1f);
             // Shader band contract is sequential: base edge -> Feather + SoftEdge -> GlowWidth.
             // These widths must add; max() clips the outer halo whenever soft edge and glow coexist.
             float skirt = baseOuter + feather + _softEdge;
-            if (_glow > 0.004f) skirt += _glowWidth;
+            if (_glow > 0.004f || _sdfHaloFlowAura > 0.004f)
+                skirt += _glowWidth + (haloV2 ? 0.35f : 0f);
             skirt = Mathf.Max(2f, skirt);
             float ex = hw + skirt, ey = hh + skirt;
             int nx = Mathf.Clamp(Mathf.CeilToInt(ex * 2f / 48f), 1, 64);
@@ -435,6 +479,14 @@ namespace StationeersUIMod.UI.Hud
             int flags = _borderSides & 15;
             if (_sdfGaussianHalo) flags |= 16;
             if (_sdfDissolve) flags |= 32;
+            if (fadeV2) flags |= 128;
+
+            // ABI v2 is conditional. Untouched panels retain the exact original 12+12-bit
+            // Pack01 streams. V2 stores each legacy value in the high eight bits of its old
+            // 12-bit lane and uses the low nibble for new halo payload, so an old resident
+            // bundle degrades to <=160px with only sub-percent legacy-value error instead of
+            // decoding garbage after F6. Bit 64 tells the new shader to recover the payloads.
+            if (haloV2) flags |= 64;
 
             Vector4 uv1 = new Vector4(
                 Pack01(rBL / 1024f, rBR / 1024f),
@@ -448,15 +500,45 @@ namespace StationeersUIMod.UI.Hud
                 Pack01(_sheen, _spec),
                 Pack01(_borderFade, _softEdge / 48f),
                 Pack01(_glow / 2f, _glowInner / 2f));
-            Vector3 normal = new Vector3(
-                Pack01(_glowWidth / 160f, _glowDiffuse),
-                Pack01(_edgeRipple / 2.5f, _edgeRippleFreq / 8f),
-                Pack01(_rippleSmooth, _sdfEdgeFlowSpeed / 4f));
+            Vector3 normal;
+            if (haloV2)
+            {
+                int widthExtension = Mathf.RoundToInt(Mathf.Clamp01(
+                    (_glowWidth - 160f) / 160f) * 255f);
+                float extensionLow = (widthExtension & 15) / 15f;
+                float extensionHigh = ((widthExtension >> 4) & 15) / 15f;
+                normal = new Vector3(
+                    Pack01V2(Mathf.Min(_glowWidth, 160f) / 160f, _glowDiffuse,
+                        extensionLow, _sdfHaloHaze),
+                    Pack01V2(_edgeRipple / 2.5f, _edgeRippleFreq / 8f,
+                        _sdfHaloUneven, _sdfHaloFlowAura / 2f),
+                    Pack01V2(_rippleSmooth, _sdfEdgeFlowSpeed / 4f,
+                        _sdfHaloBreath, extensionHigh));
+            }
+            else
+            {
+                normal = new Vector3(
+                    Pack01(_glowWidth / 160f, _glowDiffuse),
+                    Pack01(_edgeRipple / 2.5f, _edgeRippleFreq / 8f),
+                    Pack01(_rippleSmooth, _sdfEdgeFlowSpeed / 4f));
+            }
+            // Organic scale rides a nibble on an INTEGER-CENTRED log2 grid: nibble 8 is
+            // exactly 1x (neutral must survive the flag-128 pack when only extra-diffuse is
+            // authored), 0 is 0.25x, 15 is 4x, with asymmetric steps above/below neutral.
+            // The shader inverts with exp2((n - 8) * (n >= 8 ? 2/7 : 1/4)).
+            float organicLog = Mathf.Log(_sdfHaloOrganicScale, 2f);
+            int organicStep = organicLog >= 0f
+                ? Mathf.RoundToInt(organicLog * 3.5f)
+                : Mathf.RoundToInt(organicLog * 4f);
+            float organicNibble = Mathf.Clamp(8 + organicStep, 0, 15) / 15f;
             Vector4 tangent = new Vector4(
                 Pack01(_sdfFrostAmount, _sdfFrostDepth),
                 Pack01(_sdfChromaAmount, (_sdfSquircle - 2f) / 6f),
                 Pack01(_sdfShineAmount / 2f, _sdfIridAmount),
-                Pack01(_sdfEdgeFadeX / 0.5f, _sdfEdgeFadeY / 0.5f));
+                fadeV2
+                    ? Pack01V2(_sdfEdgeFadeX / 0.5f, _sdfEdgeFadeY / 0.5f,
+                        _glowExtraDiffuse, organicNibble)
+                    : Pack01(_sdfEdgeFadeX / 0.5f, _sdfEdgeFadeY / 0.5f));
 
             Color32 fill = color;
             for (int y = 0; y <= ny; y++)
@@ -499,6 +581,19 @@ namespace StationeersUIMod.UI.Hud
         {
             int lo = Mathf.RoundToInt(Mathf.Clamp01(a) * 4095f);
             int hi = Mathf.RoundToInt(Mathf.Clamp01(b) * 4095f);
+            return lo + hi * 4096f;
+        }
+
+        /// <summary>ABI-v2 variant of Pack01. Each original 12-bit lane keeps an 8-bit base
+        /// value in its high bits and contributes a low-nibble payload. Old shaders still read
+        /// the base values approximately; the v2 decoder recovers all four values exactly at
+        /// their authored quantization.</summary>
+        private static float Pack01V2(float a, float b, float payloadA, float payloadB)
+        {
+            int lo = Mathf.RoundToInt(Mathf.Clamp01(a) * 255f) * 16
+                + Mathf.RoundToInt(Mathf.Clamp01(payloadA) * 15f);
+            int hi = Mathf.RoundToInt(Mathf.Clamp01(b) * 255f) * 16
+                + Mathf.RoundToInt(Mathf.Clamp01(payloadB) * 15f);
             return lo + hi * 4096f;
         }
 
@@ -553,7 +648,7 @@ namespace StationeersUIMod.UI.Hud
             float glowInD = 0f;
             if (hasGlowIn)
             {
-                glowInD = Mathf.Min(_glowWidth, Mathf.Min(hw, hh) * 0.55f);
+                glowInD = Mathf.Min(Mathf.Min(_glowWidth, 160f), Mathf.Min(hw, hh) * 0.55f);
                 if (glowInD < rampD + 1.5f) hasGlowIn = false; else inStops = 4;
             }
 
@@ -594,7 +689,9 @@ namespace StationeersUIMod.UI.Hud
             // ramp IN across the band exactly as they ramp OUT across the halo.
             if (inStops > 0)
             {
-                float pIn = Mathf.Lerp(2f, 0.65f, _glowDiffuse);
+                // ExtraDiffuse continues past the 0.65 ceiling to the C1 bound 0.5.
+                float pIn = Mathf.Lerp(Mathf.Lerp(2f, 0.65f, _glowDiffuse), 0.5f,
+                    _glowExtraDiffuse);
                 for (int gs = 0; gs < inStops; gs++)
                 {
                     float u = 1f - gs / (float)inStops; // 1 deepest .. toward the frame
@@ -622,7 +719,7 @@ namespace StationeersUIMod.UI.Hud
                 for (int gs = 0; gs < 8; gs++)
                 {
                     float t = (gs + 1) / 8f;
-                    _stopD[inStops + baseStops + gs] = outer + _glowWidth * t;
+                    _stopD[inStops + baseStops + gs] = outer + Mathf.Min(_glowWidth, 160f) * t;
                     _stopM[inStops + baseStops + gs] = 1f - t;
                 }
                 stops += 8;
@@ -668,10 +765,15 @@ namespace StationeersUIMod.UI.Hud
                     // The border itself keeps the full ripple; the glow rides mostly the
                     // smooth directional light, diffuseness removes the remainder entirely,
                     // and the cap stops overdrive (lw up to 2) from spiking the skirt.
-                    float lwS = BorderLightSmooth(dir, onShape, hw);
+                    // Round 3 (2026-07-16): the halo shapes by the SOFT cosine lobe, never the
+                    // border's sharp specular exponent — see KeyLightWeightSoft. The ripple
+                    // share rides the same soft base so a crest can't re-sharpen the lobe.
+                    float txH = Mathf.Clamp01((onShape.x + hw) / (2f * hw));
+                    float lwS = KeyLightWeightSoft(dir, txH);
                     float rippleShare = 0.35f * (1f - _glowDiffuse);
-                    float lw = Mathf.Min(1.2f,
-                        Mathf.Lerp(lwS, BorderLightW(dir, onShape, hw), rippleShare));
+                    float lwR = _edgeRipple > 0.004f
+                        ? Mathf.Clamp(lwS * RippleGain(onShape), 0f, 2f) : lwS;
+                    float lw = Mathf.Min(1.2f, Mathf.Lerp(lwS, lwR, rippleShare));
                     float baseA = Mathf.Max(0.5f, halo.a);
                     // Play-test round 7: the 0.3 "whisper" multiplier was over-corrected —
                     // maxed out the halo was "pretty much barely visible". Now that the glow
@@ -682,7 +784,8 @@ namespace StationeersUIMod.UI.Hud
                     // perimeter) and dims the peak — the flatter falloff pushes the energy
                     // AWAY from the frame instead of brightening the rim. `shaped` is the
                     // shared per-column light term; inner and outer scale it independently.
-                    float shapeFloor = 0.08f + 0.27f * _glowDiffuse;
+                    float shapeFloor = Mathf.Lerp(0.08f + 0.27f * _glowDiffuse, 0.62f,
+                        _glowExtraDiffuse);
                     float shaped = 0.55f * baseA * (shapeFloor + (1f - shapeFloor) * lw)
                         * (1f - 0.35f * _glowDiffuse);
                     if (hasGlow)
@@ -693,7 +796,8 @@ namespace StationeersUIMod.UI.Hud
                         // Mach-band killer (play-test round 6). The exponent flattens with
                         // GlowDiffuse (2 = tight rim, 0.65 = wide haze; near the outer end
                         // (1-s)^p ~ (1-t)^(2p), so any p > 0.5 keeps the landing slope zero).
-                        float pFall = Mathf.Lerp(2f, 0.65f, _glowDiffuse);
+                        float pFall = Mathf.Lerp(Mathf.Lerp(2f, 0.65f, _glowDiffuse), 0.5f,
+                            _glowExtraDiffuse);
                         for (int gs = 0; gs < 8; gs++)
                         {
                             float t = (gs + 1) / 8f;
@@ -1021,7 +1125,7 @@ namespace StationeersUIMod.UI.Hud
         /// alpha <paramref name="ga"/>) onto an existing vertex colour — the inner glow is
         /// LIGHT ON the glass, not a replacement fill, so hue pull and alpha rise follow
         /// the standard over operator instead of an ad-hoc lerp.</summary>
-        private static Color GlowOver(Color g, float ga, Color under)
+        internal static Color GlowOver(Color g, float ga, Color under)
         {
             float ua = under.a * (1f - ga);
             float oa = ga + ua;
@@ -1105,6 +1209,23 @@ namespace StationeersUIMod.UI.Hud
                  + LightRim * Mathf.Pow(k2, sharp) * (0.25f + 0.75f * txAcross);
         }
 
+        /// <summary>The HALO's directional light weight: the same key + rim lobes but as plain
+        /// cosines (exponent 1), never the configurable sharpness. The sharp lobe is a SPECULAR
+        /// term — right for the 1-2px border line, but extruded across a wide glow skirt its
+        /// thin angular peak anchors a bright radial RAY at any corner, because a corner fan
+        /// sweeps the outward normal through the light direction while every stop on that
+        /// column keeps the peak weight for the skirt's full depth (play-test 2026-07-16
+        /// round 3: thin diagonal ray pairs out of opposite corners of every square panel at
+        /// sharpness ~6 + rim ~1). Scattered light is diffuse: the cosine keeps the lit-side
+        /// bias — corner max 1.0 vs adjacent edge >= cos45 — with no concentrated peak, so a
+        /// ray cannot form at any authored sharpness. Mirrors HudPanelSdf's SoftEdgeLight.</summary>
+        internal static float KeyLightWeightSoft(Vector2 dir, float txAcross)
+        {
+            float dot = dir.x * LightX + dir.y * LightY;
+            return Mathf.Max(0f, dot) * (1f - 0.55f * txAcross)
+                 + LightRim * Mathf.Max(0f, -dot) * (0.25f + 0.75f * txAcross);
+        }
+
         /// <summary>Border colour for an edge whose outward normal is <paramref name="dir"/>
         /// at contour point <paramref name="p"/>. The directional light weight <c>w</c> is
         /// computed ONCE, independent of Spec, so BorderFade / EdgeRipple / BorderSides all work
@@ -1120,27 +1241,31 @@ namespace StationeersUIMod.UI.Hud
         private float BorderLightW(Vector2 dir, Vector2 p, float hw)
         {
             float w = BorderLightSmooth(dir, p, hw);
-
-            // EdgeRipple: irregular light/dark shimmer along the contour. Layered incommensurate
-            // sines (irrational frequency ratios) read as organic pseudo-noise, not a periodic
-            // wave. Position-based only — NO time term, so the mesh never rebuilds per frame.
             if (_edgeRipple > 0.004f)
             {
-                float t = (p.x + p.y * 0.7f) * (_edgeRippleFreq * 0.0628f);
-                // RippleSmooth fades out the two higher harmonics, so at 1 only the base sine
-                // survives — a clean, broad light→dark gradient instead of choppy noise.
-                float harm = 1f - _rippleSmooth;
-                float ripple = 1f + _edgeRipple * (0.32f * Mathf.Sin(t)
-                    + harm * (0.24f * Mathf.Sin(t * 2.417f + 1.7f)
-                    + 0.14f * Mathf.Sin(t * 5.089f + 4.2f)));
                 // Ceiling 2 (not 1): overdriven ripple (slider > 1) pushes crests PAST the
                 // nominal light weight so spec whitening saturates and the halo brightens at
                 // the catches, while troughs clip to fully dark — the "more extremes" ask.
                 // Every consumer is safe with w in [0,2]: Spec and BorderFade re-clamp
                 // internally, and the halo term caps a0 itself.
-                w = Mathf.Clamp(w * ripple, 0f, 2f);
+                w = Mathf.Clamp(w * RippleGain(p), 0f, 2f);
             }
             return w;
+        }
+
+        /// <summary>EdgeRipple's multiplicative gain at a contour point: irregular light/dark
+        /// shimmer from layered incommensurate sines (irrational frequency ratios read as
+        /// organic pseudo-noise, not a periodic wave). Position-based only — NO time term, so
+        /// the mesh never rebuilds per frame. RippleSmooth fades out the two higher harmonics,
+        /// so at 1 only the base sine survives — a clean, broad light→dark gradient instead of
+        /// choppy noise. Split out so the halo can ripple its SOFT light weight.</summary>
+        private float RippleGain(Vector2 p)
+        {
+            float t = (p.x + p.y * 0.7f) * (_edgeRippleFreq * 0.0628f);
+            float harm = 1f - _rippleSmooth;
+            return 1f + _edgeRipple * (0.32f * Mathf.Sin(t)
+                + harm * (0.24f * Mathf.Sin(t * 2.417f + 1.7f)
+                + 0.14f * Mathf.Sin(t * 5.089f + 4.2f)));
         }
 
         /// <summary>The smooth (ripple-free) directional light weight: cubic key-light catch

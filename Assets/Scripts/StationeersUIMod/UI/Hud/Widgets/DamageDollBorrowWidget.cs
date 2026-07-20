@@ -72,7 +72,7 @@ namespace StationeersUIMod.UI.Hud.Widgets
 
             ((RectTransform)_box.transform).anchoredPosition = c;
             _box.SetShape(s.x, s.y,
-                Radius(Def.RTL), Radius(Def.RTR), Radius(Def.RBR), Radius(Def.RBL),
+                Radius(Def.RTLFor(LayoutBare)), Radius(Def.RTRFor(LayoutBare)), Radius(Def.RBRFor(LayoutBare)), Radius(Def.RBLFor(LayoutBare)),
                 InsetTop(scale), InsetBottom(scale));
 
             _holder.anchoredPosition = c;
@@ -99,7 +99,7 @@ namespace StationeersUIMod.UI.Hud.Widgets
             bool dollActive = false;
             try { dollActive = _borrowed && _dollRt != null && _dollRt.gameObject.activeSelf; } catch { }
 
-            bool showBox = Def.GetB("box", true) && dollActive;
+            bool showBox = Def.GetBFor(LayoutBare, "box", true) && dollActive;
             _box.enabled = showBox;
             if (showBox)
             {
@@ -182,7 +182,7 @@ namespace StationeersUIMod.UI.Hud.Widgets
             if (_dollRt == null) { _borrowed = false; return; }
 
             var s = SizeFor(scale);
-            float pad = Def.GetF("padPx", 4f) * scale;
+            float pad = Def.GetFFor(LayoutBare, "padPx", 4f) * scale;
             float availW = Mathf.Max(1f, s.x - pad * 2f);
             float availH = Mathf.Max(1f, s.y - pad * 2f);
             float fit = Mathf.Min(availW / _nativeSize.x, availH / _nativeSize.y);
@@ -243,11 +243,11 @@ namespace StationeersUIMod.UI.Hud.Widgets
         {
             base.DescribeProps(into);
             var d = Def;
-            into.Add(HudProp.Bool("Box frame", () => d.GetB("box", true), v => d.SetB("box", v)));
+            into.Add(HudProp.Bool("Box frame", () => d.GetBFor(EditBare(d), "box", true), v => d.SetBFor(EditBare(d), "box", v)));
             into[into.Count - 1].Group = HudPropGroup.Appearance;
 
-            into.Add(HudProp.F("Inner padding px", () => d.GetF("padPx", 4f),
-                v => d.SetF("padPx", Mathf.Max(0f, v)), 0f, 40f));
+            into.Add(HudProp.F("Inner padding px", () => d.GetFFor(EditBare(d), "padPx", 4f),
+                v => d.SetFFor(EditBare(d), "padPx", Mathf.Max(0f, v)), 0f, 40f));
             into[into.Count - 1].Group = HudPropGroup.Layout;
         }
     }

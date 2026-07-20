@@ -380,6 +380,9 @@ namespace StationeersUIMod.Features
             var source = new ScannedSlot { Slot = slot, Holder = bag, Location = bag.DisplayName }.Pin();
             var thing = occ;
 
+            // A sealed package nested in this bag stays unpack-only — never a bag-in-a-bag view.
+            if (ItemMenuBuilder.IsUnpackBox(occ)) return ItemMenuBuilder.BuildUnpackBoxEntry(occ, source);
+
             // Bags are navigated; everything else is taken (click) or opened (slide-out).
             if (ItemMenuBuilder.LooksLikeContainer(occ))
             {

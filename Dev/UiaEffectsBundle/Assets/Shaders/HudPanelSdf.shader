@@ -25,6 +25,7 @@ Shader "UIA/HudPanelSdf"
     {
         [PerRendererData] _MainTex ("Sprite Texture", 2D) = "white" {}
         _Color ("Tint", Color) = (1,1,1,1)
+        [HideInInspector] _UiaSdfAbiVersion ("UIA SDF ABI Version", Float) = 2
 
         _StencilComp ("Stencil Comparison", Float) = 8
         _Stencil ("Stencil ID", Float) = 0
@@ -57,6 +58,12 @@ Shader "UIA/HudPanelSdf"
         _EdgeLightColor ("Edge Light Color", Color) = (1,1,1,1)
         _EdgeLightRim ("Opposing Edge Rim", Float) = 0.5
         _EdgeLightSharp ("Edge Light Sharpness", Float) = 3
+
+        // Shape of the per-element end fade (edgeFadeX/Y say where it is; these say how it
+        // gets there). Both default to an exact no-op so existing profiles are unchanged.
+        _EdgeFadeCurve ("End Fade Curve (<1 hard edge, >1 long tail)", Float) = 1
+        _EdgeFadeBorder ("End Fade Border Influence (1 = fades with the box)", Float) = 1
+        [HideInInspector] _UiaHaloBreathWave ("Halo Breath Wave", Float) = 0.5
     }
 
     SubShader
@@ -161,6 +168,9 @@ Shader "UIA/HudPanelSdf"
             fixed4 _EdgeLightColor;
             float _EdgeLightRim;
             float _EdgeLightSharp;
+            float _EdgeFadeCurve;
+            float _EdgeFadeBorder;
+            float _UiaHaloBreathWave;
 
             static const float UIA_PI2 = 6.28318530718;
 
@@ -189,6 +199,21 @@ Shader "UIA/HudPanelSdf"
                 float hi = floor(bits * (1.0 / 4096.0));
                 float lo = bits - hi * 4096.0;
                 return float2(lo, hi) * (1.0 / 4095.0);
+            }
+
+            // ABI v2 retains two approximate legacy values plus two four-bit payloads in the
+            // same exactly-representable 24-bit integer. Return baseA, baseB, payloadA, payloadB.
+            float4 Unpack01V2(float packedValue)
+            {
+                float bits = floor(packedValue + 0.5);
+                float laneB = floor(bits * (1.0 / 4096.0));
+                float laneA = bits - laneB * 4096.0;
+                float baseA = floor(laneA * (1.0 / 16.0));
+                float baseB = floor(laneB * (1.0 / 16.0));
+                float payloadA = laneA - baseA * 16.0;
+                float payloadB = laneB - baseB * 16.0;
+                return float4(baseA * (1.0 / 255.0), baseB * (1.0 / 255.0),
+                    payloadA * (1.0 / 15.0), payloadB * (1.0 / 15.0));
             }
 
             float FlagBit(float flags, float bitValue)
@@ -264,13 +289,20 @@ Shader "UIA/HudPanelSdf"
                 }
 
                 // A true rounded-box SDF necessarily has a max() medial axis deep inside.  Wide
-                // inner effects expose that derivative crease as an X.  For squircle exponents,
-                // blend toward a compact smooth-max of the radius-INDEPENDENT base box field.
+                // inner effects expose that derivative crease as an X.  Blend toward a compact
+                // smooth-max of the radius-INDEPENDENT base box field.
                 // Using one panel-wide width is important: a width derived from the selected
                 // corner radius jumps at quadrant boundaries when adjacent radii differ.
                 float squircleBlend = saturate((exponent - 2.0) * (1.0 / 6.0));
                 float meanRadius = dot(radii, float4(0.25, 0.25, 0.25, 0.25));
-                float smoothWidth = meanRadius * squircleBlend * 0.75;
+                // The crease exists at EVERY exponent and radius — the old width
+                // (meanRadius * squircleBlend) collapsed to zero on plain exponent-2 panels,
+                // so backlit inner halos still painted an X there (play-test 2026-07-16).
+                // Smooth panel-wide: half the short half-dimension always covers the medial
+                // wedge, while the C1 zero-contour gate below keeps the border/feather region
+                // exact — only deep-interior falloffs (inner glow/halo) change.
+                float smoothWidth = max(meanRadius * squircleBlend * 0.75,
+                    min(halfSize.x, halfSize.y) * 0.5);
                 if (smoothWidth > 0.001 && distance < 0.0)
                 {
                     float2 baseQ = abs(p) - halfSize;
@@ -342,9 +374,33 @@ Shader "UIA/HudPanelSdf"
                     * (0.25 + 0.75 * across);
             }
 
-            float RippledEdgeLight(float smoothLight, float2 localPosition, float amount,
-                float frequency, float smoothing, float flowSpeed)
+            // The halo/aura's directional shaping. SmoothEdgeLight's pow(dot,N) lobe is a
+            // SPECULAR term: correct on the 1-2px border line, but extruded across a wide
+            // halo skirt its thin angular peak anchors a bright cos^N radial RAY at any
+            // corner — the wedge sweeps the outward normal through the full turn, so it
+            // always crosses the light direction, and every pixel on that radial line keeps
+            // the peak weight across the skirt's whole depth (play-test 2026-07-16 round 3:
+            // the corner rays survived two wave-phase fixes because they are the LIGHT LOBE,
+            // not the wave; sharpness 5.8 + rim gave a thin ray pair out of opposite
+            // corners of every square panel, amplified by bloom). Scattered light is diffuse
+            // by nature: a plain cosine lobe keeps the lit-side bias — corner max 1.0 vs
+            // adjacent edge >= cos45 ~ 0.71, a broad pool — while a concentrated ray is
+            // impossible at ANY authored sharpness.
+            float SoftEdgeLight(float2 normal, float2 p, float halfWidth)
             {
+                float2 lightDir = _EdgeLightDir.xy;
+                lightDir *= rsqrt(max(dot(lightDir, lightDir), 1e-8));
+                float lightDot = dot(normal, lightDir);
+                float across = saturate((p.x + halfWidth) / max(2.0 * halfWidth, 1e-5));
+                return saturate(lightDot) * (1.0 - 0.55 * across)
+                    + max(0.0, _EdgeLightRim) * saturate(-lightDot)
+                    * (0.25 + 0.75 * across);
+            }
+
+            float RippledEdgeLight(float smoothLight, float2 localPosition, float amount,
+                float frequency, float smoothing, float flowSpeed, out float primaryFlow)
+            {
+                primaryFlow = 0.5;
                 if (amount <= 0.004) return smoothLight;
                 // Continuous 2D travelling waves avoid the unavoidable cut in a naively wrapped
                 // perimeter scalar.  Frequency retains the legacy meaning of cycles per ~100
@@ -361,6 +417,9 @@ Shader "UIA/HudPanelSdf"
                     - timePhase * 0.83 + 1.7);
                 float detailB = sin(dot(wavePosition * 5.089, float2(0.979398, -0.201938))
                     - timePhase * 1.19 + 4.2);
+                // The aura follows only this broad primary wave. High harmonics look excellent
+                // inside a thin border but fan into spokes when projected through a wide halo.
+                primaryFlow = saturate(0.5 + 0.5 * baseWave * saturate(amount));
                 float ripple = 1.0 + amount * (0.32 * baseWave
                     + harmonics * (0.24 * detailA + 0.14 * detailB));
                 return clamp(smoothLight * ripple, 0.0, 2.0);
@@ -463,11 +522,17 @@ Shader "UIA/HudPanelSdf"
                 underAlpha = outAlpha;
             }
 
-            float CheapHaloFalloff(float x, float diffuse)
+            float CheapHaloFalloff(float x, float diffuse, float extraDiffuse)
             {
                 x = saturate(x);
                 float smoothX = x * x * (3.0 - 2.0 * x);
-                return pow(max(0.0, 1.0 - smoothX), lerp(2.0, 0.65, saturate(diffuse)));
+                // ExtraDiffuse continues past GlowDiffuse's 0.65 exponent ceiling down to the
+                // documented C1 bound: (1-s)^p ~ (1-t)^(2p) near the outer end, so any p > 0.5
+                // keeps the landing slope zero — below that Mach bands return. Softness beyond
+                // p = 0.5 must come from WIDTH, not exponent.
+                float pFall = lerp(lerp(2.0, 0.65, saturate(diffuse)), 0.5,
+                    saturate(extraDiffuse));
+                return pow(max(0.0, 1.0 - smoothX), pFall);
             }
 
             float GaussianDistanceFalloff(float x)
@@ -499,20 +564,77 @@ Shader "UIA/HudPanelSdf"
                 float softEdge = borderFadeSoft.y * 48.0;
                 float2 glowAmounts = Unpack01(IN.baseStyle.w) * 2.0;
 
-                float2 glowStyle = Unpack01(IN.edgeStyle.x);
-                float glowWidth = glowStyle.x * 160.0;
-                float glowDiffuse = glowStyle.y;
-                float2 rippleStyle = Unpack01(IN.edgeStyle.y);
-                float rippleAmount = rippleStyle.x * 2.5;
-                float rippleFrequency = rippleStyle.y * 8.0;
-                float2 flowStyle = Unpack01(IN.edgeStyle.z);
-                float rippleSmooth = flowStyle.x;
-                float flowSpeed = flowStyle.y * 4.0;
+                float glowWidth;
+                float glowDiffuse;
+                float rippleAmount;
+                float rippleFrequency;
+                float rippleSmooth;
+                float flowSpeed;
+                float haloHaze = 0.0;
+                float haloUneven = 0.0;
+                float haloBreath = 0.0;
+                float haloFlowAura = 0.0;
+                if (FlagBit(flags, 64.0) > 0.5)
+                {
+                    float4 glowStyleV2 = Unpack01V2(IN.edgeStyle.x);
+                    float4 rippleStyleV2 = Unpack01V2(IN.edgeStyle.y);
+                    float4 flowStyleV2 = Unpack01V2(IN.edgeStyle.z);
+                    float extensionLow = floor(glowStyleV2.z * 15.0 + 0.5);
+                    float extensionHigh = floor(flowStyleV2.w * 15.0 + 0.5);
+                    float extensionByte = extensionLow + extensionHigh * 16.0;
+                    glowWidth = glowStyleV2.x * 160.0
+                        + extensionByte * (160.0 / 255.0);
+                    glowDiffuse = glowStyleV2.y;
+                    haloHaze = glowStyleV2.w;
+                    rippleAmount = rippleStyleV2.x * 2.5;
+                    rippleFrequency = rippleStyleV2.y * 8.0;
+                    haloUneven = rippleStyleV2.z;
+                    haloFlowAura = rippleStyleV2.w * 2.0;
+                    rippleSmooth = flowStyleV2.x;
+                    flowSpeed = flowStyleV2.y * 4.0;
+                    haloBreath = flowStyleV2.z;
+                }
+                else
+                {
+                    float2 glowStyle = Unpack01(IN.edgeStyle.x);
+                    glowWidth = glowStyle.x * 160.0;
+                    glowDiffuse = glowStyle.y;
+                    float2 rippleStyle = Unpack01(IN.edgeStyle.y);
+                    rippleAmount = rippleStyle.x * 2.5;
+                    rippleFrequency = rippleStyle.y * 8.0;
+                    float2 flowStyle = Unpack01(IN.edgeStyle.z);
+                    rippleSmooth = flowStyle.x;
+                    flowSpeed = flowStyle.y * 4.0;
+                }
 
                 float2 frostStyle = Unpack01(IN.optics.x);
                 float2 chromaSuper = Unpack01(IN.optics.y);
                 float2 shineIrid = Unpack01(IN.optics.z);
-                float2 edgeFade = Unpack01(IN.optics.w) * 0.5;
+                float2 edgeFade;
+                float extraDiffuse = 0.0;
+                float organicScale = 1.0;
+                if (FlagBit(flags, 128.0) > 0.5)
+                {
+                    // In-band extension (flag 128), same discipline as the flag-64 halo pack:
+                    // the edge-fade lane repacks as V2 and its two payload nibbles carry the
+                    // extra-diffuse softness and the organic noise scale. An older shader
+                    // Unpack01s this lane with sub-percent edge-fade error and renders without
+                    // the two extras; untouched panels never set the flag, staying byte-exact.
+                    float4 fadeV2 = Unpack01V2(IN.optics.w);
+                    edgeFade = fadeV2.xy * 0.5;
+                    extraDiffuse = fadeV2.z;
+                    // Integer-centred log2 grid: nibble 8 decodes to EXACTLY 1x, so neutral
+                    // survives the flag-128 pack when only extra-diffuse is authored (a
+                    // symmetric lerp had no code point at 1 — review 2026-07-16). Asymmetric
+                    // steps keep both endpoints: 0 -> 0.25x, 15 -> 4x.
+                    float organicN = fadeV2.w * 15.0;
+                    organicScale = exp2((organicN - 8.0)
+                        * (organicN >= 8.0 ? (2.0 / 7.0) : 0.25));
+                }
+                else
+                {
+                    edgeFade = Unpack01(IN.optics.w) * 0.5;
+                }
                 float frostAmount = frostStyle.x;
                 float frostDepth = frostStyle.y;
                 float chromaAmount = chromaSuper.x;
@@ -562,8 +684,9 @@ Shader "UIA/HudPanelSdf"
                 float haloStartDistance = baseOuterDistance + authoredOuterWidth;
 
                 float smoothLight = SmoothEdgeLight(screenOutwardNormal, p, halfSize.x);
+                float primaryFlow;
                 float edgeLight = RippledEdgeLight(smoothLight, p, rippleAmount,
-                    rippleFrequency, rippleSmooth, flowSpeed);
+                    rippleFrequency, rippleSmooth, flowSpeed, primaryFlow);
                 float sideMask = EnabledSideMask(outwardNormal, flags);
 
                 // Fill sheen mirrors PanelGraphic.FillAt: a quiet quadratic whitening toward top.
@@ -604,7 +727,7 @@ Shader "UIA/HudPanelSdf"
 
                 // Packed strengths are already resolved (global-follow vs local override) by C#.
                 // Do not multiply by the legacy family-strength uniforms a second time.
-                if (frostAmount > 0.001)
+                if (frostAmount > 0.001 && fillLayerAlpha > 0.0001)
                 {
                     float3 backdrop = SampleBlurDepth(blurUV, frostDepth);
                     if (chromaAmount > 0.001)
@@ -634,27 +757,103 @@ Shader "UIA/HudPanelSdf"
                 float3 haloRgb = lerp(accentFillRgb, accentBorderRgb, 0.75);
                 float haloSourceAlpha = max(0.5, max(fillSourceAlpha, borderColor.a));
                 float rippleShare = 0.35 * (1.0 - glowDiffuse);
-                float haloLight = min(1.2, lerp(smoothLight, edgeLight, rippleShare));
-                float shapeFloor = 0.08 + 0.27 * glowDiffuse;
+                // The halo's wave is sampled AT THE FRAME — each glow pixel projects back along
+                // the gradient to the border point that emits its light — and LOW-PASSED so one
+                // crest is always wider than the skirt is deep. Evaluated at the pixel instead,
+                // the plane wave's iso-phase lines paint parallel streaks across the skirt, and
+                // a corner wedge (a 90-degree fan the size of the halo radius) turns them into
+                // ray bursts (play-test 2026-07-16 round 2: "artifacting from the corners", the
+                // flowing aura worst). Projected, a wedge inherits the corner's single phase —
+                // rays cannot form — while crests still travel visibly along the frame and
+                // bleed outward through the halo's full reach. Signed projection also serves
+                // the inner glow (inside pixels project outward onto the contour).
+                float2 haloSource = p - distance * outwardNormal;
+                float haloFreq = min(rippleFrequency, 40.0 / max(glowWidth, 10.0));
+                // Round 3: the halo shapes by the SOFT cosine lobe, never the border's sharp
+                // specular exponent — see SoftEdgeLight. The border keeps `smoothLight`.
+                float haloSoftLight = SoftEdgeLight(screenOutwardNormal, p, halfSize.x);
+                float haloPrimary;
+                float haloRippled = RippledEdgeLight(haloSoftLight, haloSource, rippleAmount,
+                    haloFreq, 1.0, flowSpeed, haloPrimary); // smoothing 1 = primary wave only
+                float haloLight = min(1.2, lerp(haloSoftLight, haloRippled, rippleShare));
+                // ExtraDiffuse also raises the directional floor toward near-uniform wrap:
+                // the halo pools around the whole frame instead of only the lit side.
+                float shapeFloor = lerp(0.08 + 0.27 * glowDiffuse, 0.62,
+                    saturate(extraDiffuse));
                 float shapedLight = 0.55 * haloSourceAlpha
                     * (shapeFloor + (1.0 - shapeFloor) * haloLight)
                     * (1.0 - 0.35 * glowDiffuse) * sideMask;
 
                 float3 composedRgb = haloRgb;
                 float composedAlpha = 0.0;
-                if (glowAmounts.x > 0.004 && glowWidth > 0.05)
+                if ((glowAmounts.x > 0.004 || haloFlowAura > 0.004) && glowWidth > 0.05)
                 {
-                    float haloX = saturate(max(0.0, distance - haloStartDistance) / glowWidth);
-                    float cheapFalloff = CheapHaloFalloff(haloX, glowDiffuse);
+                    // Unevenness is stable in panel-local space. It only SHRINKS the local reach
+                    // inside the authored skirt, so no noisy lobe can remain nonzero at the
+                    // rectangular mesh boundary. Two low-frequency octaves avoid straight bands
+                    // without screen-space swimming or a branch-selected corner seam.
+                    float organic = 0.5;
+                    if (haloUneven > 0.001)
+                    {
+                        // OrganicScale stretches the noise footprint: >1 = bigger, slower
+                        // blobs (cells up to 320/128px at 4x — reach wanders panel-scale),
+                        // <1 = finer texture. Panel-local, so still no screen swim.
+                        float2 organicP = p / max(organicScale, 0.25);
+                        float coarse = valueNoise(organicP * 0.0125 + float2(11.7, 4.3));
+                        float detail = valueNoise(organicP * 0.03125 + float2(2.1, 19.4));
+                        organic = coarse * 0.72 + detail * 0.28;
+                    }
+                    float reachScale = lerp(1.0, 0.72 + 0.28 * organic, haloUneven);
+                    float unevenGain = lerp(1.0, 0.70 + 0.60 * organic, haloUneven);
+                    float effectiveWidth = max(0.05, glowWidth * reachScale);
+                    float haloX = saturate(max(0.0, distance - haloStartDistance)
+                        / effectiveWidth);
+                    float cheapFalloff = CheapHaloFalloff(haloX, glowDiffuse, extraDiffuse);
                     float gaussianFalloff = GaussianDistanceFalloff(haloX);
                     float haloFalloff = lerp(cheapFalloff, gaussianFalloff,
                         FlagBit(flags, 16.0));
+                    // Extended haze is a second low-energy tail, not a replacement for the core
+                    // falloff. The explicit smooth cutoff gives the wide skirt a zero-slope end.
+                    float hazeTail = exp2(-2.2 * haloX)
+                        * (1.0 - smoothstep(0.84, 1.0, haloX));
+                    haloFalloff = saturate(haloFalloff
+                        + haloHaze * 0.38 * hazeTail * (1.0 - haloFalloff));
                     // Let the halo rise underneath the outer base fade, reaching full energy at
                     // its endpoint.  Its own width begins there, matching the legacy stop order.
                     float outsideGate = smoothstep(baseOuterDistance - derivativeAA,
                         max(baseOuterDistance + derivativeAA, haloStartDistance), distance);
-                    composedAlpha = min(0.9, glowAmounts.x * shapedLight)
-                        * haloFalloff * outsideGate;
+                    // CPU publishes an unscaled shared oscillator. Only the OUTER halo/aura
+                    // breathes; fill, border, frost and inner glow remain steady.
+                    float breathGain = 1.0 + haloBreath
+                        * (saturate(_UiaHaloBreathWave) - 0.5) * 0.4;
+                    // Ripple/flow across the skirt rides the PROJECTED, low-passed wave computed
+                    // above (haloLight/haloPrimary) — see the haloSource note. No depth fade is
+                    // needed: stripes and corner rays are impossible by construction, so the
+                    // aura keeps its full outward reach.
+                    if (glowAmounts.x > 0.004)
+                    {
+                        // Cap the PEAK, then decay — matching the mesh paths' a0 clamp. With
+                        // the falloff inside the min, overdriven glow (>= ~1.4) flattened a
+                        // saturated plateau across the inner skirt (review 2026-07-16).
+                        composedAlpha = min(0.9, glowAmounts.x * shapedLight)
+                            * haloFalloff * outsideGate * unevenGain * breathGain;
+                    }
+
+                    // Independent aura: moving primary edge-energy crests can emit even when
+                    // ordinary outward Glow is zero. It shares the authored envelope but uses a
+                    // slightly tighter falloff and the edge-light tint so motion reads clearly.
+                    if (haloFlowAura > 0.004)
+                    {
+                        float flowFalloff = CheapHaloFalloff(haloX,
+                            saturate(glowDiffuse * 0.7), extraDiffuse);
+                        float flowEnergy = saturate(haloSoftLight
+                            * lerp(0.18, 1.45, haloPrimary));
+                        float flowAlpha = min(0.9, haloFlowAura * haloSourceAlpha
+                            * (0.05 + 0.60 * flowEnergy) * sideMask)
+                            * flowFalloff * outsideGate * unevenGain * breathGain;
+                        float3 flowRgb = lerp(haloRgb, _EdgeLightColor.rgb, 0.55);
+                        CompositeOver(flowRgb, flowAlpha, composedRgb, composedAlpha);
+                    }
                 }
 
                 CompositeOver(fillColor.rgb, fillLayerAlpha,
@@ -666,25 +865,52 @@ Shader "UIA/HudPanelSdf"
                         max(1.0, min(halfSize.x, halfSize.y) * 0.72));
                     float innerFalloff = 1.0 - smoothstep(0.0, innerWidth,
                         max(0.0, -distance));
+                    // Diffuse-aware inner falloff, anchored so the SHIPPED default is the
+                    // identity: diffuse <= 0.5 (the config default every untouched profile
+                    // carries) keeps exponent 1 — the old plain complement, bit-exact. Only
+                    // diffuse ABOVE 0.5 and ExtraDiffuse flatten it (p < 1 holds energy
+                    // deeper into the fill), so nothing changes until a slider moves.
+                    float pInner = lerp(
+                        lerp(1.0, 0.65, saturate((glowDiffuse - 0.5) * 2.0)),
+                        0.5, saturate(extraDiffuse));
+                    innerFalloff = pow(max(0.0, innerFalloff), pInner);
                     float innerAlpha = min(0.9, glowAmounts.y * shapedLight)
                         * innerFalloff * contourInside;
                     CompositeOver(haloRgb, innerAlpha, composedRgb, composedAlpha);
                 }
 
-                CompositeOver(borderColor.rgb, borderColor.a * borderMask,
-                    composedRgb, composedAlpha);
-
-                fixed4 col = fixed4(composedRgb, saturate(composedAlpha));
-
                 // Fragment-space end fade includes the complete authored skirt, so border, frost
                 // and halo dissolve together.  This replaces the old vertex ramp in SDF mode.
+                // Computed BEFORE the border composite so the border can carry its own fade rate.
                 float skirt = baseOuterDistance + authoredOuterWidth;
-                if (glowAmounts.x > 0.004)
+                if (glowAmounts.x > 0.004 || haloFlowAura > 0.004)
                     skirt += glowWidth;
                 skirt = max(2.0, skirt);
                 float fade = AxisEdgeFade(p.x, halfSize.x + skirt, edgeFade.x)
                     * AxisEdgeFade(p.y, halfSize.y + skirt, edgeFade.y);
                 fade = fade * fade * (3.0 - 2.0 * fade);
+                // Shape of the ramp.  The authored edgeFade fractions say WHERE the fade lives;
+                // this says how it gets there.  <1 holds opacity out further then drops hard
+                // (a crisp end); >1 bites sooner and trails off (a long atmospheric tail).
+                // Exponent 1 is an exact no-op, so untouched profiles are pixel-identical.
+                fade = pow(max(fade, 0.0), max(_EdgeFadeCurve, 0.01));
+
+                // How much the BORDER joins in.  The element's effective border fade is
+                // fade^_EdgeFadeBorder, reached by pre-scaling the border's alpha by the ratio
+                // to the fill's fade and letting the shared mask below supply the rest.
+                //   1 = border fades exactly with the box (the historical behaviour, ratio 1.0)
+                //   >1 = border surrenders first (dark plate outlives its own outline)
+                //   <1 = border holds its full alpha while the fill melts out from under it
+                // A pre-scale keeps the mask a single honest opacity on the whole element, so a
+                // border can never out-live the box it belongs to — it fades LATER, not never.
+                // CompositeOver saturates its top alpha, so the boost self-limits.
+                float borderRel = pow(max(fade, 1e-3), _EdgeFadeBorder - 1.0);
+                borderRel = clamp(borderRel, 0.0, 64.0);
+
+                CompositeOver(borderColor.rgb, borderColor.a * borderMask * borderRel,
+                    composedRgb, composedAlpha);
+
+                fixed4 col = fixed4(composedRgb, saturate(composedAlpha));
                 col.a *= fade;
 
                 // SDF-derived rim: independent of tessellation and stable under the visor warp.

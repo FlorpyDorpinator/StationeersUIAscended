@@ -80,7 +80,7 @@ namespace StationeersUIMod.UI.Hud.Widgets
             var c = CenterFor(scale);
             var s = SizeFor(scale);
             ((RectTransform)_box.transform).anchoredPosition = c;
-            _box.SetShape(s.x, s.y, Radius(Def.RTL), Radius(Def.RTR), Radius(Def.RBR), Radius(Def.RBL),
+            _box.SetShape(s.x, s.y, Radius(Def.RTLFor(LayoutBare)), Radius(Def.RTRFor(LayoutBare)), Radius(Def.RBRFor(LayoutBare)), Radius(Def.RBLFor(LayoutBare)),
                 InsetTop(scale), InsetBottom(scale));
         }
 
@@ -115,7 +115,7 @@ namespace StationeersUIMod.UI.Hud.Widgets
             bool injuredOnly = Def.GetB("injuredOnly", true);
             bool show = !injuredOnly || worst > 0.02f;
 
-            bool showBox = Def.GetB("box", true) && show;
+            bool showBox = Def.GetBFor(LayoutBare, "box", true) && show;
             _box.enabled = showBox;
             if (showBox)
             {
@@ -158,17 +158,17 @@ namespace StationeersUIMod.UI.Hud.Widgets
             var c = CenterFor(scale);
             var s = SizeFor(scale);
 
-            float figScale = Def.GetF("figScale", 0.98f);
+            float figScale = Def.GetFFor(LayoutBare, "figScale", 0.98f);
             // Keep a person aspect: cap the height so the widest spread still fits the rect width.
             float fh = Mathf.Min(s.y * figScale, s.x * 1.95f);
-            float yNudge = Def.GetF("figY", 0f) * scale;
+            float yNudge = Def.GetFFor(LayoutBare, "figY", 0f) * scale;
             float top = c.y + fh * 0.5f + yNudge;
             float Y(float frac) => top - frac * fh;
 
-            float armSpread = Def.GetF("armSpread", 1f);
-            float armYoff = Def.GetF("armY", 0f);
-            float legSpread = Def.GetF("legSpread", 0.06f);
-            float legYoff = Def.GetF("legY", 0f);
+            float armSpread = Def.GetFFor(LayoutBare, "armSpread", 1f);
+            float armYoff = Def.GetFFor(LayoutBare, "armY", 0f);
+            float legSpread = Def.GetFFor(LayoutBare, "legSpread", 0.06f);
+            float legYoff = Def.GetFFor(LayoutBare, "legY", 0f);
 
             // Torso column (baked anatomical fractions; tuned against the shipped art).
             float chestW = Size(_parts[0], 0.155f * fh);
@@ -276,17 +276,17 @@ namespace StationeersUIMod.UI.Hud.Widgets
             into.Add(HudProp.Text("Right leg PNG", () => d.GetS("iLegR", "doll_leg"), v => d.Set("iLegR", v)));
 
             int layoutStart = into.Count;
-            into.Add(HudProp.F("Figure scale", () => d.GetF("figScale", 0.98f), v => d.SetF("figScale", Mathf.Clamp(v, 0.3f, 1.2f)), 0.3f, 1.2f));
-            into.Add(HudProp.F("Figure Y nudge", () => d.GetF("figY", 0f), v => d.SetF("figY", v), -80f, 80f));
-            into.Add(HudProp.F("Arm spread", () => d.GetF("armSpread", 1f), v => d.SetF("armSpread", Mathf.Clamp(v, 0f, 3f)), 0f, 3f));
-            into.Add(HudProp.F("Arm Y (frac)", () => d.GetF("armY", 0f), v => d.SetF("armY", Mathf.Clamp(v, -0.3f, 0.3f)), -0.3f, 0.3f));
-            into.Add(HudProp.F("Leg spread (frac)", () => d.GetF("legSpread", 0.06f), v => d.SetF("legSpread", Mathf.Clamp(v, 0f, 0.4f)), 0f, 0.4f));
-            into.Add(HudProp.F("Leg Y (frac)", () => d.GetF("legY", 0f), v => d.SetF("legY", Mathf.Clamp(v, -0.3f, 0.3f)), -0.3f, 0.3f));
+            into.Add(HudProp.F("Figure scale", () => d.GetFFor(EditBare(d), "figScale", 0.98f), v => d.SetFFor(EditBare(d), "figScale", Mathf.Clamp(v, 0.3f, 1.2f)), 0.3f, 1.2f));
+            into.Add(HudProp.F("Figure Y nudge", () => d.GetFFor(EditBare(d), "figY", 0f), v => d.SetFFor(EditBare(d), "figY", v), -80f, 80f));
+            into.Add(HudProp.F("Arm spread", () => d.GetFFor(EditBare(d), "armSpread", 1f), v => d.SetFFor(EditBare(d), "armSpread", Mathf.Clamp(v, 0f, 3f)), 0f, 3f));
+            into.Add(HudProp.F("Arm Y (frac)", () => d.GetFFor(EditBare(d), "armY", 0f), v => d.SetFFor(EditBare(d), "armY", Mathf.Clamp(v, -0.3f, 0.3f)), -0.3f, 0.3f));
+            into.Add(HudProp.F("Leg spread (frac)", () => d.GetFFor(EditBare(d), "legSpread", 0.06f), v => d.SetFFor(EditBare(d), "legSpread", Mathf.Clamp(v, 0f, 0.4f)), 0f, 0.4f));
+            into.Add(HudProp.F("Leg Y (frac)", () => d.GetFFor(EditBare(d), "legY", 0f), v => d.SetFFor(EditBare(d), "legY", Mathf.Clamp(v, -0.3f, 0.3f)), -0.3f, 0.3f));
             for (int i = layoutStart; i < into.Count; i++) into[i].Group = HudPropGroup.Layout;
 
             int appearanceStart = into.Count;
             into.Add(HudProp.Bool("Whole-body tint", () => d.GetB("wholeBody", false), v => d.SetB("wholeBody", v)));
-            into.Add(HudProp.Bool("Background box", () => d.GetB("box", true), v => d.SetB("box", v)));
+            into.Add(HudProp.Bool("Background box", () => d.GetBFor(EditBare(d), "box", true), v => d.SetBFor(EditBare(d), "box", v)));
 
             // The doll's damage-ramp tints. Each part fades from the healthy colour through warning
             // to critical as its region's damage climbs. Each picker OPENS on the colour that stop

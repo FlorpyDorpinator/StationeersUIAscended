@@ -21,6 +21,11 @@ namespace StationeersUIMod.UI.Hud
         float GlowInner { get; set; }
         float GlowWidth { get; set; }
         float GlowDiffuse { get; set; }
+
+        /// <summary>0..1 — softness beyond GlowDiffuse's ceiling for BOTH glow bands: the
+        /// falloff exponent continues to the C1 bound 0.5 and the directional floor rises
+        /// toward near-uniform wrap. 0 (default) is exactly the classic response.</summary>
+        float GlowExtraDiffuse { get; set; }
         float EdgeRipple { get; set; }
         float EdgeRippleFreq { get; set; }
 

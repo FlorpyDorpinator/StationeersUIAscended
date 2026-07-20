@@ -128,6 +128,13 @@ Design sources (read these before large changes):
   `Reference/StationeersGameVersions/<newest build folder>/`.
 - **Never regex-edit source via PowerShell** — `Get-Content`/`Set-Content` round-trips mangle
   UTF-8 (em-dashes become mojibake). Use the Edit tool.
+- **TMP glyphs = ASCII only in DISPLAYED strings.** The game's TextMeshPro font reliably
+  renders only Basic-Latin/ASCII. Box-drawing, arrows and dingbats — `▾ ▸ ► ● ✕ ✓ ★ °` etc.
+  — render as tofu (`□`) in-game (even though the build is clean; the compiler doesn't care).
+  For UI iconography (chevrons, close ✕, arrows, checkmarks) DRAW the shape with
+  `TriangleGraphic`/`PanelGraphic`/`PolygonPanelGraphic` (the radial's `_triUp`/`_swipe`
+  arrows already do this) or fall back to ASCII (`+ - X > v ^`). Non-ASCII in COMMENTS is
+  fine — it never renders. This only bites strings that reach `HudText.Set` / `TMP.text`.
 - **Hot-reload safety**: every new static MUST reset in the relevant `Shutdown`/teardown path
   (a double-F6 reload must leave no stale canvases, borrowed vanilla objects, or static
   delegates). Static event hooks — `Camera.onPreCull` and friends — MUST be unhooked on

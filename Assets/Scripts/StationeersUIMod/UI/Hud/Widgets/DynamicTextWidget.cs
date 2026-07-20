@@ -53,7 +53,7 @@ namespace StationeersUIMod.UI.Hud.Widgets
             {
                 ((RectTransform)_box.transform).anchoredPosition = c;
                 _box.SetShape(s.x, s.y,
-                    Radius(Def.RTL), Radius(Def.RTR), Radius(Def.RBR), Radius(Def.RBL),
+                    Radius(Def.RTLFor(LayoutBare)), Radius(Def.RTRFor(LayoutBare)), Radius(Def.RBRFor(LayoutBare)), Radius(Def.RBLFor(LayoutBare)),
                     InsetTop(scale), InsetBottom(scale));
             }
 
@@ -75,7 +75,7 @@ namespace StationeersUIMod.UI.Hud.Widgets
 
         public override void UpdatePanel(HudSnapshot s, float scale)
         {
-            float size = HudText.Size(Def.GetF("size", 17f) * Def.FontScale) * scale;
+            float size = HudText.Size(Def.GetFFor(LayoutBare, "size", 17f) * Def.FontScaleFor(LayoutBare)) * scale;
             var textCol = TextColor();
 
             if (_box != null)
@@ -149,7 +149,7 @@ namespace StationeersUIMod.UI.Hud.Widgets
         {
             base.DescribeProps(into);
             var d = Def;
-            into.Add(HudProp.F("Text size", () => d.GetF("size", 17f), v => d.SetF("size", v), 6f, 64f));
+            into.Add(HudProp.F("Text size", () => d.GetFFor(EditBare(d), "size", 17f), v => d.SetFFor(EditBare(d), "size", v), 6f, 64f));
             into[into.Count - 1].Group = HudPropGroup.Appearance;
 
             into.Add(HudProp.Enum("Align", () => AlignIndex(d.Align),

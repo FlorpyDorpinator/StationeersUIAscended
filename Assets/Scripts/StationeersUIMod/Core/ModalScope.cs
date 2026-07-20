@@ -11,9 +11,18 @@ namespace StationeersUIMod.Core
     /// </summary>
     public sealed class ModalScope
     {
+        /// <summary>
+        /// Head-look peek: while true, the radial modal STOPS unlocking the cursor, so
+        /// <c>MouseModeController.Check()</c> re-locks it next frame and head-look resumes
+        /// (see RadialController head-look-hold). Static because there is exactly one radial
+        /// modal in flight and the controller flips it per input frame. Reset to false on
+        /// Close() and in the controller's CloseAll()/ShutdownImmediate() teardown.
+        /// </summary>
+        public static bool HeadLookPeek;
+
         private sealed class UiaModal : IModal
         {
-            public bool UnlockCursor => true;
+            public bool UnlockCursor => !ModalScope.HeadLookPeek;
         }
 
         private readonly UiaModal _modal = new UiaModal();
@@ -78,6 +87,7 @@ namespace StationeersUIMod.Core
         {
             _releasePending = false;
             _clearFrames = 0;
+            HeadLookPeek = false; // never leave the cursor re-locked once the radial is gone
             if (!IsOpen) return;
             IsOpen = false;
             TrySetBlockUguiClicks(false);

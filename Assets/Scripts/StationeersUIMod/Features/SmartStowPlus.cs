@@ -36,24 +36,29 @@ namespace StationeersUIMod.Features
             int depth = UIAConfig.StowIntoNestedBags.Value ? UIAConfig.ScanDepth.Value : 1;
             List<ScannedSlot> slots = null;
 
-            // 0) Tools onto the toolbelt first (user request): if the held item fits an empty
-            //    slot on the worn toolbelt, it belongs on the belt — stow it there before any
-            //    stack/profile/memory rule. Toolbelt slots are type-gated, so Slot.AllowMove
-            //    passing IS the "this is a tool that belongs here" test. One move message.
-            if (UIAConfig.StowToolsToToolbeltFirst.Value)
+            // 0) A tool belongs on a DIRECTLY-WORN belt/container before it ever nests into a
+            //    belt tucked inside another bag (play-test bug: a tool smart-stowed past a
+            //    non-full equipped belt into a mining belt nested in the backpack). Priority,
+            //    all at "depth 1" (worn on the body, not inside another container):
+            //      a) the equipped waist tool belt (equip slot 6),
+            //      b) then the worn Back container (jetpack / backpack) itself.
+            //    Only if BOTH genuinely reject the tool (type-gated by Slot.AllowMove) does it
+            //    fall through to the stack/profile/memory rules, which MAY nest. One move msg.
+            if (UIAConfig.StowToolsToToolbeltFirst.Value && held.SlotType == Slot.Class.Tool)
             {
-                DynamicThing belt = human.ToolbeltSlot?.Get();
-                if (belt?.Slots != null)
+                // On the worn belt, prefer the tool's remembered HOME slot (feature 1B.2) so a
+                // tool always flies back to the same wedge; only then fall back to any free slot.
+                // The back container is not a home-slot belt — plain best-free-slot for it.
+                Slot dest = HomeOrBestDirectSlot(human.ToolbeltSlot?.Get(), held);
+                string where = "toolbelt";
+                if (dest == null) { dest = BestDirectSlot(human.BackpackSlot?.Get(), held); where = "back container"; }
+                if (dest != null)
                 {
-                    foreach (Slot s in belt.Slots)
-                    {
-                        if (s == null || s.IsLocked || s.Get() != null) continue;
-                        if (!Slot.AllowMove(held, s)) continue;
-                        UIALog.Debug($"SmartStow+ tool -> toolbelt slot ({belt.DisplayName})");
-                        OnServer.MoveToSlot(held, s);
-                        UIAudioManager.Play(UIAudioManager.AddToInventoryHash);
-                        return true;
-                    }
+                    UIALog.Debug($"SmartStow+ tool -> directly-worn {where} slot (before any nested belt)");
+                    OnServer.MoveToSlot(held, dest);
+                    SlotFlash.OnStow(dest, held);
+                    UIAudioManager.Play(UIAudioManager.AddToInventoryHash);
+                    return true;
                 }
             }
 
@@ -71,7 +76,13 @@ namespace StationeersUIMod.Features
                     if (!target.CanStack(heldMergeable) || target.IsStackFull) continue;
                     if (!Slot.CanMerge(held, scanned.Slot)) continue;
                     UIALog.Debug($"SmartStow+ stack-merge into {occ.DisplayName} ({scanned.Location})");
-                    return ItemActions.MergeInto(target, heldMergeable);
+                    // Capture the icon BEFORE the merge — a merged stack may consume `held`.
+                    UnityEngine.Sprite mergeIcon = null;
+                    try { mergeIcon = held.GetThumbnail(); } catch { }
+                    Slot mergeSlot = scanned.Slot;
+                    bool merged = ItemActions.MergeInto(target, heldMergeable);
+                    if (merged) SlotFlash.OnStow(mergeSlot, mergeIcon);
+                    return merged;
                 }
             }
 
@@ -82,6 +93,7 @@ namespace StationeersUIMod.Features
                 Slot best = null;
                 Thing bestBag = null;
                 int bestPriority = int.MinValue;
+                int bestDepth = int.MaxValue;
                 foreach (var scanned in slots)
                 {
                     if (scanned.Slot == selectedSlot || scanned.Occupant != null) continue;
@@ -90,16 +102,23 @@ namespace StationeersUIMod.Features
                     if (bag == null || bag == human) continue;
                     var profile = BagProfileStore.GetAssignedProfile(bag);
                     int? priority = profile?.Match(held);
-                    if (!priority.HasValue || priority.Value <= bestPriority) continue;
+                    if (!priority.HasValue) continue;
+                    // Higher profile priority wins; on a TIE prefer the shallower bag, so a
+                    // directly-worn bag beats an equally-matching one nested inside another
+                    // (the same shallow-before-nested intent as step 0, generalised).
+                    if (priority.Value < bestPriority) continue;
+                    if (priority.Value == bestPriority && scanned.Depth >= bestDepth) continue;
                     if (!Slot.AllowMove(held, scanned.Slot)) continue;
                     best = scanned.Slot;
                     bestBag = bag;
                     bestPriority = priority.Value;
+                    bestDepth = scanned.Depth;
                 }
                 if (best != null)
                 {
                     UIALog.Debug($"SmartStow+ profile stow into {bestBag.DisplayName} (prio {bestPriority})");
                     OnServer.MoveToSlot(held, best);
+                    SlotFlash.OnStow(best, held);
                     UIAudioManager.Play(UIAudioManager.AddToInventoryHash);
                     BagProfileStore.RememberStow(held, bestBag);
                     return true;
@@ -123,6 +142,7 @@ namespace StationeersUIMod.Features
                     {
                         UIALog.Debug($"SmartStow+ memory stow into {target.Holder.DisplayName}");
                         OnServer.MoveToSlot(held, target.Slot);
+                        SlotFlash.OnStow(target.Slot, held);
                         UIAudioManager.Play(UIAudioManager.AddToInventoryHash);
                         return true;
                     }
@@ -130,6 +150,53 @@ namespace StationeersUIMod.Features
             }
 
             return false; // vanilla takes over
+        }
+
+        /// <summary>Home-slot-aware pick for the worn tool belt (feature 1B.2). When ToolbeltHomeSlots
+        /// is on, seed the belt's binding table on first sight and, if this tool TYPE has a remembered
+        /// home slot index that is free and accepts the tool, return exactly that slot so the tool flies
+        /// back to its own wedge. Otherwise (home taken, unknown, or feature off) fall back to the best
+        /// free direct slot. The placement is auto-recorded by BeltBindingStore's Slot.Take postfix once
+        /// the move settles, so a tool that lands in a new slot rebinds its home — no explicit record here.</summary>
+        private static Slot HomeOrBestDirectSlot(DynamicThing belt, DynamicThing held)
+        {
+            if (belt?.Slots == null || held == null) return null;
+            if (UIAConfig.ToolbeltHomeSlots.Value)
+            {
+                BeltBindingStore.SeedIfNew(belt);
+                int home = BeltBindingStore.HomeSlotFor(belt, held);
+                if (home >= 0)
+                {
+                    foreach (Slot s in belt.Slots)
+                    {
+                        if (s == null || s.SlotIndex != home) continue;
+                        // Home slot found: use it only if genuinely free and type-gated open; else
+                        // break out and let BestDirectSlot pick another (the postfix rebinds home).
+                        if (!s.IsLocked && s.Get() == null && Slot.AllowMove(held, s)) return s;
+                        break;
+                    }
+                }
+            }
+            return BestDirectSlot(belt, held);
+        }
+
+        /// <summary>The best empty, movable direct slot of a worn container for <paramref name="held"/>:
+        /// a slot whose Class matches the item's SlotType wins over a generic (None) slot, so a tool
+        /// lands in a real tool slot when one is free but still accepts an open normal slot otherwise
+        /// (the user's "tool slot OR normal slot"). Only this container's OWN slots — never nested.
+        /// Returns null when the container is absent or has no compatible free slot.</summary>
+        private static Slot BestDirectSlot(DynamicThing container, DynamicThing held)
+        {
+            if (container?.Slots == null || held == null) return null;
+            Slot generic = null;
+            foreach (Slot s in container.Slots)
+            {
+                if (s == null || s.IsLocked || s.Get() != null) continue;
+                if (!Slot.AllowMove(held, s)) continue;
+                if (s.Type == held.SlotType) return s;   // exact type match — the tool's real home
+                if (generic == null) generic = s;        // a None/other-compatible slot, kept as fallback
+            }
+            return generic;
         }
     }
 
@@ -140,6 +207,20 @@ namespace StationeersUIMod.Features
         {
             try
             {
+                // Snapshot the outgoing item BEFORE anything moves. This is what makes the "it went
+                // in here" flash reliable: it no longer matters whether SmartStowPlus or vanilla
+                // places the item, nor which of vanilla's branches runs (only one of them fires the
+                // PerformHiddenSlotMoveToAnimation coroutine we also hook). SlotFlash.Tick watches
+                // for the landing and flashes the worn box then.
+                try
+                {
+                    var human = InventoryManager.ParentHuman;
+                    if (human != null && selectedSlot != null
+                        && (selectedSlot == human.LeftHandSlot || selectedSlot == human.RightHandSlot))
+                        SlotFlash.PendStow(selectedSlot.Get(), selectedSlot);
+                }
+                catch { }
+
                 if (SmartStowPlus.TryStow(selectedSlot))
                     return false; // handled; skip vanilla
             }
@@ -148,6 +229,27 @@ namespace StationeersUIMod.Features
                 UIALog.Error("SmartStow+ failed, falling back to vanilla: " + e);
             }
             return true;
+        }
+    }
+
+    /// <summary>
+    /// When VANILLA smart-stow (the case SmartStow+ declined) routes an item into a hidden nested
+    /// slot, it flashes the visible container's own slot with the stowed item's icon for 0.5 s
+    /// (InventoryManager.PerformHiddenSlotMoveToAnimation). Vanilla's slot lives on the now-hidden
+    /// vanilla HUD, so mirror that same confirmation onto our HUD boxes. Read-only observation:
+    /// <c>freeSlotParent</c> is already vanilla's resolved worn slot, so post it directly.
+    /// </summary>
+    [HarmonyPatch(typeof(InventoryManager), "PerformHiddenSlotMoveToAnimation")]
+    internal static class Patch_InventoryManager_HiddenSlotMoveAnim
+    {
+        private static void Prefix(Slot freeSlotParent, DynamicThing dynamicThing)
+        {
+            try
+            {
+                if (freeSlotParent != null && dynamicThing != null)
+                    SlotFlash.Post(freeSlotParent, dynamicThing.GetThumbnail());
+            }
+            catch { }
         }
     }
 }

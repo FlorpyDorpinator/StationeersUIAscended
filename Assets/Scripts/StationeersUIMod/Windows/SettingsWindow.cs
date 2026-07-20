@@ -138,8 +138,66 @@ namespace StationeersUIMod.Windows
             if (ImGui.CollapsingHeader("Effects (0.9.0)", ImGuiTreeNodeFlags.DefaultOpen))
                 DrawEffectControls();
 
+            if (ImGui.CollapsingHeader("Hint bar (tooltip strip)", ImGuiTreeNodeFlags.DefaultOpen))
+                DrawHintBarControls();
+
             if (ImGui.CollapsingHeader("Colours", ImGuiTreeNodeFlags.DefaultOpen))
                 DrawColourControls();
+        }
+
+        /// <summary>Everything the key-hint strip can be styled with, in ONE place: colour +
+        /// transparency, shape, glass, frost and text. It lives in the radial EDITOR (not the UGUI
+        /// menu) because that is where the strip is previewed live — the editor blacks the screen
+        /// out, so the strip is pinned over a white swatch automatically while you are in here.</summary>
+        private static void DrawHintBarControls()
+        {
+            ImGui.TextDisabled("Previewed over a white box while this editor is open.");
+            ImGui.TextDisabled("(the editor blacks the screen out, so white is the honest backdrop)");
+            ImGui.Spacing();
+
+            ImGui.TextDisabled("Colour + transparency (the A slider IS the transparency):");
+            ColorWheel(Overlay.RadialPalette.HintBarFill);
+            ColorWheel(Overlay.RadialPalette.HintBarBorder);
+            ColorWheel(Overlay.RadialPalette.HintBarText);
+
+            ImGui.Spacing();
+            ImGui.TextDisabled("Shape:");
+            FloatSlider(UIAConfig.HintBarCorner, "Corner rounding (half the height = a pill)", 0f, 24f);
+            FloatSlider(UIAConfig.HintBarHeight, "Height (px)", 16f, 56f);
+            FloatSlider(UIAConfig.HintBarPadding, "Side padding (px)", 0f, 80f);
+            FloatSlider(UIAConfig.HintBarDrop, "Drop below the wheel (px)", 0f, 200f);
+            FloatSlider(UIAConfig.HintBarBorderWidth, "Border width (0 = none)", 0f, 6f);
+            FloatSlider(UIAConfig.HintBarFeather, "Edge softness / AA (px)", 0f, 4f);
+
+            ImGui.Spacing();
+            ImGui.TextDisabled("Glass + effects:");
+            Toggle(UIAConfig.HintBarFrost, "Frosted glass (blur the screen behind it)");
+            FloatSlider(UIAConfig.HintBarFrostStrength, "  frost strength", 0f, 1f);
+            if (UIAConfig.HintBarFrost.Value)
+            {
+                // Same diagnosis the radial's own frost prints, so an inactive blur is never a mystery.
+                var warn = new Vector4(1f, 0.72f, 0.25f, 1f);
+                bool tierC = UI.Hud.HudConfig.FxTierC != null && UI.Hud.HudConfig.FxTierC.Value;
+                if (!tierC)
+                    ImGui.TextColored(warn, "Frost inactive: turn ON HUD Tier C (F9 > Effects).");
+                else if (!Core.HudShaderStore.TierBAvailable)
+                    ImGui.TextColored(warn, "Frost inactive: shader bundle not loaded (restart after a rebuild).");
+                else if (!UI.Hud.HudBackdrop.Active)
+                    ImGui.TextColored(warn, "Frost warming up: needs the Visor HUD running (Flat/VertexWarp).");
+                else
+                    ImGui.TextDisabled("Frost active.");
+            }
+            FloatSlider(UIAConfig.HintBarSheen, "Glass sheen (surface top-light)", 0f, 1f);
+            FloatSlider(UIAConfig.HintBarSpec, "Glass edge light", 0f, 1f);
+            ImGui.TextDisabled("  edge light lights the BORDER RUN - it can read as a rim at width 0.");
+            FloatSlider(UIAConfig.HintBarGlow, "Glow (0 = off)", 0f, 2f);
+            FloatSlider(UIAConfig.HintBarGlowWidth, "  glow radius (px)", 6f, 160f);
+
+            ImGui.Spacing();
+            ImGui.TextDisabled("Text:");
+            FloatSlider(UIAConfig.HintBarFontSize, "Text size - ALSO sets the strip's length", 7f, 24f);
+            Toggle(UIAConfig.HintBarBold, "Bold");
+            ImGui.TextDisabled("  the strip auto-sizes to its text, so there is no separate length.");
         }
 
         /// <summary>The 0.9.0 radial effect controls (frosted-glass backdrop + glass mesh look),

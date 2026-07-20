@@ -23,6 +23,14 @@ namespace StationeersUIMod.UI.Hud
     {
         private float _fadeX;
         private float _fadeY;
+        private float _curve = 1f;
+
+        /// <summary>The shared ramp shape this component last baked. The curve is a GLOBAL, so
+        /// nothing else would ever re-dirty the mesh when the F9 slider moves — SetFade is the
+        /// per-frame call every faded panel already makes, so it carries the check.</summary>
+        private static float GlobalCurve()
+            => HudConfig.FxEdgeFadeCurve != null
+                ? Mathf.Clamp(HudConfig.FxEdgeFadeCurve.Value, 0.25f, 4f) : 1f;
 
         /// <summary>Set the fade fractions. Each is 0..0.5 — the share of the FULL width/height
         /// over which the alpha ramps 1 → 0 inward from each edge (0.5 = the two bands meet in the
@@ -32,8 +40,10 @@ namespace StationeersUIMod.UI.Hud
         {
             x = float.IsNaN(x) ? 0f : Mathf.Clamp(x, 0f, 0.5f);
             y = float.IsNaN(y) ? 0f : Mathf.Clamp(y, 0f, 0.5f);
-            if (Mathf.Approximately(x, _fadeX) && Mathf.Approximately(y, _fadeY)) return;
-            _fadeX = x; _fadeY = y;
+            float curve = GlobalCurve();
+            if (Mathf.Approximately(x, _fadeX) && Mathf.Approximately(y, _fadeY)
+                && Mathf.Approximately(curve, _curve)) return;
+            _fadeX = x; _fadeY = y; _curve = curve;
             if (graphic != null) graphic.SetVerticesDirty();
         }
 
@@ -59,6 +69,13 @@ namespace StationeersUIMod.UI.Hud
             float bandX = _fadeX * (maxX - minX);
             float bandY = _fadeY * (maxY - minY);
 
+            // Ramp shape, shared with the analytic path's _EdgeFadeCurve so both renderers agree.
+            // Exponent 1 is an exact no-op. The BORDER-influence half of that pair has no mesh
+            // equivalent — vertex alpha cannot tell a border vertex from a fill vertex — so it is
+            // an analytic-only knob and the F9 slider says so.
+            float curve = GlobalCurve();
+            bool shaped = Mathf.Abs(curve - 1f) > 0.001f;
+
             for (int i = 0; i < count; i++)
             {
                 vh.PopulateUIVertex(ref v, i);
@@ -69,6 +86,7 @@ namespace StationeersUIMod.UI.Hud
                     a *= Mathf.Clamp01(Mathf.Min(v.position.y - minY, maxY - v.position.y) / bandY);
                 // Smoothstep for a soft, natural falloff rather than a linear wedge.
                 a = a * a * (3f - 2f * a);
+                if (shaped) a = Mathf.Pow(a, curve);
 
                 Color32 c = v.color;
                 c.a = (byte)(c.a * a);

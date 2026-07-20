@@ -86,6 +86,7 @@ namespace StationeersUIMod.Core
             if (item == null || destination == null || destination.Get() != null) return Fail();
             if (!Slot.AllowMove(item, destination)) return Fail();
             OnServer.MoveToSlot(item, destination);
+            SlotFlash.OnStow(destination, item); // "it went in here" flash on the worn box, if nested
             UIAudioManager.Play(UIAudioManager.AddToInventoryHash);
             return true;
         }
@@ -109,6 +110,7 @@ namespace StationeersUIMod.Core
             {
                 if (!Slot.AllowMove(item, targetSlot)) return Fail();
                 OnServer.MoveToSlot(item, targetSlot);
+                SlotFlash.OnStow(targetSlot, item); // stow flash if the target is inside a worn container
             }
             else
             {
@@ -118,6 +120,123 @@ namespace StationeersUIMod.Core
             UIAudioManager.Play(targetSlot.Type == Slot.Class.Battery
                 ? UIAudioManager.InstallBatteryHash
                 : UIAudioManager.ObjectPutHash);
+            return true;
+        }
+
+        /// <summary>
+        /// Item drag-drop (cell -> cell) for the Universal Inventory grid. Resolves the target
+        /// exactly like vanilla's <c>InputMouse.IsValid</c> (InputMouse.cs:142-192) — insert into a
+        /// child slot, merge onto a matching stack, swap an occupied slot, or move into an empty one —
+        /// then issues exactly ONE authoritative message through the funnel. Re-verifies the pinned
+        /// occupant so a teammate's move between drag-start and drop can't act on a different item,
+        /// and re-runs every Slot gate AT EXECUTE TIME. Prefers the raw <see cref="OnServer"/> paths
+        /// over Slot.PlayerMoveToSlot (whose MoveAll tail can fire on a held modifier — see
+        /// <see cref="MoveOneToSlot"/>). No client-side Quantity write, no bulk loop.
+        /// </summary>
+        public static bool DragTo(ScannedSlot source, Slot dest)
+        {
+            if (source == null || dest == null) return Fail();
+            Slot src = source.Slot;
+            DynamicThing item = source.Occupant;                 // src?.Get()
+            if (src == null || item == null) return Fail();
+            if (source.Expected != null && item != source.Expected) return Fail(); // grid is stale
+
+            // Released on the slot it came from ("changed my mind") = clean no-op.
+            if (src == dest) return true;
+
+            // Vanilla's two Plant guards (InputMouse.cs:154-164): a Plant-class slot is never a
+            // drag destination (planting goes through the hydroponics interact path, not the
+            // inventory funnel), and a Plant that is currently PLANTED cannot be dragged at all
+            // (it must be harvested first). Slot.AllowMove/AllowSwap do NOT cover either case.
+            if (dest.Type == Slot.Class.Plant) return Fail();
+            Plant plant = item as Plant;
+            if (plant != null && plant.IsPlanted) return Fail();
+
+            // 1. Insert: nest the item into a free child slot of the destination's occupant
+            //    (e.g. drop a battery onto a tool that holds one). Mirrors PlayerInsertToFreeSlot.
+            if (Slot.CanInsert(item, dest))
+            {
+                DynamicThing host = dest.Get();
+                if (host != null && host.Slots != null)
+                {
+                    foreach (Slot child in host.Slots)
+                    {
+                        if (child != null && Slot.AllowMove(item, child))
+                        {
+                            OnServer.MoveToSlot(item, child);
+                            UIAudioManager.Play(UIAudioManager.ObjectPutHash);
+                            return true;
+                        }
+                    }
+                }
+                return Fail();
+            }
+
+            // The source must be swappable out of its slot at all (vanilla gates merge AND move
+            // behind this — InputMouse.cs:168-171).
+            if (!Slot.AllowSwap(src, dest)) return Fail();
+
+            if (dest.Get() != null)
+            {
+                // 2. Merge onto a matching partial stack.
+                if (Slot.CanMerge(item, dest))
+                {
+                    IMergeable held = item as IMergeable;
+                    IMergeable targetStack;
+                    if (held != null && dest.Contains<IMergeable>(out targetStack))
+                        return MergeInto(targetStack, held);
+                    // Vanilla's mining-belt fallback (Slot.PlayerMergeToSlot, Slot.cs:745-763):
+                    // Slot.CanMerge also returns true when the destination holds a MiningBelt and
+                    // the dragged thing is Ore it can take (Slot.cs:306-320 -> CanMergeAsOre). The
+                    // belt itself is not IMergeable, so Contains<IMergeable> fails and without this
+                    // branch dropping ore on a worn mining belt errors instead of merging.
+                    // MergeAsOre -> TryAddOre only uses Thing.Merge / OnServer.MoveToSlot, both
+                    // authoritative funnels (MiningBelt.cs:37-89).
+                    MiningBelt belt = dest.Get() as MiningBelt;
+                    if (held != null && belt != null && belt.MergeAsOre(held))
+                    {
+                        UIAudioManager.Play(UIAudioManager.AddToInventoryHash);
+                        return true;
+                    }
+                    return Fail();
+                }
+                // 3. Swap with the occupied destination.
+                if (!Slot.AllowSwap(dest, item)) return Fail();
+                OnServer.SwapSlots(src, dest);
+                UIAudioManager.Play(UIAudioManager.ObjectPutHash);
+                return true;
+            }
+
+            // 4. Move into the empty destination.
+            if (!Slot.AllowMove(item, dest)) return Fail();
+            OnServer.MoveToSlot(item, dest);
+            SlotFlash.OnStow(dest, item);                        // stow flash if it lands in a worn container
+            UIAudioManager.Play(UIAudioManager.ObjectPutHash);
+            return true;
+        }
+
+        /// <summary>
+        /// Swap the worn tool-belt for <paramref name="chosenBelt"/> (a spare belt found elsewhere
+        /// in the local player's inventory) through vanilla's authoritative swap funnel. One
+        /// <see cref="OnServer.SwapSlots(Slot,Slot)"/> = one message; the belts trade places
+        /// (a worn->world move when the toolbelt slot happens to be empty is handled by the same
+        /// AllowSwap/SwapSlots path, which treats an empty destination as a plain move — verified
+        /// Slot.cs:343-377). Gated by Slot.AllowSwap at execute time and by an occupancy re-check
+        /// so a stale picker wedge can never swap in a belt someone else already took.
+        /// </summary>
+        public static bool SwapWornToolbelt(DynamicThing chosenBelt)
+        {
+            var human = InventoryManager.ParentHuman;
+            if (chosenBelt == null || human == null) return Fail();
+            Slot toolbelt = human.ToolbeltSlot;
+            Slot source = chosenBelt.ParentSlot;
+            if (toolbelt == null || source == null) return Fail();
+            if (source == toolbelt) return true;                 // already worn: clean no-op
+            if (source.Get() != chosenBelt) return Fail();       // picker is stale
+            if (!IsCarriedByLocalPlayer(chosenBelt)) return Fail(); // moved/taken since build
+            if (!Slot.AllowSwap(source, toolbelt)) return Fail();
+            OnServer.SwapSlots(source, toolbelt);
+            UIAudioManager.Play(UIAudioManager.ObjectPutHash);
             return true;
         }
 
@@ -173,6 +292,103 @@ namespace StationeersUIMod.Core
             if ((item.ThingTransformPosition - human.ThingTransformPosition).magnitude > maxDist + 0.75f)
                 return Fail();                                  // out of reach = no grab
             OnServer.MoveToSlot(item, destination);
+            SlotFlash.OnStow(destination, item); // stow flash if the target is inside a worn container
+            UIAudioManager.Play(UIAudioManager.AddToInventoryHash);
+            return true;
+        }
+
+        /// <summary>
+        /// A free-lying WORLD item dropped onto a slot — the INBOUND half of the HUD drag, and the
+        /// counterpart of <see cref="DragTo"/> for a source that has no parent slot.
+        ///
+        /// Mirrors vanilla's <c>InputMouse.IsValid</c> ladder for the <c>ParentSlot == null</c> case
+        /// (InputMouse.cs:142-192): INSERT into the destination's contents, else MERGE, else SWAP the
+        /// occupant out to the world, else a plain MOVE. Vanilla's <c>AllowSwap(ParentSlot, dest)</c>
+        /// rung is deliberately absent — it is gated behind <c>ParentSlot != null</c> upstream, so a
+        /// world item never faces it.
+        ///
+        /// Kept SEPARATE from <see cref="MoveWorldItemToSlot"/> on purpose: that one hard-fails on an
+        /// occupied destination, and the radial parking layer depends on exactly that contract.
+        ///
+        /// Every rung re-gates at execute time and each outcome emits exactly ONE authoritative
+        /// message. Items only — vanilla's pickup funnel is hard-typed to <c>Item</c>, and the
+        /// client-side reach cap is the ONLY limiter (build 27701 has no server-side range check on
+        /// the move message).
+        /// </summary>
+        public static bool WorldDragTo(DynamicThing item, Slot dest)
+        {
+            var human = InventoryManager.ParentHuman;
+            if (item == null || dest == null || human == null) return Fail();
+
+            if (!(item is Item)) return Fail();                 // never stuff a lander capsule in a bag
+            if (item.ParentSlot != null) return Fail();          // slot-sourced: DragTo owns that path
+            float maxDist = 3f;
+            try { maxDist = CursorManager.MaxInteractDistance; } catch { }
+            if ((item.ThingTransformPosition - human.ThingTransformPosition).magnitude > maxDist + 0.75f)
+                return Fail();                                   // out of reach = no grab
+
+            // Vanilla's two Plant guards (InputMouse.cs:154-164); AllowMove/AllowSwap cover neither.
+            if (dest.Type == Slot.Class.Plant) return Fail();
+            Plant plant = item as Plant;
+            if (plant != null && plant.IsPlanted) return Fail();
+
+            // 1. INSERT into the destination's contents — THE BACKPACK CASE. Slot.CanInsert already
+            //    requires the occupant to have child slots and at least one to accept the item.
+            if (Slot.CanInsert(item, dest))
+            {
+                DynamicThing host = dest.Get();
+                if (host != null && host.Slots != null)
+                {
+                    foreach (Slot child in host.Slots)
+                    {
+                        if (child != null && Slot.AllowMove(item, child))
+                        {
+                            OnServer.MoveToSlot(item, child);
+                            SlotFlash.OnStow(child, item);
+                            UIAudioManager.Play(UIAudioManager.ObjectPutHash);
+                            return true;
+                        }
+                    }
+                }
+                return Fail();
+            }
+
+            if (dest.Get() != null)
+            {
+                // 2. MERGE onto a matching partial stack. Checked BEFORE the swap so stackables
+                //    combine instead of flinging the held item on the floor.
+                if (Slot.CanMerge(item, dest))
+                {
+                    IMergeable held = item as IMergeable;
+                    IMergeable targetStack;
+                    if (held != null && dest.Contains<IMergeable>(out targetStack))
+                        return MergeInto(targetStack, held);
+                    MiningBelt belt = dest.Get() as MiningBelt;
+                    if (held != null && belt != null && belt.MergeAsOre(held))
+                    {
+                        UIAudioManager.Play(UIAudioManager.AddToInventoryHash);
+                        return true;
+                    }
+                    return Fail();
+                }
+
+                // 3. SWAP — vanilla throws the occupant OUT to the world and the dragged item takes
+                //    its place (DragResult.Swap; FlorpyDorp chose to match vanilla here).
+                //    PlayerSwapToWorld is the only clean route to the slot-to-world SwapSlots
+                //    overload and, unlike PlayerMoveToSlot, carries NO MoveAll tail (Slot.cs:736).
+                if (!Slot.AllowSwap(dest, item)) return Fail();
+                dest.PlayerSwapToWorld(item);
+                return true;
+            }
+
+            // 4. Plain MOVE into an empty slot. Deliberately NOT dest.PlayerMoveToSlot: that carries
+            //    the MoveAll/MoveAllOfType tail (Slot.cs:633) which fires on a raw held
+            //    LeftShift/LeftCtrl and would turn one drop into a bulk dump. It also skips
+            //    DoSwapActiveHand, which is the chosen UIA behaviour — the item lands where you
+            //    aimed without stealing your active hand.
+            if (!Slot.AllowMove(item, dest)) return Fail();
+            MoveOneToSlot(item, dest);
+            SlotFlash.OnStow(dest, item);
             UIAudioManager.Play(UIAudioManager.AddToInventoryHash);
             return true;
         }
@@ -311,6 +527,30 @@ namespace StationeersUIMod.Core
             catch { }
             if (target == null) return Fail();
             return PressInteractable(stackable, target);
+        }
+
+        /// <summary>Vanilla "Unpack" on a sealed disposable box (cereal / water / kit package):
+        /// fire its Button1 interaction through the authoritative funnel. The box's own
+        /// DisposableCardboardBox.InteractWith pops one item out (into the free hand, else to the
+        /// world) and destroys the box once empty — all server-side. PressInteractable requires the
+        /// box to be carried by the local player, exactly as vanilla's own Unpack does.</summary>
+        public static bool Unpack(Thing box)
+        {
+            if (box == null) return Fail();
+            Interactable target = box.InteractButton1;
+            if (target == null || target.Parent != box)
+            {
+                target = null;
+                try
+                {
+                    if (box.Interactables != null)
+                        foreach (var it in box.Interactables)
+                            if (it != null && it.Action == InteractableType.Button1) { target = it; break; }
+                }
+                catch { }
+            }
+            if (target == null) return Fail();
+            return PressInteractable(box, target);
         }
 
         /// <summary>Arbitrary-count split. There is NO vanilla interaction for it, so it is

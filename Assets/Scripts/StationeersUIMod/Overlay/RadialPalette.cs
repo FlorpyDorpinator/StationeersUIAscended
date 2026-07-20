@@ -77,6 +77,12 @@ namespace StationeersUIMod.Overlay
         public static Entry TextDim;
         public static Entry TextAccent;
         public static Entry TextDisabled;
+        public static Entry TextBinding;
+
+        // Hint bar (the contextual key-hint strip under an open wheel)
+        public static Entry HintBarFill;
+        public static Entry HintBarBorder;
+        public static Entry HintBarText;
 
         public static void Bind(ConfigFile cfg)
         {
@@ -135,6 +141,21 @@ namespace StationeersUIMod.Overlay
                 "The action verb in the hub.");
             TextDisabled = Add(cfg, "TextDisabled", "7FA6BBAA",
                 "Labels on DISABLED wedges (was tied to the wedge fill — now its own colour).");
+            // The "this tool belongs in this slot" name on a toolbelt wedge (stable geometry). It
+            // used to borrow TextDim, whose default is plain WHITE — so the binding name read as
+            // loud as a real readout. Its own entry, default GREY, so it sits back as a hint.
+            TextBinding = Add(cfg, "TextBindingLabel", "9FA6ADFF",
+                "The bound-tool name on a toolbelt wedge (which tool belongs in that slot). Default grey.");
+
+            // The key-hint strip under an open wheel. Its colours live HERE rather than as hand-made
+            // widgets in the F10 tab so they inherit the colour wheels, undo/redo, snapshot and
+            // reset-to-defaults that every other radial colour already has.
+            HintBarFill = Add(cfg, "HintBarFill", "000000E6",
+                "Hint bar background. Default black at alpha 230.");
+            HintBarBorder = Add(cfg, "HintBarBorder", "00000000",
+                "Hint bar rim. Default fully transparent (no border) — raise the alpha to get one.");
+            HintBarText = Add(cfg, "HintBarText", "FFFFFFFF",
+                "Hint bar text. Default white.");
         }
 
         private static Entry Add(ConfigFile cfg, string name, string defaultHex, string desc)

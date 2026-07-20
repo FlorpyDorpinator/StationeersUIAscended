@@ -394,6 +394,9 @@ namespace StationeersUIMod.UI
             private readonly List<TriangleGraphic> _swipe = new List<TriangleGraphic>();
             // #4: the bound hotkey letter, badged near the HUB side of a setting wedge.
             private readonly List<TextMeshProUGUI> _hotkey = new List<TextMeshProUGUI>();
+            // 1B.3: a grey tool-type binding label on a stable-geometry belt slot wedge
+            // (occupied OR empty-but-bound), near the HUB side. Parallels _hotkey.
+            private readonly List<TextMeshProUGUI> _binding = new List<TextMeshProUGUI>();
 
             // Per-wedge string caches (parallel to the pools above), so the per-frame draw
             // allocates nothing while a radial is open. WedgeText (ToUpperInvariant) is cached
@@ -403,6 +406,9 @@ namespace StationeersUIMod.UI
             private readonly List<string> _labelDisplay = new List<string>();
             private readonly List<char> _lastBadgeLetter = new List<char>();
             private readonly List<string> _badgeStr = new List<string>();
+            // Binding-label display cache (WedgeText'd), keyed on the source-label reference.
+            private readonly List<string> _bindingSrc = new List<string>();
+            private readonly List<string> _bindingDisplay = new List<string>();
             // Ctrl+digit bag badges ("^0".."^9") are constant — no per-frame concat.
             private static readonly string[] BagDigitBadges =
                 { "^0", "^1", "^2", "^3", "^4", "^5", "^6", "^7", "^8", "^9" };
@@ -457,7 +463,7 @@ namespace StationeersUIMod.UI
                     _states[i].gameObject.SetActive(used);
                     _triUp[i].gameObject.SetActive(used);
                     _triDown[i].gameObject.SetActive(used);
-                    if (!used) { _swipe[i].gameObject.SetActive(false); _hotkey[i].gameObject.SetActive(false); Hud.HudFxMaterials.Unassign(_wedges[i]); continue; }
+                    if (!used) { _swipe[i].gameObject.SetActive(false); _hotkey[i].gameObject.SetActive(false); _binding[i].gameObject.SetActive(false); Hud.HudFxMaterials.Unassign(_wedges[i]); continue; }
 
                     var entry = entries[i];
                     var wedge = _wedges[i];
@@ -585,6 +591,61 @@ namespace StationeersUIMod.UI
                         if (hk.text != badge) hk.text = badge;
                     }
 
+                    // 1B.3: grey tool-type binding label on a stable-geometry belt slot wedge. Sits
+                    // just outside the hub so an empty-but-bound reserved slot still reads as "the
+                    // <tool> goes here". Only when the entry carries one AND stable geometry is on.
+                    // Cached WedgeText per slot (self-heals on ref change) — no per-frame alloc.
+                    var bind = _binding[i];
+                    bool showBinding = !entry.IsScrollAdjust && entry.BindingLabel != null
+                        && UIAConfig.ToolbeltStableGeometry != null && UIAConfig.ToolbeltStableGeometry.Value;
+                    bind.gameObject.SetActive(showBinding);
+                    if (showBinding)
+                    {
+                        if (!ReferenceEquals(entry.BindingLabel, _bindingSrc[i]))
+                        {
+                            _bindingSrc[i] = entry.BindingLabel;
+                            _bindingDisplay[i] = WedgeText(entry.BindingLabel);
+                        }
+                        SyncFont(bind);
+                        bind.fontStyle = WedgeFontStyle();
+                        if (bind.text != _bindingDisplay[i]) bind.text = _bindingDisplay[i];
+                        Color bc = RadialPalette.TextBinding.Value;   // its own colour, default grey
+                        if (dimmed) bc.a *= 0.5f;
+                        bind.color = bc;
+                        // Sit the bound-tool name at the BOTTOM of the wedge — its inner end — hugging
+                        // the arc where the HUB begins, and run it TANGENTIALLY along that arc rather
+                        // than out along the spoke (FlorpyDorp's sketch). Two consequences worth
+                        // knowing: the text follows the ring instead of pointing at the centre, and the
+                        // whole middle of the wedge is freed for the icon + its live value.
+                        float bH = 13f;
+                        float bR = innerR + 4f + bH * 0.5f;            // just clear of the hub rim
+                        float bTheta = Mathf.Atan2(dir.y, dir.x) * Mathf.Rad2Deg;
+                        // Tangent to the hub circle; flipped on the LOWER half so a bottom wedge's
+                        // name is never upside-down (top half reads with "up" pointing outward,
+                        // bottom half with "up" pointing inward — the usual arc-label convention).
+                        float bAng = dir.y >= 0f ? bTheta - 90f : bTheta + 90f;
+                        // Bound by the wedge's CHORD at this radius, so a long tool name auto-sizes
+                        // down (the pool enables autosizing 7..11.5) instead of running into the
+                        // neighbouring wedge's border.
+                        float bHalf = Mathf.Min(sector * 0.5f, Mathf.PI * 0.5f);
+                        float bLen = Mathf.Clamp(2f * bR * Mathf.Sin(bHalf) - 8f, 28f, 220f);
+                        var brt = bind.rectTransform;
+                        brt.pivot = new Vector2(0.5f, 0.5f);
+                        brt.localRotation = Quaternion.Euler(0f, 0f, bAng);
+                        brt.anchoredPosition = dir * bR;
+                        brt.sizeDelta = new Vector2(bLen, bH);
+                        bind.alignment = TextAlignmentOptions.Center;
+                        bind.enableWordWrapping = false;
+                        bind.overflowMode = TextOverflowModes.Ellipsis;
+                        // Optionally bend it GLYPH BY GLYPH around the hub so it truly follows the
+                        // arc instead of being a straight line merely rotated to the tangent. The
+                        // rect placement above already put it on the ring at the right angle; this
+                        // only re-lays the glyphs inside that local space, so the two compose.
+                        // Must run AFTER the text/size/rotation are final — it reads the built mesh.
+                        if (UIAConfig.RadialBindingCurved == null || UIAConfig.RadialBindingCurved.Value)
+                            RadialArcText.Curve(bind, bR, dir.y >= 0f);
+                    }
+
                     // Icons scale WITH the wedge: bounded by the band's thickness and by the
                     // wedge's width at mid radius, times the user's ratio.
                     float halfAngleIc = Mathf.Min(sector * 0.5f, Mathf.PI * 0.5f);
@@ -596,7 +657,7 @@ namespace StationeersUIMod.UI
 
                     if (entry.IsScrollAdjust)
                     {
-                        RenderScrollWedge(i, entry, slot, ringWidth, isHovered, dimmed);
+                        RenderScrollWedge(i, entry, slot, dir, chordIc, ringWidth, isHovered, dimmed);
                         continue;
                     }
                     _triUp[i].gameObject.SetActive(false);
@@ -615,7 +676,10 @@ namespace StationeersUIMod.UI
                         ? slot + dir * (ringWidth * 0.05f) + new Vector2(0f, ringWidth * 0.12f)
                         : slot;
 
-                    // Live state under the icon: which battery is full, which canister is empty.
+                    // Live value (kPa / % / xN): horizontal, sitting just BELOW the icon's bottom
+                    // edge (never on top of it), and auto-sized to the wedge's chord width AT THE
+                    // VALUE'S OWN RADIUS so it can never reach a neighbouring wedge's border. No
+                    // backing — white on the dark wedge reads fine.
                     var state = _states[i];
                     bool showState = UIAConfig.RadialShowStateText.Value && !string.IsNullOrEmpty(entry.StateText);
                     state.gameObject.SetActive(showState);
@@ -627,10 +691,17 @@ namespace StationeersUIMod.UI
                         Color sc = RadialPalette.TextPrimary.Value;
                         if (dimmed) sc.a *= 0.5f;
                         state.color = sc;
-                        state.rectTransform.sizeDelta = new Vector2(Mathf.Max(64f, iconSize * 1.6f), 15f);
-                        state.rectTransform.anchoredPosition =
-                            icon.rectTransform.anchoredPosition
-                            - new Vector2(0f, iconSize * contentScale * 0.5f + 8f);
+                        state.rectTransform.localEulerAngles = Vector3.zero;
+                        state.enableWordWrapping = false;
+                        // Clear of the icon (below its bottom edge, not overlapping it).
+                        Vector2 sp = icon.rectTransform.anchoredPosition
+                            - new Vector2(0f, iconSize * contentScale * 0.5f + 9f);
+                        state.rectTransform.anchoredPosition = sp;
+                        // Box = the wedge's chord at this value's radius, so auto-size shrinks the
+                        // text to fit within the wedge (down to the pool's min font) — never wider
+                        // than the wedge, never onto a neighbour.
+                        float vChord = 2f * sp.magnitude * Mathf.Sin(halfAngleIc);
+                        state.rectTransform.sizeDelta = new Vector2(Mathf.Clamp(vChord - 10f, 34f, 220f), 14f);
                     }
 
                     var label = _labels[i];
@@ -701,12 +772,16 @@ namespace StationeersUIMod.UI
 
             /// <summary>A scroll-adjustable value wedge: NAME on top, then an up triangle,
             /// the live value, and a down triangle — nudged by the mouse wheel.</summary>
-            private void RenderScrollWedge(int i, RadialEntry entry, Vector2 slot,
-                float ringWidth, bool isHovered, bool dimmed)
+            private void RenderScrollWedge(int i, RadialEntry entry, Vector2 slot, Vector2 dir,
+                float chordIc, float ringWidth, bool isHovered, bool dimmed)
             {
                 _icons[i].enabled = false;
                 var accent = isHovered ? RadialPalette.WedgeBorderHover.Value : RadialPalette.WedgeBorder.Value;
                 if (dimmed) accent.a *= 0.5f;
+
+                // Horizontal NAME / value / ▲▼ stack, auto-sized to the wedge width so a long name
+                // ("THRUST") shrinks to fit instead of clipping (kept readable, never rotated).
+                float sw = Mathf.Clamp(chordIc - 6f, 48f, 220f);
 
                 var label = _labels[i];
                 label.gameObject.SetActive(true);
@@ -715,14 +790,17 @@ namespace StationeersUIMod.UI
                 label.text = WedgeText(entry.Label);
                 label.color = entry.Enabled ? RadialPalette.TextPrimary.Value : RadialPalette.TextDisabled.Value;
                 label.alignment = TextAlignmentOptions.Center;
+                label.enableWordWrapping = false;
                 label.rectTransform.localScale = Vector3.one;
-                label.rectTransform.sizeDelta = new Vector2(Mathf.Max(72f, ringWidth), 16f);
+                label.rectTransform.localEulerAngles = Vector3.zero;
+                label.rectTransform.sizeDelta = new Vector2(sw, 16f);
                 label.rectTransform.anchoredPosition = slot + new Vector2(0f, 26f);
 
                 var up = _triUp[i];
                 up.gameObject.SetActive(true);
                 up.Configure(pointsUp: true, size: 11f);
                 up.color = accent;
+                up.rectTransform.localEulerAngles = Vector3.zero;
                 up.rectTransform.anchoredPosition = slot + new Vector2(0f, 11f);
                 up.SetVerticesDirty();
 
@@ -736,13 +814,15 @@ namespace StationeersUIMod.UI
                 Color sc = RadialPalette.TextPrimary.Value;
                 if (dimmed) sc.a *= 0.5f;
                 state.color = sc;
-                state.rectTransform.sizeDelta = new Vector2(Mathf.Max(72f, ringWidth), 16f);
+                state.rectTransform.localEulerAngles = Vector3.zero;
+                state.rectTransform.sizeDelta = new Vector2(sw, 16f);
                 state.rectTransform.anchoredPosition = slot - new Vector2(0f, 2f);
 
                 var down = _triDown[i];
                 down.gameObject.SetActive(true);
                 down.Configure(pointsUp: false, size: 11f);
                 down.color = accent;
+                down.rectTransform.localEulerAngles = Vector3.zero;
                 down.rectTransform.anchoredPosition = slot - new Vector2(0f, 15f);
                 down.SetVerticesDirty();
             }
@@ -832,8 +912,8 @@ namespace StationeersUIMod.UI
                     stmp.font = Font();
                     stmp.alignment = TextAlignmentOptions.Center;
                     stmp.enableAutoSizing = true;
-                    stmp.fontSizeMin = 8f;
-                    stmp.fontSizeMax = 12f;
+                    stmp.fontSizeMin = 8.5f;
+                    stmp.fontSizeMax = 13f;
                     stmp.enableWordWrapping = false;
                     stmp.overflowMode = TextOverflowModes.Overflow;
                     stmp.raycastTarget = false;
@@ -874,11 +954,26 @@ namespace StationeersUIMod.UI
                     hktmp.rectTransform.sizeDelta = new Vector2(22f, 22f);
                     _hotkey.Add(hktmp);
 
+                    var bngo = new GameObject("Binding" + idx, typeof(RectTransform));
+                    bngo.transform.SetParent(_root, false);
+                    var bntmp = bngo.AddComponent<TextMeshProUGUI>();
+                    bntmp.font = Font();
+                    bntmp.alignment = TextAlignmentOptions.Center;
+                    bntmp.enableAutoSizing = true;
+                    bntmp.fontSizeMin = 7f;
+                    bntmp.fontSizeMax = 11.5f;
+                    bntmp.enableWordWrapping = false;
+                    bntmp.overflowMode = TextOverflowModes.Ellipsis;
+                    bntmp.raycastTarget = false;
+                    _binding.Add(bntmp);
+
                     // Parallel per-wedge string caches (see field declarations).
                     _labelSrc.Add(null);
                     _labelDisplay.Add(null);
                     _lastBadgeLetter.Add('\0');
                     _badgeStr.Add(null);
+                    _bindingSrc.Add(null);
+                    _bindingDisplay.Add(null);
                 }
             }
         }
@@ -968,11 +1063,15 @@ namespace StationeersUIMod.UI
                     _hubBacking.Refresh();
                 }
 
-                Place(_title, 38f * s, w);
-                Place(_verb, 13f * s, w);
-                Place(_label, -7f * s, w);
-                Place(_sub, -25f * s, w);
-                Place(_warn, -43f * s, w);
+                // Each line's box is clamped to the hub CIRCLE's chord at its own height (minus the
+                // border + a small margin), so no line — however wide — can spill onto the orange
+                // ring; text stays entirely inside the blue interior and auto-sizes to fit.
+                float rIn = Mathf.Max(8f, (innerR - 6f) - (UIAConfig.RadialBorderWidth.Value * 0.8f + 7f));
+                Place(_title, 38f * s, Mathf.Min(w, FitWidth(38f * s, rIn)));
+                Place(_verb, 13f * s, Mathf.Min(w, FitWidth(13f * s, rIn)));
+                Place(_label, -7f * s, Mathf.Min(w, FitWidth(-7f * s, rIn)));
+                Place(_sub, -25f * s, Mathf.Min(w, FitWidth(-25f * s, rIn)));
+                Place(_warn, -43f * s, Mathf.Min(w, FitWidth(-43f * s, rIn)));
 
                 _title.text = satTitle ?? title ?? string.Empty;
                 _title.color = RadialPalette.TextDim.Value;
@@ -1026,6 +1125,16 @@ namespace StationeersUIMod.UI
                 t.rectTransform.anchorMin = t.rectTransform.anchorMax = new Vector2(0.5f, 0.5f);
                 t.rectTransform.sizeDelta = new Vector2(w, 20f);
                 t.rectTransform.anchoredPosition = new Vector2(0f, y);
+            }
+
+            /// <summary>The full chord width of a circle of radius <paramref name="rIn"/> at height
+            /// <paramref name="y"/>, accounting for a 20px line's half-height, so a line placed there
+            /// fits entirely inside the circle. Zero when the height is already past the circle.</summary>
+            private static float FitWidth(float y, float rIn)
+            {
+                float dy = Mathf.Abs(y) + 10f; // 10 = half the 20px line box, the constraining edge
+                float inside = rIn * rIn - dy * dy;
+                return inside <= 0f ? 0f : 2f * Mathf.Sqrt(inside);
             }
         }
     }

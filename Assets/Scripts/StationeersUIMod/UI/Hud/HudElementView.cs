@@ -105,21 +105,55 @@ namespace StationeersUIMod.UI.Hud
             return new Rect(c.x - s.x * 0.5f, c.y - s.y * 0.5f, s.x, s.y);
         }
 
-        // Explicit style-source mode added by the reorganised F9 inspector. Zero is deliberately
-        // "legacy mixed": profiles authored before this mode existed keep their exact collection
-        // of followGlobal flags and -1 sentinels until the author chooses a coherent mode.
-        // 1 = every meaningful panel appearance/effect follows the globals; 2 = a complete local
-        // snapshot. Switching Global -> Custom seeds that snapshot first, so there is no visual jump.
-        private const int StyleLegacy = 0;
-        private const int StyleGlobal = 1;
-        private const int StyleCustom = 2;
-        private static readonly string[] StyleSourceNames =
-            { "Legacy mixed (preserve profile)", "Follow global theme + effects", "Custom (restore saved values)" };
+        /// <summary>Stranded-element self-heal: if this element is TOTALLY off screen (a
+        /// resolution/aspect hop — e.g. streaming the game to another device — can re-anchor a
+        /// layout outside the screen it comes home to), pull it back so a usable sliver is
+        /// visible and it can be grabbed again. Partially off-screen is deliberately allowed —
+        /// only a fully invisible element is rescued. Writes the same layout slot the rect was
+        /// measured from (current tier + curvature mode). Returns true if it moved.</summary>
+        internal bool EnsureOnScreen(float scale)
+        {
+            if (Def == null) return false;
+            var r = CanvasRect(scale);
+            float halfW = Screen.width * 0.5f, halfH = Screen.height * 0.5f;
+            // "Totally off" = no meaningful screen overlap on SOME axis (an 8px sliver counts
+            // as gone — it is unreachable in practice). Rects overlap only when BOTH axes do.
+            const float Sliver = 8f;   // below this much overlap the element counts as lost
+            const float MinVis = 32f;  // how much of it the rescue pulls back into view
+            bool offX = r.xMax < -halfW + Sliver || r.xMin > halfW - Sliver;
+            bool offY = r.yMax < -halfH + Sliver || r.yMin > halfH - Sliver;
+            if (!offX && !offY) return false;
+
+            float dx = 0f, dy = 0f;
+            if (r.xMax < -halfW + MinVis) dx = (-halfW + MinVis) - r.xMax;
+            else if (r.xMin > halfW - MinVis) dx = (halfW - MinVis) - r.xMin;
+            if (r.yMax < -halfH + MinVis) dy = (-halfH + MinVis) - r.yMax;
+            else if (r.yMin > halfH - MinVis) dy = (halfH - MinVis) - r.yMin;
+            if (dx == 0f && dy == 0f) return false;
+
+            bool bare = LayoutBare;
+            float s = Mathf.Max(0.01f, scale);
+            Def.SetXFor(bare, LayoutMode, Def.XFor(bare, LayoutMode) + dx / s);
+            Def.SetYFor(bare, LayoutMode, Def.YFor(bare, LayoutMode) + dy / s);
+            return true;
+        }
+
+        // The coherent TWO-STATE style contract (the 2026-07-16 standardisation): an element
+        // either FOLLOWS the F9 globals (theme + effects) or carries a complete CUSTOM snapshot
+        // seeded from those globals at the moment of separation. The old third state — "legacy
+        // mixed" (0/absent: the followGlobal flag + -1 sentinels + fx* global-multipliers) — is
+        // REGRESSED at profile load by HudStyleMigration; no resolver reads it any more.
+        // StyleLegacy survives only as the raw stored value the migration recognises.
+        internal const int StyleLegacy = 0;
+        internal const int StyleGlobal = 1;
+        internal const int StyleCustom = 2;
 
         private static int StyleSourceOf(HudElementDef d)
         {
-            int v = d != null ? d.GetI("styleSource", StyleLegacy) : StyleLegacy;
-            return Mathf.Clamp(v, StyleLegacy, StyleCustom);
+            // Missing/0 reads as Global: HudStyleMigration rewrites every stored legacy element
+            // during Sanitize, so this default only decides brand-new in-memory elements.
+            int v = d != null ? d.GetI("styleSource", StyleGlobal) : StyleGlobal;
+            return v == StyleCustom ? StyleCustom : StyleGlobal;
         }
 
         private int StyleSource
@@ -130,8 +164,15 @@ namespace StationeersUIMod.UI.Hud
             }
         }
 
-        private bool UsesGlobalStyle => StyleSource == StyleGlobal;
-        private bool UsesCustomStyle => StyleSource == StyleCustom;
+        // Protected: PrimitiveView's polyline styling resolves through the same two-state
+        // contract (the line was the last surface on raw -1 sentinels, styleSource-blind).
+        protected bool UsesGlobalStyle => StyleSource == StyleGlobal;
+        protected bool UsesCustomStyle => StyleSource == StyleCustom;
+
+        /// <summary>True while this element's styling follows the globals (the two-state
+        /// contract: legacy reads as Global after migration). Widget props that would merely
+        /// mirror global-palette values hide behind this.</summary>
+        protected bool FollowGlobal => UsesGlobalStyle;
 
         /// <summary>Per-corner radius resolved through the explicit style source, with the old
         /// -1 sentinel retained only for legacy profiles.</summary>
@@ -147,15 +188,16 @@ namespace StationeersUIMod.UI.Hud
         {
             float global = HudConfig.BorderWidth != null ? HudConfig.BorderWidth.Value : 1.4f;
             if (UsesGlobalStyle) return global;
-            return Def != null && Def.BorderWidth >= 0f ? Def.BorderWidth : global;
+            float bw = Def != null ? Def.BorderWidthFor(LayoutBare) : -1f;
+            return bw >= 0f ? bw : global;
         }
 
         /// <summary>Trapezoid insets (reference px × scale) pull the top/bottom corners of the
         /// element's background panel inward — the same shaping the Box primitive and the hand
         /// tray use to angle their side edges. Views that expose a single framed panel forward
         /// these into their <see cref="PanelGraphic.SetShape"/> call.</summary>
-        protected float InsetTop(float scale) => Def.GetF("insetTop", 0f) * scale;
-        protected float InsetBottom(float scale) => Def.GetF("insetBottom", 0f) * scale;
+        protected float InsetTop(float scale) => Def.GetFFor(LayoutBare, "insetTop", 0f) * scale;
+        protected float InsetBottom(float scale) => Def.GetFFor(LayoutBare, "insetBottom", 0f) * scale;
 
         /// <summary>Whether this element draws a single framed background panel that a trapezoid
         /// inset can reshape. Box-bearing views override this to true so the two inset sliders
@@ -180,20 +222,36 @@ namespace StationeersUIMod.UI.Hud
                 case HudElementType.EquipmentColumn:
                 case HudElementType.HandBoxes:
                 case HudElementType.KeybindChips:
-                case HudElementType.MoodletDashboard:
                 case HudElementType.VitalsPanel:
                 case HudElementType.DamageDoll:
                 case HudElementType.JetpackBox:
                 case HudElementType.StateChips:
                 case HudElementType.SuitChips:
                 case HudElementType.PngDoll:
+                // BareSenses owns an optional whole-element background panel (default OFF) plus
+                // optional per-sense boxes, so it earns the full glass/corner/effect prop set.
+                case HudElementType.BareSenses:
                     return true;
+                // MoodletDashboard is deliberately NOT here. Its live view is MoodletBorrowWidget,
+                // which reparents vanilla's real moodlet strip and builds no UIA surface of its own
+                // (BuildContent makes a holder + CanvasGroup, nothing else). Claiming a panel here
+                // filled its inspector with fill/border/glow/frost controls that cannot touch a
+                // pixel — the retired MoodletDashboardWidget was the thing that had a backdrop.
                 default:
                     return false;
             }
         }
 
         private bool SupportsPanelAppearance => SupportsPanelAppearanceFor(Def);
+
+        /// <summary>Elements that own no full panel surface but DO draw a UIA border/ring from the
+        /// element's own Border ref + BorderWidth. They are off the panel allow-list (correctly —
+        /// they have no fill, glow or frost), which left those two authored values with no control
+        /// at all: the shipped Glassy 4.0 profile sets a portrait ring colour and width that F9
+        /// could not show or edit. Offer exactly the two knobs the widget actually reads.</summary>
+        private bool SupportsBorderOnlyChrome => !SupportsPanelAppearance
+            && Def != null
+            && (Def.Type == HudElementType.Portrait || Def.Type == HudElementType.BodyDoll);
 
         /// <summary>Used by F9 to suppress panel-only actions on text, borrowed vanilla UI and
         /// other elements that cannot render any UIA surface.</summary>
@@ -205,36 +263,107 @@ namespace StationeersUIMod.UI.Hud
         internal static bool IsCustomStyleDefinition(HudElementDef d)
             => StyleSourceOf(d) == StyleCustom;
 
-        // Freeform pen Shapes use PolygonPanelGraphic and deliberately retain the proven mesh
-        // renderer: an arbitrary concave contour is not representable by the rounded-box SDF.
-        private bool SupportsAnalyticPanel => SupportsPanelAppearance
+        // Freeform pen Shapes use PolygonPanelGraphic (an arbitrary concave contour is not
+        // representable by the rounded-box SDF). Its MESH renders both halo bands now
+        // (2026-07-16), so the halo knobs apply to Shapes too. The ANALYTIC-only extras
+        // (gaussian falloff, haze/breath/uneven, flowing aura) stay rectangle-only — they
+        // live in the SDF fragment shader, which a Shape never takes.
+        private bool SupportsGlowHalo => SupportsPanelAppearance;
+        private bool SupportsAnalyticPanel => SupportsGlowHalo
             && Def != null && Def.Type != HudElementType.Shape;
 
-        // Suit-chip and moodlet-pill corner radii are deliberately derived from their size, and
-        // arbitrary pen Shapes use PolygonPanelGraphic. None consumes the four authored radii.
+        /// <summary>Several widgets retain their panel styling while their optional background
+        /// is hidden. Keep those values editable, but tell the author why they currently cannot
+        /// see a response instead of presenting apparently broken controls.</summary>
+        private bool OptionalPanelBackgroundIsOff
+        {
+            get
+            {
+                if (Def == null) return false;
+                switch (Def.Type)
+                {
+                    case HudElementType.Readout:
+                    case HudElementType.Compass:
+                    case HudElementType.VitalsPanel:
+                    case HudElementType.DamageDoll:
+                    case HudElementType.JetpackBox:
+                    case HudElementType.PngDoll:
+                        return !Def.GetBFor(EditBare(Def), "box", true);
+                    // BareSenses defaults its whole-element background OFF (it's usually just words).
+                    case HudElementType.BareSenses:
+                        return !Def.GetBFor(EditBare(Def), "box", false);
+                    default:
+                        return false;
+                }
+            }
+        }
+
+        /// <summary>The hint shown while <see cref="OptionalPanelBackgroundIsOff"/>. It names the
+        /// author's ACTUAL toggle — each widget labels its own differently, and sending someone to
+        /// hunt for a "Background box" that its inspector calls "Box frame" is worse than silence.</summary>
+        private string OptionalPanelBackgroundHint
+        {
+            get
+            {
+                string toggle;
+                switch (Def != null ? Def.Type : HudElementType.Box)
+                {
+                    case HudElementType.Compass: toggle = "Backdrop box"; break;
+                    case HudElementType.DamageDoll: toggle = "Box frame"; break;
+                    default: toggle = "Background box"; break;
+                }
+                return toggle + " is OFF (Appearance) — panel effects are saved but currently invisible";
+            }
+        }
+
+        // Suit-chip radii are deliberately derived from their size, and arbitrary pen Shapes use
+        // PolygonPanelGraphic. Neither consumes the four authored radii.
         private bool SupportsAuthoredCorners => SupportsAnalyticPanel
             && Def != null
-            && Def.Type != HudElementType.SuitChips
-            && Def.Type != HudElementType.MoodletDashboard;
+            && Def.Type != HudElementType.SuitChips;
 
         // ActiveHandBadge intentionally derives its contour from ActiveHandAccent at runtime.
         private bool SupportsCustomBorderColor => Def != null
             && Def.Type != HudElementType.ActiveHandBadge;
 
-        /// <summary>When true the element ignores its OWN colour refs and draws the GLOBAL box
-        /// colours (the shared HudPalette entries), so editing those in F9 re-tints every following
-        /// element at once. Off = the element keeps its own Fill/Border/Text (and bar) colours.</summary>
-        protected bool FollowGlobal => Def != null
-            && (UsesGlobalStyle || (!UsesCustomStyle && Def.GetB("followGlobal", false)));
-
-        /// <summary>The global palette value when this element follows global colours; otherwise the
-        /// element's own colour ref resolved against that same value as the fallback.</summary>
+        /// <summary>Colours are per-element in BOTH style states (the 2026-07-16 standardisation):
+        /// the ref renders exactly as written — a palette NAME (e.g. "HudPanelFill") tracks the F9
+        /// palette live, a hex literal stands alone, and empty falls back to the slot's palette
+        /// default. The follow-global toggle governs effects/glass/sizing only; it never force-feeds
+        /// the palette over an element's own refs (that behaviour is what silently discarded the
+        /// user's per-element colour work whenever an element followed the globals).</summary>
         protected Color GlobalOr(string colorRef, Color global)
-            => FollowGlobal ? global : HudPalette.Resolve(colorRef, global);
+            => HudPalette.Resolve(colorRef, global);
 
-        protected Color FillColor() => GlobalOr(Def.Fill, HudPalette.PanelFill.Value);
-        protected Color BorderColor() => GlobalOr(Def.Border, HudPalette.PanelBorder.Value);
-        protected Color TextColor() => GlobalOr(Def.TextColor, HudPalette.TextValue.Value);
+        protected Color FillColor() => GlobalOr(Def.FillFor(LayoutBare), HudPalette.PanelFill.Value);
+        private int _alertSeed = -1;   // cached HudDocument.StableSeed(Def.Id); -1 = not yet resolved
+
+        /// <summary>This element's stable alert-quantisation seed. Subclasses that tint a graphic the
+        /// base <see cref="BorderColor"/> hook does not reach (PrimitiveView's line stroke) must pass
+        /// THIS, not the seedless overload, or every such graphic shares one quantisation grid and
+        /// they all re-mesh on the same frame.</summary>
+        protected int AlertSeed
+        {
+            get
+            {
+                if (_alertSeed < 0)
+                    _alertSeed = (Def != null && Def.Id != null) ? HudDocument.StableSeed(Def.Id) : 0;
+                return _alertSeed;
+            }
+        }
+
+        /// <summary>Resolved border colour, filtered through the status alert pulse. Both the halo hue
+        /// and the edge-ripple contour derive from BorderColor inside the graphic (PanelGraphic.cs:755
+        /// and BorderAt :1284), so this ONE hook recolours both, for every widget that resolves its
+        /// border here. Identity when no alarm stands. The seed offsets only the QUANTISATION grid,
+        /// never the wave phase — the alarm stays in lockstep across the HUD while the mesh rebuilds
+        /// spread across frames.</summary>
+        protected Color BorderColor()
+        {
+            return HudAlertPulse.Tint(
+                GlobalOr(Def.BorderFor(LayoutBare), HudPalette.PanelBorder.Value), AlertSeed);
+        }
+        protected Color TextColor() => GlobalOr(Def.TextColorFor(LayoutBare), HudPalette.TextValue.Value);
 
         // #4: drag-over drop highlight — the hand / 1-6 equipment boxes light up while a dragged
         // item hovers a valid target. Per-element mode (border vs whole box) + colour (a ColorRef;
@@ -258,43 +387,33 @@ namespace StationeersUIMod.UI.Hud
             MarkProps(into, start, HudPropGroup.Interaction);
         }
 
-        /// <summary>The element's effective glass sheen. An element set to "Follow global colours"
-        /// also follows the GLOBAL glass — ignoring its own baked "sheen" — so the one global slider
-        /// (and the "Make ALL boxes follow global" button) drives it just like the box colours do.
-        /// Otherwise it uses its own value, with the "-1 = global" convention (matching corner radius
-        /// and border width) as a per-param opt-in.</summary>
+        /// <summary>The element's effective glass sheen: the global while following, the seeded
+        /// per-element value in Custom (with -1/missing deferring to the global fail-soft).</summary>
         protected float GlassSheenFor()
         {
             float global = HudConfig.GlassSheen != null ? HudConfig.GlassSheen.Value : 0f;
-            if (UsesGlobalStyle || FollowGlobal) return global;
-            float v = Def.GetF("sheen", -1f);
+            if (UsesGlobalStyle) return global;
+            float v = Def != null ? Def.GetFFor(LayoutBare, "sheen", -1f) : -1f;
             return v >= 0f ? v : global;
         }
 
-        /// <summary>The element's effective glass edge light. Follows the global when this element
-        /// follows global colours, else its own value with the "-1 = global" fallback. See
-        /// <see cref="GlassSheenFor"/>.</summary>
+        /// <summary>The element's effective glass edge light.
+        /// Custom: `spec` is the FINAL per-element strength — the separation snapshot froze any
+        /// global Tier-A boost into it, so applying the boost again would make Custom neither
+        /// independent nor visually continuous, and spec 0 simply means no edge light.
+        /// Global: the GlassEdge base plus the Tier-A edge-light boost. That knob lights the
+        /// PANEL border run too (play-test: the slider only drove drawn lines otherwise) — every
+        /// widget flows through here, so one slider lights the whole following HUD's edges.</summary>
         protected float GlassEdgeFor()
         {
             float global = HudConfig.GlassEdge != null ? HudConfig.GlassEdge.Value : 0f;
-            float own = Def.GetF("spec", -1f);
-            float v = (UsesGlobalStyle || FollowGlobal) ? global : own;
-            float baseSpec = v >= 0f ? v : global;
-            // In coherent Custom mode `spec` is the FINAL per-element edge-light strength.
-            // The transition snapshot captures any current global boost, so applying it again
-            // would make Custom neither independent nor visually continuous.
-            if (UsesCustomStyle) return Mathf.Clamp01(baseSpec);
-            // Tier A's edge-light knob boosts the PANEL border light too (play-test: the
-            // slider only drove drawn lines, which most HUDs barely use — the "brighter and
-            // darker along the border" run lives in PanelGraphic.BorderAt and this is its
-            // volume). Every widget flows through here (incl. hand/equipment boxes' direct
-            // Spec sets), so one slider lights the whole HUD's edges.
-            // BUT an element that has EXPLICITLY zeroed its own edge light (spec == 0 while not
-            // following global colours) opts OUT of that global boost — otherwise "Make flat" and
-            // dragging Glass edge light to 0 did nothing, because the global lit the border back up.
-            bool optedOut = !FollowGlobal && own == 0f;
-            if (!optedOut
-                && HudConfig.FxTierA != null && HudConfig.FxTierA.Value
+            if (UsesCustomStyle)
+            {
+                float own = Def != null ? Def.GetFFor(LayoutBare, "spec", -1f) : -1f;
+                return Mathf.Clamp01(own >= 0f ? own : global);
+            }
+            float baseSpec = global;
+            if (HudConfig.FxTierA != null && HudConfig.FxTierA.Value
                 && HudConfig.FxEdgeLightOn != null && HudConfig.FxEdgeLightOn.Value
                 && HudConfig.FxEdgeLight != null && HudConfig.FxEdgeLight.Value > 0f)
                 baseSpec = Mathf.Clamp01(baseSpec + HudConfig.FxEdgeLight.Value * 0.45f);
@@ -324,8 +443,8 @@ namespace StationeersUIMod.UI.Hud
         protected void ApplyEdgeFade(Graphic g)
         {
             if (g == null) return;
-            float fx = Def != null ? Def.GetF("edgeFadeX", 0f) : 0f;
-            float fy = Def != null ? Def.GetF("edgeFadeY", 0f) : 0f;
+            float fx = Def != null ? Def.GetFFor(LayoutBare, "edgeFadeX", 0f) : 0f;
+            float fy = Def != null ? Def.GetFFor(LayoutBare, "edgeFadeY", 0f) : 0f;
             bool on = fx > 0.001f || fy > 0.001f;
             // The fade is a per-vertex alpha ramp: across a single-fan interior it interpolates
             // RADIALLY (corner→centre bowtie X). Opt the panel into the dense interior so the
@@ -358,7 +477,7 @@ namespace StationeersUIMod.UI.Hud
         protected float FeatherFor()
         {
             if (UsesGlobalStyle) return -1f;
-            return Def != null ? Def.GetF("feather", -1f) : -1f;
+            return Def != null ? Def.GetFFor(LayoutBare, "feather", -1f) : -1f;
         }
 
         private float EffectiveFeatherFor()
@@ -384,14 +503,39 @@ namespace StationeersUIMod.UI.Hud
             bool glOn = tierA && StyleFeatureOn("customGlowOn", HudConfig.FxGlowOn);
             g.BorderFade = bfOn ? OwnOrGlobal("bfade", HudConfig.FxBorderFade) : 0f;
             g.SoftEdge = seOn ? OwnOrGlobal("softEdge", HudConfig.FxSoftEdge) : 0f;
-            g.Glow = glOn ? OwnOrGlobal("glow", HudConfig.FxGlow) : 0f;
-            g.GlowInner = glOn ? OwnOrGlobal("glowIn", HudConfig.FxGlowInner) : 0f;
+            // Outer glow only, and only inside an enabled Tier A: an alarm forces a halo to exist so
+            // there is something to tint when the user has the glow checkbox off (FxGlowOn defaults
+            // false), but Tier A off must stay "everything 0 = classic 0.8.0 output". The floor is a
+            // CONSTANT, so the skirt / ramp-stop geometry (PanelGraphic.cs:460, :711) changes only at
+            // alarm onset and clear, never on a quantisation step.
+            // The floor is withheld from a BORDERLESS element: with bw <= 0.05f PanelGraphic's
+            // hasBorder gate (:635) makes the halo derive from the FILL colour instead of the tinted
+            // BorderColor, so flooring the glow there would light it in its NORMAL hue — an alarm
+            // that brightens without changing colour is an anti-signal. Such an element simply sits
+            // the alert out.
+            float glowBase = glOn ? OwnOrGlobal("glow", HudConfig.FxGlow) : 0f;
+            g.Glow = tierA ? (BorderWidthFor() > 0.05f ? HudAlertPulse.Glow(glowBase) : glowBase) : 0f;
+            g.GlowInner = glOn ? OwnOrGlobal("glowIn", HudConfig.FxGlowInner) : 0f; // never floored: sits under the text
             g.GlowWidth = OwnOrGlobal("glowWidth", HudConfig.FxGlowWidth);
             g.GlowDiffuse = OwnOrGlobal("glowDiffuse", HudConfig.FxGlowDiffuse);
+            // A NEW key (2026-07-16): NewSdf resolution so pre-existing Custom snapshots stay
+            // at the neutral 0 instead of silently inheriting the new global.
+            g.GlowExtraDiffuse = Mathf.Clamp01(
+                NewSdfOwnOrGlobal("glowExtraDiffuse", HudConfig.FxGlowExtraDiffuse, 0f));
             bool rippleOn = tierA && StyleFeatureOn("customRippleOn", HudConfig.FxEdgeLightOn);
             g.EdgeRipple = rippleOn ? OwnOrGlobal("ripple", HudConfig.FxEdgeRipple) : 0f;
-            g.EdgeRippleFreq = OwnOrGlobal("rippleFreq", HudConfig.FxEdgeRippleFreq);
-            g.RippleSmooth = UsesGlobalStyle ? 0f : (Def != null ? Def.GetF("rippleSmooth", 0f) : 0f);
+            g.EdgeRippleFreq = RippleFreqFor(OwnOrGlobal("rippleFreq", HudConfig.FxEdgeRippleFreq));
+            g.RippleSmooth = UsesGlobalStyle ? 0f : (Def != null ? Def.GetFFor(LayoutBare, "rippleSmooth", 0f) : 0f);
+
+            // The MOVING ripple on freeform Shapes: same edgeFlow speed the SDF panels use,
+            // animated by HudEdgeFX/HudGlass off the uv1 payload the shape bakes. Gated on
+            // the PROVEN flow ABI, not just Tier B: a pre-flow resident bundle after F6 still
+            // registers the families but ignores uv1 — a nonzero FlowSpeed would then suppress
+            // the static bake with nothing animating it (shimmer lost entirely).
+            var poly = g as PolygonPanelGraphic;
+            if (poly != null)
+                poly.FlowSpeed = rippleOn && Core.HudShaderStore.FlowAbiAvailable
+                    ? Mathf.Max(0f, RippleFlowSpeedFor(EdgeFlowFor())) : 0f;
 
             ApplyFx(g);
         }
@@ -400,14 +544,83 @@ namespace StationeersUIMod.UI.Hud
         protected float OwnOrGlobal(string key, ConfigEntry<float> global)
         {
             if (UsesGlobalStyle) return global != null ? global.Value : 0f;
-            float v = Def != null ? Def.GetF(key, -1f) : -1f;
+            float v = Def != null ? Def.GetFFor(LayoutBare, key, -1f) : -1f;
             return v >= 0f ? v : (global != null ? global.Value : 0f);
         }
 
-        private bool StyleFeatureOn(string customKey, ConfigEntry<bool> global)
+        protected bool StyleFeatureOn(string customKey, ConfigEntry<bool> global)
         {
             bool gv = global != null && global.Value;
-            return UsesCustomStyle && Def != null ? Def.GetB(customKey, gv) : gv;
+            return UsesCustomStyle && Def != null ? Def.GetBFor(LayoutBare, customKey, gv) : gv;
+        }
+
+        /// <summary>Resolver for features introduced after complete Custom snapshots shipped.
+        /// A missing key in an existing Custom profile must remain neutral/off rather than
+        /// silently inheriting a newly-added global. Global retains normal defaults.</summary>
+        private bool NewSdfFeatureOn(string customKey, ConfigEntry<bool> global)
+        {
+            bool gv = global != null && global.Value;
+            return UsesCustomStyle && Def != null ? Def.GetBFor(LayoutBare, customKey, false) : gv;
+        }
+
+        protected float NewSdfOwnOrGlobal(string key, ConfigEntry<float> global, float customDefault = 0f)
+        {
+            float gv = global != null ? global.Value : 0f;
+            if (UsesGlobalStyle) return gv;
+            // Custom: a missing key stays at its neutral default rather than silently
+            // inheriting a global that was added after the snapshot was taken.
+            return Def != null ? Def.GetFFor(LayoutBare, key, customDefault) : customDefault;
+        }
+
+        /// <summary>Per-element edge-ripple frequency. When the global "Desync ripple" toggle is on,
+        /// each element's ripple frequency is nudged by a small, STABLE per-element amount (seeded off
+        /// the same FNV-1a Id hash the animator uses) so identical elements drift to slightly different
+        /// frequencies instead of shimmering/flowing in lockstep — the variation the pattern needs to
+        /// read as organic. Returns <paramref name="baseFreq"/> unchanged when the toggle is off, so a
+        /// non-desynced HUD stays byte-identical. Deterministic across mesh rebuilds, F6 and F9 edits;
+        /// zero-alloc (safe on the per-frame style path); clamped to the packable 0.05..8 range so the
+        /// SDF vertex pack never overflows. Since it only varies an already-transmitted value, every
+        /// renderer (SDF panels, pen shapes, lines) desyncs with no shader/ABI change.</summary>
+        protected float RippleFreqFor(float baseFreq)
+        {
+            if (Def == null || HudConfig.FxRippleDesync == null || !HudConfig.FxRippleDesync.Value)
+                return baseFreq;
+            float amt = HudConfig.FxRippleDesyncAmount != null ? HudConfig.FxRippleDesyncAmount.Value : 0f;
+            if (amt <= 0.0001f) return baseFreq;
+            // Re-mix the animator's 0..9999 seed (Knuth multiplicative) so the frequency spread does
+            // not lattice with the flicker/boot-stagger that reads the same Id seed. No string alloc.
+            uint h = (uint)HudDocument.StableSeed(Def.Id) * 2654435761u;
+            float u = (h & 0xFFFFu) / 65535f;                       // stable 0..1
+            float mul = 1f + (u * 2f - 1f) * amt * 0.35f;           // up to +/-35% at amount 1
+            return Mathf.Clamp(baseFreq * mul, 0.05f, 8f);
+        }
+
+        /// <summary>Per-element edge-FLOW speed. Companion to <see cref="RippleFreqFor"/>: frequency
+        /// jitter alone desyncs the spatial wavelength but NOT the animation TEMPO (the shader time
+        /// term keys off flow speed, not frequency), so panels narrower than ~180px still flowed in
+        /// near-unison (2026-07-19 review). Jittering flow speed per element (independent seed) drifts
+        /// the temporal phase apart at EVERY panel size. Multiplicative, so a frozen element (speed ~0)
+        /// stays frozen; skipped entirely near the mesh flow/static threshold so a barely-flowing
+        /// element can't be jittered across it (a visible pop). Unchanged when the toggle is off;
+        /// clamped to the packable 0..4 range so the SDF flow-speed pack never overflows. Only varies
+        /// an already-transmitted value, so every renderer desyncs with no shader/ABI change. This is
+        /// a RENDER-time nudge only — the snapshot path (EdgeFlowFor into a Def) must stay un-jittered
+        /// so saved profiles keep the authored speed.</summary>
+        protected float RippleFlowSpeedFor(float baseSpeed)
+        {
+            if (Def == null || HudConfig.FxRippleDesync == null || !HudConfig.FxRippleDesync.Value)
+                return baseSpeed;
+            // Leave near-frozen speeds alone: multiplicative jitter of a sub-threshold speed could
+            // flip a mesh element across the 0.004 flow/static-bake boundary.
+            if (baseSpeed <= 0.01f) return baseSpeed;
+            float amt = HudConfig.FxRippleDesyncAmount != null ? HudConfig.FxRippleDesyncAmount.Value : 0f;
+            if (amt <= 0.0001f) return baseSpeed;
+            // XOR-salt the seed so speed and frequency offsets are INDEPENDENT (an element is not
+            // always both faster and higher-frequency). No string alloc.
+            uint h = ((uint)HudDocument.StableSeed(Def.Id) ^ 0x9E3779B9u) * 2654435761u;
+            float u = (h & 0xFFFFu) / 65535f;                       // stable 0..1
+            float mul = 1f + (u * 2f - 1f) * amt * 0.30f;           // up to +/-30% at amount 1
+            return Mathf.Clamp(baseSpeed * mul, 0f, 4f);
         }
 
         /// <summary>The 0.9.0 half of panel styling: per-element strength (uv0.x) + shared
@@ -430,15 +643,16 @@ namespace StationeersUIMod.UI.Hud
             bool sdfAssigned = sdfWanted && HudFxMaterials.Assign(g.AsGraphic, "sdfglass");
             if (panel != null)
             {
-                float edgeFadeX = Def != null ? Def.GetF("edgeFadeX", 0f) : 0f;
-                float edgeFadeY = Def != null ? Def.GetF("edgeFadeY", 0f) : 0f;
+                float edgeFadeX = Def != null ? Def.GetFFor(LayoutBare, "edgeFadeX", 0f) : 0f;
+                float edgeFadeY = Def != null ? Def.GetFFor(LayoutBare, "edgeFadeY", 0f) : 0f;
                 if (sdfAssigned)
                 {
                     panel.SetSdfStyle(true,
-                        SdfSquircleFor(), SdfGaussianFor(), EdgeFlowFor(),
+                        SdfSquircleFor(), SdfGaussianFor(), RippleFlowSpeedFor(EdgeFlowFor()),
                         FrostAmountFor(), FrostDepthFor(), ChromaAmountFor(),
                         ShineAmountFor(), IridAmountFor(), DissolveFor(),
-                        edgeFadeX, edgeFadeY);
+                        edgeFadeX, edgeFadeY, HaloHazeFor(), HaloBreathFor(),
+                        HaloUnevenFor(), HaloFlowAuraFor(), HaloOrganicScaleFor());
                     // The SDF ABI carries independent final strengths; uv0.x's old combined
                     // volume is not used and must not force needless legacy mesh semantics.
                     g.FxStrength = 0f;
@@ -446,7 +660,7 @@ namespace StationeersUIMod.UI.Hud
                 }
 
                 panel.SetSdfStyle(false, 2f, false, 0f, 0f, 1f, 0f, 0f, 0f,
-                    false, 0f, 0f);
+                    false, 0f, 0f, 0f, 0f, 0f, 0f, 1f);
             }
 
             g.FxStrength = FxStrengthFor();
@@ -456,9 +670,15 @@ namespace StationeersUIMod.UI.Hud
             // (dictionary lookups) and only churn on an actual toggle. Falls through to the
             // default UI material whenever the bundle/tier is off — the Tier A look.
             bool frost = FrostAmountFor() > 0.001f;
+            // A flowing Shape needs SOME bundle material bound or its uv1 payload is inert —
+            // the edgefx family is the natural host when frost isn't claiming the graphic.
+            var flowPoly = g.AsGraphic as PolygonPanelGraphic;
+            bool meshFlow = flowPoly != null
+                && flowPoly.FlowSpeed > 0.004f && flowPoly.EdgeRipple > 0.004f;
             bool edgeFx = !frost
                 && Core.HudShaderStore.TierBAvailable
-                && (ShineAmountFor() > 0.001f || IridAmountFor() > 0.001f || DissolveFor());
+                && (ShineAmountFor() > 0.001f || IridAmountFor() > 0.001f || DissolveFor()
+                    || meshFlow);
             if (frost) { if (!HudFxMaterials.Assign(g.AsGraphic, "glass")) HudFxMaterials.Unassign(g.AsGraphic); }
             else if (edgeFx) { if (!HudFxMaterials.Assign(g.AsGraphic, "edgefx")) HudFxMaterials.Unassign(g.AsGraphic); }
             else HudFxMaterials.Unassign(g.AsGraphic);
@@ -468,18 +688,66 @@ namespace StationeersUIMod.UI.Hud
         {
             float global = HudConfig.SdfSquircle != null ? HudConfig.SdfSquircle.Value : 2f;
             if (UsesGlobalStyle) return global;
-            float own = Def != null ? Def.GetF("squircle", -1f) : -1f;
+            float own = Def != null ? Def.GetFFor(LayoutBare, "squircle", -1f) : -1f;
             return own >= 2f ? Mathf.Clamp(own, 2f, 8f) : global;
         }
 
         private bool SdfGaussianFor()
         {
             bool global = HudConfig.SdfGaussianHalo != null && HudConfig.SdfGaussianHalo.Value;
-            return UsesCustomStyle && Def != null ? Def.GetB("gaussianHalo", global) : global;
+            return UsesCustomStyle && Def != null ? Def.GetBFor(LayoutBare, "gaussianHalo", global) : global;
         }
 
         private float EdgeFlowFor()
             => OwnOrGlobal("edgeFlow", HudConfig.FxEdgeFlowSpeed);
+
+        private float HaloHazeFor()
+        {
+            bool tierA = HudConfig.FxTierA != null && HudConfig.FxTierA.Value;
+            bool glowOn = StyleFeatureOn("customGlowOn", HudConfig.FxGlowOn);
+            return tierA && glowOn
+                ? Mathf.Clamp01(NewSdfOwnOrGlobal("glowHaze", HudConfig.FxGlowHaze)) : 0f;
+        }
+
+        private float HaloBreathFor()
+        {
+            bool tierA = HudConfig.FxTierA != null && HudConfig.FxTierA.Value;
+            bool glowOn = StyleFeatureOn("customGlowOn", HudConfig.FxGlowOn);
+            bool auraOn = HaloFlowAuraFor() > 0.001f;
+            bool breathOn = NewSdfFeatureOn("customGlowBreathOn", HudConfig.FxGlowBreathOn);
+            return tierA && (glowOn || auraOn) && breathOn
+                ? Mathf.Clamp01(NewSdfOwnOrGlobal("glowBreath", HudConfig.FxGlowBreath, 0.35f)) : 0f;
+        }
+
+        private float HaloUnevenFor()
+        {
+            bool tierA = HudConfig.FxTierA != null && HudConfig.FxTierA.Value;
+            bool glowOn = StyleFeatureOn("customGlowOn", HudConfig.FxGlowOn);
+            bool auraOn = HaloFlowAuraFor() > 0.001f;
+            bool unevenOn = NewSdfFeatureOn("customGlowUnevenOn", HudConfig.FxGlowUnevenOn);
+            return tierA && (glowOn || auraOn) && unevenOn
+                ? Mathf.Clamp01(NewSdfOwnOrGlobal("glowUneven", HudConfig.FxGlowUneven, 0.5f)) : 0f;
+        }
+
+        /// <summary>Footprint multiplier of the unevenness noise (0.25x..4x, 1 = classic).
+        /// A modifier of the uneven feature — neutral whenever unevenness resolves off.</summary>
+        private float HaloOrganicScaleFor()
+        {
+            if (HaloUnevenFor() <= 0.001f) return 1f;
+            float v = NewSdfOwnOrGlobal("glowOrganicScale", HudConfig.FxGlowOrganicScale, 1f);
+            // A -1 sentinel can reach the Custom branch raw (ResetEffectsToGlobal writes it
+            // into every _fxKeys slot) — anything below the slider floor means "neutral".
+            return v < 0.2f ? 1f : Mathf.Clamp(v, 0.25f, 4f);
+        }
+
+        private float HaloFlowAuraFor()
+        {
+            bool tierA = HudConfig.FxTierA != null && HudConfig.FxTierA.Value;
+            bool edgeOn = StyleFeatureOn("customRippleOn", HudConfig.FxEdgeLightOn);
+            bool auraOn = NewSdfFeatureOn("customGlowFlowOn", HudConfig.FxGlowFlowAuraOn);
+            return tierA && edgeOn && auraOn
+                ? Mathf.Clamp(NewSdfOwnOrGlobal("glowFlowAura", HudConfig.FxGlowFlowAura, 0.6f), 0f, 2f) : 0f;
+        }
 
         private float FrostDepthFor()
             => Mathf.Clamp01(OwnOrGlobal("frostDepth", HudConfig.FrostDepth));
@@ -491,11 +759,8 @@ namespace StationeersUIMod.UI.Hud
             bool globalOn = HudConfig.FxShineOn != null && HudConfig.FxShineOn.Value;
             float global = HudConfig.FxShine != null ? HudConfig.FxShine.Value : 0f;
             if (UsesGlobalStyle) return globalOn ? Mathf.Clamp(global, 0f, 2f) : 0f;
-            if (UsesCustomStyle)
-                return Def.GetB("customShineOn", globalOn)
-                    ? Mathf.Clamp(Def.GetF("customShine", global), 0f, 2f) : 0f;
-            return globalOn && Def.GetB("fxShine", true)
-                ? Mathf.Clamp(global * Mathf.Clamp01(Def.GetF("fxShineAmt", 1f)), 0f, 2f) : 0f;
+            return Def.GetBFor(LayoutBare, "customShineOn", globalOn)
+                ? Mathf.Clamp(Def.GetFFor(LayoutBare, "customShine", global), 0f, 2f) : 0f;
         }
 
         private float IridAmountFor()
@@ -505,11 +770,8 @@ namespace StationeersUIMod.UI.Hud
             bool globalOn = HudConfig.FxIridOn != null && HudConfig.FxIridOn.Value;
             float global = HudConfig.FxIridescence != null ? HudConfig.FxIridescence.Value : 0f;
             if (UsesGlobalStyle) return globalOn ? Mathf.Clamp01(global) : 0f;
-            if (UsesCustomStyle)
-                return Def.GetB("customIridOn", globalOn)
-                    ? Mathf.Clamp01(Def.GetF("customIrid", global)) : 0f;
-            return globalOn && Def.GetB("fxIrid", true)
-                ? Mathf.Clamp01(global * Mathf.Clamp01(Def.GetF("fxIridAmt", 1f))) : 0f;
+            return Def.GetBFor(LayoutBare, "customIridOn", globalOn)
+                ? Mathf.Clamp01(Def.GetFFor(LayoutBare, "customIrid", global)) : 0f;
         }
 
         private float FrostAmountFor()
@@ -518,11 +780,8 @@ namespace StationeersUIMod.UI.Hud
             if (!tier || Def == null) return 0f;
             float global = HudConfig.FrostStrength != null ? HudConfig.FrostStrength.Value : 1f;
             if (UsesGlobalStyle) return Mathf.Clamp01(global);
-            if (UsesCustomStyle)
-                return Def.GetB("customFrostOn", true)
-                    ? Mathf.Clamp01(Def.GetF("customFrost", global)) : 0f;
-            return Def.GetB("fxFrost", true)
-                ? Mathf.Clamp01(global * Mathf.Clamp01(Def.GetF("fxFrostAmt", 1f))) : 0f;
+            return Def.GetBFor(LayoutBare, "customFrostOn", true)
+                ? Mathf.Clamp01(Def.GetFFor(LayoutBare, "customFrost", global)) : 0f;
         }
 
         private float ChromaAmountFor()
@@ -533,11 +792,8 @@ namespace StationeersUIMod.UI.Hud
             float global = HudConfig.FxChroma != null ? HudConfig.FxChroma.Value : 0f;
             if (!tier) return 0f;
             if (UsesGlobalStyle) return globalOn ? Mathf.Clamp01(global) : 0f;
-            if (UsesCustomStyle)
-                return Def.GetB("customChromaOn", globalOn)
-                    ? Mathf.Clamp01(Def.GetF("customChroma", global)) : 0f;
-            return globalOn && Def.GetB("fxChroma", true)
-                ? Mathf.Clamp01(global * Mathf.Clamp01(Def.GetF("fxChromaAmt", 1f))) : 0f;
+            return Def.GetBFor(LayoutBare, "customChromaOn", globalOn)
+                ? Mathf.Clamp01(Def.GetFFor(LayoutBare, "customChroma", global)) : 0f;
         }
 
         private bool DissolveFor()
@@ -545,8 +801,7 @@ namespace StationeersUIMod.UI.Hud
             if (Def == null || HudConfig.FxTierB == null || !HudConfig.FxTierB.Value) return false;
             bool global = HudConfig.FxDissolveBoot != null && HudConfig.FxDissolveBoot.Value;
             if (UsesGlobalStyle) return global;
-            if (UsesCustomStyle) return Def.GetB("customDissolve", global);
-            return global && Def.GetB("fxDissolve", true);
+            return Def.GetBFor(LayoutBare, "customDissolve", global);
         }
 
         /// <summary>Legacy-shader modulation (0..1) baked into uv0.x after resolving the
@@ -593,8 +848,8 @@ namespace StationeersUIMod.UI.Hud
                 && HudConfig.FxTierA != null && HudConfig.FxTierA.Value
                 && HudConfig.FxPulseOn != null && HudConfig.FxPulseOn.Value
                 && !UsesGlobalStyle
-                && Def.GetB("fxPulse", false);
-            float amt = active ? Mathf.Clamp(Def.GetF("fxPulseAmt", 1f), 0f, 2f) : 0f;
+                && Def.GetBFor(LayoutBare, "fxPulse", false);
+            float amt = active ? Mathf.Clamp(Def.GetFFor(LayoutBare, "fxPulseAmt", 1f), 0f, 2f) : 0f;
 
             if (amt <= 0f)
             {
@@ -606,8 +861,10 @@ namespace StationeersUIMod.UI.Hud
             float speed = HudConfig.FxPulseSpeed != null ? HudConfig.FxPulseSpeed.Value : 0.5f;
             float depth = (HudConfig.FxPulseDepth != null ? HudConfig.FxPulseDepth.Value : 0.25f) * amt;
             // Stable per-element phase offset (seeded by the Id hash) so a wall of pulsing
-            // elements breathes organically instead of in lockstep.
-            float phase = Def.Id != null ? (Def.Id.GetHashCode() & 0xFF) / 255f : 0f;
+            // elements breathes organically instead of in lockstep. StableSeed, NOT GetHashCode:
+            // string.GetHashCode is randomised per process on some runtimes, so the pulse phases
+            // reshuffled on every launch / F6 reload (the very jitter StableSeed exists to avoid).
+            float phase = Def.Id != null ? HudDocument.StableSeed(Def.Id) / 10000f : 0f;
             float s = 0.5f + 0.5f * Mathf.Sin((Time.unscaledTime * speed + phase) * 2f * Mathf.PI);
             float f = Mathf.Clamp01(1f - depth * s);
             TintFxGraphics(new Color(f, f, f, 1f));
@@ -673,162 +930,28 @@ namespace StationeersUIMod.UI.Hud
         {
             var d = Def;
             int styleStart = into.Count;
-            into.Add(HudProp.Header("Style source"));
-            into.Add(HudProp.Enum("Appearance & effects",
-                () => StyleSource,
+            into.Add(HudProp.Header("Style"));
+            // ONE switch, two states. Unchecking seeds a complete snapshot from the CURRENT
+            // globals first (reads run under the old mode), so every slider below pops open at
+            // exactly the value the element is already showing — no jump, no stale profile
+            // values. Re-checking keeps the snapshot dormant for a later return to Custom.
+            into.Add(HudProp.Bool("Follow F9 global style (theme + effects)",
+                () => UsesGlobalStyle,
                 v =>
                 {
-                    int next = Mathf.Clamp(v, StyleLegacy, StyleCustom);
-                    // The first transition snapshots the current look. Later Global <-> Custom
-                    // comparisons restore the dormant custom design instead of overwriting it.
-                    if (next == StyleCustom && StyleSource != StyleCustom
-                        && !d.GetB("customStyleReady", false))
-                        SeedCustomStyleFromEffective(d);
-                    d.SetI("styleSource", next);
-                },
-                StyleSourceNames));
+                    if (v)
+                    {
+                        d.SetI("styleSource", StyleGlobal);
+                        return;
+                    }
+                    if (!d.GetB("customStyleReady", false)) SeedCustomStyleFromEffective(d);
+                    d.SetI("styleSource", StyleCustom);
+                }));
             MarkProps(into, styleStart, HudPropGroup.Appearance);
-
-            // Existing profiles deliberately stay on their exact, mixed collection of flags and
-            // -1 sentinels until the author opts into the new contract. Their familiar controls
-            // remain available under this explicit compatibility mode.
-            if (StyleSource == StyleLegacy)
-            {
-                AddUnifiedLayoutProps(into, d);
-                AddLegacyAppearanceProps(into, d);
-                AddLegacyEffectProps(into, d);
-                return;
-            }
 
             AddUnifiedLayoutProps(into, d);
             AddUnifiedAppearanceProps(into, d);
             AddUnifiedEffectProps(into, d);
-        }
-
-        private void AddLegacyAppearanceProps(List<HudProp> into, HudElementDef d)
-        {
-            int start = into.Count;
-            into.Add(HudProp.Header("Appearance (legacy mixed)"));
-            into.Add(HudProp.Bool("Follow global colours + glass", () => d.GetB("followGlobal", false), v =>
-            {
-                bool was = d.GetB("followGlobal", false);
-                d.SetB("followGlobal", v);
-                if (was && !v) SeedColoursFromGlobal(d);
-            }));
-            if (!d.GetB("followGlobal", false))
-            {
-                into.Add(HudProp.Color("Text / accent", () => d.TextColor, v => d.TextColor = v));
-                if (SupportsPanelAppearance)
-                {
-                    into.Add(HudProp.Color("Fill", () => d.Fill, v => d.Fill = v));
-                    if (SupportsCustomBorderColor)
-                        into.Add(HudProp.Color("Border", () => d.Border, v => d.Border = v));
-                    into.Add(HudProp.F("Glass sheen (-1 = global)", () => d.GetF("sheen", -1f),
-                        v => d.SetF("sheen", v < 0f ? -1f : Mathf.Clamp01(v)), -1f, 1f));
-                    into.Add(HudProp.F("Glass edge light (-1 = global)", () => d.GetF("spec", -1f),
-                        v => d.SetF("spec", v < 0f ? -1f : Mathf.Clamp01(v)), -1f, 1f));
-                }
-            }
-            if (SupportsPanelAppearance)
-            {
-                into.Add(HudProp.F("Border width (-1 = global)", () => d.BorderWidth,
-                    v => d.BorderWidth = v, -1f, 8f));
-                into.Add(HudProp.F("Edge softness / AA (-1 = global)", () => d.GetF("feather", -1f),
-                    v => d.SetF("feather", v < 0f ? -1f : Mathf.Clamp(v, 0f, 4f)), -1f, 4f));
-                if (SupportsAuthoredCorners)
-                {
-                    into.Add(HudProp.F("Corner TL (-1 = global)", () => d.RTL, v => d.RTL = v, -1f, 64f));
-                    into.Add(HudProp.F("Corner TR (-1 = global)", () => d.RTR, v => d.RTR = v, -1f, 64f));
-                    into.Add(HudProp.F("Corner BR (-1 = global)", () => d.RBR, v => d.RBR = v, -1f, 64f));
-                    into.Add(HudProp.F("Corner BL (-1 = global)", () => d.RBL, v => d.RBL = v, -1f, 64f));
-                }
-            }
-            if (SupportsTrapezoid)
-            {
-                into.Add(HudProp.F("Top inset (trapezoid)", () => d.GetF("insetTop", 0f),
-                    v => d.SetF("insetTop", Mathf.Max(0f, v)), 0f, 400f));
-                into.Add(HudProp.F("Bottom inset (trapezoid)", () => d.GetF("insetBottom", 0f),
-                    v => d.SetF("insetBottom", Mathf.Max(0f, v)), 0f, 400f));
-            }
-            into.Add(HudProp.F("Font scale", () => d.FontScale,
-                v => d.FontScale = Mathf.Clamp(v, 0.4f, 3f), 0.4f, 3f));
-            MarkProps(into, start, HudPropGroup.Appearance);
-        }
-
-        private void AddLegacyEffectProps(List<HudProp> into, HudElementDef d)
-        {
-            int start = into.Count;
-            if (SupportsPanelAppearance)
-            {
-                into.Add(HudProp.Header("Panel effects (legacy mixed)"));
-                into.Add(HudProp.Bool("Follow global edge + glow values", () => !EffectsAreSeparated(d), v =>
-                {
-                    if (v) ResetEffectsToGlobal(d); else SeedEffectsFromGlobal(d);
-                }));
-                into.Add(HudProp.Bool("Shine sweep", () => d.GetB("fxShine", true), v => d.SetB("fxShine", v)));
-                into.Add(HudProp.F("  shine multiplier", () => d.GetF("fxShineAmt", 1f),
-                    v => d.SetF("fxShineAmt", Mathf.Clamp01(v)), 0f, 1f));
-                into.Add(HudProp.Bool("Iridescent edge", () => d.GetB("fxIrid", true), v => d.SetB("fxIrid", v)));
-                into.Add(HudProp.F("  iridescence multiplier", () => d.GetF("fxIridAmt", 1f),
-                    v => d.SetF("fxIridAmt", Mathf.Clamp01(v)), 0f, 1f));
-                into.Add(HudProp.Bool("Chromatic fringe", () => d.GetB("fxChroma", true), v => d.SetB("fxChroma", v)));
-                into.Add(HudProp.F("  chromatic multiplier", () => d.GetF("fxChromaAmt", 1f),
-                    v => d.SetF("fxChromaAmt", Mathf.Clamp01(v)), 0f, 1f));
-                into.Add(HudProp.Bool("Frosted glass", () => d.GetB("fxFrost", true), v => d.SetB("fxFrost", v)));
-                into.Add(HudProp.F("  frost multiplier", () => d.GetF("fxFrostAmt", 1f),
-                    v => d.SetF("fxFrostAmt", Mathf.Clamp01(v)), 0f, 1f));
-                if (SupportsAnalyticPanel)
-                    into.Add(HudProp.F("  frost depth (-1 = global)", () => d.GetF("frostDepth", -1f),
-                        v => d.SetF("frostDepth", v < 0f ? -1f : Mathf.Clamp01(v)), -1f, 1f));
-                into.Add(HudProp.Bool("Dissolve during boot", () => d.GetB("fxDissolve", true), v => d.SetB("fxDissolve", v)));
-
-                if (EffectsAreSeparated(d))
-                {
-                    into.Add(HudProp.F("Border fade", () => d.GetF("bfade", 0f),
-                        v => d.SetF("bfade", Mathf.Clamp01(v)), 0f, 1f));
-                    into.Add(HudProp.F("Soft edge px", () => d.GetF("softEdge", 0f),
-                        v => d.SetF("softEdge", Mathf.Clamp(v, 0f, 48f)), 0f, 48f));
-                    into.Add(HudProp.F("Glow outside", () => d.GetF("glow", 0f),
-                        v => d.SetF("glow", Mathf.Clamp(v, 0f, 2f)), 0f, 2f));
-                    into.Add(HudProp.F("Glow inside", () => d.GetF("glowIn", 0f),
-                        v => d.SetF("glowIn", Mathf.Clamp(v, 0f, 2f)), 0f, 2f));
-                    into.Add(HudProp.F("Glow width px", () => d.GetF("glowWidth", 24f),
-                        v => d.SetF("glowWidth", Mathf.Clamp(v, 6f, 160f)), 6f, 160f));
-                    into.Add(HudProp.F("Glow diffuseness", () => d.GetF("glowDiffuse", 0f),
-                        v => d.SetF("glowDiffuse", Mathf.Clamp01(v)), 0f, 1f));
-                    into.Add(HudProp.F("Edge ripple", () => d.GetF("ripple", 0f),
-                        v => d.SetF("ripple", Mathf.Clamp(v, 0f, 2.5f)), 0f, 2.5f));
-                    into.Add(HudProp.F("Ripple frequency", () => d.GetF("rippleFreq", 2f),
-                        v => d.SetF("rippleFreq", Mathf.Clamp(v, 0.05f, 8f)), 0.05f, 8f));
-                }
-                into.Add(HudProp.F("Ripple smoothness", () => d.GetF("rippleSmooth", 0f),
-                    v => d.SetF("rippleSmooth", Mathf.Clamp01(v)), 0f, 1f));
-                if (SupportsAnalyticPanel)
-                    into.Add(HudProp.F("Edge flow speed (-1 = global)", () => d.GetF("edgeFlow", -1f),
-                        v => d.SetF("edgeFlow", v < 0f ? -1f : Mathf.Clamp(v, 0f, 4f)), -1f, 4f));
-                into.Add(HudProp.F("Fade box ends L/R", () => d.GetF("edgeFadeX", 0f),
-                    v => d.SetF("edgeFadeX", Mathf.Clamp(v, 0f, 0.5f)), 0f, 0.5f));
-                into.Add(HudProp.F("Fade box top/bottom", () => d.GetF("edgeFadeY", 0f),
-                    v => d.SetF("edgeFadeY", Mathf.Clamp(v, 0f, 0.5f)), 0f, 0.5f));
-            }
-
-            into.Add(HudProp.Header("Motion & power transitions"));
-            into.Add(HudProp.Bool("Death collapse", () => d.GetB("fxCollapse", true), v => d.SetB("fxCollapse", v)));
-            into.Add(HudProp.F("  collapse strength", () => d.GetF("fxCollapseAmt", 1f),
-                v => d.SetF("fxCollapseAmt", Mathf.Clamp(v, 0f, 2f)), 0f, 2f));
-            into.Add(HudProp.Bool("Glitch tear", () => d.GetB("fxGlitch", true), v => d.SetB("fxGlitch", v)));
-            into.Add(HudProp.F("  glitch strength", () => d.GetF("fxGlitchAmt", 1f),
-                v => d.SetF("fxGlitchAmt", Mathf.Clamp(v, 0f, 2f)), 0f, 2f));
-            into.Add(HudProp.Bool("Warp / curve", () => d.GetB("fxWarp", true), v => d.SetB("fxWarp", v)));
-            into.Add(HudProp.F("  warp strength", () => d.GetF("fxWarpAmt", 1f),
-                v => d.SetF("fxWarpAmt", Mathf.Clamp(v, 0f, 2f)), 0f, 2f));
-            if (SupportsPanelAppearance)
-            {
-                into.Add(HudProp.Bool("Breathing pulse", () => d.GetB("fxPulse", false), v => d.SetB("fxPulse", v)));
-                into.Add(HudProp.F("  pulse strength", () => d.GetF("fxPulseAmt", 1f),
-                    v => d.SetF("fxPulseAmt", Mathf.Clamp(v, 0f, 2f)), 0f, 2f));
-            }
-            MarkProps(into, start, HudPropGroup.Effects);
         }
 
         private void AddUnifiedLayoutProps(List<HudProp> into, HudElementDef d)
@@ -851,178 +974,427 @@ namespace StationeersUIMod.UI.Hud
                 v => d.SetHPctFor(EditBare(d), LayoutMode, v), -1f, 1f));
             into.Add(HudProp.I("Z order", () => d.Z,
                 v => { d.Z = v; HudSystem.RequestZResort(); }, -100, 100));
-            into.Add(HudProp.Tier("Visible tiers (B / S / R)", () => (int)d.Tiers,
-                v => { d.Tiers = (HudTierMask)v; if (!IsBoth(d.Tiers)) d.SetBareLayout(false); }));
+            into.Add(HudProp.Tier("Show in (Bare / Suited)", () => (int)d.Tiers,
+                v => { d.Tiers = (HudTierMask)v; if (!IsBoth(d.Tiers)) { d.SetBareLayout(false); d.ClearVisualBareOverrides(); } }));
             MarkProps(into, start, HudPropGroup.Layout);
         }
 
         private void AddUnifiedAppearanceProps(List<HudProp> into, HudElementDef d)
         {
             int start = into.Count;
+            // Per-mode edit: every Appearance value reads/writes the SUIT base OR the BARE override
+            // depending on the active mode tab (EditBare(d) is true only while the Bare tab is
+            // selected on a Both element). Bare inherits the base until a property is forked. These
+            // shorthands keep the bag rows terse; first-class fields use their own ...For accessors.
+            System.Func<string, float, float> gf = (k, dv) => d.GetFFor(EditBare(d), k, dv);
+            System.Action<string, float> sf = (k, v) => d.SetFFor(EditBare(d), k, v);
+            System.Func<string, bool, bool> gb = (k, dv) => d.GetBFor(EditBare(d), k, dv);
+            System.Action<string, bool> sb = (k, v) => d.SetBFor(EditBare(d), k, v);
+
             into.Add(HudProp.Header("Appearance"));
+            // Colours are per-element in BOTH style states (see GlobalOr) and per-MODE too: a
+            // palette-name ref tracks the F9 palette live, a hex literal stands alone.
+            into.Add(HudProp.Color("Text / accent", () => d.TextColorFor(EditBare(d)), v => d.SetTextColorFor(EditBare(d), v)));
+            if (SupportsPanelAppearance)
+            {
+                into.Add(HudProp.Color("Fill", () => d.FillFor(EditBare(d)), v => d.SetFillFor(EditBare(d), v)));
+                if (SupportsCustomBorderColor)
+                    into.Add(HudProp.Color("Border", () => d.BorderFor(EditBare(d)), v => d.SetBorderFor(EditBare(d), v)));
+            }
+            else if (SupportsBorderOnlyChrome)
+            {
+                // No panel, but the widget draws a ring from these two — see SupportsBorderOnlyChrome.
+                // The COLOUR ref resolves in both states; the WIDTH routes through
+                // BorderWidthFor, which returns the global while following (review 2026-07-17:
+                // offering the slider in Global made it a dead control).
+                into.Add(HudProp.Color("Ring / outline colour", () => d.BorderFor(EditBare(d)), v => d.SetBorderFor(EditBare(d), v)));
+                if (!UsesGlobalStyle)
+                    into.Add(HudProp.F("Ring / outline width", () => d.BorderWidthFor(EditBare(d)),
+                        v => d.SetBorderWidthFor(EditBare(d), Mathf.Clamp(v, 0f, 8f)), 0f, 8f));
+            }
             if (UsesGlobalStyle)
             {
-                into.Add(HudProp.Header("Following F9 Theme and Effects globals"));
+                into.Add(HudProp.Header("Sizing, glass and effects follow the F9 globals (Theme + Effects)"));
             }
-            else
+            else if (SupportsPanelAppearance)
             {
-                into.Add(HudProp.Color("Text / accent", () => d.TextColor, v => d.TextColor = v));
-                if (SupportsPanelAppearance)
+                into.Add(HudProp.F("Border width", () => d.BorderWidthFor(EditBare(d)),
+                    v => d.SetBorderWidthFor(EditBare(d), Mathf.Clamp(v, 0f, 8f)), 0f, 8f));
+                into.Add(HudProp.F("Edge softness / AA", () => gf("feather", 1.25f),
+                    v => sf("feather", Mathf.Clamp(v, 0f, 4f)), 0f, 4f));
+                if (SupportsAuthoredCorners)
                 {
-                    into.Add(HudProp.Color("Fill", () => d.Fill, v => d.Fill = v));
-                    if (SupportsCustomBorderColor)
-                        into.Add(HudProp.Color("Border", () => d.Border, v => d.Border = v));
-                    into.Add(HudProp.F("Border width", () => d.BorderWidth,
-                        v => d.BorderWidth = Mathf.Clamp(v, 0f, 8f), 0f, 8f));
-                    into.Add(HudProp.F("Edge softness / AA", () => d.GetF("feather", 1.25f),
-                        v => d.SetF("feather", Mathf.Clamp(v, 0f, 4f)), 0f, 4f));
-                    if (SupportsAuthoredCorners)
-                    {
-                        into.Add(HudProp.F("Corner TL", () => d.RTL, v => d.RTL = Mathf.Max(0f, v), 0f, 64f));
-                        into.Add(HudProp.F("Corner TR", () => d.RTR, v => d.RTR = Mathf.Max(0f, v), 0f, 64f));
-                        into.Add(HudProp.F("Corner BR", () => d.RBR, v => d.RBR = Mathf.Max(0f, v), 0f, 64f));
-                        into.Add(HudProp.F("Corner BL", () => d.RBL, v => d.RBL = Mathf.Max(0f, v), 0f, 64f));
-                    }
-                    into.Add(HudProp.F("Glass sheen", () => d.GetF("sheen", 0f),
-                        v => d.SetF("sheen", Mathf.Clamp01(v)), 0f, 1f));
-                    into.Add(HudProp.F("Glass edge light", () => d.GetF("spec", 0f),
-                        v => d.SetF("spec", Mathf.Clamp01(v)), 0f, 1f));
-                    if (SupportsAnalyticPanel)
-                    {
-                        into.Add(HudProp.F("Corner shape (2=round, 8=squircle)", () => d.GetF("squircle", 2f),
-                            v => d.SetF("squircle", Mathf.Clamp(v, 2f, 8f)), 2f, 8f));
-                        into.Add(HudProp.Bool("Gaussian-distance halo", () => d.GetB("gaussianHalo", false),
-                            v => d.SetB("gaussianHalo", v)));
-                    }
+                    into.Add(HudProp.F("Corner TL", () => d.RTLFor(EditBare(d)), v => d.SetRTLFor(EditBare(d), Mathf.Max(0f, v)), 0f, 64f));
+                    into.Add(HudProp.F("Corner TR", () => d.RTRFor(EditBare(d)), v => d.SetRTRFor(EditBare(d), Mathf.Max(0f, v)), 0f, 64f));
+                    into.Add(HudProp.F("Corner BR", () => d.RBRFor(EditBare(d)), v => d.SetRBRFor(EditBare(d), Mathf.Max(0f, v)), 0f, 64f));
+                    into.Add(HudProp.F("Corner BL", () => d.RBLFor(EditBare(d)), v => d.SetRBLFor(EditBare(d), Mathf.Max(0f, v)), 0f, 64f));
+                }
+                else
+                {
+                    // The Theme tab has "Default corner rounding", so its absence here reads as
+                    // a missing control unless we say why. These surfaces derive their radius
+                    // from their own size (pills) or from a pen contour, and would ignore it.
+                    into.Add(HudProp.Header(Def != null && Def.Type == HudElementType.Shape
+                        ? "Corner rounding comes from the pen contour — edit the points instead"
+                        : "Corner rounding is derived from this element's size (pill shape)"));
+                }
+                into.Add(HudProp.F("Glass sheen", () => gf("sheen", 0f),
+                    v => sf("sheen", Mathf.Clamp01(v)), 0f, 1f));
+                into.Add(HudProp.F("Glass edge light", () => gf("spec", 0f),
+                    v => sf("spec", Mathf.Clamp01(v)), 0f, 1f));
+                if (SupportsAnalyticPanel)
+                {
+                    into.Add(HudProp.F("Corner shape (2=round, 8=squircle)", () => gf("squircle", 2f),
+                        v => sf("squircle", Mathf.Clamp(v, 2f, 8f)), 2f, 8f));
+                    into.Add(HudProp.Bool("Gaussian-distance halo", () => gb("gaussianHalo", false),
+                        v => sb("gaussianHalo", v)));
                 }
             }
             if (SupportsTrapezoid)
             {
-                into.Add(HudProp.F("Top inset (trapezoid)", () => d.GetF("insetTop", 0f),
-                    v => d.SetF("insetTop", Mathf.Max(0f, v)), 0f, 400f));
-                into.Add(HudProp.F("Bottom inset (trapezoid)", () => d.GetF("insetBottom", 0f),
-                    v => d.SetF("insetBottom", Mathf.Max(0f, v)), 0f, 400f));
+                into.Add(HudProp.F("Top inset (trapezoid)", () => gf("insetTop", 0f),
+                    v => sf("insetTop", Mathf.Max(0f, v)), 0f, 400f));
+                into.Add(HudProp.F("Bottom inset (trapezoid)", () => gf("insetBottom", 0f),
+                    v => sf("insetBottom", Mathf.Max(0f, v)), 0f, 400f));
             }
-            into.Add(HudProp.F("Font scale", () => d.FontScale,
-                v => d.FontScale = Mathf.Clamp(v, 0.4f, 3f), 0.4f, 3f));
+            into.Add(HudProp.F("Font scale", () => d.FontScaleFor(EditBare(d)),
+                v => d.SetFontScaleFor(EditBare(d), Mathf.Clamp(v, 0.4f, 3f)), 0.4f, 3f));
             MarkProps(into, start, HudPropGroup.Appearance);
         }
 
         private void AddUnifiedEffectProps(List<HudProp> into, HudElementDef d)
         {
             int start = into.Count;
+            // Per-mode edit shorthands (see AddUnifiedAppearanceProps): every effect knob forks
+            // between the SUIT base and the BARE override on EditBare(d). The ONE exception is the
+            // "Motion & power transitions" trio (collapse / glitch / warp) further down — those are
+            // NOT threaded at render time (a death/power transition shouldn't fork per mode), so
+            // they stay on the shared base via raw d.GetB/d.SetB here to keep editor and render honest.
+            System.Func<string, float, float> gf = (k, dv) => d.GetFFor(EditBare(d), k, dv);
+            System.Action<string, float> sf = (k, v) => d.SetFFor(EditBare(d), k, v);
+            System.Func<string, bool, bool> gb = (k, dv) => d.GetBFor(EditBare(d), k, dv);
+            System.Action<string, bool> sb = (k, v) => d.SetBFor(EditBare(d), k, v);
             into.Add(HudProp.Header("Effects"));
+            if (SupportsPanelAppearance && OptionalPanelBackgroundIsOff)
+                into.Add(HudProp.Header(OptionalPanelBackgroundHint));
+            if (SupportsAnalyticPanel
+                && (HudConfig.SdfPanels == null || !HudConfig.SdfPanels.Value
+                    || !Core.HudShaderStore.SdfAvailable))
+                into.Add(HudProp.Header(HudConfig.SdfPanels == null || !HudConfig.SdfPanels.Value
+                    ? "Analytic SDF panels are OFF — advanced halo motion is inactive; fallback radius caps at 160 px"
+                    : "ABI-2 SDF bundle is unavailable — advanced halo motion is inactive; fallback radius caps at 160 px"));
             if (SupportsPanelAppearance && UsesGlobalStyle)
                 into.Add(HudProp.Header("Panel appearance follows the F9 Effects globals"));
             if (SupportsPanelAppearance && UsesCustomStyle)
             {
-                into.Add(HudProp.Header("Per-element strengths (timing, direction, tint and capture remain global)"));
-                into.Add(HudProp.Bool("Border fade", () => d.GetB("customBorderFadeOn", true),
-                    v => d.SetB("customBorderFadeOn", v)));
-                if (d.GetB("customBorderFadeOn", true))
-                    into.Add(HudProp.F("  border fade amount", () => d.GetF("bfade", 0f),
-                        v => d.SetF("bfade", Mathf.Clamp01(v)), 0f, 1f));
-                into.Add(HudProp.Bool("Soft edge", () => d.GetB("customSoftEdgeOn", true),
-                    v => d.SetB("customSoftEdgeOn", v)));
-                if (d.GetB("customSoftEdgeOn", true))
-                    into.Add(HudProp.F("  soft edge px", () => d.GetF("softEdge", 0f),
-                        v => d.SetF("softEdge", Mathf.Clamp(v, 0f, 48f)), 0f, 48f));
-                into.Add(HudProp.Bool("Glow", () => d.GetB("customGlowOn", false),
-                    v => d.SetB("customGlowOn", v)));
-                if (d.GetB("customGlowOn", false))
+                // PARITY CONTRACT: this block mirrors the F9 Effects tab section-for-section,
+                // label-for-label and range-for-range, so separating an element from the globals
+                // never presents a smaller or differently-named set of knobs than the tab it just
+                // stopped following. Values that physically CANNOT be per-element (shared material
+                // uniforms — light direction/tint/rim/falloff, the animation clocks, and the one
+                // backdrop capture) are named in place as shared rather than silently omitted:
+                // an author who cannot find "light angle" here must be told where it went.
+
+                // ---- mirrors global "Edges, glow & pulse" ----
+                into.Add(HudProp.Header("Edges, glow & pulse"));
+                if (HudConfig.FxTierA == null || !HudConfig.FxTierA.Value)
+                    into.Add(HudProp.Header("Surface/edge master is OFF globally — Tier A values are inactive"));
+
+                // The global tab splits edge light across Theme ("Default glass edge light")
+                // and Effects ("Edge energy -> Strength"), which ADD. Custom collapses them
+                // into the single final value the snapshot froze, so the same key is offered
+                // in both places rather than inventing a second strength that would
+                // double-count on the next snapshot. UNGATED: GlassEdgeFor renders `spec`
+                // regardless of the Edge-energy checkbox, so hiding this row behind it left a
+                // hidden-but-active value (review 2026-07-17).
+                into.Add(HudProp.F("  strength (= Appearance -> Glass edge light)", () => gf("spec", 0f),
+                    v => sf("spec", Mathf.Clamp01(v)), 0f, 1f));
+                into.Add(HudProp.Bool("Edge energy (borders + lines)", () => gb("customRippleOn", true),
+                    v => sb("customRippleOn", v)));
+                if (gb("customRippleOn", true))
                 {
-                    into.Add(HudProp.F("  glow outside", () => d.GetF("glow", 0f),
-                        v => d.SetF("glow", Mathf.Clamp(v, 0f, 2f)), 0f, 2f));
-                    into.Add(HudProp.F("  glow inside", () => d.GetF("glowIn", 0f),
-                        v => d.SetF("glowIn", Mathf.Clamp(v, 0f, 2f)), 0f, 2f));
-                    into.Add(HudProp.F("  glow width px", () => d.GetF("glowWidth", 24f),
-                        v => d.SetF("glowWidth", Mathf.Clamp(v, 6f, 160f)), 6f, 160f));
-                    into.Add(HudProp.F("  glow diffuseness", () => d.GetF("glowDiffuse", 0f),
-                        v => d.SetF("glowDiffuse", Mathf.Clamp01(v)), 0f, 1f));
-                }
-                into.Add(HudProp.Bool("Animated edge energy", () => d.GetB("customRippleOn", true),
-                    v => d.SetB("customRippleOn", v)));
-                if (d.GetB("customRippleOn", true))
-                {
-                    into.Add(HudProp.F("  ripple amount", () => d.GetF("ripple", 0f),
-                        v => d.SetF("ripple", Mathf.Clamp(v, 0f, 2.5f)), 0f, 2.5f));
-                    into.Add(HudProp.F("  ripple frequency", () => d.GetF("rippleFreq", 2f),
-                        v => d.SetF("rippleFreq", Mathf.Clamp(v, 0.05f, 8f)), 0.05f, 8f));
-                    into.Add(HudProp.F("  ripple smoothness", () => d.GetF("rippleSmooth", 0f),
-                        v => d.SetF("rippleSmooth", Mathf.Clamp01(v)), 0f, 1f));
+                    into.Add(HudProp.Header("  light angle, colour, opposing-rim and falloff are shared globals (F9 -> Effects)"));
+                    into.Add(HudProp.F("  irregular energy", () => gf("ripple", 0f),
+                        v => sf("ripple", Mathf.Clamp(v, 0f, 2.5f)), 0f, 2.5f));
+                    into.Add(HudProp.F("  energy frequency", () => gf("rippleFreq", 2f),
+                        v => sf("rippleFreq", Mathf.Clamp(v, 0.05f, 8f)), 0.05f, 8f));
+                    into.Add(HudProp.F("  energy smoothness (per-element only)", () => gf("rippleSmooth", 0f),
+                        v => sf("rippleSmooth", Mathf.Clamp01(v)), 0f, 1f));
+                    if (SupportsAnalyticPanel || (Def != null && Def.Type == HudElementType.Shape))
+                        into.Add(HudProp.F("  flow speed (0 = frozen)", () => gf("edgeFlow", 0.22f),
+                            v => sf("edgeFlow", Mathf.Clamp(v, 0f, 4f)), 0f, 4f));
                     if (SupportsAnalyticPanel)
-                        into.Add(HudProp.F("  flow speed", () => d.GetF("edgeFlow", 0.22f),
-                            v => d.SetF("edgeFlow", Mathf.Clamp(v, 0f, 4f)), 0f, 4f));
+                    {
+                        into.Add(HudProp.Bool("  Flowing edge aura (SDF)", () => gb("customGlowFlowOn", false),
+                            v => sb("customGlowFlowOn", v)));
+                        if (gb("customGlowFlowOn", false))
+                            into.Add(HudProp.F("    aura strength", () => gf("glowFlowAura", 0.6f),
+                                v => sf("glowFlowAura", Mathf.Clamp(v, 0f, 2f)), 0f, 2f));
+                    }
                 }
 
-                into.Add(HudProp.Header(SupportsAnalyticPanel
-                    ? "Optical layers"
-                    : "Optical layers (legacy surface: independent strengths are approximate)"));
-                into.Add(HudProp.Bool("Shine sweep", () => d.GetB("customShineOn", true),
-                    v => d.SetB("customShineOn", v)));
-                if (d.GetB("customShineOn", true))
-                    into.Add(HudProp.F("  shine strength", () => d.GetF("customShine", 0.6f),
-                        v => d.SetF("customShine", Mathf.Clamp(v, 0f, 2f)), 0f, 2f));
-                into.Add(HudProp.Bool("Iridescent edge", () => d.GetB("customIridOn", true),
-                    v => d.SetB("customIridOn", v)));
-                if (d.GetB("customIridOn", true))
-                    into.Add(HudProp.F("  iridescence strength", () => d.GetF("customIrid", 0.25f),
-                        v => d.SetF("customIrid", Mathf.Clamp01(v)), 0f, 1f));
-                into.Add(HudProp.Bool("Chromatic fringe", () => d.GetB("customChromaOn", true),
-                    v => d.SetB("customChromaOn", v)));
-                if (d.GetB("customChromaOn", true))
-                    into.Add(HudProp.F("  chromatic strength", () => d.GetF("customChroma", 0.3f),
-                        v => d.SetF("customChroma", Mathf.Clamp01(v)), 0f, 1f));
-                into.Add(HudProp.Bool("Frosted glass", () => d.GetB("customFrostOn", true),
-                    v => d.SetB("customFrostOn", v)));
-                if (d.GetB("customFrostOn", true))
+                into.Add(HudProp.Bool("Border fade (unlit sections dissolve)", () => gb("customBorderFadeOn", true),
+                    v => sb("customBorderFadeOn", v)));
+                if (gb("customBorderFadeOn", true))
+                    into.Add(HudProp.F("  fade amount", () => gf("bfade", 0f),
+                        v => sf("bfade", Mathf.Clamp01(v)), 0f, 1f));
+                into.Add(HudProp.Bool("Soft edge (boxes melt together)", () => gb("customSoftEdgeOn", true),
+                    v => sb("customSoftEdgeOn", v)));
+                if (gb("customSoftEdgeOn", true))
+                    into.Add(HudProp.F("  width (px)", () => gf("softEdge", 0f),
+                        v => sf("softEdge", Mathf.Clamp(v, 0f, 48f)), 0f, 48f));
+
+                // F9 places BOX END FADE inside "Edges, glow & pulse" (after soft edge); the
+                // popup mirrors that order. The pair stays editable in Global mode too — the
+                // stand-alone section below covers that path.
+                into.Add(HudProp.Header("Box end fade"));
+                into.Add(HudProp.F("Fade box ends L/R", () => gf("edgeFadeX", 0f),
+                    v => sf("edgeFadeX", Mathf.Clamp(v, 0f, 0.5f)), 0f, 0.5f));
+                into.Add(HudProp.F("Fade box top/bottom", () => gf("edgeFadeY", 0f),
+                    v => sf("edgeFadeY", Mathf.Clamp(v, 0f, 0.5f)), 0f, 0.5f));
+                if (gf("edgeFadeX", 0f) > 0.001f || gf("edgeFadeY", 0f) > 0.001f)
+                    into.Add(HudProp.Header("  Fade curve and border influence are shared globals (F9 -> Effects)."));
+
+                if (SupportsGlowHalo)
                 {
-                    into.Add(HudProp.F("  frost strength", () => d.GetF("customFrost", 1f),
-                        v => d.SetF("customFrost", Mathf.Clamp01(v)), 0f, 1f));
-                    if (SupportsAnalyticPanel)
-                        into.Add(HudProp.F("  frost depth", () => d.GetF("frostDepth", 1f),
-                            v => d.SetF("frostDepth", Mathf.Clamp01(v)), 0f, 1f));
+                    into.Add(HudProp.Bool("Glow halo", () => gb("customGlowOn", false),
+                        v => sb("customGlowOn", v)));
+                    if (gb("customGlowOn", false))
+                    {
+                        into.Add(HudProp.F("  outward strength", () => gf("glow", 0f),
+                            v => sf("glow", Mathf.Clamp(v, 0f, 2f)), 0f, 2f));
+                        into.Add(HudProp.F("  inward strength", () => gf("glowIn", 0f),
+                            v => sf("glowIn", Mathf.Clamp(v, 0f, 2f)), 0f, 2f));
+                        if (SupportsAnalyticPanel)
+                            into.Add(HudProp.F("  extended atmospheric haze (SDF)", () => gf("glowHaze", 0f),
+                                v => sf("glowHaze", Mathf.Clamp01(v)), 0f, 1f));
+                    }
                 }
-                into.Add(HudProp.Bool("Dissolve during boot", () => d.GetB("customDissolve", true),
-                    v => d.SetB("customDissolve", v)));
+
+                // The envelope (radius/spread) drives the MESH halo too, so it shows for any
+                // surface with glow on — Shapes included. The organic extras (uneven reach,
+                // breathing) are analytic-shader terms and stay rectangle-only.
+                bool customHaloEnvelopeOn = (SupportsGlowHalo && gb("customGlowOn", false))
+                    || (SupportsAnalyticPanel
+                        && gb("customRippleOn", true) && gb("customGlowFlowOn", false));
+                if (customHaloEnvelopeOn)
+                {
+                    into.Add(HudProp.Header("SHARED HALO / FLOWING-AURA ENVELOPE"));
+                    // A Shape renders the MESH halo, whose GlowWidth clamps at 160 px — a
+                    // 320 slider ceiling there means the top half silently does nothing
+                    // (review 2026-07-17). Analytic panels carry the full 320.
+                    float haloCap = SupportsAnalyticPanel ? 320f : 160f;
+                    into.Add(HudProp.F("  Halo / aura radius (px)", () => gf("glowWidth", 24f),
+                        v => sf("glowWidth", Mathf.Clamp(v, 6f, haloCap)), 6f, haloCap));
+                    into.Add(HudProp.F("  spread (tight rim -> diffuse)", () => gf("glowDiffuse", 0f),
+                        v => sf("glowDiffuse", Mathf.Clamp01(v)), 0f, 1f));
+                    into.Add(HudProp.F("  extra diffuse (beyond max spread)", () => gf("glowExtraDiffuse", 0f),
+                        v => sf("glowExtraDiffuse", Mathf.Clamp01(v)), 0f, 1f));
+                    if (SupportsAnalyticPanel)
+                    {
+                        into.Add(HudProp.Bool("  Uneven / organic reach (SDF)", () => gb("customGlowUnevenOn", false),
+                            v => sb("customGlowUnevenOn", v)));
+                        if (gb("customGlowUnevenOn", false))
+                        {
+                            into.Add(HudProp.F("    unevenness amount", () => gf("glowUneven", 0.5f),
+                                v => sf("glowUneven", Mathf.Clamp01(v)), 0f, 1f));
+                            into.Add(HudProp.F("    organic scale (1 = classic)", () => gf("glowOrganicScale", 1f),
+                                v => sf("glowOrganicScale", Mathf.Clamp(v, 0.25f, 4f)), 0.25f, 4f));
+                        }
+                        into.Add(HudProp.Bool("  Halo / aura breathing (SDF)", () => gb("customGlowBreathOn", false),
+                            v => sb("customGlowBreathOn", v)));
+                        if (gb("customGlowBreathOn", false))
+                            into.Add(HudProp.F("    breath depth", () => gf("glowBreath", 0.35f),
+                                v => sf("glowBreath", Mathf.Clamp01(v)), 0f, 1f));
+                    }
+                    into.Add(HudProp.Header("  Extreme radius increases transparent GPU overdraw."));
+                }
+                into.Add(HudProp.Header("  Breath speed is a shared global (F9 -> Effects)."));
+
+                // Global groups the per-element pulse opt-in under "Edges, glow & pulse"; match it
+                // here rather than stranding it below in Motion, where it reads as a different
+                // feature from the one the tab presents.
+                // The pulse CONTROL now lives in "Motion & power transitions" below, with the rest
+                // of the tri-state effects — one row per effect, in one place, for every element
+                // (Custom or not). Only the pointer stays here so the F9 grouping still reads true.
+                into.Add(HudProp.Header("  Breathing pulse: see \"Motion & power transitions\" below."));
+                if (HudConfig.FxPulseOn == null || !HudConfig.FxPulseOn.Value)
+                    into.Add(HudProp.Header("  Per-element pulse is disabled globally."));
+                into.Add(HudProp.Header("  Pulse speed and depth are shared globals (F9 -> Effects)."));
+
+                // ---- mirrors global "Glass animation" ----
+                into.Add(HudProp.Header(SupportsAnalyticPanel
+                    ? "Glass animation"
+                    : "Glass animation (legacy surface: independent strengths are approximate)"));
+                if (HudConfig.FxTierB == null || !HudConfig.FxTierB.Value)
+                    into.Add(HudProp.Header("Glass animation master is OFF globally — Tier B values are inactive"));
+                into.Add(HudProp.Bool("Shine sweep", () => gb("customShineOn", true),
+                    v => sb("customShineOn", v)));
+                if (gb("customShineOn", true))
+                {
+                    into.Add(WithId(HudProp.F("  strength", () => gf("customShine", 0.6f),
+                        v => sf("customShine", Mathf.Clamp(v, 0f, 2f)), 0f, 2f), "customShine"));
+                    into.Add(HudProp.Header("  Sweep period is a shared global (F9 -> Effects)."));
+                }
+                into.Add(HudProp.Bool("Iridescent rim", () => gb("customIridOn", true),
+                    v => sb("customIridOn", v)));
+                if (gb("customIridOn", true))
+                    into.Add(WithId(HudProp.F("  strength", () => gf("customIrid", 0.25f),
+                        v => sf("customIrid", Mathf.Clamp01(v)), 0f, 1f), "customIrid"));
+                into.Add(HudProp.Bool("Chromatic fringe (uses frosted backdrop)", () => gb("customChromaOn", true),
+                    v => sb("customChromaOn", v)));
+                if (gb("customChromaOn", true))
+                    into.Add(WithId(HudProp.F("  strength", () => gf("customChroma", 0.3f),
+                        v => sf("customChroma", Mathf.Clamp01(v)), 0f, 1f), "customChroma"));
+                // Dissolve is a TRANSITION, not a steady glass term: its tri-state row is in
+                // "Motion & power transitions" below (writing the old `customDissolve` bool from
+                // here as well would let two controls disagree with the resolver).
+                into.Add(HudProp.Header("  Dissolve reveal: see \"Motion & power transitions\" below."));
+
+                // ---- mirrors global "Frosted glass" ----
+                into.Add(HudProp.Header("Frosted glass"));
+                if (HudConfig.FxTierC == null || !HudConfig.FxTierC.Value)
+                    into.Add(HudProp.Header("Frosted-glass master is OFF globally — Tier C values are inactive"));
+                into.Add(HudProp.Bool("Frosted glass", () => gb("customFrostOn", true),
+                    v => sb("customFrostOn", v)));
+                if (gb("customFrostOn", true))
+                {
+                    into.Add(HudProp.F("  frost strength", () => gf("customFrost", 1f),
+                        v => sf("customFrost", Mathf.Clamp01(v)), 0f, 1f));
+                    if (SupportsAnalyticPanel)
+                        into.Add(HudProp.F("  blur depth (shallow - deep)", () => gf("frostDepth", 1f),
+                            v => sf("frostDepth", Mathf.Clamp01(v)), 0f, 1f));
+                    into.Add(HudProp.Header("  Backdrop darkening, tint, downsample and re-blur rate are"));
+                    into.Add(HudProp.Header("  shared globals — one capture feeds every panel (F9 -> Effects)."));
+                }
+            }
+
+            // ---- Polyline mirror of the F9 "Edges, glow & pulse" section ----
+            // Lines render the edge-light/ripple family and the mesh glow halo (2026-07-16),
+            // resolved through the SAME two-state contract as panels. The line's strength key
+            // stays `edgeLight` (0..2, the raw F9 "Edge energy -> Strength" scale) — panels
+            // collapse theirs into `spec`, which is a different 0..1 glass quantity.
+            bool isLine = Def != null && Def.Type == HudElementType.Polyline;
+            if (isLine && UsesGlobalStyle)
+                into.Add(HudProp.Header("Line effects follow the F9 Effects globals"));
+            if (isLine && UsesCustomStyle)
+            {
+                into.Add(HudProp.Header("Edges, glow & pulse"));
+                if (HudConfig.FxTierA == null || !HudConfig.FxTierA.Value)
+                    into.Add(HudProp.Header("Surface/edge master is OFF globally — Tier A values are inactive"));
+                into.Add(HudProp.Bool("Edge energy (borders + lines)", () => gb("customRippleOn", true),
+                    v => sb("customRippleOn", v)));
+                if (gb("customRippleOn", true))
+                {
+                    into.Add(HudProp.F("  strength (line edge light)", () => gf("edgeLight", 0f),
+                        v => sf("edgeLight", Mathf.Clamp(v, 0f, 2f)), 0f, 2f));
+                    into.Add(HudProp.Header("  light angle, colour, opposing-rim and falloff are shared globals (F9 -> Effects)"));
+                    into.Add(HudProp.F("  irregular energy", () => gf("ripple", 0f),
+                        v => sf("ripple", Mathf.Clamp(v, 0f, 2.5f)), 0f, 2.5f));
+                    into.Add(HudProp.F("  energy frequency", () => gf("rippleFreq", 2f),
+                        v => sf("rippleFreq", Mathf.Clamp(v, 0.05f, 8f)), 0.05f, 8f));
+                    into.Add(HudProp.F("  energy smoothness (per-element only)", () => gf("rippleSmooth", 0f),
+                        v => sf("rippleSmooth", Mathf.Clamp01(v)), 0f, 1f));
+                }
+                into.Add(HudProp.Bool("Glow halo", () => gb("customGlowOn", false),
+                    v => sb("customGlowOn", v)));
+                if (gb("customGlowOn", false))
+                {
+                    into.Add(HudProp.F("  outward strength", () => gf("glow", 0f),
+                        v => sf("glow", Mathf.Clamp(v, 0f, 2f)), 0f, 2f));
+                    into.Add(HudProp.Header("SHARED HALO / FLOWING-AURA ENVELOPE"));
+                    // The line halo is the MESH recipe: its radius cap is 160 px, not the
+                    // analytic panels' 320.
+                    into.Add(HudProp.F("  Halo / aura radius (px)", () => gf("glowWidth", 24f),
+                        v => sf("glowWidth", Mathf.Clamp(v, 6f, 160f)), 6f, 160f));
+                    into.Add(HudProp.F("  spread (tight rim -> diffuse)", () => gf("glowDiffuse", 0f),
+                        v => sf("glowDiffuse", Mathf.Clamp01(v)), 0f, 1f));
+                    into.Add(HudProp.F("  extra diffuse (beyond max spread)", () => gf("glowExtraDiffuse", 0f),
+                        v => sf("glowExtraDiffuse", Mathf.Clamp01(v)), 0f, 1f));
+                }
             }
 
             // These are element participation/geometry controls rather than theme values, so
-            // they remain editable in both coherent modes.
-            if (SupportsPanelAppearance)
+            // they remain editable in both coherent modes. (Custom shows the pair inline above,
+            // in the F9 position — this stand-alone section covers the following state.)
+            if (SupportsPanelAppearance && !UsesCustomStyle)
             {
-                into.Add(HudProp.F("Fade box ends L/R", () => d.GetF("edgeFadeX", 0f),
-                    v => d.SetF("edgeFadeX", Mathf.Clamp(v, 0f, 0.5f)), 0f, 0.5f));
-                into.Add(HudProp.F("Fade box top/bottom", () => d.GetF("edgeFadeY", 0f),
-                    v => d.SetF("edgeFadeY", Mathf.Clamp(v, 0f, 0.5f)), 0f, 0.5f));
+                into.Add(HudProp.Header("Box end fade"));
+                into.Add(HudProp.F("Fade box ends L/R", () => gf("edgeFadeX", 0f),
+                    v => sf("edgeFadeX", Mathf.Clamp(v, 0f, 0.5f)), 0f, 0.5f));
+                into.Add(HudProp.F("Fade box top/bottom", () => gf("edgeFadeY", 0f),
+                    v => sf("edgeFadeY", Mathf.Clamp(v, 0f, 0.5f)), 0f, 0.5f));
+                // The RAMP SHAPE (curve + how much the border joins in) is shared, like the edge
+                // light's angle and falloff — say where it lives rather than leave a gap.
+                if (gf("edgeFadeX", 0f) > 0.001f || gf("edgeFadeY", 0f) > 0.001f)
+                    into.Add(HudProp.Header("  Fade curve and border influence are shared globals (F9 -> Effects)."));
             }
 
-            if (UsesCustomStyle)
-            {
-                into.Add(HudProp.Header("Motion & power transitions"));
-                into.Add(HudProp.Bool("Death collapse", () => d.GetB("fxCollapse", true), v => d.SetB("fxCollapse", v)));
-                if (d.GetB("fxCollapse", true))
-                    into.Add(HudProp.F("  collapse strength", () => d.GetF("fxCollapseAmt", 1f),
-                        v => d.SetF("fxCollapseAmt", Mathf.Clamp(v, 0f, 2f)), 0f, 2f));
-                into.Add(HudProp.Bool("Glitch tear", () => d.GetB("fxGlitch", true), v => d.SetB("fxGlitch", v)));
-                if (d.GetB("fxGlitch", true))
-                    into.Add(HudProp.F("  glitch strength", () => d.GetF("fxGlitchAmt", 1f),
-                        v => d.SetF("fxGlitchAmt", Mathf.Clamp(v, 0f, 2f)), 0f, 2f));
-                into.Add(HudProp.Bool("Warp / curve", () => d.GetB("fxWarp", true), v => d.SetB("fxWarp", v)));
-                if (d.GetB("fxWarp", true))
-                    into.Add(HudProp.F("  warp strength", () => d.GetF("fxWarpAmt", 1f),
-                        v => d.SetF("fxWarpAmt", Mathf.Clamp(v, 0f, 2f)), 0f, 2f));
-                if (SupportsPanelAppearance)
-                {
-                    into.Add(HudProp.Bool("Breathing pulse", () => d.GetB("fxPulse", false), v => d.SetB("fxPulse", v)));
-                    if (d.GetB("fxPulse", false))
-                        into.Add(HudProp.F("  pulse strength", () => d.GetF("fxPulseAmt", 1f),
-                            v => d.SetF("fxPulseAmt", Mathf.Clamp(v, 0f, 2f)), 0f, 2f));
-                }
-            }
-            else
-                into.Add(HudProp.Header("Motion participation follows global defaults"));
+            // ---- Motion & power transitions ------------------------------------------------
+            // DELIBERATELY NOT gated on UsesCustomStyle (bug, 2026-07-19: the toggles were both
+            // invisible AND ignored for a global-styled element). "Follow the global THEME" and
+            // "follow the global MOTION" are different questions: an element must be able to keep
+            // the shared look while sitting a transition out — or, from a Custom element, keep
+            // inheriting the globals for motion. So this block is unconditional and every row is a
+            // tri-state, which is the only encoding that can express Off at all.
+            //
+            // One row per registry effect, driven by HudTransitionFx.All, so this inspector and the
+            // F9 global menu cannot present different effects or different labels.
+            into.Add(HudProp.Header("Motion & power transitions"));
+            into.Add(HudProp.Header("  Inherit = follow the F9 global (Effects -> Suit power)"));
+            into.Add(HudProp.Header("  On = force it, at this element's own strength.  Off = never."));
+            for (int i = 0; i < HudTransitionFx.All.Length; i++)
+                AddTransitionRows(into, d, HudTransitionFx.All[i]);
+            into.Add(HudProp.Header("  A global master that is OFF wins over every element."));
+            into.Add(HudProp.Header("  Transitions are shared by the suit and bare layouts."));
             MarkProps(into, start, HudPropGroup.Effects);
+        }
+
+        /// <summary>Combo captions for the per-effect tri-state. A readonly array of literals: no
+        /// scene, document or ConfigEntry reference, so it needs no hot-reload teardown (the whole
+        /// type goes with the assembly on F6). Index order MUST match <see cref="HudFxMode"/>.</summary>
+        private static readonly string[] TransitionModeNames = { "Inherit", "On", "Off" };
+
+        /// <summary>Per-element rows for ONE registry transition effect, bound to the TRI-STATE so
+        /// the inspector can never disagree with the resolver: an explicit Inherit / On / Off
+        /// picker, plus the element's OWN strength while it is forced On (an inheriting element is
+        /// told what the global would give it instead, so the row is never a silent blank).
+        ///
+        /// EVERY accessor is called with bare:false — i.e. the RAW base value, never the "b_" bare
+        /// override. Power transitions are one animation for the whole element and are deliberately
+        /// NOT forked per tier: forking here would let the suit and bare layouts disagree about
+        /// whether an element dies at all, and the renderer's bare read falls back to this same base
+        /// whenever no override exists. (The migration may still have written a legacy bare
+        /// override; the resolver honours it, we simply never author a new one.)</summary>
+        private void AddTransitionRows(List<HudProp> into, HudElementDef d, HudTransitionFxDef fx)
+        {
+            if (into == null || d == null || fx == null) return;
+            // StableId, not the label, keys the ImGui control: seven rows share the "  strength"
+            // caption and would otherwise collapse into one (HudPropDrawer derives the id from
+            // Group + Label).
+            into.Add(WithId(HudProp.Enum(fx.Label,
+                () => (int)HudTransitionFx.ModeOf(d, fx, false),
+                v => HudTransitionFx.SetMode(d, fx, false, ToMode(v)),
+                TransitionModeNames), fx.ModeKey));
+
+            HudFxMode mode = HudTransitionFx.ModeOf(d, fx, false);
+            if (mode == HudFxMode.On)
+                into.Add(WithId(HudProp.F("  strength", () => HudTransitionFx.AmountOf(d, fx, false),
+                    v => HudTransitionFx.SetAmount(d, fx, false, v), 0f, 2f), fx.AmtKey));
+            else if (mode == HudFxMode.Inherit)
+                into.Add(HudProp.Header(fx.GlobalOn
+                    ? "  inheriting strength " + fx.GlobalAmt.ToString("0.00")
+                    : "  inheriting OFF (this effect's global master is off)"));
+            if (mode == HudFxMode.On && !fx.GlobalOn)
+                into.Add(HudProp.Header("  Global master is OFF - forcing On here changes nothing"));
+        }
+
+        /// <summary>Combo index -> tri-state, clamped so a stray index can never author garbage.</summary>
+        private static HudFxMode ToMode(int v)
+        {
+            if (v == (int)HudFxMode.On) return HudFxMode.On;
+            if (v == (int)HudFxMode.Off) return HudFxMode.Off;
+            return HudFxMode.Inherit;
         }
 
         private static void MarkProps(List<HudProp> props, int start, HudPropGroup group)
@@ -1031,198 +1403,15 @@ namespace StationeersUIMod.UI.Hud
                 if (props[i] != null) props[i].Group = group;
         }
 
-        private void DescribeLegacyProps(List<HudProp> into)
+        /// <summary>Give a prop an explicit ImGui identity. REQUIRED whenever two props in the same
+        /// group share a label: HudPropDrawer derives the id from Group + Label, so duplicates
+        /// become one control and edits land on the wrong row. The global tab has the same problem
+        /// and solves it with "##" label suffixes; props carry a StableId instead so the visible
+        /// label stays exactly what the global tab shows.</summary>
+        private static HudProp WithId(HudProp p, string stableId)
         {
-            var d = Def;
-            // Geometry edits the previewed mode's layout, but only a "Both" element keeps two:
-            // with the preview set to BARE these move a Both element's bare-mode position; in any
-            // other preview (or for a single-mode element) they move its one live layout. EditBare
-            // is called inside each closure so it tracks the live preview between frames.
-            into.Add(HudProp.Anchor("Anchor", () => (int)d.AnchorFor(EditBare(d), LayoutMode), v => d.SetAnchorFor(EditBare(d), LayoutMode, (HudAnchor)v)));
-            into.Add(HudProp.F("X", () => d.XFor(EditBare(d), LayoutMode), v => d.SetXFor(EditBare(d), LayoutMode, v), -2000f, 2000f));
-            into.Add(HudProp.F("Y", () => d.YFor(EditBare(d), LayoutMode), v => d.SetYFor(EditBare(d), LayoutMode, v), -2000f, 2000f));
-            into.Add(HudProp.F("Width", () => d.WFor(EditBare(d), LayoutMode), v => d.SetWFor(EditBare(d), LayoutMode, Mathf.Max(2f, v)), 2f, 2200f));
-            into.Add(HudProp.F("Height", () => d.HFor(EditBare(d), LayoutMode), v => d.SetHFor(EditBare(d), LayoutMode, Mathf.Max(2f, v)), 2f, 1300f));
-            into.Add(HudProp.F("Width % of screen (-1 = fixed)", () => d.WPctFor(EditBare(d), LayoutMode), v => d.SetWPctFor(EditBare(d), LayoutMode, v), -1f, 1f));
-            into.Add(HudProp.F("Height % of screen (-1 = fixed)", () => d.HPctFor(EditBare(d), LayoutMode), v => d.SetHPctFor(EditBare(d), LayoutMode, v), -1f, 1f));
-            // Z is baked into sibling order at build; re-apply it to the live panels on change,
-            // or the slider silently updates the number without re-layering anything.
-            into.Add(HudProp.I("Z order", () => d.Z, v => { d.Z = v; HudSystem.RequestZResort(); }, -100, 100));
-            // Which mode(s) this element appears in. "Both" additionally keeps a SEPARATE location
-            // per mode: with the F9 preview set to BARE, dragging a "Both" element saves its
-            // bare-mode spot; in any other preview it saves its live-mode spot. Switching away from
-            // "Both" drops the now-meaningless bare override.
-            into.Add(HudProp.Enum("Show in mode",
-                () => TiersToMode(d.Tiers),
-                v => { d.Tiers = ModeToTiers(v); if (!IsBoth(d.Tiers)) d.SetBareLayout(false); },
-                ShowModeNames));
-            // Follow the GLOBAL box colours (edit them in F9 → Colours → "Global box colours") or
-            // give this element its own. When following, the per-element colour pickers are hidden
-            // because they'd have no effect.
-            into.Add(HudProp.Bool("Follow global colours", () => d.GetB("followGlobal", false), v =>
-            {
-                bool was = d.GetB("followGlobal", false);
-                d.SetB("followGlobal", v);
-                // Separating (was following → now own): freeze the colours it was SHOWING (the current
-                // global palette) into this element, so it stays exactly that colour until you change
-                // it — no jump back to whatever the profile happened to store.
-                if (was && !v) SeedColoursFromGlobal(d);
-            }));
-            if (!d.GetB("followGlobal", false))
-            {
-                into.Add(HudProp.Color("Fill", () => d.Fill, v => d.Fill = v));
-                into.Add(HudProp.Color("Border", () => d.Border, v => d.Border = v));
-                into.Add(HudProp.Color("Text / accent", () => d.TextColor, v => d.TextColor = v));
-                // Glass follows the same flag as the colours: when this element follows global, its
-                // glass follows HudConfig.GlassSheen/GlassEdge, so these per-element sliders would be
-                // dead — hide them alongside the colour pickers. (-1 on a slider = follow global.)
-                into.Add(HudProp.F("Glass sheen (-1 = global)", () => d.GetF("sheen", -1f), v => d.SetF("sheen", v < 0f ? -1f : Mathf.Clamp01(v)), -1f, 1f));
-                into.Add(HudProp.F("Glass edge light (-1 = global)", () => d.GetF("spec", -1f), v => d.SetF("spec", v < 0f ? -1f : Mathf.Clamp01(v)), -1f, 1f));
-            }
-            into.Add(HudProp.F("Border width (-1 = global)", () => d.BorderWidth, v => d.BorderWidth = v, -1f, 8f));
-            into.Add(HudProp.F("Edge softness / AA (-1 = global)", () => d.GetF("feather", -1f), v => d.SetF("feather", v < 0f ? -1f : Mathf.Clamp(v, 0f, 4f)), -1f, 4f));
-            into.Add(HudProp.F("Corner TL (-1 = global)", () => d.RTL, v => d.RTL = v, -1f, 64f));
-            into.Add(HudProp.F("Corner TR (-1 = global)", () => d.RTR, v => d.RTR = v, -1f, 64f));
-            into.Add(HudProp.F("Corner BR (-1 = global)", () => d.RBR, v => d.RBR = v, -1f, 64f));
-            into.Add(HudProp.F("Corner BL (-1 = global)", () => d.RBL, v => d.RBL = v, -1f, 64f));
-            if (SupportsTrapezoid)
-            {
-                // Trapezoid shaping: a positive inset angles that edge inward (the visor-bar
-                // shoulders). Same params the Box primitive uses; each supporting view forwards
-                // them into its panel's SetShape, so this is where readouts/compass/etc. get taper.
-                into.Add(HudProp.F("Top inset (trapezoid)", () => d.GetF("insetTop", 0f), v => d.SetF("insetTop", Mathf.Max(0f, v)), 0f, 400f));
-                into.Add(HudProp.F("Bottom inset (trapezoid)", () => d.GetF("insetBottom", 0f), v => d.SetF("insetBottom", Mathf.Max(0f, v)), 0f, 400f));
-            }
-            into.Add(HudProp.F("Font scale", () => d.FontScale, v => d.FontScale = Mathf.Clamp(v, 0.4f, 3f), 0.4f, 3f));
-
-            // Per-element effect opt-in + strength (the flicker family stays global in the F9
-            // window). Each is a checkbox + a strength slider; default on at 1× so nothing changes
-            // until you tune it. "Death collapse" is the CRT squash; turn it off for e.g. the top bar.
-            into.Add(HudProp.Header("Effects (this element)"));
-            // Follow the GLOBAL mesh-effect sliders (F9 → Effects), or separate this element so it
-            // keeps its own. INDEPENDENT of the colour checkbox. Separating FREEZES the current
-            // global values into the element (so the look doesn't jump — it stays put until you move
-            // a slider); re-following resets those sliders back to "-1 = global". Derived from the
-            // params, so it needs no extra stored flag. Covers: border fade / soft edge / glow (out,
-            // in, width, diffuse) / edge ripple / ripple freq.
-            into.Add(HudProp.Bool("Follow global effects", () => !EffectsAreSeparated(d), v =>
-            {
-                if (v) ResetEffectsToGlobal(d);   // follow: drop back to -1 (use the global sliders)
-                else SeedEffectsFromGlobal(d);    // separate: freeze current global, then tweak below
-            }));
-            into.Add(HudProp.Bool("Death collapse", () => d.GetB("fxCollapse", true), v => d.SetB("fxCollapse", v)));
-            into.Add(HudProp.F("  collapse strength", () => d.GetF("fxCollapseAmt", 1f),
-                v => d.SetF("fxCollapseAmt", Mathf.Clamp(v, 0f, 2f)), 0f, 2f));
-            into.Add(HudProp.Bool("Glitch tear", () => d.GetB("fxGlitch", true), v => d.SetB("fxGlitch", v)));
-            into.Add(HudProp.F("  glitch strength", () => d.GetF("fxGlitchAmt", 1f),
-                v => d.SetF("fxGlitchAmt", Mathf.Clamp(v, 0f, 2f)), 0f, 2f));
-            into.Add(HudProp.Bool("Warp / curve", () => d.GetB("fxWarp", true), v => d.SetB("fxWarp", v)));
-            into.Add(HudProp.F("  warp strength", () => d.GetF("fxWarpAmt", 1f),
-                v => d.SetF("fxWarpAmt", Mathf.Clamp(v, 0f, 2f)), 0f, 2f));
-
-            // 0.9.0 effect rows. Pulse is Tier A and opt-IN (default off — breathing is an
-            // accent, not a default). Shine/iridescence/dissolve are Tier B (need the shader
-            // bundle; the global master + missing-bundle fallback gate them), frost is Tier C.
-            // All stored as Params-bag keys — zero enum/attribute changes (plan §7.2).
-            into.Add(HudProp.Bool("Pulse (breathing)", () => d.GetB("fxPulse", false), v => d.SetB("fxPulse", v)));
-            into.Add(HudProp.F("  pulse strength", () => d.GetF("fxPulseAmt", 1f),
-                v => d.SetF("fxPulseAmt", Mathf.Clamp(v, 0f, 2f)), 0f, 2f));
-            into.Add(HudProp.Bool("Shine sweep (Tier B)", () => d.GetB("fxShine", true), v => d.SetB("fxShine", v)));
-            into.Add(HudProp.F("  shine strength", () => d.GetF("fxShineAmt", 1f),
-                v => d.SetF("fxShineAmt", Mathf.Clamp01(v)), 0f, 1f));
-            into.Add(HudProp.Bool("Iridescent edge (Tier B)", () => d.GetB("fxIrid", true), v => d.SetB("fxIrid", v)));
-            into.Add(HudProp.F("  iridescence strength", () => d.GetF("fxIridAmt", 1f),
-                v => d.SetF("fxIridAmt", Mathf.Clamp01(v)), 0f, 1f));
-            into.Add(HudProp.Bool("Dissolve reveal (Tier B)", () => d.GetB("fxDissolve", true), v => d.SetB("fxDissolve", v)));
-            into.Add(HudProp.Bool("Frosted glass (Tier C)", () => d.GetB("fxFrost", true), v => d.SetB("fxFrost", v)));
-            into.Add(HudProp.F("  frost strength", () => d.GetF("fxFrostAmt", 1f),
-                v => d.SetF("fxFrostAmt", Mathf.Clamp01(v)), 0f, 1f));
-            // Concept-art trio, per-element (-1 = follow the global sliders in F9 > Effects).
-            into.Add(HudProp.F("Border fade (-1=global)", () => d.GetF("bfade", -1f),
-                v => d.SetF("bfade", Mathf.Clamp(v, -1f, 1f)), -1f, 1f));
-            into.Add(HudProp.F("Soft edge px (-1=global)", () => d.GetF("softEdge", -1f),
-                v => d.SetF("softEdge", Mathf.Clamp(v, -1f, 48f)), -1f, 48f));
-            into.Add(HudProp.F("Glow out (-1=global)", () => d.GetF("glow", -1f),
-                v => d.SetF("glow", Mathf.Clamp(v, -1f, 2f)), -1f, 2f));
-            into.Add(HudProp.F("Glow in (-1=global)", () => d.GetF("glowIn", -1f),
-                v => d.SetF("glowIn", Mathf.Clamp(v, -1f, 2f)), -1f, 2f));
-            into.Add(HudProp.F("Glow width px (-1=global)", () => d.GetF("glowWidth", -1f),
-                v => d.SetF("glowWidth", v < 0f ? -1f : Mathf.Clamp(v, 6f, 160f)), -1f, 160f));
-            into.Add(HudProp.F("Glow diffuse (-1=global)", () => d.GetF("glowDiffuse", -1f),
-                v => d.SetF("glowDiffuse", v < 0f ? -1f : Mathf.Clamp01(v)), -1f, 1f));
-            into.Add(HudProp.F("Edge ripple (-1=global)", () => d.GetF("ripple", -1f),
-                v => d.SetF("ripple", v < 0f ? -1f : Mathf.Clamp(v, 0f, 2.5f)), -1f, 2.5f));
-            into.Add(HudProp.F("Ripple freq — low = wider (-1=global)", () => d.GetF("rippleFreq", -1f),
-                v => d.SetF("rippleFreq", v < 0f ? -1f : Mathf.Clamp(v, 0.05f, 8f)), -1f, 8f));
-            into.Add(HudProp.F("Ripple gradient (0=noisy, 1=smooth)", () => d.GetF("rippleSmooth", 0f),
-                v => d.SetF("rippleSmooth", Mathf.Clamp01(v)), 0f, 1f));
-            // Whole-box edge fade: the far ends of THIS box dissolve to transparent so a wide
-            // bar melts into the visor (concept art). Fades the box/border/glow, not the text.
-            into.Add(HudProp.F("Fade box ends L/R (0=off)", () => d.GetF("edgeFadeX", 0f),
-                v => d.SetF("edgeFadeX", Mathf.Clamp(v, 0f, 0.5f)), 0f, 0.5f));
-            into.Add(HudProp.F("Fade box top/bottom (0=off)", () => d.GetF("edgeFadeY", 0f),
-                v => d.SetF("edgeFadeY", Mathf.Clamp(v, 0f, 0.5f)), 0f, 0.5f));
-        }
-
-        // ---- Follow-global helpers (the two per-element checkboxes) ----------------------------
-
-        /// <summary>The per-element "-1 = follow global" mesh-effect params, each paired with the
-        /// global slider it defers to. This is the set the "Follow global effects" checkbox governs
-        /// (glass/feather/corners are handled by their own controls). Colours are separate.</summary>
-        private static readonly string[] _fxKeys =
-            { "bfade", "softEdge", "glow", "glowIn", "glowWidth", "glowDiffuse", "ripple", "rippleFreq" };
-
-        private static float FxGlobal(string key)
-        {
-            switch (key)
-            {
-                case "bfade": return HudConfig.FxBorderFade != null ? HudConfig.FxBorderFade.Value : 0f;
-                case "softEdge": return HudConfig.FxSoftEdge != null ? HudConfig.FxSoftEdge.Value : 0f;
-                case "glow": return HudConfig.FxGlow != null ? HudConfig.FxGlow.Value : 0f;
-                case "glowIn": return HudConfig.FxGlowInner != null ? HudConfig.FxGlowInner.Value : 0f;
-                case "glowWidth": return HudConfig.FxGlowWidth != null ? HudConfig.FxGlowWidth.Value : 24f;
-                case "glowDiffuse": return HudConfig.FxGlowDiffuse != null ? HudConfig.FxGlowDiffuse.Value : 0f;
-                case "ripple": return HudConfig.FxEdgeRipple != null ? HudConfig.FxEdgeRipple.Value : 0f;
-                case "rippleFreq": return HudConfig.FxEdgeRippleFreq != null ? HudConfig.FxEdgeRippleFreq.Value : 2f;
-                default: return -1f;
-            }
-        }
-
-        /// <summary>True when ANY of the mesh-effect params carries its own value (>= 0) rather than
-        /// the "-1 = follow global" sentinel — i.e. the element has been separated from the globals.
-        /// The "Follow global effects" checkbox shows the inverse of this.</summary>
-        private static bool EffectsAreSeparated(HudElementDef d)
-        {
-            if (d == null) return false;
-            for (int i = 0; i < _fxKeys.Length; i++)
-                if (d.GetF(_fxKeys[i], -1f) >= 0f) return true;
-            return false;
-        }
-
-        /// <summary>Separate: freeze each still-following (-1) mesh-effect param at the current global
-        /// value, so the element looks identical but is now independently editable.</summary>
-        private static void SeedEffectsFromGlobal(HudElementDef d)
-        {
-            if (d == null) return;
-            for (int i = 0; i < _fxKeys.Length; i++)
-                if (d.GetF(_fxKeys[i], -1f) < 0f) d.SetF(_fxKeys[i], FxGlobal(_fxKeys[i]));
-        }
-
-        /// <summary>Re-follow: drop every mesh-effect param back to -1 so it tracks the global sliders.</summary>
-        private static void ResetEffectsToGlobal(HudElementDef d)
-        {
-            if (d == null) return;
-            for (int i = 0; i < _fxKeys.Length; i++) d.SetF(_fxKeys[i], -1f);
-        }
-
-        /// <summary>Separate the colours: freeze the CURRENT global palette (what a following element
-        /// shows) into this element's own refs as hex literals, so it stays that colour independently.</summary>
-        private static void SeedColoursFromGlobal(HudElementDef d)
-        {
-            if (d == null) return;
-            d.Fill = HudPalette.ToHexRef(HudPalette.PanelFill.Value);
-            d.Border = HudPalette.ToHexRef(HudPalette.PanelBorder.Value);
-            d.TextColor = HudPalette.ToHexRef(HudPalette.TextValue.Value);
+            if (p != null) p.StableId = stableId;
+            return p;
         }
 
         /// <summary>Freeze the element's currently rendered theme/effect values into a complete
@@ -1233,9 +1422,18 @@ namespace StationeersUIMod.UI.Hud
         {
             if (d == null) return;
 
-            d.Fill = HudPalette.ToHexRef(FillColor());
-            d.Border = HudPalette.ToHexRef(BorderColor());
-            d.TextColor = HudPalette.ToHexRef(TextColor());
+            // The snapshot defines the element's BASE (suit) style, so force the mode-aware
+            // resolvers below onto the base values — a snapshot taken while previewing BARE must
+            // never capture bare visual overrides into the shared base (they would then leak into
+            // suit). Restored in finally so a mid-frame flip can't strand the render tier.
+            bool _prevLayoutBare = LayoutBare;
+            LayoutBare = false;
+            try
+            {
+
+            // Colours are deliberately NOT snapshotted: refs resolve identically in both states
+            // (see GlobalOr), so separation must not hex-freeze a palette-name ref that the
+            // author wants tracking the F9 palette.
             d.BorderWidth = BorderWidthFor();
             d.RTL = Radius(d.RTL);
             d.RTR = Radius(d.RTR);
@@ -1254,12 +1452,21 @@ namespace StationeersUIMod.UI.Hud
             d.SetB("customSoftEdgeOn", StyleFeatureOn("customSoftEdgeOn", HudConfig.FxSoftEdgeOn));
             d.SetB("customGlowOn", StyleFeatureOn("customGlowOn", HudConfig.FxGlowOn));
             d.SetB("customRippleOn", StyleFeatureOn("customRippleOn", HudConfig.FxEdgeLightOn));
+            d.SetB("customGlowBreathOn", NewSdfFeatureOn("customGlowBreathOn", HudConfig.FxGlowBreathOn));
+            d.SetB("customGlowUnevenOn", NewSdfFeatureOn("customGlowUnevenOn", HudConfig.FxGlowUnevenOn));
+            d.SetB("customGlowFlowOn", NewSdfFeatureOn("customGlowFlowOn", HudConfig.FxGlowFlowAuraOn));
             d.SetF("bfade", OwnOrGlobal("bfade", HudConfig.FxBorderFade));
             d.SetF("softEdge", OwnOrGlobal("softEdge", HudConfig.FxSoftEdge));
             d.SetF("glow", OwnOrGlobal("glow", HudConfig.FxGlow));
             d.SetF("glowIn", OwnOrGlobal("glowIn", HudConfig.FxGlowInner));
             d.SetF("glowWidth", OwnOrGlobal("glowWidth", HudConfig.FxGlowWidth));
             d.SetF("glowDiffuse", OwnOrGlobal("glowDiffuse", HudConfig.FxGlowDiffuse));
+            d.SetF("glowExtraDiffuse", NewSdfOwnOrGlobal("glowExtraDiffuse", HudConfig.FxGlowExtraDiffuse));
+            d.SetF("glowHaze", NewSdfOwnOrGlobal("glowHaze", HudConfig.FxGlowHaze));
+            d.SetF("glowBreath", NewSdfOwnOrGlobal("glowBreath", HudConfig.FxGlowBreath, 0.35f));
+            d.SetF("glowUneven", NewSdfOwnOrGlobal("glowUneven", HudConfig.FxGlowUneven, 0.5f));
+            d.SetF("glowOrganicScale", NewSdfOwnOrGlobal("glowOrganicScale", HudConfig.FxGlowOrganicScale, 1f));
+            d.SetF("glowFlowAura", NewSdfOwnOrGlobal("glowFlowAura", HudConfig.FxGlowFlowAura, 0.6f));
             d.SetF("ripple", OwnOrGlobal("ripple", HudConfig.FxEdgeRipple));
             d.SetF("rippleFreq", OwnOrGlobal("rippleFreq", HudConfig.FxEdgeRippleFreq));
             d.SetF("rippleSmooth", UsesGlobalStyle ? 0f : d.GetF("rippleSmooth", 0f));
@@ -1273,34 +1480,23 @@ namespace StationeersUIMod.UI.Hud
             bool globalChromaOn = HudConfig.FxChromaOn != null && HudConfig.FxChromaOn.Value;
             float globalChroma = HudConfig.FxChroma != null ? HudConfig.FxChroma.Value : 0f;
             float globalFrost = HudConfig.FrostStrength != null ? HudConfig.FrostStrength.Value : 1f;
-            bool fromGlobal = UsesGlobalStyle;
             bool fromCustom = UsesCustomStyle;
 
-            d.SetB("customShineOn", fromCustom ? d.GetB("customShineOn", globalShineOn)
-                : globalShineOn && (fromGlobal || d.GetB("fxShine", true)));
-            d.SetF("customShine", fromCustom
-                ? Mathf.Clamp(d.GetF("customShine", globalShine), 0f, 2f)
-                : Mathf.Clamp(globalShine * (fromGlobal ? 1f
-                    : Mathf.Clamp01(d.GetF("fxShineAmt", 1f))), 0f, 2f));
-            d.SetB("customIridOn", fromCustom ? d.GetB("customIridOn", globalIridOn)
-                : globalIridOn && (fromGlobal || d.GetB("fxIrid", true)));
-            d.SetF("customIrid", fromCustom ? Mathf.Clamp01(d.GetF("customIrid", globalIrid))
-                : Mathf.Clamp01(globalIrid * (fromGlobal ? 1f
-                    : Mathf.Clamp01(d.GetF("fxIridAmt", 1f)))));
-            d.SetB("customChromaOn", fromCustom ? d.GetB("customChromaOn", globalChromaOn)
-                : globalChromaOn && (fromGlobal || d.GetB("fxChroma", true)));
-            d.SetF("customChroma", fromCustom ? Mathf.Clamp01(d.GetF("customChroma", globalChroma))
-                : Mathf.Clamp01(globalChroma * (fromGlobal ? 1f
-                    : Mathf.Clamp01(d.GetF("fxChromaAmt", 1f)))));
-            d.SetB("customFrostOn", fromCustom ? d.GetB("customFrostOn", true)
-                : fromGlobal || d.GetB("fxFrost", true));
-            d.SetF("customFrost", fromCustom ? Mathf.Clamp01(d.GetF("customFrost", globalFrost))
-                : Mathf.Clamp01(globalFrost * (fromGlobal ? 1f
-                    : Mathf.Clamp01(d.GetF("fxFrostAmt", 1f)))));
+            d.SetB("customShineOn", fromCustom ? d.GetB("customShineOn", globalShineOn) : globalShineOn);
+            d.SetF("customShine", Mathf.Clamp(fromCustom
+                ? d.GetF("customShine", globalShine) : globalShine, 0f, 2f));
+            d.SetB("customIridOn", fromCustom ? d.GetB("customIridOn", globalIridOn) : globalIridOn);
+            d.SetF("customIrid", Mathf.Clamp01(fromCustom
+                ? d.GetF("customIrid", globalIrid) : globalIrid));
+            d.SetB("customChromaOn", fromCustom ? d.GetB("customChromaOn", globalChromaOn) : globalChromaOn);
+            d.SetF("customChroma", Mathf.Clamp01(fromCustom
+                ? d.GetF("customChroma", globalChroma) : globalChroma));
+            d.SetB("customFrostOn", fromCustom ? d.GetB("customFrostOn", true) : true);
+            d.SetF("customFrost", Mathf.Clamp01(fromCustom
+                ? d.GetF("customFrost", globalFrost) : globalFrost));
             bool dissolve = HudConfig.FxDissolveBoot != null && HudConfig.FxDissolveBoot.Value;
-            d.SetB("customDissolve", fromCustom ? d.GetB("customDissolve", dissolve)
-                : dissolve && (fromGlobal || d.GetB("fxDissolve", true)));
-            if (fromGlobal)
+            d.SetB("customDissolve", fromCustom ? d.GetB("customDissolve", dissolve) : dissolve);
+            if (!fromCustom)
             {
                 d.SetB("fxCollapse", true);
                 d.SetF("fxCollapseAmt", 1f);
@@ -1312,18 +1508,14 @@ namespace StationeersUIMod.UI.Hud
                 d.SetF("fxPulseAmt", 1f);
             }
 
-            // Readout bar refs have palette-dependent empty defaults. Freeze their currently
-            // rendered colours as literals so Custom truly stops tracking the global palette.
-            if (d.Type == HudElementType.Readout)
-            {
-                d.Set("barFill", HudPalette.ToHexRef(GlobalOr(d.GetS("barFill", ""), HudPalette.Good.Value)));
-                d.Set("barWarn", HudPalette.ToHexRef(GlobalOr(d.GetS("barWarn", ""), HudPalette.Warn.Value)));
-                d.Set("barCrit", HudPalette.ToHexRef(GlobalOr(d.GetS("barCrit", ""), HudPalette.Critical.Value)));
-                d.Set("barTrack", HudPalette.ToHexRef(GlobalOr(d.GetS("barTrack", ""), HudPalette.PanelBorder.Value)));
-                d.Set("barTarget", HudPalette.ToHexRef(GlobalOr(d.GetS("barTarget", ""), HudPalette.TextValue.Value)));
-            }
-            d.SetB("followGlobal", false);
+            // The line's edge-light strength key (panels collapse theirs into `spec`).
+            if (d.Type == HudElementType.Polyline)
+                d.SetF("edgeLight", OwnOrGlobal("edgeLight", HudConfig.FxEdgeLight));
+
+            d.Set("followGlobal", null); // extinct legacy flag — never re-written
             d.SetB("customStyleReady", true);
+            }
+            finally { LayoutBare = _prevLayoutBare; }
         }
 
         /// <summary>One-click bulk style-source operation used by F9. Customisation freezes each
@@ -1340,7 +1532,13 @@ namespace StationeersUIMod.UI.Hud
 
         /// <summary>Document-level counterpart for elements whose view is unavailable (different
         /// tier, failed build, or HUD canvas not present). It resolves the same stored/global
-        /// contract without touching Unity objects, so bulk F9 actions never skip definitions.</summary>
+        /// contract without touching Unity objects, so bulk F9 actions never skip definitions.
+        ///
+        /// MIGRATION CONTRACT: this reads the RAW stored styleSource — a stored 0 keeps its full
+        /// legacy semantics here (followGlobal colour/glass gate, -1 sentinels, fx* multipliers
+        /// folded into the custom snapshot) — because HudStyleMigration relies on this function
+        /// to faithfully freeze a legacy element's CURRENT render. Everywhere else legacy is
+        /// extinct: StyleSourceOf maps 0 to Global for the live resolvers.</summary>
         internal static void SetUnifiedStyleSourceWithoutView(HudElementDef d, bool followGlobal,
             bool forceCustomSnapshot = false)
         {
@@ -1351,7 +1549,7 @@ namespace StationeersUIMod.UI.Hud
                 return;
             }
 
-            int source = StyleSourceOf(d);
+            int source = Mathf.Clamp(d.GetI("styleSource", StyleLegacy), StyleLegacy, StyleCustom);
             if (!forceCustomSnapshot && source != StyleCustom && d.GetB("customStyleReady", false))
             {
                 d.SetI("styleSource", StyleCustom);
@@ -1361,16 +1559,11 @@ namespace StationeersUIMod.UI.Hud
 
             bool sourceGlobal = source == StyleGlobal;
             bool sourceCustom = source == StyleCustom;
+            // Colour refs are deliberately left untouched: they resolve identically in both
+            // coherent states (palette names live-track, hex stands alone). Legacy's forced
+            // palette is handled by HudStyleMigration, which rewrites the refs to palette NAMES
+            // so the element keeps tracking the F9 palette it was showing.
             bool followsColours = sourceGlobal || (!sourceCustom && d.GetB("followGlobal", false));
-            Color fill = followsColours ? HudPalette.PanelFill.Value
-                : HudPalette.Resolve(d.Fill, HudPalette.PanelFill.Value);
-            Color border = followsColours ? HudPalette.PanelBorder.Value
-                : HudPalette.Resolve(d.Border, HudPalette.PanelBorder.Value);
-            Color text = followsColours ? HudPalette.TextValue.Value
-                : HudPalette.Resolve(d.TextColor, HudPalette.TextValue.Value);
-            d.Fill = HudPalette.ToHexRef(fill);
-            d.Border = HudPalette.ToHexRef(border);
-            d.TextColor = HudPalette.ToHexRef(text);
 
             float borderGlobal = HudConfig.BorderWidth != null ? HudConfig.BorderWidth.Value : 1.4f;
             d.BorderWidth = sourceGlobal || d.BorderWidth < 0f ? borderGlobal : d.BorderWidth;
@@ -1408,12 +1601,21 @@ namespace StationeersUIMod.UI.Hud
             bool softEdgeGlobal = HudConfig.FxSoftEdgeOn != null && HudConfig.FxSoftEdgeOn.Value;
             bool glowGlobal = HudConfig.FxGlowOn != null && HudConfig.FxGlowOn.Value;
             bool rippleGlobal = HudConfig.FxEdgeLightOn != null && HudConfig.FxEdgeLightOn.Value;
+            bool glowBreathGlobal = HudConfig.FxGlowBreathOn != null && HudConfig.FxGlowBreathOn.Value;
+            bool glowUnevenGlobal = HudConfig.FxGlowUnevenOn != null && HudConfig.FxGlowUnevenOn.Value;
+            bool glowFlowGlobal = HudConfig.FxGlowFlowAuraOn != null && HudConfig.FxGlowFlowAuraOn.Value;
             d.SetB("customBorderFadeOn", sourceCustom
                 ? d.GetB("customBorderFadeOn", borderFadeGlobal) : borderFadeGlobal);
             d.SetB("customSoftEdgeOn", sourceCustom
                 ? d.GetB("customSoftEdgeOn", softEdgeGlobal) : softEdgeGlobal);
             d.SetB("customGlowOn", sourceCustom ? d.GetB("customGlowOn", glowGlobal) : glowGlobal);
             d.SetB("customRippleOn", sourceCustom ? d.GetB("customRippleOn", rippleGlobal) : rippleGlobal);
+            d.SetB("customGlowBreathOn", sourceCustom
+                ? d.GetB("customGlowBreathOn", false) : glowBreathGlobal);
+            d.SetB("customGlowUnevenOn", sourceCustom
+                ? d.GetB("customGlowUnevenOn", false) : glowUnevenGlobal);
+            d.SetB("customGlowFlowOn", sourceCustom
+                ? d.GetB("customGlowFlowOn", false) : glowFlowGlobal);
             d.SetF("bfade", SnapshotFloat(d, source, "bfade",
                 HudConfig.FxBorderFade != null ? HudConfig.FxBorderFade.Value : 0f));
             d.SetF("softEdge", SnapshotFloat(d, source, "softEdge",
@@ -1426,6 +1628,18 @@ namespace StationeersUIMod.UI.Hud
                 HudConfig.FxGlowWidth != null ? HudConfig.FxGlowWidth.Value : 24f));
             d.SetF("glowDiffuse", SnapshotFloat(d, source, "glowDiffuse",
                 HudConfig.FxGlowDiffuse != null ? HudConfig.FxGlowDiffuse.Value : 0f));
+            d.SetF("glowExtraDiffuse", SnapshotNewFloat(d, source, "glowExtraDiffuse",
+                HudConfig.FxGlowExtraDiffuse != null ? HudConfig.FxGlowExtraDiffuse.Value : 0f, 0f));
+            d.SetF("glowHaze", SnapshotNewFloat(d, source, "glowHaze",
+                HudConfig.FxGlowHaze != null ? HudConfig.FxGlowHaze.Value : 0f, 0f));
+            d.SetF("glowBreath", SnapshotNewFloat(d, source, "glowBreath",
+                HudConfig.FxGlowBreath != null ? HudConfig.FxGlowBreath.Value : 0f, 0.35f));
+            d.SetF("glowUneven", SnapshotNewFloat(d, source, "glowUneven",
+                HudConfig.FxGlowUneven != null ? HudConfig.FxGlowUneven.Value : 0f, 0.5f));
+            d.SetF("glowOrganicScale", SnapshotNewFloat(d, source, "glowOrganicScale",
+                HudConfig.FxGlowOrganicScale != null ? HudConfig.FxGlowOrganicScale.Value : 1f, 1f));
+            d.SetF("glowFlowAura", SnapshotNewFloat(d, source, "glowFlowAura",
+                HudConfig.FxGlowFlowAura != null ? HudConfig.FxGlowFlowAura.Value : 0f, 0.6f));
             d.SetF("ripple", SnapshotFloat(d, source, "ripple",
                 HudConfig.FxEdgeRipple != null ? HudConfig.FxEdgeRipple.Value : 0f));
             d.SetF("rippleFreq", SnapshotFloat(d, source, "rippleFreq",
@@ -1474,16 +1688,12 @@ namespace StationeersUIMod.UI.Hud
                 d.SetF("fxPulseAmt", 1f);
             }
 
-            if (d.Type == HudElementType.Readout)
-            {
-                d.Set("barFill", HudPalette.ToHexRef(SnapshotColor(d, source, "barFill", HudPalette.Good.Value)));
-                d.Set("barWarn", HudPalette.ToHexRef(SnapshotColor(d, source, "barWarn", HudPalette.Warn.Value)));
-                d.Set("barCrit", HudPalette.ToHexRef(SnapshotColor(d, source, "barCrit", HudPalette.Critical.Value)));
-                d.Set("barTrack", HudPalette.ToHexRef(SnapshotColor(d, source, "barTrack", HudPalette.PanelBorder.Value)));
-                d.Set("barTarget", HudPalette.ToHexRef(SnapshotColor(d, source, "barTarget", HudPalette.TextValue.Value)));
-            }
+            // The line's edge-light strength key (panels collapse theirs into `spec`).
+            if (d.Type == HudElementType.Polyline)
+                d.SetF("edgeLight", SnapshotFloat(d, source, "edgeLight",
+                    HudConfig.FxEdgeLight != null ? HudConfig.FxEdgeLight.Value : 0f));
 
-            d.SetB("followGlobal", false);
+            d.Set("followGlobal", null); // extinct legacy flag — never re-written
             d.SetB("customStyleReady", true);
             d.SetI("styleSource", StyleCustom);
         }
@@ -1495,25 +1705,53 @@ namespace StationeersUIMod.UI.Hud
             return own >= 0f ? own : global;
         }
 
-        private static Color SnapshotColor(HudElementDef d, int source, string key, Color global)
+        private static float SnapshotNewFloat(HudElementDef d, int source, string key,
+            float global, float customDefault)
         {
-            bool follows = source == StyleGlobal
-                || (source == StyleLegacy && d.GetB("followGlobal", false));
-            return follows ? global : HudPalette.Resolve(d.GetS(key, ""), global);
+            if (source == StyleGlobal) return global;
+            if (source == StyleCustom) return d.GetF(key, customDefault);
+            float own = d.GetF(key, -1f);
+            return own >= 0f ? own : global;
         }
 
-        /// <summary>Effective per-element strength for an effect: 0 when its checkbox is off,
-        /// else the slider value. Shared by the glitch, collapse and warp wiring.</summary>
+        /// <summary>Resolve a power-transition effect for this element through the shared
+        /// <see cref="HudTransitionFx"/> registry: global master OFF -> 0, element Off -> 0,
+        /// element On -> the element's own strength, element Inherit -> the global strength.
+        ///
+        /// THE BUG THIS FIXES (FlorpyDorp, 2026-07-19: "I turned off death collapse and it still
+        /// does it"): the per-element flag was a plain bool defaulting TRUE, which conflated
+        /// "inherit the global" with "explicitly on" — "off" could not be expressed, and for a
+        /// global-styled element the stored value was never read at all. The state is now an
+        /// explicit tri-state int at "&lt;key&gt;Mode", honoured in BOTH style states.</summary>
+        internal float TransitionAmt(string key)
+        {
+            return HudTransitionFx.Resolve(Def, key, LayoutBare);
+        }
+
+        /// <summary>This element's tri-state for one effect (registry key).</summary>
+        internal HudFxMode TransitionMode(string key)
+        {
+            return HudTransitionFx.ModeOf(Def, key, LayoutBare);
+        }
+
+        /// <summary>Legacy call shape kept for HudSystem / HudGlitch, which pass both keys.
+        /// Registry keys resolve through the tri-state; an unknown key falls back to the old
+        /// "on unless the element opted out" contract so nothing silently stops animating.</summary>
         internal float EffectAmt(string key, string amtKey)
-            => Def != null && (UsesGlobalStyle || Def.GetB(key, true))
-                ? (UsesGlobalStyle ? 1f : Def.GetF(amtKey, 1f)) : 0f;
+        {
+            var fx = HudTransitionFx.Find(key);
+            if (fx != null) return HudTransitionFx.Resolve(Def, fx, LayoutBare);
+            if (Def == null) return 0f;
+            if (!Def.GetBFor(LayoutBare, key, true)) return 0f;
+            return Mathf.Clamp(Def.GetFFor(LayoutBare, amtKey, 1f), 0f, 2f);
+        }
 
         /// <summary>Push this element's fxWarp strength onto its child warp components. Called on
         /// (re)layout — the surrounding DirtyAllMeshes re-meshes so the new bend takes effect.</summary>
         internal void ApplyWarpMult()
         {
             if (Root == null) return;
-            float mult = EffectAmt("fxWarp", "fxWarpAmt");
+            float mult = TransitionAmt("fxWarp");
             var vw = Root.GetComponentsInChildren<VisorWarp>(true);
             for (int i = 0; i < vw.Length; i++) vw[i].StrengthMult = mult;
             var tw = Root.GetComponentsInChildren<TmpWarp>(true);

@@ -149,8 +149,8 @@ namespace StationeersUIMod.UI.Hud.Widgets
             catch { }
 
             // Natural-colour portrait by default; the cyan hologram look is opt-in.
-            bool holo = Def.GetB("holo", false);
-            bool scanlines = Def.GetB("scanlines", holo);
+            bool holo = Def.GetBFor(LayoutBare, "holo", false);
+            bool scanlines = Def.GetBFor(LayoutBare, "scanlines", holo);
 
             _holo.texture = rt;
             _holo.enabled = rt != null;
@@ -183,8 +183,8 @@ namespace StationeersUIMod.UI.Hud.Widgets
         {
             try
             {
-                float fov = Def.GetF("camFov", 0f);       // 0 = leave vanilla's FOV
-                float dist = Def.GetF("camDistance", 0f); // 0 = leave vanilla's distance
+                float fov = Def.GetFFor(LayoutBare, "camFov", 0f);       // 0 = leave vanilla's FOV
+                float dist = Def.GetFFor(LayoutBare, "camDistance", 0f); // 0 = leave vanilla's distance
                 bool want = (fov > 0f) || !Mathf.Approximately(dist, 0f);
                 if (!want && !_adjustedCam) return;
 
@@ -263,15 +263,19 @@ namespace StationeersUIMod.UI.Hud.Widgets
             base.DescribeProps(into);
             var d = Def;
 
-            into.Add(HudProp.Bool("Hologram tint", () => d.GetB("holo", true), v => d.SetB("holo", v)));
+            // These defaults MUST match the ones UpdatePanel reads (holo:false, scanlines:holo).
+            // They previously both defaulted to true here, so on any element without the keys the
+            // checkboxes read ON while the render was OFF — the inspector lying about live state.
+            into.Add(HudProp.Bool("Hologram tint", () => d.GetBFor(EditBare(d), "holo", false), v => d.SetBFor(EditBare(d), "holo", v)));
             into[into.Count - 1].Group = HudPropGroup.Appearance;
 
-            into.Add(HudProp.Bool("Scanlines", () => d.GetB("scanlines", true), v => d.SetB("scanlines", v)));
+            into.Add(HudProp.Bool("Scanlines", () => d.GetBFor(EditBare(d), "scanlines", d.GetBFor(EditBare(d), "holo", false)),
+                v => d.SetBFor(EditBare(d), "scanlines", v)));
             into[into.Count - 1].Group = HudPropGroup.Effects;
 
             int layoutStart = into.Count;
-            into.Add(HudProp.F("Camera FOV (0 = vanilla)", () => d.GetF("camFov", 0f), v => d.SetF("camFov", Mathf.Clamp(v, 0f, 60f)), 0f, 60f));
-            into.Add(HudProp.F("Camera zoom-out", () => d.GetF("camDistance", 0f), v => d.SetF("camDistance", v), -1f, 3f));
+            into.Add(HudProp.F("Camera FOV (0 = vanilla)", () => d.GetFFor(EditBare(d), "camFov", 0f), v => d.SetFFor(EditBare(d), "camFov", Mathf.Clamp(v, 0f, 60f)), 0f, 60f));
+            into.Add(HudProp.F("Camera zoom-out", () => d.GetFFor(EditBare(d), "camDistance", 0f), v => d.SetFFor(EditBare(d), "camDistance", v), -1f, 3f));
             for (int i = layoutStart; i < into.Count; i++) into[i].Group = HudPropGroup.Layout;
         }
     }

@@ -60,6 +60,11 @@ namespace StationeersUIMod.UI.Hud
         public static Entry Warn;
         public static Entry Critical;
 
+        // Status alert pulse. Seeded from the semantic Warn/Critical hues but kept as SEPARATE
+        // entries, so retinting readout text never silently retints the alarm.
+        public static Entry AlertCaution;
+        public static Entry AlertCritical;
+
         // Compass
         public static Entry CompassTick;
         public static Entry CompassCardinal;
@@ -171,6 +176,11 @@ namespace StationeersUIMod.UI.Hud
                 "Readings drifting out of the safe band.");
             Critical = Add(cfg, "HudCritical", "FF4A3DF0",
                 "Dangerous readings; also the DYING/CHOKING words.");
+
+            AlertCaution = Add(cfg, "HudAlertCaution", "FFB13DFF",
+                "Halo / edge-ripple tint while a CAUTION suit warning stands (amber).");
+            AlertCritical = Add(cfg, "HudAlertCritical", "FF4A3DFF",
+                "Halo / edge-ripple tint while a CRITICAL suit warning stands (red).");
 
             CompassTick = Add(cfg, "HudCompassTick", "35C8E870",
                 "Compass ribbon tick marks.");

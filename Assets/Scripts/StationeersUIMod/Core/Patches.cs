@@ -159,6 +159,21 @@ namespace StationeersUIMod.Core
         }
     }
 
+    /// <summary>Cursor latch (see <see cref="CursorLatch"/>): while the latch is on, report the
+    /// mouse modifier as HELD. AltKeyDown's only consumer is MouseModeController.Check
+    /// (MouseModeController.cs:57), which unlocks the cursor whenever it reads true — so this one
+    /// postfix latches the cursor while still inheriting every other rule vanilla applies (open
+    /// modals, character customisation, not-in-game). We never touch Cursor/InputMouse ourselves.</summary>
+    [HarmonyPatch(typeof(Assets.Scripts.MouseModeController),
+        nameof(Assets.Scripts.MouseModeController.AltKeyDown), MethodType.Getter)]
+    internal static class Patch_MouseModeController_AltKeyDown
+    {
+        private static void Postfix(ref bool __result)
+        {
+            if (!__result && CursorLatch.Active) __result = true;
+        }
+    }
+
     /// <summary>Jump half: HandleJump early-returns on InputState != Game (:590) and
     /// Cursor.visible (:594). For exactly the synchronous duration of the original body
     /// we swap both inputs to their hidden-cursor values and restore in a Finalizer

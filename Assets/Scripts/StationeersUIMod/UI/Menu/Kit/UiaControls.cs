@@ -418,6 +418,9 @@ namespace StationeersUIMod.UI.Menu.Kit
             UiaUi.Fill((RectTransform)t.transform);
             var btn = go.AddComponent<UiaButton>().Init(bg, normal, hover, selected);
             btn.OnClick = onClick;
+            // Interior surfaces follow the HUD edge light + ripple (no glow halo) — an additive
+            // glass border over the button fill; the hover recolour above is untouched.
+            go.AddComponent<UiaGlassSkin>();
             return btn;
         }
 

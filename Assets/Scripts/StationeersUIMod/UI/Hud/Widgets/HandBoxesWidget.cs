@@ -42,7 +42,7 @@ namespace StationeersUIMod.UI.Hud.Widgets
         private void BoxMetrics(float scale, out float boxW, out float boxH, out float boxX)
         {
             var s = SizeFor(scale);
-            float gap = Def.GetF("gap", 22f) * scale;
+            float gap = Def.GetFFor(LayoutBare, "gap", 22f) * scale;
             float areaW = s.x * 0.72f;
             boxW = Mathf.Max(8f, (areaW - gap) * 0.5f);
             boxH = Mathf.Max(8f, s.y * 0.78f);
@@ -57,19 +57,19 @@ namespace StationeersUIMod.UI.Hud.Widgets
 
             ((RectTransform)_tray.transform).anchoredPosition = c;
             _tray.SetShape(s.x, s.y,
-                Radius(Def.RTL), Radius(Def.RTR), Radius(Def.RBR), Radius(Def.RBL),
+                Radius(Def.RTLFor(LayoutBare)), Radius(Def.RTRFor(LayoutBare)), Radius(Def.RBRFor(LayoutBare)), Radius(Def.RBLFor(LayoutBare)),
                 topInset: s.x * 0.116f);
 
             float boxW, boxH, boxX;
             BoxMetrics(scale, out boxW, out boxH, out boxX);
-            float boxRadius = Mathf.Min(Radius(Def.RTL), 12f);
+            float boxRadius = Mathf.Min(Radius(Def.RTLFor(LayoutBare)), 12f);
 
             // F9 nudges for the two text rows (reference px × scale). Applied identically to both
             // hands so the pair stays symmetric — "+X" shifts both labels the same screen direction.
-            float titleDX = Def.GetF("titleDX", 0f) * scale;
-            float titleDY = Def.GetF("titleDY", 0f) * scale;
-            float stateDX = Def.GetF("stateDX", 0f) * scale;
-            float stateDY = Def.GetF("stateDY", 0f) * scale;
+            float titleDX = Def.GetFFor(LayoutBare, "titleDX", 0f) * scale;
+            float titleDY = Def.GetFFor(LayoutBare, "titleDY", 0f) * scale;
+            float stateDX = Def.GetFFor(LayoutBare, "stateDX", 0f) * scale;
+            float stateDY = Def.GetFFor(LayoutBare, "stateDY", 0f) * scale;
 
             for (int i = 0; i < 2; i++)
             {
@@ -88,8 +88,14 @@ namespace StationeersUIMod.UI.Hud.Widgets
                 _title[i].rectTransform.anchoredPosition =
                     new Vector2(x + titleDX, y + boxH * 0.5f - 11f * scale + titleDY);
 
-                _icon[i].rectTransform.sizeDelta = new Vector2(boxH * 0.52f, boxH * 0.52f);
-                _icon[i].rectTransform.anchoredPosition = new Vector2(x, y - boxH * 0.02f);
+                // Thumbnail size as a fraction of box height (0.52 = the long-standing hard-coded
+                // look, so an un-keyed profile is pixel-identical). Nudges match the text rows'
+                // reference-px × scale convention and are mirrored across both hands.
+                float iconSize = boxH * Mathf.Clamp(Def.GetFFor(LayoutBare, "iconScale", 0.52f), 0.1f, 1f);
+                _icon[i].rectTransform.sizeDelta = new Vector2(iconSize, iconSize);
+                _icon[i].rectTransform.anchoredPosition = new Vector2(
+                    x + Def.GetFFor(LayoutBare, "iconDX", 0f) * scale,
+                    y - boxH * 0.02f + Def.GetFFor(LayoutBare, "iconDY", 0f) * scale);
 
                 _state[i].rectTransform.sizeDelta = new Vector2(boxW, 12f * scale);
                 _state[i].rectTransform.anchoredPosition =
@@ -99,7 +105,7 @@ namespace StationeersUIMod.UI.Hud.Widgets
 
         public override void UpdatePanel(HudSnapshot s, float scale)
         {
-            bool trayOn = Def.GetB("tray", true);
+            bool trayOn = Def.GetBFor(LayoutBare, "tray", true);
             _tray.enabled = trayOn;
             if (trayOn)
             {
@@ -150,18 +156,25 @@ namespace StationeersUIMod.UI.Hud.Widgets
                 _accent[i].BorderColor = Color.clear;
 
                 HudText.Sync(_title[i]);
-                _title[i].fontSize = HudText.Size(labelSize * Def.FontScale) * scale;
+                _title[i].fontSize = HudText.Size(labelSize * Def.FontScaleFor(LayoutBare)) * scale;
                 _title[i].color = active ? TextColor() : HudPalette.TextLabel.Value;
                 HudText.Set(_title[i], isRight ? "RIGHT HAND" : "LEFT HAND");
 
                 Sprite icon = null;
                 if (occ != null) { try { icon = occ.GetThumbnail(); } catch { } }
+                // Stow flash (vanilla parity) — fires here only when something is stowed into a
+                // container held in this hand; the usual worn-container flash lands on the
+                // equipment column. Cheap to check either way.
+                float flashP;
+                Sprite flash = Core.SlotFlash.Get(slot, out flashP);
+                if (flash != null) icon = flash;
                 _icon[i].sprite = icon;
                 _icon[i].enabled = icon != null;
                 _icon[i].color = Color.white;
+                _icon[i].rectTransform.localScale = Vector3.one * (flash != null ? 1f + 0.22f * flashP : 1f);
 
                 HudText.Sync(_state[i]);
-                _state[i].fontSize = HudText.Size(labelSize * 0.9f * Def.FontScale) * scale;
+                _state[i].fontSize = HudText.Size(labelSize * 0.9f * Def.FontScaleFor(LayoutBare)) * scale;
                 string state = "";
                 if (occ == null) state = "empty";
                 else { try { state = StateText.For(occ) ?? ""; } catch { } }
@@ -202,20 +215,28 @@ namespace StationeersUIMod.UI.Hud.Widgets
             var d = Def;
 
             int layoutStart = into.Count;
-            into.Add(HudProp.F("Box gap", () => d.GetF("gap", 22f),
-                v => d.SetF("gap", Mathf.Max(0f, v)), 0f, 160f));
+            into.Add(HudProp.F("Box gap", () => d.GetFFor(EditBare(d), "gap", 22f),
+                v => d.SetFFor(EditBare(d), "gap", Mathf.Max(0f, v)), 0f, 160f));
 
             // Nudge the two text rows within each hand box (both hands move together, stays
             // symmetric). "Hand name" is the LEFT/RIGHT HAND label; "Item state" is the status
             // line under the thumbnail. Offsets are in reference px, so they scale with the HUD.
-            into.Add(HudProp.F("Hand-name X", () => d.GetF("titleDX", 0f), v => d.SetF("titleDX", v), -200f, 200f));
-            into.Add(HudProp.F("Hand-name Y", () => d.GetF("titleDY", 0f), v => d.SetF("titleDY", v), -200f, 200f));
-            into.Add(HudProp.F("Item-state X", () => d.GetF("stateDX", 0f), v => d.SetF("stateDX", v), -200f, 200f));
-            into.Add(HudProp.F("Item-state Y", () => d.GetF("stateDY", 0f), v => d.SetF("stateDY", v), -200f, 200f));
+            into.Add(HudProp.F("Hand-name X", () => d.GetFFor(EditBare(d), "titleDX", 0f), v => d.SetFFor(EditBare(d), "titleDX", v), -200f, 200f));
+            into.Add(HudProp.F("Hand-name Y", () => d.GetFFor(EditBare(d), "titleDY", 0f), v => d.SetFFor(EditBare(d), "titleDY", v), -200f, 200f));
+            into.Add(HudProp.F("Item-state X", () => d.GetFFor(EditBare(d), "stateDX", 0f), v => d.SetFFor(EditBare(d), "stateDX", v), -200f, 200f));
+            into.Add(HudProp.F("Item-state Y", () => d.GetFFor(EditBare(d), "stateDY", 0f), v => d.SetFFor(EditBare(d), "stateDY", v), -200f, 200f));
+
+            // The item thumbnail sat at a hard-coded 52% of box height with no knob at all
+            // (play-test ask). Same fraction-of-height + reference-px-nudge shape as ReadoutWidget's
+            // icon controls, so the two inspectors read alike.
+            into.Add(HudProp.F("Icon scale (× box height)", () => d.GetFFor(EditBare(d), "iconScale", 0.52f),
+                v => d.SetFFor(EditBare(d), "iconScale", Mathf.Clamp(v, 0.1f, 1f)), 0.1f, 1f));
+            into.Add(HudProp.F("Icon X", () => d.GetFFor(EditBare(d), "iconDX", 0f), v => d.SetFFor(EditBare(d), "iconDX", v), -200f, 200f));
+            into.Add(HudProp.F("Icon Y", () => d.GetFFor(EditBare(d), "iconDY", 0f), v => d.SetFFor(EditBare(d), "iconDY", v), -200f, 200f));
             for (int i = layoutStart; i < into.Count; i++) into[i].Group = HudPropGroup.Layout;
 
-            into.Add(HudProp.Bool("Show tray shelf", () => d.GetB("tray", true),
-                v => d.SetB("tray", v)));
+            into.Add(HudProp.Bool("Show tray shelf", () => d.GetBFor(EditBare(d), "tray", true),
+                v => d.SetBFor(EditBare(d), "tray", v)));
             into[into.Count - 1].Group = HudPropGroup.Appearance;
 
             AddDropHighlightProps(into); // #4: drag-over drop cue mode + colour
