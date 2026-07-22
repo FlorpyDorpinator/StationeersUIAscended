@@ -58,7 +58,7 @@ namespace StationeersUIMod
         public static ConfigEntry<bool> CursorLatchEnabled;
         public static ConfigEntry<int> CursorLatchMs;
 
-        // --- Radial feel (interaction deltas: flick, double-tap, sounds, hints, head-look) ---
+        // --- Radial feel (interaction deltas: flick, double-tap, sounds, hints) ---
         /// <summary>R2: enable flick-commit — a fast directional flick past the selection radius
         /// commits the sector under the cursor without ever drawing the ring.</summary>
         public static ConfigEntry<bool> RadialFlickCommit;
@@ -75,12 +75,6 @@ namespace StationeersUIMod
         public static ConfigEntry<bool> RadialWedgeSounds;
         /// <summary>R10: fade a contextual hint out once it has been used enough times.</summary>
         public static ConfigEntry<bool> RadialHintFade;
-        /// <summary>Head-look: while a radial opened by ANOTHER key is up, holding the head-look
-        /// key lets the camera look around (the radial modal stops unlocking the cursor so the
-        /// game re-locks it and head-look resumes).</summary>
-        public static ConfigEntry<bool> RadialHeadLookHold;
-        /// <summary>Head-look key (default MMB) — hold while a radial is open to peek around.</summary>
-        public static ConfigEntry<KeyCode> RadialHeadLookKey;
 
         /// <summary>Shorthand for "the Option A behavior SET is active" — B is A plus the
         /// Hub gestures, so every A-gated behavior (STOW wedges, satellites, search,
@@ -127,10 +121,31 @@ namespace StationeersUIMod
         // --- SmartStow+ ---
         public static ConfigEntry<bool> SmartStowPlusEnabled;
         public static ConfigEntry<bool> StowPreferStacks;
+        /// <summary>#11 functional-socket priority: a component item (canister, battery, filter,
+        /// cartridge, board) prefers an empty slot of its exact class (suit tank, jetpack
+        /// propellant, suit battery/filter) over any generic bag. No gas-type check (vanilla).</summary>
+        public static ConfigEntry<bool> StowSocketPriority;
         public static ConfigEntry<bool> StowUseProfiles;
+        /// <summary>O2a content affinity: profile-less bags attract items similar to their
+        /// current contents (Terraria quick-stack, generalized). Loses to explicit profiles.</summary>
+        public static ConfigEntry<bool> StowUseAffinity;
+        /// <summary>O2b bag-type defaults: profile-less bags of a known type (mining belt, tool
+        /// belt...) behave like the matching recommended profile when it exists.</summary>
+        public static ConfigEntry<bool> StowUseBagTypeDefaults;
         public static ConfigEntry<bool> StowUseTypeMemory;
+        /// <summary>#12 deterministic generic fallback: a loose None-typed build item (walls,
+        /// frames, kits) goes to a stable generic bag — most-of-category, then emptiest — instead
+        /// of whichever generic bag the vanilla body-slot scan grabs first.</summary>
+        public static ConfigEntry<bool> StowGenericFallback;
         public static ConfigEntry<bool> StowIntoNestedBags;
         public static ConfigEntry<bool> StowToolsToToolbeltFirst;
+        /// <summary>O4e profile-aware sort: a profiled bag's SORT lists profile-matched items
+        /// first (by match tier), vanilla order breaking ties. Comparator-only — the sort's
+        /// execution/funnel is untouched (see <see cref="Features.ProfileSort"/>).</summary>
+        public static ConfigEntry<bool> StowProfileSort;
+        /// <summary>O7 stow toast: after a routed Smart Stow, one brief ASCII line names the
+        /// destination and the reason ("-&gt; Mining Belt (profile: Ores)"). Default OFF.</summary>
+        public static ConfigEntry<bool> StowToastEnabled;
 
         // --- The Grid ---
         /// <summary>Master switch for The Grid — the full-inventory glass overlay (every worn slot
@@ -160,6 +175,61 @@ namespace StationeersUIMod
         /// <summary>Edge length in px of one inventory cell (icon scales with it). Live from the
         /// F10 menu; a change relayouts the open window.</summary>
         public static ConfigEntry<float> GridCellSize;
+        /// <summary>How many item cells a storage region shows per row at full width (default 5, so a
+        /// 15-slot bag reads as 3 rows of 5). The live column count is this capped by how many cells
+        /// actually fit the content width, so a narrow window/column wraps tighter but never wider.</summary>
+        public static ConfigEntry<int> GridCellCols;
+        /// <summary>Maximum number of side-by-side bag columns in the Universal Inventory (default 2).
+        /// Nested bag regions pack shortest-first into up to this many columns; fewer are used when the
+        /// window is too narrow to hold them, more appear (up to this cap) as it is dragged wider.</summary>
+        public static ConfigEntry<int> GridMaxBagCols;
+        /// <summary>Fraction of a cell's edge the item thumbnail fills (default 0.70). F9-editable
+        /// (the Grid style popup's "Sizes" page); a change relayouts the open window (main + pinned).</summary>
+        public static ConfigEntry<float> GridIconScale;
+        /// <summary>Height in px of a bag's manila tab (default 20). F9-editable; a change relayouts
+        /// the open window live.</summary>
+        public static ConfigEntry<float> GridTabHeight;
+        /// <summary>Font size of the bag name on its tab (default 11, before the global font scale).
+        /// F9-editable; a change relayouts the open window and re-fits the tab width.</summary>
+        public static ConfigEntry<float> GridTabTextSize;
+        /// <summary>Edge length in px of the little container ICON drawn on a bag's manila tab (default
+        /// 14, range 8..28) — distinct from <see cref="GridIconScale"/>, which sizes the item thumbnail
+        /// inside a CELL. F9-editable (the Grid style popup's "Sizes" page); a change relayouts the open
+        /// window (main + pinned) and re-fits the tab width around the new icon.</summary>
+        public static ConfigEntry<float> GridTabIconSize;
+        /// <summary>Uniform scale (default 1.0, range 0.5..2.0) on the per-bag SORT button — the small
+        /// ASCII "SORT" control seated in the tab band beside the manila tab (both the main window and a
+        /// pinned window). Scales its width and height together (keeps aspect). F9-editable; a change
+        /// relayouts the open window live so the tab band re-reserves the button's slot.</summary>
+        public static ConfigEntry<float> GridSortButtonScale;
+        /// <summary>Edge length in px of the window CHROME buttons (default 20, range 12..40) — the main
+        /// window's close X, and a pinned window's close X + shrink/restore — kept one uniform size so the
+        /// windows read as one family. Does NOT govern the Sort button (that is
+        /// <see cref="GridSortButtonScale"/>). F9-editable; a change re-places and re-sizes the chrome on
+        /// the next relayout (main + pinned).</summary>
+        public static ConfigEntry<float> GridChromeButtonSize;
+        /// <summary>Edge length in px of the thumbnail/container ICON on a PINNED window's title bar
+        /// (default 16, range 8..32) — distinct from <see cref="GridTabIconSize"/> (the manila-tab icon)
+        /// and <see cref="GridIconScale"/> (the item thumbnail inside a cell). F9-editable (the Grid
+        /// style popup's "Sizes" page); a change relayouts the open pinned windows live.</summary>
+        public static ConfigEntry<float> GridPinTitleIconSize;
+        /// <summary>Font size of the container NAME on a PINNED window's title bar (default 12, range
+        /// 8..24, before the global font scale) — distinct from <see cref="GridTabTextSize"/> (the manila
+        /// tab name). F9-editable (the Grid style popup's "Sizes" page); a change re-fits the title font
+        /// on the open pinned windows live.</summary>
+        public static ConfigEntry<float> GridPinTitleTextSize;
+        /// <summary>O4b passive profile badges: a bag with an assigned SmartStow+ profile shows the
+        /// profile's short uppercase ASCII tag (2-4 chars, accent-dim) on its manila tab. Off = no
+        /// always-on trace; profile mode still shows the full chip strip.</summary>
+        public static ConfigEntry<bool> GridProfileBadges;
+        /// <summary>O4d ghost routing hints: while dragging an item in profile mode, the bag the
+        /// Smart Stow router would pick glows (throttled dry-run; preview only, nothing moves).</summary>
+        public static ConfigEntry<bool> GridGhostHints;
+        /// <summary>#4 scroll-select + keyboard navigation: while the Universal Inventory is open and
+        /// the mouse is freed, the wheel moves a selection cursor (auto-scrolling to keep it in view),
+        /// F acts on it (equip a cell, open/close a bag) and G stows the active hand into the cursor's
+        /// empty cell. Off = the wheel free-pans the list as before and F/G stay vanilla-only.</summary>
+        public static ConfigEntry<bool> GridKeyboardNav;
 
         // --- HUD ---
         public static ConfigEntry<bool> HudEnabled;
@@ -305,12 +375,6 @@ namespace StationeersUIMod
             RadialHintFade = cfg.Bind("1b. Radial Feel", "HintFade", true,
                 "Fade a contextual key-hint out once you've used that action enough times, so the hints " +
                 "teach then get out of the way. Reset the counters from the F10 menu.");
-            RadialHeadLookHold = cfg.Bind("1b. Radial Feel", "HeadLookHold", true,
-                "While a radial opened by ANOTHER key is up, hold the head-look key to look around " +
-                "(camera re-locks to the mouse for as long as it's held). A quick tap still closes " +
-                "the radial. When no radial is open the key does its normal job.");
-            RadialHeadLookKey = cfg.Bind("1b. Radial Feel", "HeadLookKey", KeyCode.Mouse2,
-                "Key to hold for head-look while a radial is open (default: middle mouse). Rebindable.");
 
             ToolbeltRadialEnabled = cfg.Bind("2. Toolbelt Radial", "Enabled", true,
                 "Hold a key to open a radial of everything on your toolbelt; release over a tool to equip it into the active hand.");
@@ -367,16 +431,55 @@ namespace StationeersUIMod
             SmartStowPlusEnabled = cfg.Bind("6. SmartStow+", "Enabled", true,
                 "Extend vanilla Smart Stow (G) with stack-merge priority, bag profiles and item-type memory. Falls through to vanilla when no rule matches.");
             StowPreferStacks = cfg.Bind("6. SmartStow+", "PreferExistingStacks", true,
-                "First choice: merge the held stackable into a matching partial stack anywhere accessible.");
+                "First choice: merge the held stackable into a matching partial stack anywhere "
+                + "accessible. When the stack fills and the hand still holds a remainder, the same "
+                + "G press keeps topping up further stacks of that item in the same bag, then a "
+                + "free slot there (single-player / host only). Multiplayer clients top up one "
+                + "stack per press, as before.");
+            StowSocketPriority = cfg.Bind("6. SmartStow+", "SocketPriority", true,
+                "Route component items to their socket: a canister, battery, gas filter, cartridge "
+                + "or board prefers an empty slot of its own kind (suit air/waste tank, jetpack "
+                + "propellant, suit battery/filter, a tool's battery slot) over any generic bag. "
+                + "Matches vanilla by NOT checking the gas inside a canister - the first empty "
+                + "socket of the right kind wins, so keep an eye on which tank a non-oxygen "
+                + "canister lands in.");
             StowUseProfiles = cfg.Bind("6. SmartStow+", "UseBagProfiles", true,
-                "Second choice: stow into the bag whose assigned profile matches the item.");
+                "Next choice: stow into the bag whose assigned profile matches the item. "
+                + "Assigned profiles always beat content affinity and bag-type defaults.");
+            StowUseAffinity = cfg.Bind("6. SmartStow+", "UseContentAffinity", true,
+                "Route to bags already holding similar items: a bag with NO assigned profile "
+                + "attracts items matching its current contents (same item strongest, then same "
+                + "slot class, then same category). Organize a bag by hand once and it keeps "
+                + "itself sorted. An assigned bag profile always wins over affinity.");
+            StowUseBagTypeDefaults = cfg.Bind("6. SmartStow+", "UseBagTypeDefaults", true,
+                "Give profile-less bags a sensible built-in default by bag type: mining "
+                + "belts/backpacks route Ores, tool belts route Tools, the horticulture belt "
+                + "routes Farming. Only fires when that profile exists (see Quick setup in F10 "
+                + "> Storage) and actually matches the held item; assigning a profile to the "
+                + "bag overrides its default.");
             StowUseTypeMemory = cfg.Bind("6. SmartStow+", "UseTypeMemory", true,
-                "Third choice: stow where the same item type was last stowed this save.");
+                "Stow where the same item type was last stowed this save.");
+            StowGenericFallback = cfg.Bind("6. SmartStow+", "GenericFallback", true,
+                "Give loose build items a stable home: walls, frames and kits (which fit any "
+                + "generic slot) go to one deterministic general-storage bag - the one already "
+                + "holding the most of that category, otherwise the emptiest - instead of "
+                + "whichever backpack the game happens to reach first. Bags with an assigned "
+                + "profile are never used as this dumping ground.");
             StowIntoNestedBags = cfg.Bind("6. SmartStow+", "StowIntoNestedBags", true,
                 "Allow SmartStow+ to target bags nested inside other bags.");
             StowToolsToToolbeltFirst = cfg.Bind("6. SmartStow+", "ToolsToToolbeltFirst", true,
                 "Highest priority for tools: fill an empty slot on your directly-worn tool belt (equip slot 6) first, "
                 + "then the worn jetpack/backpack itself, BEFORE nesting into a belt tucked inside another bag.");
+            StowProfileSort = cfg.Bind("6. SmartStow+", "ProfileAwareSort", true,
+                "Profile-aware Sort: when a bag has an assigned profile, its SORT button lists "
+                + "profile-matched items first (exact item rules, then slot class, then category), "
+                + "with the game's own order breaking ties. Only the ordering changes - sorting "
+                + "still runs through the game's own sort. Applies in single-player and when you "
+                + "are the host; on someone else's server the server decides the order.");
+            StowToastEnabled = cfg.Bind("6. SmartStow+", "StowToast", false,
+                "Show where items were stowed (and why): after a routed Smart Stow (G), a brief "
+                + "on-screen line names the destination bag and the rule that sent it there, "
+                + "e.g. '-> Mining Belt (profile: Ores)'.");
 
             GridEnabled = cfg.Bind("9. The Grid", "Enabled", true,
                 "The Grid: a themed glass overlay showing EVERY inventory slot you carry — helmet, " +
@@ -404,17 +507,89 @@ namespace StationeersUIMod
                 "-1 = centre on first open, then store. Set by dragging the title bar.");
             GridWinW = cfg.Bind("9. The Grid", "WindowW", 560f,
                 new ConfigDescription("Remembered window width in pixels. Set by dragging the " +
-                    "bottom-right resize grip.",
-                    new AcceptableValueRange<float>(360f, 1100f)));
+                    "bottom-right resize grip. The window can be dragged up to (near) the screen " +
+                    "width; the screen size is the real bound.",
+                    new AcceptableValueRange<float>(360f, 8000f)));
             GridWinH = cfg.Bind("9. The Grid", "WindowH", 760f,
                 new ConfigDescription("Remembered window height in pixels. Set by dragging the " +
-                    "bottom-right resize grip.",
-                    new AcceptableValueRange<float>(300f, 1300f)));
+                    "bottom-right resize grip. The window can be dragged up to (near) the screen " +
+                    "height; the screen size is the real bound.",
+                    new AcceptableValueRange<float>(300f, 8000f)));
             GridCellSize = cfg.Bind("9. The Grid", "CellSize", 46f,
                 new ConfigDescription("Edge length in pixels of one inventory cell. Item icons " +
                     "scale with it (icon = size x 0.7). Adjust from the F10 menu; the open " +
                     "window relayouts live.",
                     new AcceptableValueRange<float>(28f, 80f)));
+            GridCellCols = cfg.Bind("9. The Grid", "CellColumns", 5,
+                new ConfigDescription("How many item cells a storage region shows per row at full " +
+                    "width (a 15-slot bag reads as 3 rows of 5). A narrower window or bag column " +
+                    "wraps tighter but never wider than this. Takes effect on the next relayout " +
+                    "(resize / reopen).",
+                    new AcceptableValueRange<int>(1, 10)));
+            GridMaxBagCols = cfg.Bind("9. The Grid", "MaxBagColumns", 2,
+                new ConfigDescription("Maximum number of side-by-side bag columns in the Universal " +
+                    "Inventory. Nested bag regions pack shortest-first into up to this many columns; " +
+                    "more columns appear only when the window is wide enough to hold them, and a " +
+                    "narrow window falls back to one. Takes effect on the next relayout.",
+                    new AcceptableValueRange<int>(1, 5)));
+            GridIconScale = cfg.Bind("9. The Grid", "IconScale", 0.70f,
+                new ConfigDescription("Fraction of a cell's edge the item thumbnail fills (0.70 = " +
+                    "the default). Editable from the F9 HUD editor (click the Universal Inventory " +
+                    "window, then the Sizes tab); the open window relayouts live.",
+                    new AcceptableValueRange<float>(0.4f, 1f)));
+            GridTabHeight = cfg.Bind("9. The Grid", "TabHeight", 20f,
+                new ConfigDescription("Height in pixels of a bag's manila tab. Editable from the F9 " +
+                    "HUD editor's Sizes tab; the open window relayouts live.",
+                    new AcceptableValueRange<float>(14f, 36f)));
+            GridTabTextSize = cfg.Bind("9. The Grid", "TabTextSize", 11f,
+                new ConfigDescription("Font size of the bag name on its tab (before the global font " +
+                    "scale). Editable from the F9 HUD editor's Sizes tab; the open window relayouts " +
+                    "live and re-fits the tab width.",
+                    new AcceptableValueRange<float>(8f, 20f)));
+            GridTabIconSize = cfg.Bind("9. The Grid", "TabIconSize", 14f,
+                new ConfigDescription("Edge length in pixels of the little container icon on a bag's " +
+                    "manila tab (distinct from the item-thumbnail scale inside a cell). Editable from " +
+                    "the F9 HUD editor's Sizes tab; the open window relayouts live and re-fits the tab.",
+                    new AcceptableValueRange<float>(8f, 28f)));
+            GridSortButtonScale = cfg.Bind("9. The Grid", "SortButtonScale", 1.0f,
+                new ConfigDescription("Uniform scale on the per-bag SORT button in the tab band (1.0 = " +
+                    "the default 38x16 px, keeping aspect). Applies to the main window and pinned " +
+                    "windows. Editable from the F9 HUD editor's Sizes tab; the open window relayouts live.",
+                    new AcceptableValueRange<float>(0.5f, 2.0f)));
+            GridChromeButtonSize = cfg.Bind("9. The Grid", "ChromeButtonSize", 20f,
+                new ConfigDescription("Edge length in pixels of the window chrome buttons: the main " +
+                    "window's close (X), and a pinned window's close (X) + shrink/restore, kept one " +
+                    "uniform size. Does not affect the Sort button (see SortButtonScale). Editable from " +
+                    "the F9 HUD editor's Sizes tab; the open window relayouts live.",
+                    new AcceptableValueRange<float>(12f, 40f)));
+            GridPinTitleIconSize = cfg.Bind("9. The Grid", "PinTitleIconSize", 16f,
+                new ConfigDescription("Edge length in pixels of the thumbnail icon on a PINNED window's " +
+                    "title bar (distinct from the bag manila-tab icon and the item-thumbnail scale inside " +
+                    "a cell). Editable from the F9 HUD editor's Sizes tab; the open pinned windows " +
+                    "relayout live.",
+                    new AcceptableValueRange<float>(8f, 32f)));
+            GridPinTitleTextSize = cfg.Bind("9. The Grid", "PinTitleTextSize", 12f,
+                new ConfigDescription("Font size of the container name on a PINNED window's title bar " +
+                    "(before the global font scale; distinct from the bag manila-tab name). Editable from " +
+                    "the F9 HUD editor's Sizes tab; the open pinned windows re-fit the title font live.",
+                    new AcceptableValueRange<float>(8f, 24f)));
+            GridProfileBadges = cfg.Bind("9. The Grid", "ShowProfileTags", true,
+                "Show profile tags on bags: when a bag has an assigned SmartStow+ profile, its " +
+                "manila tab shows the profile's short uppercase tag (2-4 characters, accent-dim). " +
+                "Off = no always-visible trace of profiles; the Grid's profile mode still shows " +
+                "the full chip strip.");
+            GridGhostHints = cfg.Bind("9. The Grid", "GhostRoutingHints", true,
+                "Ghost routing hints in profile mode: while you drag an item, the bag that Smart " +
+                "Stow (G) WOULD route it to glows with the accent border - see the routing before " +
+                "it happens. Preview only; nothing moves until you actually press G.");
+            GridKeyboardNav = cfg.Bind("9. The Grid", "KeyboardNav", true,
+                "Scroll-select + keyboard navigation: while the Universal Inventory is open and the " +
+                "mouse is freed (hold the mouse-control key), the mouse wheel moves a selection " +
+                "cursor through the grid (the list auto-scrolls to follow it), F acts on the cursor " +
+                "(equip a cell's item to your active hand, or open/close a bag) and G stows your " +
+                "active-hand item into the cursor's empty cell. These reuse your vanilla " +
+                "InventorySelect (F) / SmartStow (G) binds. Off = the wheel free-pans the list as " +
+                "before and F/G act only on the vanilla inventory.");
 
             HudEnabled = cfg.Bind("7. HUD", "Enabled", true,
                 "Draw the UI Ascended visor HUD overlay.");

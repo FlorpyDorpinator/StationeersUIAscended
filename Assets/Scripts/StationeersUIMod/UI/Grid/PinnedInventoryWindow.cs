@@ -62,9 +62,10 @@ namespace StationeersUIMod.UI.Grid
         private const float Pad = 8f;
         private const float TitleH = 24f;
         private const float TitleGap = 4f;
-        private const float BtnSize = 20f;
+        private const float BtnSizeFallback = 20f;   // used only before UIAConfig binds (hot reload)
         private const float BtnGap = 4f;
-        private const float IconSize = 16f;
+        private const float IconSizeFallback = 16f;   // title-icon size before UIAConfig binds (hot reload)
+        private const float TitleTextFallback = 12f;  // title font size before UIAConfig binds (hot reload)
         private const float GripSize = 16f;
         private const float GripInset = 3f;
         // No radius or border-width constants: both are inherited from the global box theme through
@@ -72,11 +73,51 @@ namespace StationeersUIMod.UI.Grid
         // near-zero global line does not make the grip invisible).
         private const float GripLineMinW = 0.8f;
 
-        // Geometry clamps (a pinned bag window is smaller than the main one).
-        private const float MinW = 180f, MaxW = 900f;
-        private const float MinH = 120f, MaxH = 1000f;
+        // Geometry clamps (a pinned bag window starts smaller than the main one, but resizes just as
+        // large). MaxW/MaxH are deliberately larger than any real display: LoadGeometry and
+        // WindowResize.OnDrag cap them against Screen.width/height, so the SCREEN is the real bound and
+        // a pinned window can be dragged out to (near) full screen ("drag-huge"). Pinned geometry lives
+        // in GridPinStore (a Rect, no BepInEx range gate), so nothing here snaps a stored huge size back.
+        private const float MinW = 180f, MaxW = 8000f;
+        private const float MinH = 120f, MaxH = 8000f;
 
         private const float DefaultW = 360f, DefaultH = 260f;
+
+        /// <summary>The F9-editable chrome BUTTON size in px (<see cref="UIAConfig.GridChromeButtonSize"/>,
+        /// clamped 12..40, shipped default 20) — the close X and the shrink/restore button, kept one
+        /// uniform size with the main window's X (same config). Read live everywhere the old
+        /// <c>BtnSize</c> const was used, so an F9 size edit re-places and re-sizes the chrome on the next
+        /// <see cref="Layout"/>; falls back to 20 before the config binds (hot reload before
+        /// <c>UIAConfig.Init</c>).</summary>
+        private static float BtnSize()
+        {
+            try { if (UIAConfig.GridChromeButtonSize != null) return Mathf.Clamp(UIAConfig.GridChromeButtonSize.Value, 12f, 40f); }
+            catch { }
+            return BtnSizeFallback;
+        }
+
+        /// <summary>The F9-editable title ICON size in px (<see cref="UIAConfig.GridPinTitleIconSize"/>,
+        /// clamped 8..32, shipped default 16) — the thumbnail on a pinned window's title bar. Read live
+        /// everywhere the old <c>IconSize</c> const was used, so a size edit re-places and re-sizes the
+        /// title icon on the next <see cref="LayoutChrome"/>; falls back to 16 before the config binds
+        /// (hot reload before <c>UIAConfig.Init</c>).</summary>
+        private static float PinTitleIconSize()
+        {
+            try { if (UIAConfig.GridPinTitleIconSize != null) return Mathf.Clamp(UIAConfig.GridPinTitleIconSize.Value, 8f, 32f); }
+            catch { }
+            return IconSizeFallback;
+        }
+
+        /// <summary>The F9-editable title TEXT size (<see cref="UIAConfig.GridPinTitleTextSize"/>, clamped
+        /// 8..24, shipped default 12) — the BASE size before <see cref="HudText.Size"/> applies the global
+        /// font scale. Applied at Create and re-applied (dirty-guarded) by <see cref="LayoutChrome"/> on a
+        /// live edit; falls back to 12 before the config binds (hot reload before <c>UIAConfig.Init</c>).</summary>
+        private static float PinTitleTextSize()
+        {
+            try { if (UIAConfig.GridPinTitleTextSize != null) return Mathf.Clamp(UIAConfig.GridPinTitleTextSize.Value, 8f, 24f); }
+            catch { }
+            return TitleTextFallback;
+        }
 
         // ---------- shared canvas + live registry (the only statics; all reset in Shutdown) ----------
 
@@ -84,6 +125,13 @@ namespace StationeersUIMod.UI.Grid
         private static Canvas _canvas;
         private static readonly List<PinnedInventoryWindow> _live = new List<PinnedInventoryWindow>(4);
         private static bool _interactive = true;
+
+        // GridProfileMode.ChromeStamp() at the last TickAll. Profile-mode chrome (the chip +
+        // CAPTURE strip, tab badges) is created by a structural region re-Bind, and pins outlive
+        // the main window's rebuild loop — so TickAll diffs the stamp itself and re-binds each
+        // live window when it moves (mode flip, assignment change, capture applied). Reset in
+        // Shutdown; int.MinValue forces one harmless rebind on the first tick after a reload.
+        private static int _profileStamp = int.MinValue;
 
         // Two-point scratch reused while building the three grip lines (SetPoints copies its input).
         private static readonly List<Vector2> _linePts = new List<Vector2>(2);
@@ -117,6 +165,46 @@ namespace StationeersUIMod.UI.Grid
         /// <summary>How many pinned windows are alive right now.</summary>
         public static int LiveCount { get { return _live.Count; } }
 
+        /// <summary>Is this screen point over ANY live pinned window's panel? Same contract as
+        /// <c>TheGridPanel.HitTestWindow</c>: the pins share the Grid's un-warped
+        /// ScreenSpaceOverlay canvas family, so the camera argument is null and the RAW mouse
+        /// position is what the F9 editor must pass. Lets a click on a pinned window open the
+        /// Grid style popup even when the main window is closed — pins outlive it by design
+        /// (editor-access finding, 2026-07-20).</summary>
+        public static bool HitTestAny(Vector2 screenPoint)
+        {
+            for (int i = 0; i < _live.Count; i++)
+            {
+                var w = _live[i];
+                if (w == null || w._closed || w._panel == null) continue;
+                if (RectTransformUtility.RectangleContainsScreenPoint(w._panel, screenPoint, null))
+                    return true;
+            }
+            return false;
+        }
+
+        // Reused walk buffer for DirtyAllMeshes (allocation-free steady state; only ever filled
+        // on a real theme-hash change). Cleared after every use and in Shutdown.
+        private static readonly List<MaskableGraphic> _dirtyScratch = new List<MaskableGraphic>(64);
+
+        /// <summary>Force every pinned window's glass mesh to rebuild (SetVerticesDirty). Called
+        /// by <c>TheGridPanel</c> when <see cref="GridTheme.StyleHash"/> moves: globals like
+        /// EdgeFeather are read INSIDE OnPopulateMesh via the -1 sentinel, so a global drag
+        /// changes no per-graphic field and the dirty guards would otherwise skip the rebuild
+        /// (follow-mode tracking finding, 2026-07-20). Runs only on a real theme edit.</summary>
+        public static void DirtyAllMeshes()
+        {
+            if (_canvasRoot == null) return;
+            _dirtyScratch.Clear();
+            _canvasRoot.GetComponentsInChildren(true, _dirtyScratch);
+            for (int i = 0; i < _dirtyScratch.Count; i++)
+            {
+                var g = _dirtyScratch[i];
+                if (g is IGlassSurface) g.SetVerticesDirty();
+            }
+            _dirtyScratch.Clear();
+        }
+
         /// <summary>Are the pinned windows CLICKABLE? Written every frame by
         /// <c>TheGridPanel.ApplyInteractive</c> from one fact only: has the player deliberately freed
         /// the mouse (the vanilla mouse-control key, or a cursor resolved free for any other vanilla
@@ -134,11 +222,16 @@ namespace StationeersUIMod.UI.Grid
             {
                 bool was = _interactive;
                 _interactive = value;
+                // A drag in flight keeps every pin's raycaster ON regardless of mouse-freed state, so
+                // EventSystem.RaycastAll can always resolve the drop onto a pinned cell: an outbound
+                // HUD hand/1-6 drag, a live vanilla world drag (the cursor stays LOCKED while carrying
+                // a ground item), or a cell drag already in flight. Mirrors TheGridPanel.ApplyInteractive.
+                bool dragInFlight = HudSlotDrag.IsDragging || DropResolver.VanillaWorldDragLive() || BagGridCell.IsDragActive;
                 for (int i = 0; i < _live.Count; i++)
                 {
                     var w = _live[i];
                     if (w == null) continue;
-                    if (w._raycaster != null) w._raycaster.enabled = value;
+                    if (w._raycaster != null) w._raycaster.enabled = value || dragInFlight;
                     if (was && !value) w.CancelGestures();
                 }
                 if (was && !value)
@@ -162,6 +255,11 @@ namespace StationeersUIMod.UI.Grid
         /// case its own hold is left alone rather than clobbered. Allocation-free.</summary>
         private static void UpdateCursorBlock()
         {
+            // Yield BlockCursorRaycast to an open radial (its ModalScope owns it for the whole
+            // gesture) — otherwise this hover-driven updater toggles the block as the cursor crosses
+            // a pinned window's edge toward a wedge, flickering vanilla's world-hover highlight. See
+            // TheGridPanel.UpdateCursorBlock for the full rationale (return, do NOT release).
+            if (RadialController.AnyRadialOpen) return;
             bool over = false;
             if (_interactive)
             {
@@ -179,6 +277,14 @@ namespace StationeersUIMod.UI.Grid
             }
 
             if (!over) { ReleaseCursorBlock(); return; }
+            // A live VANILLA world drag (an item picked off the ground or pulled from a world
+            // container) must be free to FINISH on a pinned cell. Vanilla only dispatches
+            // Drag()/DragSlot() — and thus the Core/WorldDrag prefix that funnels the drop through the
+            // ItemActions/OnServer path — while InputMouse.Update runs, and that early-returns the
+            // instant BlockCursorRaycast is set (InputMouse.cs:342). Holding the block over the pin
+            // therefore FREEZES the drag at the window edge so the drop prefix never fires on release.
+            // Hand the raycast back while a world drag is live — mirrors TheGridPanel.UpdateCursorBlock.
+            if (Core.DropResolver.VanillaWorldDragLive()) { ReleaseCursorBlock(); return; }
             _blockHeld = true;
             try { if (CursorManager.Instance != null) CursorManager.Instance.BlockCursorRaycast = true; } catch { }
         }
@@ -302,13 +408,36 @@ namespace StationeersUIMod.UI.Grid
                 ReleaseCursorBlock();   // the last window may have died mid-hover
                 return;
             }
+            // Profile-mode chrome follows GridProfileMode via a stamp diff (see _profileStamp):
+            // a moved stamp re-binds each window's bound node, which is what creates/removes the
+            // chip + CAPTURE strip inside a pin. Steady state this is one int compare.
+            int stamp = GridProfileMode.ChromeStamp();
+            bool rebind = stamp != _profileStamp;
+            _profileStamp = stamp;
             for (int i = _live.Count - 1; i >= 0; i--)
             {
                 var w = _live[i];
                 if (w == null || w._closed) { _live.RemoveAt(i); continue; }
+                if (rebind && w._node != null) w.Bind(w._node);
                 w.RefreshIfDirty();
             }
             UpdateCursorBlock();
+        }
+
+        /// <summary>Re-flow every live pinned window into its current width — the pin-side of a live F9
+        /// SIZE edit (cell size, icon scale, tab height, tab text, or the wrap-column counts). Unlike
+        /// <see cref="TickAll"/> (restyle + dirty refresh only), this re-runs each window's LIGHT
+        /// <see cref="Layout"/>, which re-wraps the cell grid and re-applies the new cell/tab metrics.
+        /// Driven by <c>TheGridPanel</c>'s size-hash poll, which fires only on a real edit — never per
+        /// frame — so the tree rebuild cost is not paid here.</summary>
+        public static void RelayoutAll()
+        {
+            for (int i = 0; i < _live.Count; i++)
+            {
+                var w = _live[i];
+                if (w == null || w._closed) continue;
+                w.Layout();
+            }
         }
 
         /// <summary>Close every live pinned window WITHOUT unpinning (the vanilla close-all bridge and
@@ -323,6 +452,19 @@ namespace StationeersUIMod.UI.Grid
             }
             _live.Clear();
             ReleaseCursorBlock();   // closed mid-hover must not leave world-picking blocked
+        }
+
+        /// <summary>Hide (or restore) EVERY pinned window at once by toggling the shared canvas root,
+        /// while a vanilla blocking menu (ESC/pause, console, IC10 editor, naming window, Stationpedia,
+        /// creative spawn) owns the screen. SetActive(false) fully hides the render AND kills every
+        /// window's raycaster in one flip; <see cref="_live"/> and each window's geometry are LEFT
+        /// UNTOUCHED, so lifting the menu restores every pin exactly as it was — hide != close.
+        /// Also hands vanilla's world-pick block back so a menu can never leave world-picking blocked.
+        /// Driven edge-triggered by <c>TheGridPanel.Tick</c>; a no-op before the canvas is built.</summary>
+        public static void SuppressAll(bool suppress)
+        {
+            if (_canvasRoot != null) _canvasRoot.SetActive(!suppress);
+            ReleaseCursorBlock();   // never leave the world-pick block held behind a menu
         }
 
         /// <summary>Full teardown for a clean ScriptEngine hot reload: destroy the shared canvas (which
@@ -342,7 +484,9 @@ namespace StationeersUIMod.UI.Grid
             _canvas = null;
             _interactive = true;
             _blockHeld = false;
+            _profileStamp = int.MinValue;
             _linePts.Clear();
+            _dirtyScratch.Clear();
             _shrinkSprite = null;          // a sprite from the pre-reload scene must never survive
             _nextShrinkProbe = 0f;
             _shrinkProbesLeft = ShrinkProbeBudget;
@@ -382,7 +526,7 @@ namespace StationeersUIMod.UI.Grid
             }
             else
             {
-                _region.Bind(node, 0);
+                _region.Bind(node, 0, forceExpanded: true);   // a pinned window always shows its bag open (its tab is suppressed)
                 SuppressRegionTab();
                 _region.Rect.anchoredPosition = new Vector2(0f, _tabInset);
                 _haveContent = true;
@@ -399,6 +543,10 @@ namespace StationeersUIMod.UI.Grid
             if (_closed || _panel == null) return;
             LayoutChrome();
             if (!_haveContent || _region == null) return;
+            // Keep the suppressed-tab compensation in sync with a live F9 tab-HEIGHT edit: the region
+            // still reserves the (hidden) tab band at its top, so the body must be shifted up by the
+            // CURRENT band height, not the one captured at the last bind (SuppressRegionTab).
+            _tabInset = _region.TabBandHeight;
             float innerW = _viewport.sizeDelta.x;
             _region.Rect.anchoredPosition = new Vector2(0f, _tabInset);
             float h = _region.Layout(innerW);
@@ -444,7 +592,12 @@ namespace StationeersUIMod.UI.Grid
             _live.Remove(this);
             if (_live.Count == 0) ReleaseCursorBlock();   // last window down, possibly mid-hover
             if (_region != null) _region.Recycle();
+            // Every chrome graphic that can carry a shared effect material must be handed back
+            // before the destroy, or its dead key sits in HudFxMaterials' assignment table until
+            // the next full Shutdown — and pins close/reopen all session long.
             if (_panelBg != null) HudFxMaterials.Unassign(_panelBg);
+            if (_closeBg != null) HudFxMaterials.Unassign(_closeBg);
+            if (_shrinkBg != null) HudFxMaterials.Unassign(_shrinkBg);
             if (gameObject != null) Object.Destroy(gameObject);
         }
 
@@ -532,6 +685,15 @@ namespace StationeersUIMod.UI.Grid
             _canvas = _canvasRoot.AddComponent<Canvas>();
             _canvas.renderMode = RenderMode.ScreenSpaceOverlay;
             _canvas.sortingOrder = 5030;   // TheGridPanel is 5020
+            // The pin shells ride the analytic SDF renderer when the HUD boxes do (GridTheme.
+            // ApplyCore); its per-panel contract lives in the extra vertex streams, which UGUI
+            // silently drops unless the Canvas opts in — see TheGridPanel.EnsureBuilt for the
+            // full rationale. Harmless for the mesh-path graphics.
+            _canvas.additionalShaderChannels |= AdditionalCanvasShaderChannels.TexCoord1
+                | AdditionalCanvasShaderChannels.TexCoord2
+                | AdditionalCanvasShaderChannels.TexCoord3
+                | AdditionalCanvasShaderChannels.Normal
+                | AdditionalCanvasShaderChannels.Tangent;
         }
 
         private void Build(GameObject host)
@@ -544,6 +706,23 @@ namespace StationeersUIMod.UI.Grid
 
             _raycaster = host.AddComponent<GraphicRaycaster>();
             _raycaster.enabled = _interactive;
+
+            // GraphicRaycaster's [RequireComponent(typeof(Canvas))] auto-adds a NESTED Canvas on this
+            // child `host`. A nested canvas is its own batch root and honours its OWN
+            // additionalShaderChannels — so it SILENTLY DROPS the SDF panel's uv1/uv2/uv3/normal/tangent
+            // streams (the analytic radius/border/frost/superellipse param block PanelGraphic packs
+            // there), and the `sdfglass` shader then reads an undefined param block and paints the whole
+            // shell a solid garbage colour (play-test 2026-07-21: every pinned window rendered bright
+            // yellow, main window fine). EnsureCanvas set the channels on _canvasRoot, but _panelBg lives
+            // under this nested canvas — so re-assert the same five channels HERE. The main window and
+            // the capture/profile popups avoid this by putting Canvas+raycaster on ONE GameObject.
+            var winCanvas = host.GetComponent<Canvas>();
+            if (winCanvas != null)
+                winCanvas.additionalShaderChannels |= AdditionalCanvasShaderChannels.TexCoord1
+                    | AdditionalCanvasShaderChannels.TexCoord2
+                    | AdditionalCanvasShaderChannels.TexCoord3
+                    | AdditionalCanvasShaderChannels.Normal
+                    | AdditionalCanvasShaderChannels.Tangent;
 
             // The window panel: glass background, a raycast target so clicks on empty panel area do not
             // fall through to the world. Anchored TOP-LEFT, pivoted CENTRE (the centre-pivot rule).
@@ -565,7 +744,7 @@ namespace StationeersUIMod.UI.Grid
             irt.anchorMin = irt.anchorMax = new Vector2(0f, 1f);
             irt.pivot = new Vector2(0.5f, 0.5f);
 
-            _title = HudText.Make(_panel, "Title", HudText.Size(12f),
+            _title = HudText.Make(_panel, "Title", HudText.Size(PinTitleTextSize()),
                 TextAlignmentOptions.Left, warp: false);
             AnchorTopLeft(_title.rectTransform);
 
@@ -616,7 +795,7 @@ namespace StationeersUIMod.UI.Grid
             srt.anchorMin = srt.anchorMax = new Vector2(0.5f, 0.5f);
             srt.pivot = new Vector2(0.5f, 0.5f);
             srt.anchoredPosition = Vector2.zero;
-            srt.sizeDelta = new Vector2(BtnSize - 6f, BtnSize - 6f);
+            srt.sizeDelta = new Vector2(BtnSize() - 6f, BtnSize() - 6f);   // live F9 size; LayoutChrome re-fits
 
             _closeBtn = MakeButton("Close", "X", out _closeBg);
             _closeBtn.Clicked = Unpin;
@@ -644,7 +823,7 @@ namespace StationeersUIMod.UI.Grid
             lrt.anchorMin = lrt.anchorMax = new Vector2(0.5f, 0.5f);
             lrt.pivot = new Vector2(0.5f, 0.5f);
             lrt.anchoredPosition = Vector2.zero;
-            lrt.sizeDelta = new Vector2(BtnSize, BtnSize);
+            lrt.sizeDelta = new Vector2(BtnSize(), BtnSize());
             HudText.Set(lbl, asciiLabel);
             btn.Label = lbl;
             return btn;
@@ -767,24 +946,44 @@ namespace StationeersUIMod.UI.Grid
             // it is issued is GridTheme.ApplyBox, from StyleChrome (called at the end of this method
             // and every Tick) — exactly as the main window does it.
 
-            // Two buttons at the top-right: [restore][X], right-aligned (centre pivot).
+            // Two buttons at the top-right: [restore][X], right-aligned (centre pivot). Live F9 size,
+            // read once and applied to both buttons (and the shrink glyph, which fills the button).
+            float btn = BtnSize();
             float btnRight = panelW - Pad;
             var closeRt = (RectTransform)_closeBtn.transform;
-            closeRt.anchoredPosition = new Vector2(btnRight - BtnSize * 0.5f, -Pad - TitleH * 0.5f);
-            closeRt.sizeDelta = new Vector2(BtnSize, BtnSize);
+            closeRt.anchoredPosition = new Vector2(btnRight - btn * 0.5f, -Pad - TitleH * 0.5f);
+            closeRt.sizeDelta = new Vector2(btn, btn);
 
             var shrinkRt = (RectTransform)_shrinkBtn.transform;
-            shrinkRt.anchoredPosition = new Vector2(btnRight - BtnSize - BtnGap - BtnSize * 0.5f,
+            shrinkRt.anchoredPosition = new Vector2(btnRight - btn - BtnGap - btn * 0.5f,
                                                     -Pad - TitleH * 0.5f);
-            shrinkRt.sizeDelta = new Vector2(BtnSize, BtnSize);
+            shrinkRt.sizeDelta = new Vector2(btn, btn);
+            if (_shrinkIcon != null)
+                _shrinkIcon.rectTransform.sizeDelta = new Vector2(btn - 6f, btn - 6f);
+            if (_closeBtn != null && _closeBtn.Label != null)
+                _closeBtn.Label.rectTransform.sizeDelta = new Vector2(btn, btn);
+            if (_shrinkBtn != null && _shrinkBtn.Label != null)
+                _shrinkBtn.Label.rectTransform.sizeDelta = new Vector2(btn, btn);
 
-            // Title icon (centre pivot) then the name, both inside the title band.
-            float iconX = Pad + IconSize * 0.5f;
+            // Title icon (centre pivot) then the name, both inside the title band. Live F9 icon size,
+            // read once and applied to the icon rect; the title font is re-fit below.
+            float titleIcon = PinTitleIconSize();
+            float iconX = Pad + titleIcon * 0.5f;
             _titleIcon.rectTransform.anchoredPosition = new Vector2(iconX, -Pad - TitleH * 0.5f);
-            _titleIcon.rectTransform.sizeDelta = new Vector2(IconSize, IconSize);
+            _titleIcon.rectTransform.sizeDelta = new Vector2(titleIcon, titleIcon);
 
-            float titleLeft = iconX + IconSize * 0.5f + 4f;
-            float titleRight = btnRight - 2f * BtnSize - BtnGap - 4f;
+            // Re-apply the live title FONT size (dirty-guarded): a live F9 edit changes no structural
+            // signature, so Bind never re-runs — LayoutChrome (reached via RelayoutAll) carries it, the
+            // same way the tab name is re-fit through GridTab.SyncTextSize. Costs one float compare when
+            // unchanged; only writes (regenerating the TMP mesh) on a real edit.
+            if (_title != null)
+            {
+                float fs = HudText.Size(PinTitleTextSize());
+                if (!Mathf.Approximately(_title.fontSize, fs)) _title.fontSize = fs;
+            }
+
+            float titleLeft = iconX + titleIcon * 0.5f + 4f;
+            float titleRight = btnRight - 2f * btn - BtnGap - 4f;
             float titleW = Mathf.Max(20f, titleRight - titleLeft);
             _title.rectTransform.anchoredPosition = new Vector2(titleLeft, -Pad);
             _title.rectTransform.sizeDelta = new Vector2(titleW, TitleH);
@@ -877,7 +1076,8 @@ namespace StationeersUIMod.UI.Grid
         {
             if (bg == null) return;
             bool hover = btn != null && btn.Hover;
-            GridTheme.ApplyBox(bg, BtnSize, BtnSize, GridTheme.GridSurface.Button, hover);
+            float sz = BtnSize();
+            GridTheme.ApplyBox(bg, sz, sz, GridTheme.GridSurface.Button, hover);
             var lbl = btn != null ? btn.Label : null;
             if (lbl != null) lbl.color = hover ? HudPalette.LineAccent.Value : text;
         }

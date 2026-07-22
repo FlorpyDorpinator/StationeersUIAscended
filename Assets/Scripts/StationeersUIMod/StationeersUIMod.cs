@@ -18,8 +18,8 @@ namespace StationeersUIMod
     /// </summary>
     public sealed class StationeersUIMod : MonoBehaviour
     {
-        public const string ModVersion = "0.9.1.0";
-        public const string VersionDisplay = "0.9.1.0 Experimental";
+        public const string ModVersion = "0.9.1.1";
+        public const string VersionDisplay = "0.9.1.1 Experimental";
         public const string ModGuid = "com.stationeersuimod.ui";
 
         public static StationeersUIMod Instance { get; private set; }
@@ -38,6 +38,25 @@ namespace StationeersUIMod
         private readonly List<EquipmentKeyRadialFeature> _equipFeatures
             = new List<EquipmentKeyRadialFeature>();
         private int _drawExceptions;
+        private float _drawExcLogAt = -999f;
+
+        // ---- Per-frame exception circuit breaker for Update() ----------------------------------
+        // A throwing Update() used to format + WRITE a full stack trace every single frame — a
+        // per-frame disk write that is itself an FPS-collapse mechanism (the reported "cursor froze,
+        // even other apps lagged"). These rate-limit the log (first few in full, then once / 5s) and
+        // trip a breaker after a RUN of consecutive failures, so a permanently-throwing frame stops
+        // burning CPU/disk and instead retries after a short cooldown. All per-instance — they die
+        // with the instance, so a hot reload starts fresh with no teardown reset needed.
+        private int _updateExc;             // total Update() throws since load
+        private int _updateExcStreak;       // consecutive throwing frames (0 after any clean frame)
+        private float _updateExcLogAt = -999f;
+        private float _updateBreakerUntil;  // unscaledTime until which the Update body is skipped
+        private bool _updateBreakerTripped; // announced-once latch for a broken stretch; cleared only by a clean frame (NOT by the per-retry cooldown re-arm), so the trip banner logs exactly once per stretch
+
+        // Per-instance teardown latch: a second OnDestroy on THIS instance is a clean no-op. This is
+        // NOT the old cross-instance "Instance != this" guard (that used to skip teardown of the very
+        // object being destroyed and leak its Harmony patches + canvases on every reload).
+        private bool _torndown;
 
         // The Grid (full-inventory glass overlay) hold-to-peek / tap-to-toggle bookkeeping.
         private const float GridTapSeconds = 0.25f;
@@ -117,6 +136,10 @@ namespace StationeersUIMod
                 Profiling.ProfilicusUniversalis.Configure("UIA Profiler", "ProfilerSnapshots");
 
                 BagProfileStore.LoadProfiles();
+                // O4e profile-aware sort: swap the game's SmartSortItems comparator for the
+                // profile-aware wrapper (defers to vanilla per-compare when a bag has no profile;
+                // restored in OnDestroy). Reflection field swap, fail-soft — see ProfileSort.
+                Features.ProfileSort.Install();
                 // Shipped HUD profiles (zip: StationeersUIMod/HudProfiles/) land in config on
                 // first run — required for the shipped default ("Smaller Test") to exist on a
                 // fresh install. No-overwrite, fail-soft; inert under F6 (ModDirectory null).
@@ -156,10 +179,15 @@ namespace StationeersUIMod
                     typeof(Patch_InventoryManager_AllowMouseControl),
                     typeof(Patch_MouseModeController_AltKeyDown), // double-tap cursor latch
                     typeof(Patch_MovementController_HandleJump),
+                    typeof(Patch_MovementController_MovementHandler), // #9 jetpack toggle while a wheel is open
                     typeof(Patch_PlayerStateWindow_UpdateJetpackPanels),
                     typeof(Patch_ThingRenderer_OverrideShadowMode), // names + silences the vanilla shadow-LOD NRE
                     typeof(Core.Patch_CommandLine_Process), // `finddead` console command
                     typeof(Core.Patch_KeyManager_SetupKeyBindings), // native Controls-screen rows for our keys
+                    // #9: auto-record a tool landing in the worn tool-belt so the grey ghost label
+                    // and G-stow fly-home track manual swaps/drags/grid moves. Slot.Take is the
+                    // single settle point; without this the binding table freezes at first seed.
+                    typeof(BeltBindingStore.SlotTakePatch),
                     // Inbound world->visor-box drag. PRIVATE vanilla targets, so a rename in a game
                     // update degrades only this feature (that is what the harness is for).
                     typeof(Core.Patch_InputMouse_Drag),
@@ -194,6 +222,15 @@ namespace StationeersUIMod
         {
             if (Instance != this || _radials == null) return;
             if (GameManager.IsBatchMode) return;
+
+            // Circuit breaker: after a run of consecutive throwing frames, stand the body down for a
+            // short cooldown rather than throw (and disk-write) every frame. Self-healing — once the
+            // cooldown elapses we try again, and a single clean frame clears the streak below.
+            if (_updateBreakerUntil > 0f)
+            {
+                if (Time.unscaledTime < _updateBreakerUntil) return;
+                _updateBreakerUntil = 0f; // cooldown elapsed — attempt recovery this frame
+            }
 
             try
             {
@@ -343,10 +380,62 @@ namespace StationeersUIMod
                     _gridPeeking = false;
                     _gridEditPreviewOpened = false;
                 }
+
+                // World-drag mirror: while VANILLA carries a world item OVER the Grid / a pinned window,
+                // echo its thumbnail on the shared top layer (5250) so it draws above them instead of
+                // vanishing behind. Ticked unconditionally so it always self-hides when the drag ends or
+                // leaves those bounds; a no-op (one InputMouse read) when no world drag is live.
+                Core.DragGhostLayer.TickWorldMirror();
+
+                // A clean frame clears the failure streak, so the circuit breaker only ever trips on a
+                // genuine RUN of consecutive throws, never on an isolated hiccup. It also re-arms the
+                // trip announcement (see NoteUpdateException) so the NEXT broken stretch is reported once.
+                _updateExcStreak = 0;
+                _updateBreakerTripped = false;
             }
             catch (Exception e)
             {
+                NoteUpdateException(e);
+            }
+        }
+
+        /// <summary>Circuit-breaker sink for a throwing <see cref="Update"/> frame. Rate-limits the log
+        /// (first 3 in full, then once / 5s) so a per-frame throw can never become a per-frame disk
+        /// write, and trips a short stand-down after a RUN of consecutive failures so a permanently
+        /// broken frame stops burning CPU. Self-heals: the breaker retries after its cooldown and one
+        /// clean frame clears the streak.</summary>
+        private void NoteUpdateException(Exception e)
+        {
+            _updateExc++;
+            _updateExcStreak++;
+            float now = Time.unscaledTime;
+
+            if (_updateExc <= 3)
+            {
                 UIALog.Error("Update failed: " + e);
+                _updateExcLogAt = now;
+                if (_updateExc == 3)
+                    UIALog.Error("Further Update errors will be rate-limited (once / 5s).");
+            }
+            else if (now - _updateExcLogAt >= 5f)
+            {
+                UIALog.Error($"Update still failing ({_updateExc} total): " + e.Message);
+                _updateExcLogAt = now;
+            }
+
+            // A sustained run of throwing frames: stand the Update body down for a short cooldown
+            // instead of hammering it (and the disk) every frame. The banner fires exactly ONCE per
+            // broken stretch: _updateBreakerUntil is zeroed by the recovery gate every ~5s, so keying
+            // firstTrip off it would re-log each retry — the _updateBreakerTripped latch (cleared only
+            // by a clean frame) stays set through every cooldown re-arm and keeps the re-arm silent.
+            if (_updateExcStreak >= 30)
+            {
+                bool firstTrip = !_updateBreakerTripped;
+                _updateBreakerTripped = true;
+                _updateBreakerUntil = now + 5f;
+                if (firstTrip)
+                    UIALog.Error("Update circuit breaker tripped (30 consecutive failures) — "
+                        + "standing the per-frame body down for 5s, then retrying.");
             }
         }
 
@@ -753,10 +842,23 @@ namespace StationeersUIMod
 
         public void ReportDrawException(Exception e)
         {
-            if (++_drawExceptions <= 3)
+            _drawExceptions++;
+            float now = Time.unscaledTime;
+            // Rate-limited AND self-healing: first 3 in full, then at most once / 5s. The ImGui
+            // postfix calls this every frame DrawOverlay throws, so a lifetime "suppress after 3"
+            // would either spam the disk or go permanently silent — this does neither.
+            if (_drawExceptions <= 3)
+            {
                 UIALog.Error("Overlay draw failed: " + e);
-            if (_drawExceptions == 3)
-                UIALog.Error("Further overlay draw errors suppressed.");
+                _drawExcLogAt = now;
+                if (_drawExceptions == 3)
+                    UIALog.Error("Further overlay draw errors will be rate-limited (once / 5s).");
+            }
+            else if (now - _drawExcLogAt >= 5f)
+            {
+                UIALog.Error($"Overlay draw still failing ({_drawExceptions} total): " + e.Message);
+                _drawExcLogAt = now;
+            }
         }
 
         private bool CanHandleSuppressedKeys =>
@@ -825,12 +927,33 @@ namespace StationeersUIMod
 
         private void OnDestroy()
         {
-            if (Instance != this) return;
+            // IDEMPOTENT, cross-instance-safe teardown. The old `if (Instance != this) return;` guard
+            // sat BEFORE the try/finally, so IF it ever tripped it would skip teardown of the very
+            // object being destroyed — leaking that object's Harmony patches (N x the per-frame ImGui
+            // postfix and every polled prefix -> progressive FPS collapse), its DontDestroyOnLoad
+            // canvases, and its game-static delegate subscriptions. In the CURRENT ScriptEngine reload
+            // path that guard did NOT actually trip: each F6 loads a renamed assembly, so Instance is a
+            // per-assembly static the new load can't overwrite, and the loader destroys the old instance
+            // (end-of-frame OnDestroy) before AddComponent-ing the new one (deferred a frame). So the
+            // real leak this changeset fixes was the per-frame stack-trace disk write, not a per-reload
+            // teardown skip. We nonetheless no longer DEPEND on that ordering: teardown ALWAYS releases
+            // what this instance owns (only the global pointer writes at the very end are gated on
+            // ownership), which also lets the genuinely-needed game-static restores below that the old
+            // path lacked (ProfileSort/StowRouter/etc.) run unconditionally. Everything here is
+            // null-guarded and idempotent, so a stale/uninitialized instance running it is a safe no-op
+            // and a double invocation cannot double-free.
+            if (_torndown) return;   // per-instance latch: a second OnDestroy on THIS object no-ops
+            _torndown = true;
+            bool isCurrent = (Instance == this);
             try
             {
                 _radials?.ShutdownImmediate();
                 Core.WedgeHotkeys.Clear();
                 Core.SlotFlash.Reset(); // drop any live stow-flash so a reload never reads a stale sprite
+                Core.StowRouter.Reset(); // drop pooled stow candidates (they hold Slot/Thing refs)
+                Features.BagProfileStore.ResetRuntimeCaches(); // badge-tag + prefab-default caches (strings only, but keep double-F6 clean)
+                // NOTE: ProfileSort.Reset() lives in the FINALLY below — Item.SmartSortItems is a
+                // GAME static holding our delegate, so its restore must not be skippable.
                 // Release the cursor latch BEFORE unpatching: the AltKeyDown postfix is about to go
                 // away, so a latch left on would strand a freed cursor with nothing holding it.
                 Core.CursorLatch.Reset();
@@ -855,6 +978,7 @@ namespace StationeersUIMod
                 _gridEditPreviewOpened = false;
                 ClearPinPress();                    // never carry an armed press across a reload
                 UI.Hud.HudSystem.Shutdown();
+                Core.DragGhostLayer.Shutdown();    // destroy the shared top-most ghost canvas + world mirror
                 _hud?.RestoreVanillaIfNeeded();
                 BagProfileStore.SaveAssignments();
                 IconCache.Clear();
@@ -873,20 +997,31 @@ namespace StationeersUIMod
             }
             finally
             {
-                // These two MUST NOT be skippable. The block above is one long try covering ~20
+                // These MUST NOT be skippable. The block above is one long try covering ~20
                 // teardown calls; anything that throws part-way used to skip whatever followed.
-                // Both of these leave live references from GAME statics into an assembly that F6
+                // All of these leave live references from GAME statics into an assembly that F6
                 // is about to replace: KeyManager.OnControlsChanged would keep a delegate into
                 // dead code (and starve the later vanilla subscribers InventoryManager
-                // .RefreshDisplaySlotBindings and HotkeyDisplay.Refresh), and un-unpatched Harmony
-                // patches keep running dead detours. Each is independently guarded so one failing
-                // cannot skip the other.
+                // .RefreshDisplaySlotBindings and HotkeyDisplay.Refresh), Item.SmartSortItems
+                // would keep our dead sort wrapper installed (and the NEXT Install() would then
+                // capture that dead wrapper as its "original" — unrecoverable without a game
+                // restart), and un-unpatched Harmony patches keep running dead detours. Each is
+                // independently guarded so one failing cannot skip the others.
+                try { Features.ProfileSort.Reset(); }
+                catch (Exception e) { UIALog.Error("ProfileSort.Reset failed: " + e); }
                 try { Core.UiaKeybinds.Unhook(); }
                 catch (Exception e) { UIALog.Error("UiaKeybinds.Unhook failed: " + e); }
                 try { _harmony?.UnpatchSelf(); }
                 catch (Exception e) { UIALog.Error("UnpatchSelf failed: " + e); }
-                Instance = null;
-                _loaded = false;
+                _harmony = null;   // this instance's patches are gone; never let a re-entry re-unpatch
+                // Relinquish the global pointer ONLY if we still own it. A stale instance being
+                // destroyed must never null out a live newer Instance / re-enable init under it — but
+                // it has still discharged every one of its OWN liabilities above.
+                if (isCurrent)
+                {
+                    Instance = null;
+                    _loaded = false;
+                }
             }
         }
     }

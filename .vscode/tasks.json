@@ -3,12 +3,38 @@
   "tasks": [
     {
       "label": "UI Mod: Build + Hot Reload (ScriptEngine)",
-      "detail": "THE build task. Compiles Assets/Scripts/StationeersUIMod (+ dev ScriptEngine shim) and drops StationeersUIMod.dll into BepInEx\\scripts, after sweeping out any stale mod DLL. Press F6 in game, or wait ~3s for the watcher.",
+      "detail": "THE dev build. Compiles Assets/Scripts/StationeersUIMod (+ dev ScriptEngine shim) and drops StationeersUIMod.dll into BepInEx\\scripts, after sweeping out any stale mod DLL. Press F6 in game, or wait ~3s for the watcher.",
       "type": "shell",
       "command": "Remove-Item 'C:\\Program Files (x86)\\Steam\\steamapps\\common\\Stationeers\\BepInEx\\scripts\\StationeersUIAscended.dll' -Force -ErrorAction SilentlyContinue; dotnet build -c Debug",
       "options": { "cwd": "${workspaceFolder}/Dev" },
       "problemMatcher": "$msCompile",
       "group": { "kind": "build", "isDefault": true }
+    },
+    {
+      "label": "UI Mod: Package Release (zip)",
+      "detail": "Ships it. Builds the RELEASE DLL (shim gated out), stages dist\\StationeersUIMod, and writes StationeersUIMod-<version>.zip at the repo root. No Steam upload.",
+      "type": "shell",
+      "command": "powershell -NoProfile -ExecutionPolicy Bypass -File \"${workspaceFolder}\\tools\\package.ps1\"",
+      "problemMatcher": "$msCompile",
+      "group": "build",
+      "presentation": { "echo": true, "reveal": "always", "focus": false, "panel": "shared" }
+    },
+    {
+      "label": "UI Mod: Publish to Steam Workshop",
+      "detail": "Uploads dist\\StationeersUIMod to the Workshop via steamcmd + tools\\workshop_update.vdf. REFUSES while the Workshop id is the placeholder 0 (pass -Force in the script to create the item). Run Package first.",
+      "type": "shell",
+      "command": "powershell -NoProfile -ExecutionPolicy Bypass -File \"${workspaceFolder}\\tools\\publish-steam.ps1\"",
+      "problemMatcher": [],
+      "group": "build",
+      "presentation": { "echo": true, "reveal": "always", "focus": true, "panel": "shared" }
+    },
+    {
+      "label": "UI Mod: Release & Publish",
+      "detail": "The full release: makes the local zip, then uploads to the Steam Workshop (once a Workshop id is set in tools\\workshop_update.vdf).",
+      "dependsOn": ["UI Mod: Package Release (zip)", "UI Mod: Publish to Steam Workshop"],
+      "dependsOrder": "sequence",
+      "problemMatcher": [],
+      "group": "build"
     },
     {
       "label": "UI Mod: Clean ScriptEngine deploy",

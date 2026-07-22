@@ -1051,7 +1051,18 @@ namespace StationeersUIMod.UI.Hud
             {
                 if (pan.Fader == null) continue;
                 var ev = pan as HudElementView;
-                if (ev == null || ev.Def == null) continue;
+                if (ev == null || ev.Def == null)
+                {
+                    // A panel with no document element (legacy fixed HUD, or a Def momentarily null
+                    // during a profile swap) must still obey the GLOBAL masters. Skipping left its
+                    // Fader on the 1f field defaults, so it played every transition at full strength
+                    // no matter what the globals said.
+                    pan.Fader.CollapseAmt = HudTransitionFx.GlobalAmtFor("fxCollapse");
+                    pan.Fader.TvOffAmt = HudTransitionFx.GlobalAmtFor("fxTvOff");
+                    pan.Fader.FlickerAmt = HudTransitionFx.GlobalAmtFor("fxFlicker");
+                    pan.Fader.DissolveAmt = HudTransitionFx.GlobalAmtFor("fxDissolve");
+                    continue;
+                }
                 pan.Fader.CollapseAmt = ev.TransitionAmt("fxCollapse");
                 pan.Fader.TvOffAmt = ev.TransitionAmt("fxTvOff");
                 pan.Fader.FlickerAmt = ev.TransitionAmt("fxFlicker");
@@ -1315,6 +1326,10 @@ namespace StationeersUIMod.UI.Hud
         /// frontier had travelled, and the effect would never be seen.</summary>
         internal static void TriggerPowerDownDissolve()
         {
+            // Clear FIRST, unconditionally. This used to be cleared only inside the success branch,
+            // so turning the dissolve off after one power-down stranded a permanent 1.2s fade-out
+            // stretch on the static animator — every later hide crawled for no visible reason.
+            if (_animator != null) _animator.OutDurOverride = 0f;
             if (HudConfig.FxDissolveOnPowerDown == null || !HudConfig.FxDissolveOnPowerDown.Value) return;
             if (HudConfig.FxDissolveBoot == null || !HudConfig.FxDissolveBoot.Value) return;
             if (!Core.HudShaderStore.TierBAvailable) return;
@@ -2074,9 +2089,15 @@ namespace StationeersUIMod.UI.Hud
             catch { }
         }
 
-        /// <summary>Chip drop targets currently on screen (0.6.2): the hand boxes and the
-        /// six equipment boxes, canvas coords. Empty when the visor HUD is off, hidden, or
-        /// a panel is faded out (its zones must not be invisible-but-active).</summary>
+        /// <summary>The AVAILABILITY-gated drop zones (0.6.2): the hand boxes and the six equipment
+        /// boxes, canvas coords, but ONLY when they are also solid enough to be a safe drop target.
+        /// Empty when the visor HUD is off, hidden, on the world-canvas curvature, between snapshots,
+        /// OR faded under 0.5 alpha (root-group low-power dropout / per-panel fade). This is the
+        /// anti-false-drop surface: the alpha gate is what keeps an inbound world drag from swapping a
+        /// held tool onto a box the player cannot see (2026-07-20 review). For the pure box-under-cursor
+        /// hit test that TARGETS a box for a drop or identifies a grab SOURCE — which must work wherever
+        /// the boxes render, faded or not — use <see cref="CollectBoxGeometry"/> / <see cref="ZoneAt"/>
+        /// instead.</summary>
         public static void CollectDropZones(List<HudDropZone> into)
         {
             if (_canvas == null || !_canvas.gameObject.activeSelf) return;
@@ -2087,6 +2108,13 @@ namespace StationeersUIMod.UI.Hud
                 && HudConfig.Curvature.Value == HudCurvature.CurvedWorldCanvas) return;
             var snap = LastSnapshot;
             if (snap == null || !snap.Valid) return;
+            // The per-panel alpha below is NOT the whole story: global transparency lives on the
+            // ROOT group, which the low-power dropout animation drives to 0.06 for a few frames
+            // (HudAnimator.DropoutMultiplier). Panel alpha stays 1 throughout, so without this the
+            // contract above is violated — zones stay live on a HUD that is 94% invisible, and the
+            // inbound world drag would happily swap a held tool onto the floor from a box the
+            // player could not see (2026-07-20 review).
+            if (_rootGroup != null && _rootGroup.alpha < 0.5f) return;
             float scale = HudConfig.EffectiveHudScale();
             foreach (var p in _panels)
             {
@@ -2100,23 +2128,80 @@ namespace StationeersUIMod.UI.Hud
             }
         }
 
+        /// <summary>Box GEOMETRY only: the hand + six equipment boxes wherever they RENDER, in canvas
+        /// coords. The pure hit-test surface used to TARGET a box for a drop and to identify the SOURCE
+        /// box of a grab — decoupled from the alpha/dropout AVAILABILITY gate that
+        /// <see cref="CollectDropZones"/> applies. A box the player can see (even a faded one) is a box
+        /// they can aim at; the anti-false-drop alpha gate is a SEPARATE, narrower concern applied only
+        /// by the inbound world drag (see <see cref="ZonesAvailable"/>), never on the geometry path.
+        ///
+        /// <para>KEPT from <see cref="CollectDropZones"/>: the canvas-active check, the CurvedWorldCanvas
+        /// suppression (on mode C the flat rects genuinely mismatch the 3D-projected boxes, so
+        /// box-targeting must stay off there — a wrong-slot drop is worse than none) and the
+        /// snapshot-valid check. DROPPED: the root-group and per-panel alpha &lt; 0.5 gates. A panel
+        /// whose GameObject is inactive still contributes nothing — it does not render.</para></summary>
+        internal static void CollectBoxGeometry(List<HudDropZone> into)
+        {
+            if (_canvas == null || !_canvas.gameObject.activeSelf) return;
+            // CurvedWorldCanvas draws with real 3D perspective — flat canvas rects can shift 60-150px
+            // from where boxes render (review finding), which would send drops to the WRONG slot. No
+            // geometry on mode C; box-targeting stays disabled there exactly as it did before the split.
+            if (HudConfig.Curvature != null
+                && HudConfig.Curvature.Value == HudCurvature.CurvedWorldCanvas) return;
+            var snap = LastSnapshot;
+            if (snap == null || !snap.Valid) return;
+            float scale = HudConfig.EffectiveHudScale();
+            foreach (var p in _panels)
+            {
+                try
+                {
+                    // Alpha is deliberately NOT consulted here (that is the availability gate's job in
+                    // CollectDropZones) — only whether the panel actually renders.
+                    if (p.Group == null || !p.Root.gameObject.activeSelf) continue;
+                    p.CollectDropZones(into, snap, scale);
+                }
+                catch { }
+            }
+        }
+
+        /// <summary>Whether the HUD can offer drop zones AT ALL this frame under the ALPHA/availability
+        /// gate — the narrow anti-false-drop predicate the 2026-07-20 review needed. Read ONLY by the
+        /// inbound world-drag-into-a-HUD-box path: a HUD faded under 0.5 (root-group low-power dropout /
+        /// per-panel fade), off, mid-snapshot or on the world-canvas curvature is one the player cannot
+        /// safely be dropping onto, so an inbound world drag must not swap a held tool onto a box they
+        /// cannot see. It is NOT consulted for box GEOMETRY (<see cref="ZoneAt"/> is decoupled from it)
+        /// nor for ground-drops (a HUD flicker does not move the cursor off the world).</summary>
+        public static bool ZonesAvailable()
+        {
+            try
+            {
+                _zoneScratch.Clear();
+                CollectDropZones(_zoneScratch);
+                return _zoneScratch.Count > 0;
+            }
+            catch { return false; }
+        }
+
         /// <summary>The HUD canvas transform, for overlays that must sit above the widgets (the
         /// slot-drag ghost). Null before the HUD is built and after Shutdown.</summary>
         internal static Transform OverlayRoot => _canvas != null ? _canvas.transform : null;
 
         private static readonly List<HudDropZone> _zoneScratch = new List<HudDropZone>();
 
-        /// <summary>The HUD box (hand / equipment slot) under the current mouse position, or
-        /// null. Shared by the radial drag layer so a HUD box is BOTH a drop target and a drag
-        /// SOURCE — mouse coords are inverse-warped exactly like the F9 editor's hit-testing so
-        /// curved-HUD boxes are grabbed where they DRAW. Returns null off any box (or when the
-        /// visor HUD is off / a panel is faded).</summary>
+        /// <summary>The HUD box (hand / equipment slot) under the current mouse position, or null.
+        /// Shared by the radial drag layer so a HUD box is BOTH a drop target and a drag SOURCE — mouse
+        /// coords are inverse-warped exactly like the F9 editor's hit-testing so curved-HUD boxes are
+        /// grabbed where they DRAW. Resolves BOX GEOMETRY (<see cref="CollectBoxGeometry"/>): it returns
+        /// a box wherever the boxes RENDER, faded or not, so a transient alpha dip can no longer swallow
+        /// a legitimate grab or drop-target. Returns null only when off every box, or when the visor HUD
+        /// is off / on the world-canvas curvature / between snapshots. The alpha/availability gate is a
+        /// SEPARATE concern (<see cref="ZonesAvailable"/>), consulted only by the inbound world drag.</summary>
         public static HudDropZone ZoneAt()
         {
             try
             {
                 _zoneScratch.Clear();
-                CollectDropZones(_zoneScratch);
+                CollectBoxGeometry(_zoneScratch);
                 if (_zoneScratch.Count == 0) return null;
                 var m = (Vector2)Input.mousePosition;   // bottom-left origin, y up
                 var p = new Vector2(m.x - Screen.width * 0.5f, m.y - Screen.height * 0.5f);

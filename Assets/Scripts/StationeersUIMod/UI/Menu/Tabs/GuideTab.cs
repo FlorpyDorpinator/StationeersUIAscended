@@ -39,7 +39,7 @@ namespace StationeersUIMod.UI.Menu.Tabs
             KeyRow(col, "Reach into the world (grab items)", "Alt");
             KeyRow(col, "Swap active hand", UiaKeybinds.Glyph("UIA_HandSwap"));
             KeyRow(col, "Page a crowded wheel", UiaKeybinds.Glyph("UIA_Page"));
-            KeyRow(col, "Swap toolbelt / backpack (wheel open)", "Ctrl tap");
+            KeyRow(col, "Swap toolbelt / backpack (wheel open)", "Tab");
             KeyRow(col, "Open a bound bag", "Ctrl + 1 - 0");
             UiaControls.Note(col,
                 "Bind a bag: with a wheel open, hover a bag and press a number key. It's remembered " +
@@ -48,9 +48,11 @@ namespace StationeersUIMod.UI.Menu.Tabs
             UiaControls.Header(col, "Smart storage");
             KeyRow(col, "Smart Stow the held item", "G");
             UiaControls.Note(col,
-                "SmartStow+ extends vanilla stow (G): it first tops up a matching stack, then routes " +
-                "the item to the bag whose profile matches it, then remembers where that type went. " +
-                "Set up bag profiles under the Storage tab.");
+                "SmartStow+ extends vanilla stow (G): it tops up a matching stack (and keeps going "
+                + "until the hand is empty), sends components to their sockets (canisters to tanks, "
+                + "batteries to battery slots), routes to the bag whose profile matches, then remembers "
+                + "where that type went. Loose walls and kits get one steady general-storage bag. "
+                + "Set up bag profiles under the Storage tab.");
 
             UiaControls.Header(col, "The visor HUD");
             UiaControls.Note(col,

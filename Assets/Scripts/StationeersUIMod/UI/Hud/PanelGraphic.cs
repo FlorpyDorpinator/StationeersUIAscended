@@ -404,6 +404,29 @@ namespace StationeersUIMod.UI.Hud
         private static readonly List<Vector2> _icontour = new List<Vector2>(1200);
         private static readonly List<Vector2> _istop0 = new List<Vector2>(1200); // stop-0 vertex positions per column
 
+        // ── Column GATHER buffers (2026-07-20, the junction-continuity pass F1-F5). The column
+        // stream is now built ONCE into these, low-pass filtered ALONG the contour, and only then
+        // emitted into the VertexHelper. Two passes are unavoidable for F4: a per-column value
+        // cannot be smoothed against its neighbours while it is being written straight out. Static
+        // + Clear()ed exactly like _icontour/_istop0, so the mesh path still allocates nothing per
+        // rebuild. Column POSITIONS live in _icontour — the gather fills it, the emit no longer does.
+        private static readonly List<Vector2> _colDir = new List<Vector2>(1200);  // outward normal
+        private static readonly List<float> _colCap = new List<float>(1200);      // inward depth cap
+        private static readonly List<float> _colFade = new List<float>(1200);     // inner-glow alpha fade
+        private static readonly List<float> _colLw = new List<float>(1200);       // soft key-light weight
+        private static readonly List<float> _colLwS = new List<float>(1200);      // its smoothed copy (F4)
+        private static readonly List<float> _colS = new List<float>(1200);        // arc length along the contour
+        private static readonly List<float> _colMass = new List<float>(1200);     // per-column arc-length measure
+        // F6: per-RUN straight-edge column positions (arc length from the run's start), built
+        // in strictly increasing order — uniform survey columns plus the junction-densification
+        // inserts. Same static-scratch discipline as the buffers above (Clear()ed per run, no
+        // per-rebuild allocation, no Unity refs/delegates, so no teardown reset is needed).
+        private static readonly List<float> _edgeE = new List<float>(64);
+
+        // F3: per-rebuild ripple harmonic band-limit factors, 1 = untouched. Set by
+        // PopulateMeshCore's gather pass, read by RippleGain. See HarmAtt.
+        private float _ripAtt1 = 1f, _ripAtt2 = 1f, _ripAtt3 = 1f;
+
         private bool _denseFill;
 
         /// <summary>Opt this panel into the DENSE interior fill even without sheen — set by the
@@ -602,6 +625,13 @@ namespace StationeersUIMod.UI.Hud
             vh.Clear();
             _icontour.Clear();
             _istop0.Clear();
+            _colDir.Clear();
+            _colCap.Clear();
+            _colFade.Clear();
+            _colLw.Clear();
+            // F3: start every rebuild at "no band-limit" — a panel whose columns turn out to
+            // sample every ripple harmonic above Nyquist keeps exactly the classic gain.
+            _ripAtt1 = 1f; _ripAtt2 = 1f; _ripAtt3 = 1f;
             float hw = _w * 0.5f, hh = _h * 0.5f;
             // The threshold must admit hairlines: the vitals bars are ~1.4px tall panels
             // (hh 0.7) — a 1px guard would silently cull every one of them.
@@ -650,6 +680,36 @@ namespace StationeersUIMod.UI.Hud
             {
                 glowInD = Mathf.Min(Mathf.Min(_glowWidth, 160f), Mathf.Min(hw, hh) * 0.55f);
                 if (glowInD < rampD + 1.5f) hasGlowIn = false; else inStops = 4;
+            }
+
+            // F5 (2026-07-20). The corner-arc columns used to place stop-0 EXACTLY on the corner
+            // CENTRE, because their innerCap was Max(rc, rampD) and bandD then resolved to rc
+            // exactly — all 18 arc columns of an 11.771px corner (live Universal Inventory
+            // profile) collapsed onto ONE vertex. That is precisely the single-fan structure the
+            // dense-interior work exists to eliminate, surviving localised at each corner: the
+            // bridge band degenerates into 17 triangles converging on a point. It is dormant only
+            // while every interior vertex carries the same colour (GlassSheen 0 -> FillAt is a
+            // constant, marker m0 = 0); ANY interior gradient — sheen, an edge fade, a Tier-B
+            // shader keying uv0.y — re-lights it as four corner bowties immediately.
+            // Stopping the band a hair short of the centre turns the fan into a proper strip.
+            // Invisible by construction: arc columns run glowFade = 0, so every inner-band stop
+            // there is GlowOver(halo, 0, fill) == the RAW fill colour and stop-0 is not a colour
+            // boundary at all — only the triangulation changes. Inert at stock defaults, where
+            // inStops == 0 forces bandD to 0 in EmitColumn and innerCap is never read.
+            float CornerBandBase(float r)
+                => Mathf.Max(rampD, r - Mathf.Min(0.75f, r * 0.15f));
+
+            // F2's per-side band-depth cap (see the F2 comment in EdgeCol): ONE corner's ramp,
+            // from that corner's band base out to the full band depth over the run's fade
+            // distance, smoothstepped so the slope is ZERO at the tangent point (the arc side's
+            // constant meets it C1). Max() guards the glowInD < base case: the ramp would run
+            // downhill there, and the base must win so the cap never digs below the corner's own
+            // depth. Direct-called only (ref-struct closure over glowInD — zero alloc).
+            float RampCap(float rBase, float e, float fade)
+            {
+                float u = fade > 0.01f ? Mathf.Clamp01(e / fade) : 1f;
+                float su = u * u * (3f - 2f * u);
+                return Mathf.Max(rBase, rBase + (glowInD - rBase) * su);
             }
 
             int baseStops;
@@ -729,7 +789,7 @@ namespace StationeersUIMod.UI.Hud
             // (bitwise the old output); with glass on, fill follows the sheen gradient
             // and the border follows the specular run. Vertex colours interpolate
             // linearly across a quad, so linear-in-position light reads exactly.
-            void ColumnColors(Vector2 dir, Vector2 onShape, float glowFade, float bandD)
+            void ColumnColors(Vector2 dir, Vector2 onShape, float glowFade, float bandD, float lwSoft)
             {
                 Color fillC = FillAt(onShape.y, hh);
                 Color bc = hasBorder ? BorderAt(dir, onShape, hw) : fillC;
@@ -768,8 +828,13 @@ namespace StationeersUIMod.UI.Hud
                     // Round 3 (2026-07-16): the halo shapes by the SOFT cosine lobe, never the
                     // border's sharp specular exponent — see KeyLightWeightSoft. The ripple
                     // share rides the same soft base so a crest can't re-sharpen the lobe.
-                    float txH = Mathf.Clamp01((onShape.x + hw) / (2f * hw));
-                    float lwS = KeyLightWeightSoft(dir, txH);
+                    // F4 (2026-07-20): the soft lobe now arrives PRE-COMPUTED from the gather
+                    // pass, low-pass filtered along the contour (see the LwSmooth block). The
+                    // raw expression it replaces was
+                    //   KeyLightWeightSoft(dir, Clamp01((onShape.x + hw) / (2f * hw)))
+                    // and the gather evaluates exactly that, so with smoothing off (no skirt,
+                    // no glow) the value here is bit-identical to the pre-fix code.
+                    float lwS = lwSoft;
                     float rippleShare = 0.35f * (1f - _glowDiffuse);
                     float lwR = _edgeRipple > 0.004f
                         ? Mathf.Clamp(lwS * RippleGain(onShape), 0f, 2f) : lwS;
@@ -897,11 +962,11 @@ namespace StationeersUIMod.UI.Hud
             // corners; it is killed purely by fading the inner-glow ALPHA to zero toward corners
             // (glowFade, computed per column below) — a colour-only change, so the geometry and the
             // border are untouched. glowFade 1 = full glow (mid-edge), 0 = none (corners/ends).
-            void EmitColumn(Vector2 dir, Vector2 onShape, float innerCap, float glowFade)
+            void EmitColumn(Vector2 dir, Vector2 onShape, float innerCap, float glowFade, float lwSoft)
             {
                 float bandD = inStops > 0 ? Mathf.Max(rampD, Mathf.Min(glowInD, innerCap)) : 0f;
-                ColumnColors(dir, onShape, glowFade, bandD);
-                _icontour.Add(onShape); // contour point, recorded for the dense-interior rings
+                ColumnColors(dir, onShape, glowFade, bandD, lwSoft);
+                // (the contour point is recorded by AddColumn in the gather pass, not here)
                 _istop0.Add(onShape + dir * (inStops > 0 ? -bandD : _stopD[0])); // stop-0 position (the fill boundary)
                 for (int s = 0; s < stops; s++)
                 {
@@ -910,6 +975,52 @@ namespace StationeersUIMod.UI.Hud
                         : _stopD[s];
                     AddVertFx(vh, onShape + dir * d, _stopC[s], _stopM[s]);
                 }
+            }
+
+            // ── THE JUNCTION-CONTINUITY PASS (2026-07-20, adversarial forensic round 16).
+            //
+            // Symptom: faint ray / "X" artifacts at the corners of the Universal Inventory
+            // windows, visible ONLY as alpha variation against a bright backdrop. Root cause is
+            // structural and measurable on the live profile (355x500 window, CornerRadius 11.771,
+            // GlowWidthPx 31.468, EdgeFeather 0.932, EdgeRipple 2.27 @ 0.316):
+            //
+            //   corner arc: 18 columns over an 18.49px arc  ->  1.088px pitch
+            //   top/bottom: 8 columns over 331.458px        -> 36.828px pitch
+            //   left/right: 9 columns over 476.458px        -> 47.646px pitch
+            //
+            // a 34:1 .. 44:1 sampling ratio. EVERY fixed-size skirt feature (the 31.468px
+            // glow ramps, the 62.2px third ripple harmonic) is FINER than the straight-edge
+            // pitch, so each one degenerates into a two-sample step exactly at the eight
+            // arc->edge tangent points — and all four defects fire at the same eight columns,
+            // which is why they read as one artifact. The fixes below make the ramps ADAPTIVE
+            // to the local pitch rather than adding columns (this panel type is instantiated
+            // per inventory CELL, dozens on screen; the vert budget is not free).
+            //
+            // GATES / STOCK IDENTITY: F1, F2 and F5 live entirely inside `inStops > 0`, which is
+            // false without GlowInner; F3 additionally requires _edgeRipple > 0.004 AND a skirt
+            // (the same gate the existing edgeStep densifier uses); F4 requires a glow band.
+            // At stock defaults (skirtExtra 0, inStops 0, ripple 0) every branch is skipped and
+            // the emitted vertex stream is byte-identical to the pre-fix mesh.
+            //
+            // The emission is now GATHER -> SMOOTH -> EMIT. F4 cannot be done in a single loop:
+            // a column's light weight must be filtered against neighbours that have not been
+            // visited yet. The gather writes the pooled _col* lists (no allocation) and the
+            // emit replays them in the identical order, so the vertex ORDER and the triangle
+            // indices are unchanged.
+
+            float ripAtt1 = 1f, ripAtt2 = 1f, ripAtt3 = 1f;   // F3 accumulators (min over runs)
+            bool wantLw = hasGlow || hasGlowIn;               // is the soft lobe read at all?
+
+            void AddColumn(Vector2 dir, Vector2 onShape, float innerCap, float glowFade)
+            {
+                _colDir.Add(dir);
+                _icontour.Add(onShape);   // contour point, for the dense-interior rings AND F4
+                _colCap.Add(innerCap);
+                _colFade.Add(glowFade);
+                // Exactly the expression ColumnColors used to evaluate inline.
+                _colLw.Add(wantLw
+                    ? KeyLightWeightSoft(dir, Mathf.Clamp01((onShape.x + hw) / (2f * hw)))
+                    : 0f);
             }
 
             int columns = 0;
@@ -932,11 +1043,15 @@ namespace StationeersUIMod.UI.Hud
                 int segCap = skirtExtra > 0.5f ? 32 : 12;
                 int cornerSegs = Mathf.Clamp(Mathf.CeilToInt(rc * 0.5f
                     + skirtExtra * 0.35f * ((aOut - aIn) / (Mathf.PI * 0.5f))), 3, segCap);
+                // F5: Max(rc, rampD) placed stop-0 ON the corner centre and collapsed the whole
+                // arc onto one vertex; CornerBandBase stops a hair (<= 0.75px) short. The edge
+                // run below ramps from the SAME base value, so the tangent point stays exact.
+                float cornerCap = CornerBandBase(rc);
                 for (int i = 0; i <= cornerSegs; i++)
                 {
                     float a = Mathf.Lerp(aIn, aOut, i / (float)cornerSegs);
                     var dir = new Vector2(Mathf.Cos(a), Mathf.Sin(a));
-                    EmitColumn(dir, cur + dir * rc, Mathf.Max(rc, rampD), 0f); // corner arc: no inner glow (overlap zone)
+                    AddColumn(dir, cur + dir * rc, cornerCap, 0f); // corner arc: no inner glow (overlap zone)
                     columns++;
                 }
 
@@ -960,9 +1075,75 @@ namespace StationeersUIMod.UI.Hud
                     // corner-clamped columns and the glow never reaches its full depth.
                     if (inStops > 0)
                         segs = Mathf.Max(segs, Mathf.Min(8, Mathf.FloorToInt(len / 14f)));
-                    for (int i = 1; i <= segs; i++)
+
+                    // The run's ACTUAL column pitch. Everything ramp-shaped on this run is sized
+                    // against it from here on — that is the whole thesis of the 2026-07-20 fix.
+                    float pitch = len / (segs + 1);
+
+                    // F3 (ripple harmonic anti-aliasing). RippleGain lays three incommensurate
+                    // sines along the contour; their spatial wavelength here is
+                    //   lambda_m = 2*pi / (m * |u.x + 0.7*u.y| * freq * 0.0628)
+                    // with u the run's unit tangent. On the live profile the third harmonic
+                    // (5.089x) lands at 62.2px on the top/bottom run and is sampled every
+                    // 36.828px = 1.69 samples/cycle — BELOW NYQUIST — at amplitude
+                    // 2.27 * 0.14 = 0.318. It cannot be reconstructed; it folds into a ~90px
+                    // beat along the border and, extruded across the 31.468px skirt, into rays.
+                    // Attenuating it costs ZERO vertices (the alternative, densifying the
+                    // edgeStep survey to the HIGHEST harmonic, would multiply the column count
+                    // ~3x on every 46px inventory cell).
+                    //
+                    // DELIBERATE DEVIATION from the brief, which asked for per-run attenuation:
+                    // per-run factors are themselves a STEP at the tangent point, because the
+                    // arcs oversample (1.088px) and keep the harmonic while the edge drops it —
+                    // a discontinuity of the full 0.318 gain, ~35x the artifact being removed,
+                    // and there is no sample inside the 36.828px gap to carry a transition
+                    // (verified: mass-weighted smoothing of the local pitch still leaves att = 1
+                    // at the last arc column and 0 at the first edge column). So the WHOLE
+                    // contour is band-limited to the coarsest straight run. The arcs lose a
+                    // harmonic they could have carried over 18.49px — under a third of one
+                    // cycle, i.e. no visible detail — in exchange for a globally smooth field.
+                    if (_edgeRipple > 0.004f && skirtExtra > 0.5f && len > 1e-3f)
                     {
-                        float et = i / (float)(segs + 1);
+                        Vector2 tan = (to - from) / len;
+                        float tf = Mathf.Abs(tan.x + 0.7f * tan.y);
+                        float a1 = HarmAtt(1f, tf, pitch);
+                        float a2 = HarmAtt(2.417f, tf, pitch);
+                        float a3 = HarmAtt(5.089f, tf, pitch);
+                        if (a1 < ripAtt1) ripAtt1 = a1;
+                        if (a2 < ripAtt2) ripAtt2 = a2;
+                        if (a3 < ripAtt3) ripAtt3 = a3;
+                    }
+
+                    // F1 (adaptive inner-glow fade ramp). The fade used to run over glowInD
+                    // (31.468px) — SHORTER than the 36.828/47.646px column pitch, so
+                    // Mathf.SmoothStep was handed 1.170 / 1.514 at the very first edge column
+                    // and CLAMPED to exactly 1.0. Zero interior samples: a two-sample step
+                    // function 0 -> 1 across one column, at all eight junctions. Widening the
+                    // ramp to >= 2.5 pitches guarantees ~3 genuinely sampled steps.
+                    // Max() only ever LENGTHENS the ramp, so any panel whose pitch is already
+                    // <= glowInD / 2.5 (12.6px here — every small box and inventory cell) keeps
+                    // the pre-fix distance bit-for-bit. Whenever it WOULD lengthen
+                    // (pitch > glowInD/2.5), F6 below necessarily fires (its gate is the wider
+                    // pitch > glowInD/3), densifies the junctions and re-tightens fadeD toward
+                    // glowInD before any column is emitted — on SKIRTLESS inner-glow panels too
+                    // (fix round 4, 2026-07-20: the stretched ramp used to stand there, keeping
+                    // the stop-0 crease and capping short-run mid-edge glow at
+                    // smoothstep((segs+1)/5) — 35-65% of its authored strength on runs under
+                    // ~56px, where the earlier "provably segs >= 4 so mid-edge reaches 1.0"
+                    // note was arithmetically wrong: the miter floor gives segs = floor(len/14)
+                    // in {1,2,3} there). This assignment is therefore only the seed F6
+                    // re-tightens at emission time; it stands alone exactly when it is inert.
+                    float fadeD = glowInD;
+                    if (inStops > 0 && glowInD > 0.01f)
+                        fadeD = Mathf.Max(glowInD, pitch * 2.5f);
+
+                    // One straight-run column at fractional position `et` (0..1 from `from` to
+                    // `to`). This is the ORIGINAL emission-loop body, verbatim — the uniform
+                    // (non-densified) path below hands it exactly the old i/(segs+1) sequence,
+                    // so the stock vertex stream stays bit-identical. It reads fadeD at CALL
+                    // time, so the F6 re-tighten below is picked up without re-plumbing.
+                    void EdgeCol(float et)
+                    {
                         Vector2 p = Vector2.Lerp(from, to, et);
                         // Inner-glow depth TAPERS toward each corner (45° miter): without it,
                         // adjacent edges' full-depth bands OVERLAP in the corner square and
@@ -971,17 +1152,127 @@ namespace StationeersUIMod.UI.Hud
                         // column at its distance to the sharp corner makes the two bands meet
                         // exactly on the corner bisector with no double-draw.
                         float innerCap = glowInD;
-                        if (inStops > 0)
-                            innerCap = Mathf.Min(glowInD, Mathf.Min(
-                                len * et * _miter[c] + rc,
-                                len * (1f - et) * _miter[(c + 1) % 4] + rNext));
-                        // Fade the inner glow IN over ~glowInD from each corner, so the two edges'
-                        // bands both dissolve before they can overlap (the X). Full glow mid-edge.
                         float glowFade = 1f;
-                        if (inStops > 0 && glowInD > 0.01f)
-                            glowFade = Mathf.SmoothStep(0f, 1f, (Mathf.Min(et, 1f - et) * len) / glowInD);
-                        EmitColumn(edgeDir, p, innerCap, glowFade);
+                        if (inStops > 0)
+                        {
+                            float e0 = et * len, e1 = (1f - et) * len;   // distance to each tangent point
+                            innerCap = Mathf.Min(glowInD, Mathf.Min(
+                                e0 * _miter[c] + rc,
+                                e1 * _miter[(c + 1) % 4] + rNext));
+
+                            // F2 (continuous band depth through the junction). The miter cap
+                            // above is continuous at the tangent point in FORM (it starts at rc)
+                            // but grows at 1px per px, so it saturates at glowInD after only
+                            // 19.697px — well inside the first 36.828px column. Result: bandD
+                            // stepped 11.771 -> 31.468 across ONE column, a 19.697px re-entrant
+                            // V-notch (28.1 deg jog) pointing at every corner, co-located with
+                            // and reshaping the field F1 modulates. Ramp it over the SAME fadeD
+                            // instead, with a smoothstep so the slope is ZERO at the tangent
+                            // point and the arc side (constant) meets it C1.
+                            // The result is only ever MIN'd into innerCap, so the round-13/14
+                            // miter guard — the thing that stops adjacent edges' bands
+                            // overlapping inside the corner square — is strictly preserved: the
+                            // band can only get shallower near a corner, never deeper. And the
+                            // band is still SCALED into bandD by EmitColumn (a Lerp from -bandD
+                            // to -rampD), never truncated, so round 14's "bright hard-ended
+                            // wedges" cannot come back.
+                            float eNear = Mathf.Min(e0, e1);
+                            // BOTH ends' ramps — each from its OWN corner's band base over its
+                            // OWN distance — Min'd together, never "the nearer corner's" picked
+                            // by branch: selecting one base on eNear switched the reference
+                            // radius discontinuously at the run midpoint while both ramps were
+                            // still active (len/2 < fadeD), a ~1px stop-0 jog between adjacent
+                            // columns on a short edge with unequal per-corner radii (fix round
+                            // 4, 2026-07-20). Each side's cap is continuous along the whole run,
+                            // so their Min is too; with rc == rNext (uniform radii — every Grid
+                            // surface) the smoothstep is monotone in e, the nearer side wins
+                            // with bit-identical arithmetic, and the old output is reproduced
+                            // exactly.
+                            innerCap = Mathf.Min(innerCap, Mathf.Min(
+                                RampCap(CornerBandBase(rc), e0, fadeD),
+                                RampCap(CornerBandBase(rNext), e1, fadeD)));
+
+                            // Fade the inner glow IN from each corner, so the two edges' bands
+                            // both dissolve before they can overlap (the X). Full glow mid-edge.
+                            if (glowInD > 0.01f)
+                                glowFade = Mathf.SmoothStep(0f, 1f, eNear / fadeD);
+                        }
+                        AddColumn(edgeDir, p, innerCap, glowFade);
                         columns++;
+                    }
+
+                    // F6 (junction densification + ramp re-tightening, 2026-07-20 round 2).
+                    // F1's stretch sized the fade ramp to the run's UNIFORM pitch: on the live
+                    // window's coarse runs (36.828 / 47.646px) that spreads the transition over
+                    // 92-119px, and the play-tester reads the band's inner boundary (the stop-0
+                    // contour) as a long faint curved crease bending past each corner. The
+                    // durable fix is sampling, not stretching: densify columns NEAR THE
+                    // JUNCTIONS ONLY — inside the first fadeD*1.2 of the run at both ends —
+                    // until the local pitch can carry a glowInD-length ramp (pitch <=
+                    // glowInD/3, i.e. >= 3 genuine samples), then TIGHTEN fadeD back toward
+                    // glowInD. Mid-run keeps the coarse survey: the ramp is clamped flat at 1
+                    // out there, so extra columns would buy nothing.
+                    // Cost bound: <= 8 inserted columns per junction, only on meshes already
+                    // paying for an inner-glow band. Round 4 (2026-07-20) dropped the original
+                    // skirtExtra gate: F1's stretch triggers on the inner glow ALONE, so a
+                    // skirtless GlowInner-only panel (outer glow 0, soft edge 0 — reachable
+                    // from the F9 Effects sliders, the Grid overrides and per-element params)
+                    // kept the stretched ramp, its stop-0 crease and the short-run mid-edge
+                    // dimming this pass exists to remove. The densify gate now covers the
+                    // stretch gate exactly (2.5 > 3 in the denominators). Stock defaults never
+                    // reach this branch (inStops == 0), and the uniform branch IS the pre-fix
+                    // loop, so the stock stream is unchanged.
+                    bool densify = inStops > 0 && glowInD > 0.01f && pitch > glowInD / 3f;
+                    if (!densify)
+                    {
+                        for (int i = 1; i <= segs; i++)
+                            EdgeCol(i / (float)(segs + 1));
+                    }
+                    else
+                    {
+                        float hTarget = glowInD / 3f;   // in-zone pitch: >= 3 samples per ramp
+                        float zoneD = glowInD * 1.2f;   // the tightened ramp + 20% margin
+                        int budgetA = 8, budgetB = 8;   // per-junction insertion caps
+                        _edgeE.Clear();
+                        // Walk the uniform survey intervals IN ORDER, subdividing any interval
+                        // that touches a junction zone — positions come out strictly increasing
+                        // along the contour (insert, never append out of order), so the
+                        // triangulation sees ordinary columns and the closing duplicate at the
+                        // loop seam is untouched.
+                        for (int i = 0; i <= segs; i++)
+                        {
+                            float ei0 = i * pitch;
+                            float ei1 = i == segs ? len : (i + 1) * pitch;
+                            if (i > 0) _edgeE.Add(ei0);        // the classic uniform column
+                            bool nearA = ei0 < zoneD;          // interval starts in the start zone
+                            bool nearB = ei1 > len - zoneD;    // interval ends in the end zone
+                            if (!nearA && !nearB) continue;
+                            int avail = nearA ? budgetA : budgetB;
+                            int parts = Mathf.CeilToInt((ei1 - ei0) / hTarget);
+                            if (parts - 1 > avail) parts = avail + 1;
+                            if (parts < 2) continue;
+                            float step = (ei1 - ei0) / parts;
+                            for (int jj = 1; jj < parts; jj++)
+                                _edgeE.Add(ei0 + step * jj);
+                            if (nearA) budgetA -= parts - 1; else budgetB -= parts - 1;
+                        }
+                        // Re-tighten the ramp. With the zones properly sampled this lands on
+                        // glowInD exactly (31.5px on the live window, from 92-119px). The floor
+                        // is F1's own rule against the WORST gap the ramp actually crosses —
+                        // 2.5 pitches, >= ~3 genuine samples — so a bitten budget cap (only
+                        // possible when glowInD/3 is small against a 48px survey pitch) degrades
+                        // to a slightly longer, still fully sampled ramp, never back to a step.
+                        float worst = 0f, prevE = 0f;
+                        for (int qi = 0; qi <= _edgeE.Count; qi++)
+                        {
+                            float e = qi < _edgeE.Count ? _edgeE[qi] : len;
+                            if (prevE < zoneD || e > len - zoneD)
+                            { float g = e - prevE; if (g > worst) worst = g; }
+                            prevE = e;
+                        }
+                        fadeD = Mathf.Max(glowInD, worst * 2.5f);
+                        for (int qi = 0; qi < _edgeE.Count; qi++)
+                            EdgeCol(_edgeE[qi] / len);
                     }
                 }
             }
@@ -992,9 +1283,132 @@ namespace StationeersUIMod.UI.Hud
                 Vector2 cur = _centers[0];
                 float aIn = NormalAngle(prev, cur);
                 var dir = new Vector2(Mathf.Cos(aIn), Mathf.Sin(aIn));
-                EmitColumn(dir, cur + dir * _radii[0], Mathf.Max(_radii[0], rampD), 0f); // corner: no inner glow
+                AddColumn(dir, cur + dir * _radii[0], CornerBandBase(_radii[0]), 0f); // corner: no inner glow
                 columns++;
             }
+
+            // F3: publish the band-limit the survey settled on. RippleGain multiplies each
+            // harmonic by its factor; all three at 1 reproduce the classic gain BIT-for-bit
+            // (x * 1f is exact and the multiply order is unchanged).
+            _ripAtt1 = ripAtt1; _ripAtt2 = ripAtt2; _ripAtt3 = ripAtt3;
+
+            // ── F4: LOW-PASS THE KEY-LIGHT WEIGHT ALONG THE CONTOUR (the largest term, ~0.0089
+            // alpha). Unlike D2/D3 this is NOT a sampling error — the mesh reproduces the
+            // lighting function faithfully. The FUNCTION itself has a corner: along a corner arc
+            // the outward normal rotates 90 deg over 18.49px (4.87 deg/px) so the light dot
+            // sweeps its full range, while along a straight edge `dir` is CONSTANT and the only
+            // variation left is the gentle cross-panel tx term. On the live profile
+            // (LightAngleDeg 252.983 -> L = (-0.2934, -0.9560)) the bottom-left junction
+            // measures d(lw)/ds = -0.0213/px on the arc side against -0.001955/px on the bottom
+            // edge, and +0.0812/px vs 0/px at the left-edge tangent: 10x and infinite gradient
+            // breaks, i.e. textbook Mach bands. Adding columns cannot help; the kink must be
+            // rounded off in the function.
+            //
+            // Kernel: a normalized TRIANGLE in contour ARC LENGTH, half-width R = half the depth
+            // the light field is actually extruded over (the halo skirt / inner band). Physically
+            // motivated — light scattered over a distance d cannot carry angular detail finer
+            // than d — and it makes the filter scale with the feature it is fixing.
+            // Arc-length (not column-index) weighting is essential: an index-domain kernel over
+            // a 1.088px/36.828px spacing mix drags far-away edge values across the dense arc and
+            // makes the break WORSE (measured: -0.031/px, up from -0.0213/px).
+            // Each column is weighted by its arc-length MASS so the sum approximates the
+            // continuous convolution despite the 34:1 spacing ratio.
+            // Energy: a normalized symmetric kernel reproduces LINEAR functions exactly, and
+            // mid-edge lw is exactly linear in s (only the tx term varies), so mid-edge
+            // brightness is provably unchanged — measured delta at the mid-bottom-edge column is
+            // exactly 0.0. Only the corner kink is rounded.
+            //
+            // R = HALF the spread is not a tuned constant but it IS the measured optimum. Sweep
+            // over the live geometry, scoring the WORST slope break across ALL columns (the
+            // per-tangent score alone is misleading — a narrow kernel fixes the tangent and
+            // simply relocates the break into the arc interior):
+            //     R/spread   0.30     0.40     0.50     0.55     0.60     0.70
+            //     355x500   .09125   .03466  [.01871]  .02915   .03220   .02007   (raw .08231)
+            //     360x1012  .09059   .03413  [.01837]  .02860   .03167   .01988   (raw .08231)
+            //     46px cell .04476   .05171  [.03772]  .02923   .02816   .02328   (raw .08825)
+            //     2500x60   .03942   .02768  [.02524]  .03592   .03025   .02252   (raw .08269)
+            // 0.50 wins outright on both window geometries that actually exhibit the reported
+            // artifact (4.4x / 4.5x) and still improves the small/wide cases 2.3x / 3.3x. Every
+            // value in 0.4..0.7 beats raw everywhere, so the choice is not knife-edged.
+            // R is deliberately NOT larger: from 0.65 up the kernel reaches past the 18.49px arc
+            // into the FAR edge, drags the corner value down and plants a NEW local maximum at
+            // the first edge column (monotonicity check fails at 0.65, 0.80 and 1.00).
+            // Per-tangent, at R = 15.734: the bottom-left junction slope break falls
+            // 0.02073 -> 0.00521/px (4.0x) and the left tangent 0.07997 -> 0.01542/px (5.2x).
+            // Cost: the corner light-CATCH peak softens by up to 0.205 in lw (mid-arc, where the
+            // rotating normal used to sweep straight through the light direction). That is the
+            // intended behaviour — it is the same concentrated corner peak the round-3 2026-07-16
+            // note blamed for corner rays — but it is the single largest appearance change here,
+            // so it wants a play-test look.
+            //
+            // Gate: needs a glow band to matter at all, so stock defaults never enter here.
+            float lightSpread = Mathf.Max(skirtExtra, hasGlowIn ? glowInD : 0f);
+            if (wantLw && lightSpread > 1f && columns > 4)
+            {
+                int n = columns - 1;            // unique columns; the last duplicates [0]
+                _colS.Clear();
+                _colMass.Clear();
+                float acc = 0f;
+                for (int i = 0; i < columns; i++)
+                {
+                    if (i > 0) acc += (_icontour[i] - _icontour[i - 1]).magnitude;
+                    _colS.Add(acc);
+                }
+                float per = acc;                // closed-contour perimeter (polyline)
+                if (per > 1f)
+                {
+                    for (int i = 0; i < n; i++)
+                    {
+                        float sPrev = i > 0 ? _colS[i - 1] : _colS[n - 1] - per;
+                        _colMass.Add(Mathf.Max(1e-4f, (_colS[i + 1] - sPrev) * 0.5f));
+                    }
+                    // Keep the kernel LOCAL: it must round a corner, never average the panel.
+                    float rK = Mathf.Min(lightSpread * 0.5f, per * 0.15f);
+                    int kMax = Mathf.Min(64, n - 1);   // bounds the cost on ripple-dense meshes
+                    _colLwS.Clear();
+                    for (int i = 0; i < n; i++)
+                    {
+                        float si = _colS[i];
+                        float sum = _colLw[i] * _colMass[i];
+                        float wsum = _colMass[i];
+                        int j = i;
+                        for (int kk = 1; kk <= kMax; kk++)          // forward around the loop
+                        {
+                            j++; if (j >= n) j = 0;
+                            float d = _colS[j] - si;
+                            if (d < 0f) d += per;
+                            if (d > per * 0.5f) d = per - d;
+                            if (d >= rK) break;
+                            float wq = (1f - d / rK) * _colMass[j];
+                            sum += wq * _colLw[j]; wsum += wq;
+                        }
+                        j = i;
+                        for (int kk = 1; kk <= kMax; kk++)          // backward around the loop
+                        {
+                            j--; if (j < 0) j = n - 1;
+                            float d = si - _colS[j];
+                            if (d < 0f) d += per;
+                            if (d > per * 0.5f) d = per - d;
+                            if (d >= rK) break;
+                            float wq = (1f - d / rK) * _colMass[j];
+                            sum += wq * _colLw[j]; wsum += wq;
+                        }
+                        _colLwS.Add(wsum > 1e-6f ? sum / wsum : _colLw[i]);
+                    }
+                    _colLwS.Add(_colLwS[0]);    // the closing duplicate must match column 0 exactly
+                    for (int i = 0; i < columns; i++) _colLw[i] = _colLwS[i];
+                }
+            }
+            // NOT smoothed: the border's own SHARP weight (BorderLightW -> KeyLightWeight). The
+            // Mach band needs spatial extent to form — it forms because the halo extrudes the
+            // weight across a 31px skirt. A 0.076px-wide border line (live profile) has nowhere
+            // to band, and softening the specular run would change the frame's look on every
+            // panel that has one. See the report for the risk note.
+
+            // ── EMIT. Replays the gathered columns in the identical order, so vertex indices
+            // and every triangle loop below are untouched by the two-pass restructure.
+            for (int i = 0; i < columns; i++)
+                EmitColumn(_colDir[i], _icontour[i], _colCap[i], _colFade[i], _colLw[i]);
 
             // DENSE INTERIOR: when the fill carries a per-vertex gradient (quadratic sheen, or an
             // edge-fade alpha ramp via DenseFill), a single fan from ONE centre vertex interpolates
@@ -1263,9 +1677,32 @@ namespace StationeersUIMod.UI.Hud
         {
             float t = (p.x + p.y * 0.7f) * (_edgeRippleFreq * 0.0628f);
             float harm = 1f - _rippleSmooth;
-            return 1f + _edgeRipple * (0.32f * Mathf.Sin(t)
-                + harm * (0.24f * Mathf.Sin(t * 2.417f + 1.7f)
-                + 0.14f * Mathf.Sin(t * 5.089f + 4.2f)));
+            // F3 band-limit (2026-07-20). Each harmonic is scaled by how well the column
+            // spacing can actually carry it — see HarmAtt and the survey in PopulateMeshCore.
+            // All three factors are 1 unless a run samples that harmonic near/below Nyquist,
+            // and `0.32f * 1f * sin` is bit-identical to `0.32f * sin`, so every panel that
+            // was already sampling its ripple properly renders exactly as before.
+            return 1f + _edgeRipple * (0.32f * _ripAtt1 * Mathf.Sin(t)
+                + harm * (0.24f * _ripAtt2 * Mathf.Sin(t * 2.417f + 1.7f)
+                + 0.14f * _ripAtt3 * Mathf.Sin(t * 5.089f + 4.2f)));
+        }
+
+        /// <summary>F3: the amplitude a ripple harmonic is allowed to keep at a given column
+        /// spacing. <paramref name="mult"/> is the harmonic's frequency multiplier (1, 2.417,
+        /// 5.089), <paramref name="tanFactor"/> is |u.x + 0.7*u.y| for the run's unit tangent
+        /// (RippleGain's phase runs on x + 0.7y), <paramref name="pitch"/> is the run's column
+        /// spacing in px. Returns a smoothstep rolloff that reaches 0 at exactly 2 samples per
+        /// cycle (Nyquist) and 1 at 4, which is the textbook prefilter: content the mesh cannot
+        /// reconstruct is removed rather than allowed to fold into a lower-frequency beat.
+        /// Costs zero vertices. Returns exactly 1f whenever the harmonic is comfortably
+        /// oversampled, which is every corner arc (1.088px pitch vs a 62.2px shortest
+        /// wavelength = 47 samples/cycle) and every panel without a skirt.</summary>
+        private float HarmAtt(float mult, float tanFactor, float pitch)
+        {
+            float k = mult * Mathf.Abs(tanFactor) * (_edgeRippleFreq * 0.0628f);
+            if (k <= 1e-6f || pitch <= 1e-6f) return 1f;
+            float spc = (Mathf.PI * 2f) / (k * pitch);   // samples per cycle
+            return Mathf.SmoothStep(0f, 1f, (spc - 2f) * 0.5f);
         }
 
         /// <summary>The smooth (ripple-free) directional light weight: cubic key-light catch

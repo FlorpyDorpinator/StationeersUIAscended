@@ -1145,10 +1145,14 @@ namespace StationeersUIMod.Windows
             }
 
             // The Universal Inventory window, clicked while open behind the editor, gets its own
-            // style popup. Same IsOpen guard: the popup can never strand over a closed Grid.
+            // style popup. Same strand guard, widened to the whole Grid FAMILY: pinned windows
+            // outlive the main window by design and are styled by the same theme this popup
+            // edits, so the popup stays up while ANY of them is alive (closing the main window
+            // with pins selected must not kill the editing session — editor-access finding,
+            // 2026-07-20). It still can never strand over a fully closed Grid.
             if (HudEditorMode.GridSelected)
             {
-                if (UI.Grid.TheGridPanel.IsOpen)
+                if (UI.Grid.TheGridPanel.IsOpen || UI.Grid.PinnedInventoryWindow.LiveCount > 0)
                 {
                     DrawGridStylePopup();
                     return;

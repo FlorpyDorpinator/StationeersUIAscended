@@ -95,3 +95,6 @@ StationeersUIAscended/obj/
 
 # Release zips at the repo root are build artifacts (rebuilt per release, shared directly)
 /StationeersUIMod-*.zip
+
+# Staged mod folder produced by tools/package.ps1 (steamcmd contentfolder + zip source)
+/dist/

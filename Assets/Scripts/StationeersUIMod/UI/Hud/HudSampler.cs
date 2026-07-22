@@ -111,6 +111,16 @@ namespace StationeersUIMod.UI.Hud
         public float Sanitation01;
         public bool SanitationValid;
 
+        // Extra bare-sense / moodlet drivers (0.9.1). MP notes: Mood + Hygiene are NETWORKED
+        // (replicated ratios, safe on a client); GForce + Soiled are computed LOCALLY on each
+        // client (safe); Stun is best-effort off DamageState like Damage. HygieneRaw is the
+        // UNCLAMPED hygiene so the 1.0..1.5 "refreshed / extra-clean" band is visible.
+        public float HygieneRaw;    // 0..1.5, >1.0 = "clean / just showered" (#7)
+        public float Mood01;        // Entity.MoodRatio, 0..1
+        public float Stun01;        // DamageState.Stun / 100, 0..1
+        public float GForce;        // Human.GForce (~1 at 1g, ~0 in freefall)
+        public bool Soiled;         // Entity.IsSoiled (soiled yourself)
+
         // Suit / helmet chips (client-synced Thing bits).
         public bool HelmetPresent;
         public bool HelmetClosed;   // visor down (!GasMask.IsOpen)
@@ -560,6 +570,20 @@ namespace StationeersUIMod.UI.Hud
             try { s.Hygiene01 = Mathf.Clamp01(human.HygieneRatio); } catch { }
             try { s.Sanitation01 = Mathf.Clamp01(human.SanitationRatio); } catch { }
             try { s.SanitationValid = GameManager.RunSimulation; } catch { }
+
+            // 0.9.1 extra moodlet drivers. Defaults chosen so an unread value NEVER fires a word:
+            // mood "content" (1), g-force "normal" (1g), stun 0, soiled false, and hygiene a mid 0.5
+            // (below the 1.0 "clean" band, above the 0.25 "grimy" band — 0 would false-fire GRIMY).
+            s.HygieneRaw = 0.5f;
+            s.Mood01 = 1f;
+            s.Stun01 = 0f;
+            s.GForce = 1f;
+            s.Soiled = false;
+            try { s.HygieneRaw = Mathf.Max(0f, human.HygieneRatio); } catch { } // NOT Clamp01 — keep 1..1.5
+            try { s.Mood01 = Mathf.Clamp01(human.MoodRatio); } catch { }
+            try { if (human.DamageState != null) s.Stun01 = Mathf.Clamp01(human.DamageState.Stun / 100f); } catch { }
+            try { s.GForce = human.GForce; } catch { }
+            try { s.Soiled = human.IsSoiled; } catch { }
 
             // Consciousness + bowel felt words (bare senses can place these too). Empty when
             // nominal. Consciousness rides O2 quality (low breathable O2 → you black out);

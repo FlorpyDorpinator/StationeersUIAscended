@@ -3,7 +3,6 @@ using StationeersUIMod.Core;
 using StationeersUIMod.Features;
 using StationeersUIMod.UI.Grid;
 using StationeersUIMod.UI.Menu.Kit;
-using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
 
@@ -50,10 +49,6 @@ namespace StationeersUIMod.UI.Menu.Tabs
             UiaControls.ToggleRow(col, "Fade key-hints as you learn them", UIAConfig.RadialHintFade.Value, v => UIAConfig.RadialHintFade.Value = v);
             UiaControls.Button(col, "Reset hint counters", HintUsageStore.ResetCounters, -1f, UiaTheme.RowH);
 
-            UiaControls.Header(col, "Head-look");
-            UiaControls.ToggleRow(col, "Hold to head-look while a wheel is open", UIAConfig.RadialHeadLookHold.Value, v => UIAConfig.RadialHeadLookHold.Value = v);
-            HeadLookRebindRow(col);
-
             UiaControls.Header(col, "Toolbelt wheel");
             UiaControls.ToggleRow(col, "Remember each tool's home slot", UIAConfig.ToolbeltHomeSlots.Value, v => UIAConfig.ToolbeltHomeSlots.Value = v);
             UiaControls.ToggleRow(col, "Stable layout: reserve empty slots + show binding labels", UIAConfig.ToolbeltStableGeometry.Value, v => UIAConfig.ToolbeltStableGeometry.Value = v);
@@ -68,6 +63,12 @@ namespace StationeersUIMod.UI.Menu.Tabs
             // Layout mode selector removed: the flat pack (Grid) renderer is now the only one.
             UiaControls.SliderRow(col, "Cell size", 28f, 80f, UIAConfig.GridCellSize.Value,
                 v => { UIAConfig.GridCellSize.Value = v; TheGridPanel.Relayout(); }, "0", 1f);
+            // Live toggles: badges refresh via GridProfileMode.ChromeStamp (folds the config
+            // bit), hints are re-read by GridGhostHint.Tick — no extra plumbing needed.
+            UiaControls.ToggleRow(col, "Show profile tags on bag tabs",
+                UIAConfig.GridProfileBadges.Value, v => UIAConfig.GridProfileBadges.Value = v);
+            UiaControls.ToggleRow(col, "Glow the bag Smart Stow would pick while dragging",
+                UIAConfig.GridGhostHints.Value, v => UIAConfig.GridGhostHints.Value = v);
 
             if (!advanced) return;
 
@@ -96,29 +97,6 @@ namespace StationeersUIMod.UI.Menu.Tabs
             UiaUi.Go("sp", col).AddComponent<LayoutElement>().preferredHeight = 6f;
             UiaControls.Note(col, "Wheel colours, glass effects and the full palette live in the legacy panel below.");
             UiaControls.Button(col, "Open all radial settings (legacy F10 panel)", OpenLegacy, -1f, UiaTheme.RowH);
-        }
-
-        /// <summary>A single "click-to-rebind" row for the head-look key, mirroring ControlsTab's
-        /// bind rows. Reads/writes the live UIA_HeadLook bind (which is backed by
-        /// <see cref="UIAConfig.RadialHeadLookKey"/>) via the shared rebind capture.</summary>
-        private static void HeadLookRebindRow(Transform parent)
-        {
-            var bind = UiaKeybinds.Find("UIA_HeadLook");
-            if (bind == null) return;
-
-            var row = UiaUi.Go("bindrow", parent);
-            UiaUi.Size(row, UiaTheme.RowH);
-            UiaUi.HLayout((RectTransform)row.transform, UiaTheme.Gap);
-
-            var lblGo = UiaUi.Go("l", row.transform);
-            var lbl = lblGo.AddComponent<TextMeshProUGUI>();
-            lbl.font = UiaTheme.Font(); lbl.fontSize = UiaTheme.LabelSize; lbl.color = UiaTheme.Text;
-            lbl.alignment = TextAlignmentOptions.Left; lbl.raycastTarget = false; lbl.text = "Head-look key (hold, wheel open)";
-            lbl.overflowMode = TextOverflowModes.Ellipsis; lbl.enableWordWrapping = false;
-            lblGo.AddComponent<LayoutElement>().flexibleWidth = 1f;
-
-            var btn = UiaControls.Button((RectTransform)row.transform, UiaKeybinds.Glyph(bind.Get()), null, 110f, UiaTheme.RowH);
-            btn.OnClick = () => UiaRebindCapture.Begin(bind, () => UiaControlCenter.Refresh());
         }
 
         private static void OpenLegacy()

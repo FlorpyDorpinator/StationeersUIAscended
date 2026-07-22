@@ -393,8 +393,11 @@ namespace StationeersUIMod.Windows
             // selects the GRID (opens its style popup) instead of the HUD elements behind it.
             // Tested AFTER the Control Center because that canvas (5200) draws above the Grid
             // (5020), so an overlap must resolve to the top-most window. Raw screen point again —
-            // the Grid canvas is a plain un-warped ScreenSpaceOverlay.
-            if (UI.Grid.TheGridPanel.IsOpen && UI.Grid.TheGridPanel.HitTestWindow(mouseScreen))
+            // the Grid canvas is a plain un-warped ScreenSpaceOverlay. PINNED windows count too:
+            // they outlive the main window and are styled by the same theme the popup edits, so
+            // a click on a pin must select the Grid instead of grabbing a HUD element behind it.
+            if ((UI.Grid.TheGridPanel.IsOpen && UI.Grid.TheGridPanel.HitTestWindow(mouseScreen))
+                || UI.Grid.PinnedInventoryWindow.HitTestAny(mouseScreen))
             {
                 if (!GridSelected || SelectedElement != null)
                 {
@@ -1309,11 +1312,6 @@ namespace StationeersUIMod.Windows
                 "fxShine", "fxShineAmt", "fxIrid", "fxIridAmt",
                 "fxDissolve", "fxFrost", "fxFrostAmt", "fxChroma", "fxChromaAmt",
             };
-            string[] motionKeys =
-            {
-                "fxCollapse", "fxCollapseAmt", "fxGlitch", "fxGlitchAmt", "fxWarp", "fxWarpAmt",
-                "fxPulse", "fxPulseAmt",
-            };
             string[] inheritedEffectKeys =
             {
                 "bfade", "softEdge", "glow", "glowIn", "glowWidth", "glowDiffuse",
@@ -1325,6 +1323,24 @@ namespace StationeersUIMod.Windows
             {
                 if (e == null) continue;
                 for (int i = 0; i < legacyOnlyKeys.Length; i++) e.Set(legacyOnlyKeys[i], null);
+
+                // Transitions reset for EVERY element, Custom or not, and are driven off the
+                // registry rather than a hand-written key list — the old list only knew the four
+                // legacy bools, so after the tri-state refactor this button silently stopped
+                // resetting motion at all (and left modes contradicting their legacy mirrors).
+                // Clearing mode + strength + mirror + their bare variants returns all seven effects
+                // to Inherit, which is exactly what "reset to current globals" should mean.
+                for (int i = 0; i < UI.Hud.HudTransitionFx.All.Length; i++)
+                {
+                    var fx = UI.Hud.HudTransitionFx.All[i];
+                    if (fx == null) continue;
+                    e.Set(fx.ModeKey, null);
+                    e.Set(fx.AmtKey, null);
+                    e.Set(fx.LegacyKey, null);
+                    e.Set("b_" + fx.ModeKey, null);
+                    e.Set("b_" + fx.AmtKey, null);
+                    e.Set("b_" + fx.LegacyKey, null);
+                }
 
                 // Custom is a complete explicit snapshot, so never remove its keys and let the
                 // runtime silently fall through to globals while the inspector shows defaults.
@@ -1338,7 +1354,7 @@ namespace StationeersUIMod.Windows
                         e.SetB("customStyleReady", false);
                     for (int i = 0; i < inheritedEffectKeys.Length; i++)
                         e.Set(inheritedEffectKeys[i], null);
-                    for (int i = 0; i < motionKeys.Length; i++) e.Set(motionKeys[i], null);
+                    // (transitions already cleared above, for every element)
                     continue;
                 }
                 e.SetB("customBorderFadeOn", HudConfig.FxBorderFadeOn != null && HudConfig.FxBorderFadeOn.Value);

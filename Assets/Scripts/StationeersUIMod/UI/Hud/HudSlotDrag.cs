@@ -54,12 +54,34 @@ namespace StationeersUIMod.UI.Hud
         private static Image _ghost;
         private static readonly List<RaycastResult> _hits = new List<RaycastResult>(8);
         private static int _lastDragEndFrame = -999;
+        private static int _armFrame = -999;        // the frame the grab was PROMOTED to a live drag
+        private static bool _blockedRaycast;        // did WE assert CursorManager.BlockCursorRaycast?
+        private static bool _priorBlock;            // its value before we did (restore, never clobber)
 
-        /// <summary>TRUE from the frame a grab is armed until its release is FULLY resolved.
-        /// A pure read of <c>_source</c> — the grab is pinned in <see cref="TryBegin"/> and only
-        /// cleared by <see cref="Cancel"/>, which <see cref="Release"/> calls in its finally AFTER
-        /// the move/drop has executed, so this stays true for the whole gesture including the
-        /// resolution itself. Exists so other raw-Input consumers over the same boxes
+        // ---- ARMED-BUT-NOT-YET-DRAGGING press (the click/drag split) ----
+        // A mouse-down on an occupied box ARMS here without setting _source: IsDragging stays FALSE so
+        // a pure click can still resolve as a mouse-mod PIN (StationeersUIMod.TryPinFromHudEquipmentClick,
+        // which permanently disqualifies itself the instant a real drag begins). The press only PROMOTES
+        // to an actual tear-out once the pointer leaves the click slop — mirroring vanilla's
+        // Idle -> Click -> Drag machine, whose Click only promotes after the cursor moves off the press.
+        private static bool _pressPending;
+        private static Slot _pressSlot;
+        private static string _pressLabel;
+        private static Vector2 _pressPos;
+
+        /// <summary>How far (screen px) the pointer may travel between press and release before the
+        /// press PROMOTES from a pin-eligible click into a real drag. Kept EQUAL to the pin handler's
+        /// <c>StationeersUIMod.PinClickSlopPx</c> and measured from the same down-frame cursor point, so
+        /// the two decisions can never disagree: any movement that starts a drag also puts the release
+        /// outside the pin's click slop (and IsDragging disqualifies the pin regardless).</summary>
+        private const float PromoteSlopPx = 5f;
+
+        /// <summary>TRUE from the frame a grab is PROMOTED to a real drag until its release is FULLY
+        /// resolved. A pure read of <c>_source</c> — pinned in <see cref="PromoteToDrag"/> (NOT at the
+        /// press: an armed-but-un-promoted press leaves this FALSE precisely so a pure click can resolve
+        /// as a pin) and only cleared by <see cref="Cancel"/>, which <see cref="Release"/> calls in its
+        /// finally AFTER the move/drop has executed, so this stays true for the whole gesture including
+        /// the resolution itself. Exists so other raw-Input consumers over the same boxes
         /// (StationeersUIMod's mod-modifier + click pin handler) can refuse a drag.</summary>
         public static bool IsDragging { get { return _source != null; } }
 
@@ -93,13 +115,35 @@ namespace StationeersUIMod.UI.Hud
                 // direction is invisible until the release lands (2026-07-20 review).
                 PublishInboundCue();
 
-                // Refuse the grab when a real UGUI element is under the pointer: our own boxes are
-                // raycastTarget = false, so this is false over them and true over a bag grid cell,
-                // the Control Center, or any vanilla window drawn above us — whoever owns the
-                // pixel owns the click, and only one drag may start from one press.
-                if (Input.GetMouseButtonDown(0) && !PointerOverOtherUi()) TryBegin();
-                return;
+                if (_pressPending)
+                {
+                    // A press is armed but has not become a drag yet. Promote it once the pointer
+                    // leaves the click slop; a release below the slop is a pure CLICK, left for the
+                    // mouse-mod pin. TryPromotePendingPress returns true ONLY on the frame it just
+                    // promoted — we then fall through into the live-drag handler below so that a fast
+                    // flick (movement AND the mouse-up landing on one frame) resolves as a DROP this
+                    // same frame instead of losing its release edge to the next tick.
+                    if (!TryPromotePendingPress()) return;
+                }
+                else
+                {
+                    // Refuse the grab when a real UGUI element is under the pointer: our own boxes are
+                    // raycastTarget = false, so this is false over them and true over a bag grid cell,
+                    // the Control Center, or any vanilla window drawn above us — whoever owns the
+                    // pixel owns the click, and only one drag may start from one press.
+                    if (Input.GetMouseButtonDown(0) && !PointerOverOtherUi()) ArmPress();
+                    return;
+                }
             }
+
+            // WATCHDOG. The gesture can only END on an edge, and edges get lost: Unity reports
+            // GetMouseButtonDown and GetMouseButtonUp in the SAME frame when the OS delivers
+            // press+release between two polls (a fast click at low frame rates), and a release
+            // delivered while the app is unfocused is never seen at all — the frame-gap self-heal
+            // does not help there because frameCount does not advance while unfocused. Without this
+            // the drag stays armed forever: a ghost trailing a button nobody holds, and the NEXT
+            // unrelated click's release executing a real move. Held-state is the ground truth.
+            if (Time.frameCount != _armFrame && !Input.GetMouseButton(0)) { Cancel(); return; }
 
             // The pinned item left the slot under us (teammate took it, despawn, our own move
             // round-tripped): abandon quietly rather than acting on whatever replaced it.
@@ -166,6 +210,15 @@ namespace StationeersUIMod.UI.Hud
             // Anything ImGui is capturing (our F9/F10 windows, vanilla ImGui menus) owns the mouse.
             if (ImGuiWantsMouse()) return false;
 
+            // The mod's own UGUI surfaces (The Grid, the pinned inventory window, the Control
+            // Center) assert CursorManager.BlockCursorRaycast, which makes vanilla's InputMouse.Update
+            // early-return — so WorldMode stays pinned at Drag with CursorItem still set and NOBODY
+            // observes the mouse-up. Without this clause the inbound mirror republishes that FROZEN
+            // drag every frame (boxes stuck lit, a dead Thing held in a static) and a later unrelated
+            // click could still route it into a slot. These are UGUI, so ImGuiWantsMouse misses them.
+            // ...but not when WE are the one asserting it for our own live gesture.
+            if (!_blockedRaycast && CursorRaycastBlocked()) return false;
+
             return CursorFree();
         }
 
@@ -179,11 +232,64 @@ namespace StationeersUIMod.UI.Hud
             catch { return Cursor.visible; }
         }
 
+        /// <summary>
+        /// Assert vanilla's cursor-raycast block for the duration of OUR gesture — the same protection
+        /// <c>ModalScope</c> gives the radial, which runs this IDENTICAL grab out of these identical
+        /// boxes and is safe only because of it.
+        ///
+        /// Patching <c>Drag</c>/<c>DragSlot</c> alone is not enough: vanilla's machine is
+        /// <c>Idle → Click → Drag</c>, and <c>Click</c> only promotes after the cursor moves 0.1 px.
+        /// So underneath a HUD-box grab, <c>Idle()</c> still runs — the PRESS itself can fire a world
+        /// interactable behind the box (a door cycles), and a release that never moved far enough
+        /// runs <c>Click()</c> → <c>MoveCurrentItemToHand</c>. Two mutations from one press, through a
+        /// path the prefixes never see. Blocking the raycast shuts the whole machine off at the source.
+        ///
+        /// SAVES AND RESTORES the previous value (CinematicCamera's pattern) instead of forcing it
+        /// false, so we can never stomp another owner's block.
+        /// </summary>
+        private static void BlockVanillaCursor(bool on)
+        {
+            try
+            {
+                var cm = CursorManager.Instance;
+                if (cm == null) { if (!on) _blockedRaycast = false; return; }
+                if (on)
+                {
+                    if (_blockedRaycast) return;
+                    _priorBlock = cm.BlockCursorRaycast;
+                    cm.BlockCursorRaycast = true;
+                    _blockedRaycast = true;
+                }
+                else if (_blockedRaycast)
+                {
+                    cm.BlockCursorRaycast = _priorBlock;
+                    _blockedRaycast = false;
+                }
+            }
+            catch { _blockedRaycast = false; }
+        }
+
+        /// <summary>True while some surface has parked vanilla's cursor raycast — which also freezes
+        /// InputMouse.Update, so any vanilla drag state we can see is stale, not live.</summary>
+        private static bool CursorRaycastBlocked()
+        {
+            try
+            {
+                var cm = CursorManager.Instance;
+                return cm != null && cm.BlockCursorRaycast;
+            }
+            catch { return false; }
+        }
+
         private static bool ImGuiWantsMouse()
         {
             try { return ImGuiNET.ImGui.GetIO().WantCaptureMouse; }
             catch { return false; }
         }
+
+        /// <summary>Exposed for the INBOUND patch: it must apply the SAME occlusion rule the outbound
+        /// grab does, or a release over other UI falls through to vanilla's through-the-box resolve.</summary>
+        internal static bool PointerOverOtherUiPublic() => PointerOverOtherUi();
 
         private static bool PointerOverOtherUi()
         {
@@ -195,27 +301,98 @@ namespace StationeersUIMod.UI.Hud
             catch { return false; }
         }
 
-        private static void TryBegin()
+        /// <summary>ARM a press on an occupied box without committing to a drag. Records the slot and
+        /// the down-frame cursor point, and blocks vanilla's cursor from the FIRST frame — the press
+        /// itself must never fire a world interactable behind the box, nor a release-without-move run
+        /// vanilla's Click() -> MoveCurrentItemToHand (see <see cref="BlockVanillaCursor"/>). Crucially
+        /// it does NOT set <c>_source</c>, so <see cref="IsDragging"/> stays FALSE: a pure click can
+        /// then be claimed by the mouse-mod PIN. Promotion to a real tear-out happens later, once the
+        /// pointer moves, in <see cref="TryPromotePendingPress"/>.</summary>
+        private static void ArmPress()
         {
             var zone = HudSystem.ZoneAt();
             Slot slot = zone != null ? zone.Slot : null;
             if (slot == null) return;
             DynamicThing occ = null;
             try { occ = slot.Get(); } catch { }
-            if (occ == null) return;                       // empty box: nothing to tear out
+            if (occ == null) return;                       // empty box: nothing to tear out, nothing to pin
 
+            _pressPending = true;
+            _pressSlot = slot;
+            _pressLabel = zone.Label ?? "";
+            _pressPos = (Vector2)Input.mousePosition;
+            BlockVanillaCursor(true);                      // stop vanilla's Idle()/Click() from the first frame
+        }
+
+        /// <summary>Resolve an armed press. Returns TRUE only on the frame it PROMOTES to a live drag
+        /// (caller falls through to the drag handler); FALSE while still a click, when the press was
+        /// released as a pure click, or when it was abandoned. Robust under either mouse-button edge
+        /// convention: the release edge (<c>GetMouseButtonUp</c>) always wins over "not held", so a
+        /// normal release is never mistaken for a lost one.</summary>
+        private static bool TryPromotePendingPress()
+        {
+            // WATCHDOG: neither held NOR an up-edge this frame -> the release was delivered on a frame
+            // we did not run (app unfocused, a menu stole the frame). Held-state is the ground truth;
+            // abandon a press nobody holds rather than letting a later unrelated click promote it.
+            if (!Input.GetMouseButton(0) && !Input.GetMouseButtonUp(0)) { ClearPress(); return false; }
+
+            // The pressed slot emptied before we acted (teammate took it, our own move round-tripped,
+            // despawn): nothing to tear out and nothing to pin.
+            DynamicThing occ = null;
+            try { occ = _pressSlot != null ? _pressSlot.Get() : null; } catch { }
+            if (occ == null) { ClearPress(); return false; }
+
+            // Left the click slop -> a real tear-out, even if the button is ALSO coming up this frame
+            // (a fast flick) so the drop resolves rather than reading as a click.
+            Vector2 now = (Vector2)Input.mousePosition;
+            if ((now - _pressPos).sqrMagnitude > PromoteSlopPx * PromoteSlopPx)
+            {
+                PromoteToDrag(occ);
+                return true;
+            }
+
+            // Still within the slop. A release here is a pure CLICK: we never set _source, IsDragging
+            // stayed false the whole gesture, so the pin handler resolves. Forget the press (which also
+            // hands vanilla's cursor back). Otherwise keep waiting for movement or release.
+            if (Input.GetMouseButtonUp(0)) ClearPress();
+            return false;
+        }
+
+        /// <summary>Commit an armed press to a live drag: pin the source, publish the drop cue, spawn
+        /// the ghost and play the pickup cue — everything <c>TryBegin</c> used to do on the down frame,
+        /// now deferred until the gesture is unambiguously a drag. Vanilla's cursor is already blocked
+        /// from <see cref="ArmPress"/>; <see cref="ClearPress"/> here leaves that block in place because
+        /// <c>_source</c> is now set (the drag keeps it until <see cref="Cancel"/>).</summary>
+        private static void PromoteToDrag(DynamicThing occ)
+        {
             _source = new ScannedSlot
             {
-                Slot = slot,
-                Holder = slot.Parent,
-                Location = zone.Label ?? "",
+                Slot = _pressSlot,
+                Holder = _pressSlot != null ? _pressSlot.Parent : null,
+                Location = _pressLabel ?? "",
             }.Pin();
 
+            _armFrame = Time.frameCount;
             HudDropCue.Dragging = occ;                     // boxes light up accepted targets
             HudDropCue.Kind = HudDropCue.DropCueKind.HudSlotDrag;   // we resolve through DragTo
             _cuePublished = true;
             ShowGhost(occ);
             try { UIAudioManager.Play(UIAudioManager.ObjectIntoHandHash); } catch { }
+
+            ClearPress();   // _source is set, so this clears the pending fields WITHOUT releasing the block
+        }
+
+        /// <summary>Forget an armed press. Idempotent. Hands vanilla's cursor raycast back ONLY when no
+        /// drag is live — <see cref="PromoteToDrag"/> calls this after setting <c>_source</c>, so the
+        /// live drag keeps the block it inherited from <see cref="ArmPress"/>.</summary>
+        private static void ClearPress()
+        {
+            bool wasPending = _pressPending;
+            _pressPending = false;
+            _pressSlot = null;
+            _pressLabel = null;
+            _pressPos = Vector2.zero;
+            if (wasPending && _source == null) BlockVanillaCursor(false);
         }
 
         /// <summary>Resolve where the release landed. Order matters: a REAL UI element under the
@@ -241,6 +418,11 @@ namespace StationeersUIMod.UI.Hud
                 // abort, not "throw it on the floor": the grab gate refuses those pixels, so the
                 // release must refuse them symmetrically.
                 else if (PointerOverOtherUi()) { }
+                // Off every box AND off all other UI: the player deliberately aimed at open world, so
+                // drop at their feet. This no longer consults ZonesAvailable — ZoneAt (box geometry)
+                // is now decoupled from the alpha/dropout availability gate, so a transient HUD flicker
+                // on the release frame can no longer swallow a genuine world-drop. The move still
+                // funnels through ItemActions.DropToWorld -> OnServer.MoveToSlotOrWorld (execute-gated).
                 else ItemActions.DropToWorld(src);
             }
             catch (System.Exception e)
@@ -288,7 +470,7 @@ namespace StationeersUIMod.UI.Hud
         /// <summary>A cell of the mod's own bag grid under the cursor. Read-only use of
         /// <c>BagGridCell.Slot</c> — this deliberately does not reach into the grid's drag code.
         /// Allocates one PointerEventData, but only on RELEASE, never per frame.</summary>
-        private static Slot GridCellSlotUnderCursor()
+        internal static Slot GridCellSlotUnderCursor()
         {
             try
             {
@@ -313,8 +495,10 @@ namespace StationeersUIMod.UI.Hud
 
         private static void ShowGhost(DynamicThing item)
         {
-            var root = HudSystem.OverlayRoot;
-            if (root == null) return;                      // HUD not built: drag still works, no ghost
+            // Host the ghost on the shared TOP-MOST drag layer (5250), not the HUD canvas (3800):
+            // parented under the HUD it flew BEHIND the Grid / pinned windows you were dropping into.
+            var root = Core.DragGhostLayer.EnsureHost();
+            if (root == null) return;                      // layer unavailable: drag still works, no ghost
             if (_ghost == null)                            // Unity fake-null also catches a destroyed ghost
             {
                 var go = new GameObject("HudDragGhost", typeof(RectTransform));
@@ -352,15 +536,28 @@ namespace StationeersUIMod.UI.Hud
         {
             // Ticked every frame the gate is closed (radial open, F9 up, menu front), so make the
             // idle case free rather than re-poking Unity's fake-null operator and SetActive.
-            if (_source == null && !_cuePublished && _ghost == null) return;
-            // Stamp ONLY when a real grab was live: Cancel also runs for a ghost/cue-only tidy-up,
-            // and those must not make a consumer reject an innocent click frame.
+            if (_source == null && !_cuePublished && _ghost == null && !_blockedRaycast && !_pressPending) return;
+            BlockVanillaCursor(false);   // hand vanilla's cursor raycast back exactly as we found it
+            // Stamp ONLY when a real grab was live: Cancel also runs for a ghost/cue-only tidy-up AND
+            // for an armed-but-never-promoted press (a click abandoned by the gate closing), and those
+            // must not make a consumer reject an innocent click frame — an un-promoted press never
+            // became a drag, so LastDragEndFrame must NOT disqualify the pin it might still resolve as.
             if (_source != null) _lastDragEndFrame = Time.frameCount;
             _source = null;
+            // Drop any armed-but-un-promoted press. The block it asserted was already handed back above.
+            _pressPending = false;
+            _pressSlot = null;
+            _pressLabel = null;
+            _pressPos = Vector2.zero;
             if (_cuePublished)
             {
                 HudDropCue.Dragging = null;
                 HudDropCue.HoveredSlot = null;
+                // Kind MUST go back to the default too. Cancel() is the normal terminator of every
+                // outbound gesture, and the radial never writes Kind — so leaving it at HudSlotDrag
+                // meant the next radial session inherited the wrong Accepts ladder and lit boxes
+                // green for drops MoveWorldItemToSlot/SwapIntoSlot always refuse (2026-07-20 review).
+                HudDropCue.Kind = HudDropCue.DropCueKind.RadialChip;
                 _cuePublished = false;
             }
             if (_ghost != null && _ghost.gameObject != null) _ghost.gameObject.SetActive(false);
@@ -370,14 +567,25 @@ namespace StationeersUIMod.UI.Hud
         /// can never survive into a reloaded assembly (CLAUDE.md static-reset rule).</summary>
         public static void Shutdown()
         {
+            bool wasDragging = _source != null;
+            BlockVanillaCursor(false);
             _source = null;
+            _armFrame = -999;
+            _pressPending = false;
+            _pressSlot = null;
+            _pressLabel = null;
+            _pressPos = Vector2.zero;
             if (_cuePublished) { HudDropCue.Clear(); _cuePublished = false; }
             if (_ghost != null && _ghost.gameObject != null)
                 Object.Destroy(_ghost.gameObject);
             _ghost = null;
             _ghostRt = null;
             _lastTickFrame = -999;
-            _lastDragEndFrame = -999;
+            // Keep the stamp when we tore down a LIVE gesture so the inbound patch's Rule 1 still owns
+            // this frame's release — Shutdown can land mid-drag (Document-mode flip, hot reload), and
+            // clearing it would hand the still-held press back to vanilla's Idle()/Click() machine.
+            // Otherwise clear it like the rest of the state.
+            _lastDragEndFrame = wasDragging ? Time.frameCount : -999;
             _hits.Clear();
         }
     }

@@ -53,6 +53,8 @@ namespace StationeersUIMod.UI.Grid
         private BagGridCell _dropTarget;   // the cell currently highlighted under the cursor (may be null)
         private bool _dragDim;             // source cell dimmed while its item is in-flight
         private bool _dropHighlight;       // this cell is the hovered drop target
+        private bool _selected;            // the keyboard/scroll-select cursor (#4) is on this cell
+        private GridTab _dropTabTarget;    // profile mode only: the manila tab hovered as a PIN-RULE drop
 
         // A drag begun on an EMPTY cell is not an item drag at all — it is the user trying to
         // scroll the list. The gesture is forwarded to the parent hierarchy (the ScrollRect) and
@@ -71,6 +73,12 @@ namespace StationeersUIMod.UI.Grid
         // deliver OnEndDrag for (hiding the window deactivates the cell mid-drag). Nulled by
         // CancelDrag/CancelActiveDrag, so teardown leaves no reference to a destroyed cell.
         private static BagGridCell _activeDrag;
+
+        /// <summary>True while a cell drag (an item torn out of a grid or pinned cell) is in flight.
+        /// The grid/pinned panels OR this into their GraphicRaycaster gate so the raycaster stays ON
+        /// for the whole gesture — <c>EventSystem.RaycastAll</c> must still find a cell under the
+        /// cursor to resolve the drop even if the mouse-control key is released mid-drag.</summary>
+        public static bool IsDragActive { get { return _activeDrag != null; } }
 
         // MP pending: after a send-only client dispatch there is no local prediction, so the
         // source + target dim until the panel's signature-diff rebuild reconciles (occupant
@@ -150,6 +158,18 @@ namespace StationeersUIMod.UI.Grid
             return cell;
         }
 
+        /// <summary>The F9-editable item-icon scale — the fraction of the cell's edge the thumbnail
+        /// fills (<see cref="UIAConfig.GridIconScale"/>, clamped 0.4..1.0, shipped default 0.70).
+        /// Falls back to 0.70 before the config binds (hot reload before <c>UIAConfig.Init</c>).
+        /// Also read by <see cref="GridRegionView"/>'s resize guard, so a live icon-scale edit
+        /// re-applies even when the cell SIZE did not move.</summary>
+        internal static float IconScale()
+        {
+            try { if (UIAConfig.GridIconScale != null) return Mathf.Clamp(UIAConfig.GridIconScale.Value, 0.4f, 1f); }
+            catch { }
+            return 0.70f;
+        }
+
         /// <summary>Resize the cell to a square of <paramref name="size"/> px and re-lay the icon and
         /// corner text. Called by the view on layout; the panel shape tracks the rect exactly.</summary>
         public void SetSize(float size)
@@ -159,7 +179,7 @@ namespace StationeersUIMod.UI.Grid
             _rect.sizeDelta = new Vector2(size, size);
             ApplyBoxStyle();   // re-resolves the corner against the new size (theme-owned)
 
-            float iconSize = size * 0.70f;
+            float iconSize = size * IconScale();
             _icon.rectTransform.sizeDelta = new Vector2(iconSize, iconSize);
             _icon.rectTransform.anchoredPosition = new Vector2(0f, size * 0.06f);
 
@@ -181,9 +201,11 @@ namespace StationeersUIMod.UI.Grid
             _lastState = null;
             _nextStatePoll = 0f;         // first refresh polls the state string unconditionally
             // A structural rebuild reconciles any pending move (the occupant just changed), so a
-            // freshly (re)bound cell starts clean — never carry a stale pending/drop dim across.
+            // freshly (re)bound cell starts clean — never carry a stale pending/drop/selection cue
+            // across (GridSelection re-applies the cursor after the rebuild, by Slot identity).
             _pending = false;
             _dropHighlight = false;
+            _selected = false;
             if (!gameObject.activeSelf) gameObject.SetActive(true);
             HudText.Sync(_state);
             RefreshIfDirty();
@@ -257,8 +279,12 @@ namespace StationeersUIMod.UI.Grid
 
             ApplyIconTint();
 
-            Color stateCol = HudPalette.TextValue.Value;
+            // Through the THEME, not the raw palette: the F9 Grid popup's 'Text' override must
+            // recolour the per-cell state text along with the window titles (it resolves to the
+            // palette entry while Following, so the follow-mode look is unchanged).
+            Color stateCol = GridTheme.Text;
             if (_dragDim || _pending) stateCol.a *= 0.35f;
+            else if (GridProfileMode.Active) stateCol.a *= 0.5f;   // profile mode: content recedes, bag chrome leads
             _state.color = stateCol;
         }
 
@@ -274,17 +300,30 @@ namespace StationeersUIMod.UI.Grid
         /// by ApplyBox for the Cell surface, so it is NOT applied here as well — one call, no
         /// double-apply.</para>
         ///
-        /// <para>Precedence is unchanged from the hand-rolled block this replaced: an in-flight drop
-        /// target outranks the active hand, which outranks hover.</para></summary>
+        /// <para>Precedence: a live drag's drop-target cue outranks everything (it is the transient
+        /// "release here" signal during a mouse gesture); the keyboard/scroll-select cursor then wins
+        /// over the persistent active-hand accent and hover, so the wheel cursor is always the most
+        /// prominent box on screen.</para></summary>
         private void ApplyBoxStyle()
         {
             GridTheme.CellState state;
             if (_dropHighlight) state = GridTheme.CellState.Pending;  // hovered drop target
+            else if (_selected) state = GridTheme.CellState.Selected; // keyboard/scroll cursor
             else if (_activeHand) state = GridTheme.CellState.ActiveHand;
             else if (_hover) state = GridTheme.CellState.Hover;
             else state = GridTheme.CellState.Idle;
 
             GridTheme.ApplyBox(_bg, _size, _size, state);
+        }
+
+        /// <summary>Toggle this cell's keyboard/scroll-select cursor highlight (set by
+        /// <see cref="GridSelection"/>). Pure visuals — a scale on the inherited line (the heaviest of
+        /// the cell states) plus the accent colour, repainted through the shared theme path.</summary>
+        public void SetSelected(bool on)
+        {
+            if (_selected == on) return;
+            _selected = on;
+            if (_slot != null) Repaint();
         }
 
         /// <summary>Tint the icon: its base alpha (occupant vs empty placeholder) knocked down while
@@ -295,6 +334,11 @@ namespace StationeersUIMod.UI.Grid
         {
             float a = _iconBaseAlpha;
             if (_dragDim || _pending) a *= 0.35f;
+            // Profile mode (O4a): item cells dim slightly so the bag chrome (chips, tabs) reads as
+            // the editing surface. A static bool read folded into the SAME multiply the drag dim
+            // uses — no new object, no per-frame cost, clears everywhere the moment the mode flips
+            // (Repaint runs each Tick and the colour setters are equality-guarded).
+            else if (GridProfileMode.Active) a *= 0.5f;
             _icon.color = new Color(1f, 1f, 1f, a);
         }
 
@@ -319,24 +363,55 @@ namespace StationeersUIMod.UI.Grid
                 return;
             }
             if (e.button != PointerEventData.InputButton.Left) return;
-            if (_slot == null) return;
+            EquipOccupantToActiveHand();
+        }
+
+        /// <summary>Equip this cell's occupant into the active hand — the shared body of the left-click
+        /// and the keyboard <c>F</c> path (<see cref="ActivateFromKeyboard"/>), so both drive the ONE
+        /// gated funnel (<see cref="ItemActions.EquipToActiveHand"/>, occupant re-verified at execute
+        /// time via <see cref="ScannedSlot.Pin"/>). No-op on an empty cell or the active hand itself
+        /// (clicking the item into the hand it already occupies). Returns whether a move was issued.</summary>
+        private bool EquipOccupantToActiveHand()
+        {
+            if (_slot == null) return false;
 
             DynamicThing occ = null;
             try { occ = _slot.Get(); } catch { }
-            if (occ == null) return; // empty cell: no-op
+            if (occ == null) return false; // empty cell: no-op
 
-            // The item already in the active hand: clicking it would equip it to the hand it's
-            // already in — a clean no-op (no message on the wire, no redundant funnel call).
-            if (_slot == Assets.Scripts.Inventory.InventoryManager.ActiveHandSlot) return;
+            // The item already in the active hand: equipping it to the hand it's already in is a
+            // clean no-op (no message on the wire, no redundant funnel call).
+            if (_slot == Assets.Scripts.Inventory.InventoryManager.ActiveHandSlot) return false;
 
             // Snapshot the occupant NOW so the funnel re-verifies identity at execute time
-            // (a teammate may have taken it between build and click). One action = one message.
+            // (a teammate may have taken it between build and action). One action = one message.
             var source = new ScannedSlot { Slot = _slot };
             source.Pin();
-            ItemActions.EquipToActiveHand(source);
+            bool ok = ItemActions.EquipToActiveHand(source);
 
             // Reflect the change immediately; the panel's signature diff also rebuilds shortly.
             RefreshIfDirty();
+            return ok;
+        }
+
+        /// <summary>Keyboard <c>F</c> (scroll-select #4) on this cell: the SAME action the left-click
+        /// runs — equip the occupant to the active hand. Guarded against firing under an open radial
+        /// (which owns the keyboard), exactly like the click. Returns whether a move was issued.</summary>
+        public bool ActivateFromKeyboard()
+        {
+            if (RadialController.AnyRadialOpen) return false;
+            return EquipOccupantToActiveHand();
+        }
+
+        /// <summary>Keyboard <c>G</c> (scroll-select #4) on this cell: stow the active-hand item into
+        /// THIS slot through the gated <see cref="ItemActions.StowActiveHandTo"/> funnel (occupancy +
+        /// <c>AllowMove</c> re-checked at execute time; it plays the vanilla fail sound on an occupied
+        /// cell or empty hand). One user action = one message. Returns whether a move was issued.</summary>
+        public bool StowHereFromKeyboard()
+        {
+            if (RadialController.AnyRadialOpen) return false;
+            if (_slot == null) return false;
+            return ItemActions.StowActiveHandTo(_slot);
         }
 
         /// <summary>
@@ -410,7 +485,14 @@ namespace StationeersUIMod.UI.Grid
         {
             _forwardingDrag = false;
             if (e == null || e.button != PointerEventData.InputButton.Left) return;
-            if (_slot == null || !TheGridPanel.IsInteractive) return;
+            // Accept a drag out of a PINNED bag even when the MAIN window is closed. TheGridPanel
+            // .IsInteractive is (_open && _interactive) — false whenever the Universal Inventory window
+            // is hidden — but a pin stays live after B closes the main window and carries its OWN
+            // interactive GraphicRaycaster, gated by PinnedInventoryWindow.Interactive. Reading only the
+            // main window's flag rejected the pinned-bag drag-out even though its raycaster had already
+            // delivered this event. Either surface being interactive is sufficient; the per-window
+            // raycaster is what actually decided event delivery.
+            if (_slot == null || !(TheGridPanel.IsInteractive || PinnedInventoryWindow.Interactive)) return;
             if (RadialController.AnyRadialOpen) return;   // the radial owns the cursor this gesture
 
             DynamicThing occ = null;
@@ -437,6 +519,10 @@ namespace StationeersUIMod.UI.Grid
             _dropTarget = null;
             _activeDrag = this;
             SpawnGhost(e);
+            // Ghost routing hint (O4d): tell the hint pump what is being dragged and from where.
+            // Gating (profile mode + config) lives in GridGhostHint.Tick; every drag exit path
+            // below calls EndDrag, so the item reference is strictly gesture-scoped.
+            GridGhostHint.BeginDrag(occ, _slot);
             Repaint();
         }
 
@@ -452,12 +538,22 @@ namespace StationeersUIMod.UI.Grid
             if (!_dragging || e == null) return;
             if (_ghostRt != null) _ghostRt.position = new Vector3(e.position.x, e.position.y, 0f);
 
-            BagGridCell target = FindCellUnder(e);
+            BagGridCell target;
+            GridTab tabTarget;
+            FindDropUnder(e, out target, out tabTarget);
             if (target != _dropTarget)
             {
                 if (_dropTarget != null) _dropTarget.SetDropHighlight(false);
                 _dropTarget = target;
                 if (_dropTarget != null) _dropTarget.SetDropHighlight(true);
+            }
+            // Profile mode only (FindDropUnder never reports a tab otherwise): the hovered manila
+            // tab lights up as the drag-to-pin drop cue.
+            if (tabTarget != _dropTabTarget)
+            {
+                if (_dropTabTarget != null) _dropTabTarget.SetDropHighlight(false);
+                _dropTabTarget = tabTarget;
+                if (_dropTabTarget != null) _dropTabTarget.SetDropHighlight(true);
             }
         }
 
@@ -478,10 +574,14 @@ namespace StationeersUIMod.UI.Grid
             if (!_dragging) { DestroyGhost(); return; }
             _dragging = false;
             _dragDim = false;
+            GridGhostHint.EndDrag();   // the would-receive glow dies with the gesture
             if (ReferenceEquals(_activeDrag, this)) _activeDrag = null;
 
-            BagGridCell target = e != null ? FindCellUnder(e) : null;
+            BagGridCell target = null;
+            GridTab dropTab = null;
+            if (e != null) FindDropUnder(e, out target, out dropTab);
             if (_dropTarget != null) { _dropTarget.SetDropHighlight(false); _dropTarget = null; }
+            if (_dropTabTarget != null) { _dropTabTarget.SetDropHighlight(false); _dropTabTarget = null; }
             DestroyGhost();
 
             // The source pinned at BEGIN. If the cell was recycled onto a different slot mid-gesture
@@ -505,7 +605,107 @@ namespace StationeersUIMod.UI.Grid
                 }
                 else Repaint();   // invalid: DragTo already played ActionFailHash; just restore the source look
             }
-            else Repaint();       // dropped on empty air: no message, restore the source look
+            else if (sourceValid && target == null && dropTab != null)
+            {
+                // Drag-to-pin (design O4c): released on a bag's manila tab in profile mode. This
+                // records an ITEM RULE in that bag's profile (auto-creating an assigned profile
+                // named after the bag when it has none) — a config/profile write ONLY. The item
+                // does NOT move: no ItemActions call, no message, nothing pending. FindDropUnder
+                // reports a tab only while GridProfileMode.Active, so normal drags never land here.
+                PinRuleToTab(source, dropTab);
+                Repaint();
+            }
+            else if (sourceValid && target == null && dropTab == null)
+            {
+                // The release landed OUTSIDE this grid's own cells and tabs — over a HUD hand /
+                // worn-equipment box, an open vanilla window slot, or genuinely open space. Resolve
+                // that cross-surface destination and tear the item OUT of the grid; on success the
+                // source cell dims until the server echo, on any abort surface it just restores.
+                if (!TryDropOffGrid(source)) Repaint();
+            }
+            else Repaint();       // stale source or an unbound target cell: no message, restore the look
+        }
+
+        /// <summary>
+        /// The release landed OUTSIDE The Grid's own cells and tabs. Resolve the cross-surface drop
+        /// destination through the shared <see cref="Core.DropResolver"/> — the ONE canonical
+        /// cursor→destination priority the inbound world drag (<see cref="Core.WorldDrag"/>) and the
+        /// outbound HUD-box drag (<see cref="HudSlotDrag"/>) also use — and tear the item OUT of the
+        /// grid accordingly:
+        /// <list type="bullet">
+        /// <item>a HUD hand / worn-equipment box, or an OPEN vanilla window slot → move it there via
+        /// <see cref="ItemActions.DragTo"/> (the item-drag funnel: insert / merge / swap / move, each
+        /// re-gated at execute time). This mirrors the outbound HUD-box release, which routes a vanilla
+        /// slot, a grid cell OR a HUD box all through DragTo.</item>
+        /// <item>genuinely open space BEYOND the window → drop it at the player's feet via
+        /// <see cref="ItemActions.DropToWorld"/>, but ONLY when the release is truly off the panel
+        /// (<see cref="TheGridPanel.HitTestWindow"/> = false). That single off-panel gate is what stops
+        /// an irreversible fling to the floor when the release merely grazed the window's own padding —
+        /// and it is a cursor-position test, so a transient HUD alpha flicker/dropout on the release
+        /// frame can no longer swallow a deliberate ground-drop. (The old <c>HudSystem.ZonesAvailable</c>
+        /// conjunct was removed here: box AVAILABILITY is now decoupled from ground-drops, matching
+        /// <see cref="HudSlotDrag"/>'s own release.)</item>
+        /// </list>
+        /// The grid-cell rung of the resolver can only be the SOURCE cell here (a different cell would
+        /// have been caught upstream by <see cref="FindDropUnder"/>), so it, other-UI chrome, and an
+        /// ambiguous no-zones frame are all ABORT surfaces. Returns true only when exactly ONE
+        /// authoritative message went out (the caller then leaves the source dimmed-pending); false on
+        /// every abort, so the caller merely restores the source look. One user action = at most one
+        /// message. The pinned <paramref name="source"/> is re-verified again inside DragTo/DropToWorld
+        /// at execute time, on top of the caller's <c>_dragSlot</c>/<c>_dragSource</c> staleness gate.
+        /// </summary>
+        private bool TryDropOffGrid(ScannedSlot source)
+        {
+            Core.DropResolution r = Core.DropResolver.Resolve();
+
+            // A HUD hand/equipment box or an OPEN vanilla window slot is a real move destination.
+            if (r.Surface == Core.DropSurface.HudZone || r.Surface == Core.DropSurface.VanillaSlot)
+            {
+                if (r.HasSlot && ItemActions.DragTo(source, r.Slot)) { MarkPending(); return true; }
+                return false;   // DragTo already played ActionFailHash on an invalid target
+            }
+
+            // Genuinely open space: drop at the player's feet — gated ONLY on the release being truly
+            // OFF the window (HitTestWindow = false). That off-panel test is the real anti-false-drop
+            // guard here: a HUD flicker does not move the cursor off the panel over the world, so a
+            // deliberate ground-drop no longer needs the HUD to be offering zones this frame. Removing
+            // the old ZonesAvailable() conjunct is the whole point of this path — box AVAILABILITY
+            // (alpha/dropout) is decoupled from ground-drops. The move still funnels through
+            // ItemActions.DropToWorld -> OnServer.MoveToSlotOrWorld, re-gated at execute time.
+            if (r.Surface == Core.DropSurface.None
+                && !TheGridPanel.HitTestWindow((UnityEngine.Vector2)Input.mousePosition))
+            {
+                if (ItemActions.DropToWorld(source)) { MarkPending(); return true; }
+            }
+
+            // GridCell (the source cell itself), OtherUi (window chrome / another panel), or a release
+            // still over the window's own padding: abort with no message.
+            return false;
+        }
+
+        /// <summary>Resolve a tab drop into a pinned item rule through
+        /// <see cref="Features.ProfileCapture.PinItemRule"/>. Uses the occupant PINNED at drag
+        /// begin (what the user actually grabbed); the bag comes from the tab's owning region.
+        /// A bag dropped on its OWN tab is ignored (a "this bag goes inside itself" rule).</summary>
+        private static void PinRuleToTab(ScannedSlot source, GridTab tab)
+        {
+            DynamicThing item = source != null ? source.Expected : null;
+            if (item == null || tab == null) return;
+            GridRegionView region = tab.OwnerRegion;
+            DynamicThing bag = region != null ? region.BoundContainer : null;
+            if (bag == null || ReferenceEquals(bag, item)) return;
+            string finalName = null;
+            try { finalName = ProfileCapture.PinItemRule(bag, item.PrefabName); }
+            catch (System.Exception ex) { UIALog.Warn("Drag-to-pin failed: " + ex.Message); }
+            if (!string.IsNullOrEmpty(finalName))
+            {
+                // Success feedback: on an ALREADY-profiled bag the chrome rebuild below is
+                // byte-identical (chip/badge unchanged, item correctly doesn't move), so the
+                // gesture used to succeed invisibly. The tab flash is keyed by RefId and
+                // therefore survives the rebuild the bump triggers.
+                GridTab.FlashPin(tab.RefId);
+                GridProfileMode.BumpVersion();   // chips/badges refresh
+            }
         }
 
         /// <summary>Hand a drag event up the hierarchy from this cell's PARENT, so the first ancestor
@@ -539,37 +739,51 @@ namespace StationeersUIMod.UI.Grid
             if (_slot != null) Repaint();
         }
 
-        /// <summary>Ray-pick the top-most <see cref="BagGridCell"/> under the pointer, skipping THIS
-        /// source cell. Reuses a shared hit list (drag frames aren't steady state, but still no
-        /// per-frame allocation); the ghost is not a raycast target, so it never occludes the target.</summary>
-        private BagGridCell FindCellUnder(PointerEventData e)
+        /// <summary>Ray-pick the top-most drop target under the pointer: a <see cref="BagGridCell"/>
+        /// (skipping THIS source cell), or — in profile mode ONLY — a <see cref="GridTab"/> (the
+        /// drag-to-pin drop). One raycast resolves both: a tab and a cell never overlap spatially,
+        /// so whichever surfaces first in the (top-most-first) hit list is the target. Outside
+        /// profile mode the tab probe never runs, so item-drag behaviour is byte-identical to the
+        /// old cell-only pick. Reuses the shared hit list (drag frames aren't steady state, but
+        /// still no per-frame allocation); the ghost is not a raycast target, so it never occludes
+        /// the target.</summary>
+        private void FindDropUnder(PointerEventData e, out BagGridCell cell, out GridTab tab)
         {
+            cell = null;
+            tab = null;
             var es = EventSystem.current;
-            if (es == null) return null;
+            if (es == null) return;
+            bool wantTab = GridProfileMode.Active;
             RayHits.Clear();
             es.RaycastAll(e, RayHits);
-            BagGridCell hit = null;
             for (int i = 0; i < RayHits.Count; i++)
             {
                 var go = RayHits[i].gameObject;
                 if (go == null) continue;
-                var cell = go.GetComponentInParent<BagGridCell>();
-                if (cell != null && cell != this) { hit = cell; break; }
+                var c = go.GetComponentInParent<BagGridCell>();
+                if (c != null && c != this) { cell = c; break; }
+                if (wantTab)
+                {
+                    // Only a hit on the tab polygon itself resolves (icon/name/chevron are
+                    // non-raycast; no cell has a GridTab ancestor), so this cannot misfire.
+                    var t = go.GetComponentInParent<GridTab>();
+                    if (t != null) { tab = t; break; }
+                }
             }
             // Emptied on the way OUT too: a RaycastResult holds a GameObject reference, and leaving
             // the last gesture's hits in a static stranded destroyed objects across an F6 reload.
             RayHits.Clear();
-            return hit;
         }
 
         /// <summary>Create the floating drag ghost — an <see cref="Image"/> of the item thumbnail on the
-        /// root (top-most) canvas, sized to the current cell icon (F10 <see cref="UIAConfig.GridCellSize"/>),
-        /// non-raycast so it never blocks target detection. Destroyed on drag end (and on Idle).</summary>
+        /// shared TOP-MOST drag layer (<see cref="DragGhostLayer"/>, 5250), sized to the current cell icon
+        /// (F10 <see cref="UIAConfig.GridCellSize"/>), non-raycast so it never blocks target detection.
+        /// Hosting it there (not on this window's own canvas) keeps a main-grid cell ghost ABOVE the
+        /// pinned windows it might be dropped into. Destroyed on drag end (and on Idle).</summary>
         private void SpawnGhost(PointerEventData e)
         {
             DestroyGhost();
-            Canvas canvas = _bg != null ? _bg.canvas : null;
-            Transform host = canvas != null ? canvas.rootCanvas.transform : null;
+            Transform host = DragGhostLayer.EnsureHost();
             if (host == null) return;
 
             _ghostGo = new GameObject("BagGridDragGhost", typeof(RectTransform));
@@ -607,11 +821,16 @@ namespace StationeersUIMod.UI.Grid
         /// ghost and leave the source cell dimmed forever).</summary>
         private void CancelDrag()
         {
+            // Only the drag OWNER clears the ghost hint: CancelDrag also runs on pooled sibling
+            // cells being re-Bound mid-gesture (Bind → CancelDrag), and those must not kill the
+            // LIVE drag's glow. _dragging is true only on the source cell.
+            if (_dragging) GridGhostHint.EndDrag();
             if (ReferenceEquals(_activeDrag, this)) _activeDrag = null;
             // A forwarded (scroll) gesture dies with the cell too — the ScrollRect gets no further
             // relay, so the flag must never survive into the next gesture on a recycled cell.
             _forwardingDrag = false;
             if (_dropTarget != null) { _dropTarget.SetDropHighlight(false); _dropTarget = null; }
+            if (_dropTabTarget != null) { _dropTabTarget.SetDropHighlight(false); _dropTabTarget = null; }
             DestroyGhost();
             if (!_dragging && !_dragDim && _dragSource == null && _dragSlot == null) return;
             _dragging = false;
@@ -654,6 +873,7 @@ namespace StationeersUIMod.UI.Grid
             // drag/pending state so nothing is stranded (a deactivated cell stops firing drag events).
             CancelDrag();
             _dropHighlight = false;
+            _selected = false;
             _pending = false;
             _pendingBaseline = null;
             _iconBaseAlpha = 1f;

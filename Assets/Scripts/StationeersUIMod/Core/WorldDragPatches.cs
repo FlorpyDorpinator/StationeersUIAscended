@@ -46,6 +46,7 @@ namespace StationeersUIMod.Core
         // must run it ourselves or a tooltip lingers after the drop. Resolved once, fail-soft.
         private static MethodInfo _clearTooltip;
         private static bool _clearTooltipResolved;
+        private static int _lastRouteFrame = -999;   // continuity check for the stale-gesture heal
 
         /// <summary>Vanilla's own resolve gate is <c>KeyManager.GetMouseUp("Primary")</c> — a REBINDABLE
         /// action (KeyMap.PrimaryAction). Raw <c>Input.GetMouseButtonUp(0)</c> would disagree with it in
@@ -66,14 +67,33 @@ namespace StationeersUIMod.Core
             if (!MouseUp()) return false;                            // Drag() runs every frame
             if (!HudSlotDrag.GateOpenForWorldDrop()) return false;   // one shared gate
 
-            // If a REAL vanilla slot button is under the cursor, vanilla resolves it correctly on its
-            // own — stay out of the way entirely (this is also what keeps open bag/inventory windows
-            // working exactly as before).
-            if (HudSlotDrag.VanillaSlotUnderCursor() != null) return false;
+            // ONE cross-surface resolver, shared with the outbound HUD release and the grid drag-out,
+            // so every direction agrees about who owns a pixel (vanilla slot > grid cell > HUD box).
+            // The grid-cell rung is what lets a world item land in a grid cell instead of a HUD box
+            // behind it — or worse, falling through to vanilla's through-the-panel physics raycast,
+            // the exact wrong-destination class this patch exists to prevent (2026-07-20 review).
+            DropResolution r = DropResolver.Resolve();
 
-            var zone = HudSystem.ZoneAt();
-            dest = zone != null ? zone.Slot : null;
-            return dest != null;
+            // A REAL vanilla slot button (an open bag / inventory window the mod never hides) is
+            // vanilla's own to resolve — stay entirely out of the way, exactly as before.
+            if (r.Surface == DropSurface.VanillaSlot) return false;
+
+            // The 2026-07-20 false-drop guard, now applied HERE (narrowly) instead of being baked into
+            // box geometry. DropResolver's HUD-box rung (HudSystem.ZoneAt) is now decoupled from the
+            // alpha/dropout availability gate, so it reports a box wherever the boxes RENDER — faded or
+            // not. But an inbound WORLD drag onto an OCCUPIED box faded under 0.5 (root/panel low-power
+            // dropout) would swap the held tool the player forgot was there out to the floor, from a box
+            // they cannot see. Re-decline the HUD-box rung when the availability gate is shut; a grid
+            // cell or vanilla slot lives in a real window and is unaffected. Declining (return false)
+            // lets vanilla resolve the release exactly as it did before ZoneAt was decoupled.
+            if (r.Surface == DropSurface.HudZone && !HudSystem.ZonesAvailable()) return false;
+
+            // A grid cell or a (visible) HUD box: ours to route. Carry the slot out to Route.
+            if (r.HasSlot) { dest = r.Slot; return true; }
+
+            // No slot, but another UI owns this pixel (Control Center chrome, a window's padding):
+            // claim the release and mutate nothing, so vanilla cannot resolve it through the box either.
+            return r.Surface == DropSurface.OtherUi;
         }
 
         /// <summary>Reproduce the teardown the suppressed original would have done. Drag() hides the
@@ -127,6 +147,23 @@ namespace StationeersUIMod.Core
             {
                 if (mouse == null) return false;
 
+                // STALE-GESTURE HEAL. This prefix only runs while vanilla dispatches Drag()/DragSlot().
+                // Other surfaces (The Grid, the Control Center, ModalScope) park
+                // CursorManager.BlockCursorRaycast, which makes InputMouse.Update early-return — so a
+                // drag interrupted that way is NEVER resolved, and vanilla resumes later with WorldMode
+                // still Drag and CursorItem still pinned. Claiming that release would teleport an
+                // abandoned item into a slot on a totally unrelated click. If we were not called on the
+                // previous frame AND the button is not currently held, the gesture is over: tidy
+                // vanilla's state, claim the call so it cannot resolve a stale drag, and mutate nothing.
+                int frame = Time.frameCount;
+                bool continuous = frame - _lastRouteFrame <= 1;
+                _lastRouteFrame = frame;
+                if (!continuous && !Input.GetMouseButton(0))
+                {
+                    Teardown(mouse, alsoSelection: worldSourced);
+                    return true;
+                }
+
                 // Rule 1: our own drag owns this press.
                 if (HudSlotDrag.IsDragging || Time.frameCount == HudSlotDrag.LastDragEndFrame)
                 {
@@ -142,7 +179,7 @@ namespace StationeersUIMod.Core
                 Teardown(mouse, alsoSelection: worldSourced);
 
                 DynamicThing item = mouse.CursorItem;
-                if (item == null) return true;
+                if (item == null || dest == null) return true;   // claimed; nothing to move
 
                 if (worldSourced)
                 {
@@ -154,7 +191,15 @@ namespace StationeersUIMod.Core
                 {
                     Slot src = item.ParentSlot;
                     if (src != null)
-                        ItemActions.DragTo(new ScannedSlot { Slot = src, Holder = src.Parent }.Pin(), dest);
+                        // Expected = the item VANILLA grabbed (frozen at drag-arm time), NOT a fresh
+                        // read of the slot. Calling .Pin() here would set Expected from src.Get()
+                        // microseconds before DragTo compares item != Expected against that same
+                        // read — a tautology that can never fail, silently voiding DragTo's
+                        // documented staleness guard. With the real item pinned, a teammate swapping
+                        // the slot's contents mid-drag correctly fails instead of moving whatever
+                        // landed there (the server validates nothing, so this is our only check).
+                        ItemActions.DragTo(
+                            new ScannedSlot { Slot = src, Holder = src.Parent, Expected = item }, dest);
                 }
                 return true;
             }
@@ -166,16 +211,24 @@ namespace StationeersUIMod.Core
         }
     }
 
+    // Priority.First is deliberate. Our return-false is load-bearing (it is what prevents vanilla
+    // resolving the drop through the raycast-transparent HUD box into a container behind it), and
+    // Harmony gates every prefix after the first bool-returning one behind runOriginal. At default
+    // priority, inter-mod ordering falls to load order: another mod sorting ahead of us and returning
+    // false would mean our Teardown never runs, leaving WorldMode pinned at Drag forever — vanilla's
+    // Idle() is then gated off permanently and CursorItem never clears. Claim the ordering explicitly.
     [HarmonyPatch(typeof(InputMouse), "Drag")]
     internal static class Patch_InputMouse_Drag
     {
         // false = we resolved this release onto a UIA box; true = vanilla runs untouched.
+        [HarmonyPriority(Priority.First)]
         private static bool Prefix(InputMouse __instance) => !WorldDrag.TryLooseItem(__instance);
     }
 
     [HarmonyPatch(typeof(InputMouse), "DragSlot")]
     internal static class Patch_InputMouse_DragSlot
     {
+        [HarmonyPriority(Priority.First)]
         private static bool Prefix(InputMouse __instance) => !WorldDrag.TrySlotItem(__instance);
     }
 }

@@ -87,7 +87,12 @@ namespace StationeersUIMod.UI.Hud
                 if (root == null) continue;
 
                 // Per-element opt-in + strength (0 = this element doesn't tear).
-                float amt = (p is HudElementView view) ? view.EffectAmt("fxGlitch", "fxGlitchAmt") : 1f;
+                // Non-document panels fall back to the GLOBAL strength, not a hard 1f — the literal
+                // meant the "Glitch tear" master was ignored entirely for every legacy fixed panel.
+                // GlobalAmtFor already returns 0 when that master is off.
+                float amt = (p is HudElementView view)
+                    ? view.TransitionAmt("fxGlitch")
+                    : HudTransitionFx.GlobalAmtFor("fxGlitch");
                 float pi = i * amt;
                 if (pi <= 0.001f) { root.anchoredPosition = Vector2.zero; continue; }
 

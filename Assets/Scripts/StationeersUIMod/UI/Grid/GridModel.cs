@@ -4,6 +4,9 @@ using Assets.Scripts.Inventory;
 using Assets.Scripts.Objects;
 using Assets.Scripts.Objects.Entities;
 using Assets.Scripts.Objects.Items;
+using Objects.Items; // SECOND game namespace (distinct from Assets.Scripts.Objects.Items): home of
+                     // EmergencySuppliesBox + CerealBarBox. Verified collision-free vs every other
+                     // using here, so no simple name in this file becomes ambiguous.
 using StationeersUIMod.Features;
 
 namespace StationeersUIMod.UI.Grid
@@ -297,6 +300,15 @@ namespace StationeersUIMod.UI.Grid
         {
             if (t == null || t.Slots == null || t.Slots.Count == 0) return false; // leaf
             if (t is Tool) return false;                                          // drill/welder/tablet/...
+            // Single-purpose consumable/dispenser/starter boxes are NOT real storage even though
+            // their slot data (a None,-1 slot) is indistinguishable from a genuine bag, so they can
+            // only be told apart by CLASS: DisposableCardboardBox (water-bottle bag, cereal-bar box/
+            // bag, water/insulated-canister package — also its InsulatedCanisterPackage subclass),
+            // the starter EmergencySuppliesBox, any ItemContainer (covers FoodContainer: burger box,
+            // egg carton, prefilled supply crates), and the CerealBarBox class. The REUSABLE base
+            // CardboardBox / CardboardBoxLarge are deliberately NOT excluded — they stay real storage.
+            if (t is DisposableCardboardBox || t is EmergencySuppliesBox
+                || t is ItemContainer || t is CerealBarBox) return false;
             switch (t.SlotType)                                                   // worn container (incl. suit)
             {
                 case Slot.Class.Back:
@@ -305,10 +317,23 @@ namespace StationeersUIMod.UI.Grid
                 case Slot.Class.Uniform:
                     return true;
             }
+            // Backstop for FUTURE / modded single-purpose dispensers not named above: a purely
+            // single-purpose holder restricts EVERY slot to one specific prefab
+            // (SpecificTypePrefabHash != -1), whereas a real multi-purpose bag always keeps at least
+            // one unrestricted (-1) slot. Verified in the 27701 prefab rip: ore/mining bags,
+            // backpacks, belts and deployable crates all keep -1 slots (mining bag slots are
+            // Type=Ore but SpecificTypePrefabHash=-1), so this can never exclude genuine storage;
+            // the burger box (its lone None slot restricted to ItemBurger) is exactly what it catches.
             var s = t.Slots;                                                      // general storage (bags)
+            bool anyUnrestricted = false;
+            bool anyGeneral = false;                                             // a None/Ore slot = general capacity
             for (int i = 0; i < s.Count; i++)
-                if (s[i].Type == Slot.Class.None || s[i].Type == Slot.Class.Ore) return true;
-            return false;
+            {
+                if (s[i].SpecificTypePrefabHash == -1) anyUnrestricted = true;
+                if (s[i].Type == Slot.Class.None || s[i].Type == Slot.Class.Ore) anyGeneral = true;
+            }
+            if (!anyUnrestricted) return false;                                  // every slot prefab-locked -> not storage
+            return anyGeneral;
         }
 
         // --- helpers ---

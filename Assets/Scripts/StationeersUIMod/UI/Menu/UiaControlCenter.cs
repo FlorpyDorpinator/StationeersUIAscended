@@ -178,9 +178,29 @@ namespace StationeersUIMod.UI.Menu
             if (!Guards.CanDraw()) Close();
         }
 
+        /// <summary>True while a theme-driven <see cref="Restyle"/> is rebuilding the window.
+        /// Tabs whose Build does heavy work that a pure re-skin does not need (disk IO, an
+        /// inventory scan — see StorageTab) check this and reuse a short-lived cache instead:
+        /// an F9 colour-wheel drag restyles up to ~7x/s, and none of that work changes what the
+        /// restyle repaints. User gestures always build with this false, i.e. fresh data.</summary>
+        public static bool IsRestyling { get; private set; }
+
         /// <summary>Rebuild the whole window in place to re-skin frozen-colour widgets (buttons,
         /// outlines) after a live theme change. Preserves open/active/advanced/edit-preview.</summary>
         private static void Restyle()
+        {
+            IsRestyling = true;
+            try
+            {
+                RestyleCore();
+            }
+            finally
+            {
+                IsRestyling = false;
+            }
+        }
+
+        private static void RestyleCore()
         {
             _lastRestyle = Time.unscaledTime;
             bool wasOpen = _open;
@@ -481,6 +501,8 @@ namespace StationeersUIMod.UI.Menu
             ReleaseModal();
             _open = false;
             _editPreview = false;
+            IsRestyling = false;
+            Tabs.StorageTab.ResetCaches();   // restyle-scoped loadout/bag caches hold Thing refs
             _builtThemeHash = 0;
             UI.Hud.HudGlobalGlass.FrostDemand = false;
             if (_windowPanel != null) UI.Hud.HudFxMaterials.Unassign(_windowPanel);

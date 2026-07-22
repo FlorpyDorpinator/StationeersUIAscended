@@ -514,7 +514,7 @@ namespace StationeersUIMod.UI.Hud
             // that brightens without changing colour is an anti-signal. Such an element simply sits
             // the alert out.
             float glowBase = glOn ? OwnOrGlobal("glow", HudConfig.FxGlow) : 0f;
-            g.Glow = tierA ? (BorderWidthFor() > 0.05f ? HudAlertPulse.Glow(glowBase) : glowBase) : 0f;
+            g.Glow = tierA ? (BorderWidthFor() > 0.05f ? HudAlertPulse.Glow(glowBase, AlertSeed) : glowBase) : 0f;
             g.GlowInner = glOn ? OwnOrGlobal("glowIn", HudConfig.FxGlowInner) : 0f; // never floored: sits under the text
             g.GlowWidth = OwnOrGlobal("glowWidth", HudConfig.FxGlowWidth);
             g.GlowDiffuse = OwnOrGlobal("glowDiffuse", HudConfig.FxGlowDiffuse);
@@ -799,9 +799,12 @@ namespace StationeersUIMod.UI.Hud
         private bool DissolveFor()
         {
             if (Def == null || HudConfig.FxTierB == null || !HudConfig.FxTierB.Value) return false;
-            bool global = HudConfig.FxDissolveBoot != null && HudConfig.FxDissolveBoot.Value;
-            if (UsesGlobalStyle) return global;
-            return Def.GetBFor(LayoutBare, "customDissolve", global);
+            // Through the SHARED resolver, not the raw legacy bool. The old body short-circuited on
+            // UsesGlobalStyle, so on the shipped (all-Global) profile a per-element "Dissolve = Off"
+            // never reached the shader — and worse, the ANIMATOR did honour it, so the panel guttered
+            // out in 0.4s while its shader kept sweeping the 1.2s frontier. The registry already
+            // folds in the FxDissolveBoot master.
+            return HudTransitionFx.Resolve(Def, "fxDissolve", LayoutBare) > 0.001f;
         }
 
         /// <summary>Legacy-shader modulation (0..1) baked into uv0.x after resolving the
@@ -844,12 +847,12 @@ namespace StationeersUIMod.UI.Hud
         /// never carry the marker.</summary>
         internal void ApplyPulse()
         {
-            bool active = Def != null
-                && HudConfig.FxTierA != null && HudConfig.FxTierA.Value
-                && HudConfig.FxPulseOn != null && HudConfig.FxPulseOn.Value
-                && !UsesGlobalStyle
-                && Def.GetBFor(LayoutBare, "fxPulse", false);
-            float amt = active ? Mathf.Clamp(Def.GetFFor(LayoutBare, "fxPulseAmt", 1f), 0f, 2f) : 0f;
+            // Through the SHARED resolver. The old body ANDed in !UsesGlobalStyle, which made the
+            // new "Breathing pulse" tri-state row completely inert on every Global-styled element —
+            // i.e. the whole shipped profile: a visible, settable control that did nothing. The
+            // registry folds in the FxPulseOn master and the tri-state, so only Tier A stays here.
+            bool tierA = Def != null && HudConfig.FxTierA != null && HudConfig.FxTierA.Value;
+            float amt = tierA ? TransitionAmt("fxPulse") : 0f;
 
             if (amt <= 0f)
             {
@@ -1494,19 +1497,15 @@ namespace StationeersUIMod.UI.Hud
             d.SetB("customFrostOn", fromCustom ? d.GetB("customFrostOn", true) : true);
             d.SetF("customFrost", Mathf.Clamp01(fromCustom
                 ? d.GetF("customFrost", globalFrost) : globalFrost));
-            bool dissolve = HudConfig.FxDissolveBoot != null && HudConfig.FxDissolveBoot.Value;
-            d.SetB("customDissolve", fromCustom ? d.GetB("customDissolve", dissolve) : dissolve);
-            if (!fromCustom)
-            {
-                d.SetB("fxCollapse", true);
-                d.SetF("fxCollapseAmt", 1f);
-                d.SetB("fxGlitch", true);
-                d.SetF("fxGlitchAmt", 1f);
-                d.SetB("fxWarp", true);
-                d.SetF("fxWarpAmt", 1f);
-                d.SetB("fxPulse", false);
-                d.SetF("fxPulseAmt", 1f);
-            }
+            // MOTION IS NOT SNAPSHOTTED. It used to be: this block wrote customDissolve plus a
+            // hard 1f into every fx*Amt whenever an element was seeded into Custom. Two bugs came
+            // out of that — (a) it destroyed an authored per-effect strength ("TV off = 1.8" became
+            // 1.0) purely because the user flipped an UNRELATED appearance setting, and (b) writing
+            // customDissolve=false when the global master happened to be off was later read back by
+            // the tri-state's legacy fallback as an explicit "Off", permanently pinning the element
+            // and re-creating the inherit-vs-explicit conflation this refactor exists to remove.
+            // Transitions are deliberately independent of the style source now (see
+            // AddUnifiedEffectProps) and default to Inherit, so seeding must leave them alone.
 
             // The line's edge-light strength key (panels collapse theirs into `spec`).
             if (d.Type == HudElementType.Polyline)
@@ -1674,19 +1673,9 @@ namespace StationeersUIMod.UI.Hud
                 : sourceGlobal || d.GetB("fxFrost", true));
             d.SetF("customFrost", sourceCustom ? Mathf.Clamp01(d.GetF("customFrost", frost))
                 : Mathf.Clamp01(frost * (sourceGlobal ? 1f : Mathf.Clamp01(d.GetF("fxFrostAmt", 1f)))));
-            d.SetB("customDissolve", sourceCustom ? d.GetB("customDissolve", dissolve)
-                : dissolve && (sourceGlobal || d.GetB("fxDissolve", true)));
-            if (sourceGlobal)
-            {
-                d.SetB("fxCollapse", true);
-                d.SetF("fxCollapseAmt", 1f);
-                d.SetB("fxGlitch", true);
-                d.SetF("fxGlitchAmt", 1f);
-                d.SetB("fxWarp", true);
-                d.SetF("fxWarpAmt", 1f);
-                d.SetB("fxPulse", false);
-                d.SetF("fxPulseAmt", 1f);
-            }
+            // Motion deliberately NOT snapshotted here either — same reasoning as
+            // SeedCustomStyleFromEffective: a style-source flip must not rewrite an element's
+            // transitions or flatten an authored per-effect strength back to 1.
 
             // The line's edge-light strength key (panels collapse theirs into `spec`).
             if (d.Type == HudElementType.Polyline)

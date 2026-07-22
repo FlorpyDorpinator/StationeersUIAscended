@@ -26,7 +26,15 @@ namespace StationeersUIMod.UI.Hud.Widgets
         private CircleGraphic _maskShape;   // stencil-only disc that clips the portrait
         private RawImage _holo;             // the portrait RenderTexture, masked to the circle
         private ScanlineGraphic _holoScan;  // CRT dressing, clipped with the portrait
-        private CircleGraphic _ring;        // rim border, drawn on top and NOT clipped
+        private CircleGraphic _ring;        // rim border, drawn on top and NOT clipped. Kept a
+                                            // CircleGraphic on purpose: a PanelGraphic forced to a
+                                            // full circle is the degenerate case its own mesh warns
+                                            // about (corner centres converge -> "four corner bowties"
+                                            // the instant any glass sheen is applied), and it smears a
+                                            // thin (sub-1px) themed rim between two feather ramps into
+                                            // nothing. The clean radial fan renders the crisp rim the
+                                            // profile actually asks for; BorderColor() still tracks the
+                                            // palette + alarm pulse, so it follows the theme's colour.
 
         private bool _forcedPortraitCam;
         private bool _hidVanillaPortrait;

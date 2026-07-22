@@ -102,10 +102,45 @@ namespace StationeersUIMod.Overlay
     /// </summary>
     public sealed class RadialMenu
     {
+        /// <summary>The configured ceiling for wedges-per-page (F10 "Max wedges" slider).</summary>
+        private static int ConfiguredMaxWedges
+            => UIAConfig.RadialMaxWedges != null ? UIAConfig.RadialMaxWedges.Value : 14;
+
+        // Live, session-only wedges-per-page override, set by scrolling over empty space / a
+        // non-value wedge while a radial is open (see AdjustVisibleWedges + UpdateScroll). -1 =
+        // "follow the configured max". A transient "focus this wheel down" gesture, NOT a saved
+        // setting: Close() resets it to -1, so every fresh radial starts at the configured max and
+        // no stale value survives a hot-reload.
+        private static int _liveWedges = -1;
+
         /// <summary>Wedges per page. Crowded rings page with the Q key instead of a MORE
-        /// wedge — pages are windows over the LIVE entry list, so refreshes stay fresh.</summary>
+        /// wedge — pages are windows over the LIVE entry list, so refreshes stay fresh. Floored at
+        /// 2 (the scroll-to-shrink minimum) and clamped to the configured max above.</summary>
         private static int MaxPerPage
-            => Mathf.Max(4, UIAConfig.RadialMaxWedges != null ? UIAConfig.RadialMaxWedges.Value : 14);
+        {
+            get
+            {
+                int max = Mathf.Max(2, ConfiguredMaxWedges);
+                int live = _liveWedges < 0 ? max : _liveWedges;
+                return Mathf.Clamp(live, 2, max);
+            }
+        }
+
+        /// <summary>#scroll-wedge-count: nudge how many wedges show per page, in [2, configured max].
+        /// Scroll over empty space / the hub / a wedge with no value modifier calls this; scroll over
+        /// a value wedge still adjusts that value (UpdateScroll). Session-only — reset on Close().</summary>
+        public void AdjustVisibleWedges(int dir)
+        {
+            int max = Mathf.Max(2, ConfiguredMaxWedges);
+            int cur = _liveWedges < 0 ? max : Mathf.Clamp(_liveWedges, 2, max);
+            int next = Mathf.Clamp(cur + (dir > 0 ? 1 : -1), 2, max);
+            if (next == cur) return;
+            _liveWedges = next;
+            // Clamp the open level's page to the new page count so the visible window is valid the
+            // very next Draw (PageOf also clamps, but this keeps _level.Page honest for Q paging).
+            var lvl = _stack.Count > 0 ? _stack[_stack.Count - 1] : null;
+            if (lvl != null) lvl.Page = Mathf.Clamp(lvl.Page, 0, lvl.PageCount - 1);
+        }
 
         private static int PageCountOf(List<RadialEntry> entries)
             => entries == null || entries.Count == 0 ? 1
@@ -308,6 +343,7 @@ namespace StationeersUIMod.Overlay
             _closeHovered = false;
             _branchEnteredAt = -999f;
             _dwellIndex = -1;
+            _liveWedges = -1;   // the scroll-to-focus wedge count is per-open; drop it on close
             HudDropCue.Clear(); // #4: no drag in flight once the radial is gone
             UI.SearchPanelView.Hide();
         }
@@ -1175,7 +1211,10 @@ namespace StationeersUIMod.Overlay
             RadialEntry entry = _satellite != null && _satHovered >= 0 ? SatEntry(_satHovered)
                               : _hovered >= 0 && _mainDist <= _lastOuterR * 1.2f ? MainEntry(_hovered)
                               : null;
-            if (entry?.OnScroll == null) return;
+            // Scroll over a VALUE wedge (suit pressure, thrust, ...) adjusts that value. Scroll over
+            // anything else — empty space, the hub, or a plain wedge with no value modifier — changes
+            // how many wedges the ring shows: down toward 2, up toward the configured max.
+            if (entry?.OnScroll == null) { AdjustVisibleWedges(s > 0f ? 1 : -1); return; }
             try { entry.OnScroll(s > 0f ? 1 : -1); }
             catch (Exception e) { UIALog.Warn("Scroll adjust failed: " + e.Message); }
             if (_satellite != null) RefreshSatellite();

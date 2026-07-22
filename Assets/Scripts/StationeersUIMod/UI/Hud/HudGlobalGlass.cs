@@ -30,7 +30,13 @@ namespace StationeersUIMod.UI.Hud
         /// menu surfaces follow edge light + ripple, but the halo is reserved for the outer window).</param>
         /// <param name="wantFrost">opt into the Tier C frosted backdrop when the HUD master is on.</param>
         /// <param name="wantTierB">opt into shine / iridescence (the shared edgefx material).</param>
-        public static void Apply(PanelGraphic g, bool includeGlow, bool wantFrost, bool wantTierB)
+        /// <param name="externalMaterial">true = the caller has already bound its own shared
+        /// effect material (the analytic sdfglass path) and owns <see cref="IGlassSurface.FxStrength"/>;
+        /// Apply then styles the mesh FIELDS only and leaves the material slot untouched. Without
+        /// this, Apply's glass/edgefx selection and the caller's assignment would reassign the
+        /// slot against each other every frame — a per-frame canvas rebatch.</param>
+        public static void Apply(PanelGraphic g, bool includeGlow, bool wantFrost, bool wantTierB,
+            bool externalMaterial = false)
         {
             if (g == null) return;
             bool tierA = On(HudConfig.FxTierA);
@@ -58,6 +64,10 @@ namespace StationeersUIMod.UI.Hud
             g.EdgeRipple = edge ? Cfg(HudConfig.FxEdgeRipple, 0f) : 0f;
             g.EdgeRippleFreq = Cfg(HudConfig.FxEdgeRippleFreq, 2f);
             g.RippleSmooth = 0f; // global forces the un-smoothed ripple
+
+            // The analytic SDF caller has already bound sdfglass and will zero FxStrength itself
+            // (the SDF ABI carries independent strengths; uv0.x is unused there).
+            if (externalMaterial) return;
 
             // Shared-material selection (frost wins over edge-fx), mirroring ApplyFx's global path.
             // FxStrength is the uv0.x volume: 1 = full (a global-following element resolves to 1).

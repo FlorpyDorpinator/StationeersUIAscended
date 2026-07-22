@@ -16,8 +16,12 @@ namespace StationeersUIMod.UI.Grid
     /// cell, click-to-hand, state text, active-hand accent) and (b) inset nested
     /// <see cref="GridRegionView"/>s for the node's nested STORAGE containers, with a
     /// <see cref="GridTab"/> (the trapezoidal manila label) sitting above/on the region's top border,
-    /// plus — for containers that pass vanilla's sortable gate — a small ASCII "SORT" button at the
-    /// region's TOP-RIGHT, opposite the tab. Cell size is the live F10
+    /// plus — for containers that pass vanilla's sortable gate — a small ASCII "SORT" button in the tab
+    /// band just to the RIGHT of the tab. The cell grid wraps to a configured column count
+    /// (<see cref="UIAConfig.GridCellCols"/>, default 5, so a 15-slot bag reads as 3 rows of 5) capped
+    /// by how many cells the live width holds, and nested bag regions pack into up to
+    /// <see cref="UIAConfig.GridMaxBagCols"/> masonry columns (default 2; more appear as the window is
+    /// dragged wider, one when it is narrow). Cell size is the live F10
     /// <see cref="UIAConfig.GridCellSize"/>, so the grid re-wraps responsively on a resize/slider change.
     /// The whole-inventory ROOT node renders NO own cells (no loose hand/helmet "top line") — only its
     /// child container regions.
@@ -56,8 +60,20 @@ namespace StationeersUIMod.UI.Grid
         private const float NestedIndent = 10f;  // nested storage regions inset a touch from the parent grid
         private const float SectionGap = 6f;     // gap between the cell grid and nested regions (and between regions)
         private const float MinRegionW = 60f;
-        private const float SortW = 38f;         // per-region Sort control (top-right, opposite the tab)
+        private const float SortW = 38f;         // per-region Sort control (in the tab band, right of the tab)
         private const float SortH = 16f;
+        private const float SortTabGap = 6f;     // gap between the manila tab and the Sort control in the tab band
+
+        // Profile-mode strip (design O4a): the chip + CAPTURE band seated INSIDE the box's top
+        // edge (the same band the Sort control lives in). Inside the box — deliberately NOT on
+        // the manila tab band — so it renders identically inside a PinnedInventoryWindow, whose
+        // suppressed tab band is shifted out of view.
+        private const float StripH = 16f;        // chip/CAPTURE control height (matches SortH)
+        private const float StripGap = 4f;       // gap between the strip band and the first cell row
+        private const float ChipMinW = 44f;
+        private const float ChipMaxW = 200f;
+        private const float ChipPad = 8f;        // horizontal text padding inside the chip
+        private const float CapBtnW = 56f;       // the CAPTURE button
 
         /// <summary>The region box's fill is a faint TINT of the inherited panel fill so stacked
         /// regions group their cells without over-darkening. A relative scale on the theme's alpha —
@@ -74,6 +90,44 @@ namespace StationeersUIMod.UI.Grid
             catch { }
             return CellSizeFallback;
         }
+
+        /// <summary>The configured cells-per-row cap (<see cref="UIAConfig.GridCellCols"/>, 1..10,
+        /// default 5), falling back to 5 before the config binds. The LIVE column count is this capped
+        /// by how many cells actually fit the content width (see <see cref="Layout"/>), so it never
+        /// exceeds the space. Read once per Layout into a local; never per cell.</summary>
+        private static int CellCols()
+        {
+            try { if (UIAConfig.GridCellCols != null) return Mathf.Clamp(UIAConfig.GridCellCols.Value, 1, 10); }
+            catch { }
+            return 5;
+        }
+
+        /// <summary>The configured maximum side-by-side bag columns (<see cref="UIAConfig.GridMaxBagCols"/>,
+        /// 1..5, default 2), falling back to 2 before the config binds. Fewer columns are used when the
+        /// window is too narrow to hold them (the masonry pack in <see cref="Layout"/>).</summary>
+        private static int MaxBagCols()
+        {
+            try { if (UIAConfig.GridMaxBagCols != null) return Mathf.Clamp(UIAConfig.GridMaxBagCols.Value, 1, 5); }
+            catch { }
+            return 2;
+        }
+
+        /// <summary>The F9-editable SORT-button scale (<see cref="UIAConfig.GridSortButtonScale"/>,
+        /// clamped 0.5..2.0, default 1.0), falling back to 1.0 before the config binds. The button's
+        /// footprint is <c>SortW/SortH x</c> this, keeping aspect. Read once per Layout/StyleRegion into a
+        /// local; the same scale governs the button on a pinned window (its region is a GridRegionView too).</summary>
+        private static float SortScale()
+        {
+            try { if (UIAConfig.GridSortButtonScale != null) return Mathf.Clamp(UIAConfig.GridSortButtonScale.Value, 0.5f, 2f); }
+            catch { }
+            return 1f;
+        }
+
+        /// <summary>The live SORT-button width in px (<see cref="SortW"/> scaled by <see cref="SortScale"/>).</summary>
+        private static float SortWidth() { return SortW * SortScale(); }
+
+        /// <summary>The live SORT-button height in px (<see cref="SortH"/> scaled by <see cref="SortScale"/>).</summary>
+        private static float SortHeight() { return SortH * SortScale(); }
 
         private RectTransform _rect;
 
@@ -92,9 +146,39 @@ namespace StationeersUIMod.UI.Grid
         private TextMeshProUGUI _sortLabel;
         private bool _sortable;
 
+        // Profile-mode strip controls (built once, shown only while GridProfileMode.Active): the
+        // CHIP (assigned profile name / "no profile" — click opens the assign popup) and the
+        // CAPTURE button (click opens the capture confirm panel). Config/profile state only.
+        private GameObject _chipGo;
+        private RectTransform _chipRt;
+        private PanelGraphic _chipBg;
+        private RegionClickable _chipClick;
+        private TextMeshProUGUI _chipLabel;
+        private GameObject _capGo;
+        private RectTransform _capRt;
+        private PanelGraphic _capBg;
+        private RegionClickable _capClick;
+        private TextMeshProUGUI _capLabel;
+        private bool _stripVisible;
+        private bool _chipAssigned;
+        private float _chipPrefW;     // label-fitting chip width, measured at Bind
+        private float _chipDrawW;     // laid-out chip width (Layout clamps to the region)
+        private int _stripStyleHash;
+        private bool _stripStyledChipHover;
+        private bool _stripStyledCapHover;
+        private float _stripStyledChipW = -1f;
+        private bool _stripStyled;
+
         // Instance-local pools (children of this view; surplus is deactivated, never destroyed here).
         private readonly List<BagGridCell> _cells = new List<BagGridCell>(8);
         private readonly List<GridRegionView> _childViews = new List<GridRegionView>(2);
+
+        // Masonry scratch: per-column running bottom Y while packing nested bag regions into columns.
+        // INSTANCE-local (never static): a child region's own Layout runs INSIDE this region's pack
+        // loop, so a shared buffer would clobber mid-pack. Fully overwritten each Layout — it holds no
+        // state across a rebuild or a hot reload (the whole tree is destroyed with the panel canvas).
+        // Sized past the max bag-column count (1..5).
+        private readonly float[] _colBottoms = new float[8];
 
         private ContainerNode _node;
         private int _depth;
@@ -103,6 +187,7 @@ namespace StationeersUIMod.UI.Grid
         private int _activeCells;
         private int _activeChildren;
         private float _cellPx = -1f;   // last applied cell edge (so Layout re-sizes only when it moved)
+        private float _iconScale = -1f; // last applied icon scale (a live F9 icon-scale edit re-sizes cells even when the edge did not move)
         // Last laid-out region box size. StyleRegion issues the corner sweep through
         // GridTheme.ApplyBox (the ONE place a radius may be decided), which needs the box's w/h —
         // Layout records them here rather than calling SetShape itself.
@@ -117,12 +202,20 @@ namespace StationeersUIMod.UI.Grid
         private float _styledW = -1f;
         private float _styledH = -1f;
         private int _styledDepth = -1;
+        private bool _styledHint;      // ghost routing hint (O4d) state at the last repaint
         private int _sortStyleHash;
         private bool _sortStyledHover;
         private bool _sortStyled;
 
         /// <summary>The region's RectTransform — the parent view/panel positions this through it.</summary>
         public RectTransform Rect { get { return _rect; } }
+
+        /// <summary>The height (px) of the manila tab band this region reserves at its top, live from
+        /// the F9-editable <see cref="UIAConfig.GridTabHeight"/> (0 for the root, which has no tab). A
+        /// <see cref="PinnedInventoryWindow"/> SUPPRESSES the tab but the region still reserves this
+        /// band, so the window reads it every Layout to keep its body offset in sync when the tab
+        /// height changes live.</summary>
+        public float TabBandHeight { get { return (_tab != null && !_isRoot) ? _tab.Height : 0f; } }
 
         /// <summary>Build an idle region view under <paramref name="parent"/>. The region box + tab are
         /// wired once here (the tab's collapse action is a method group, so a later <see cref="Bind"/>
@@ -175,16 +268,60 @@ namespace StationeersUIMod.UI.Grid
             _sortBg = _sortGo.AddComponent<PanelGraphic>();
             _sortBg.raycastTarget = true;
             _sortClick = _sortGo.AddComponent<RegionClickable>();
-            _sortClick.Owner = this;
+            _sortClick.Clicked = DoSort;
             _sortLabel = HudText.Make(_sortRt, "SortLabel", HudText.Size(9f),
                 TextAlignmentOptions.Center, warp: false);
             var slr = _sortLabel.rectTransform;
             slr.anchorMin = slr.anchorMax = new Vector2(0.5f, 0.5f);
             slr.pivot = new Vector2(0.5f, 0.5f);
             slr.anchoredPosition = Vector2.zero;
-            slr.sizeDelta = new Vector2(SortW, SortH);
+            slr.sizeDelta = new Vector2(SortWidth(), SortHeight());   // live F9 scale; Layout re-fits it
             HudText.Set(_sortLabel, "SORT");   // ASCII only: the game TMP font tofus non-Latin glyphs
             _sortGo.SetActive(false);
+
+            // Profile-mode strip controls (chip + CAPTURE), the Sort trio pattern cloned. Built
+            // once, inactive until a profile-mode Bind shows them; click actions are method
+            // groups wired here so a re-Bind allocates no delegates. All mutation behind these
+            // clicks is CONFIG/PROFILE state (BagProfileStore / ProfileCapture) — never game state.
+            _chipGo = new GameObject("ProfileChip", typeof(RectTransform));
+            _chipGo.transform.SetParent(_rect, false);
+            _chipRt = (RectTransform)_chipGo.transform;
+            _chipRt.anchorMin = _chipRt.anchorMax = new Vector2(0f, 1f);
+            _chipRt.pivot = new Vector2(0.5f, 0.5f);
+            _chipBg = _chipGo.AddComponent<PanelGraphic>();
+            _chipBg.raycastTarget = true;
+            _chipClick = _chipGo.AddComponent<RegionClickable>();
+            _chipClick.Clicked = OpenProfilePopup;
+            _chipLabel = HudText.Make(_chipRt, "ChipLabel", HudText.Size(9f),
+                TextAlignmentOptions.Center, warp: false);
+            _chipLabel.overflowMode = TextOverflowModes.Truncate;   // never "..." — the ellipsis glyph tofus
+            var clr = _chipLabel.rectTransform;
+            clr.anchorMin = Vector2.zero;
+            clr.anchorMax = Vector2.one;
+            clr.pivot = new Vector2(0.5f, 0.5f);
+            clr.offsetMin = new Vector2(3f, 0f);
+            clr.offsetMax = new Vector2(-3f, 0f);
+            _chipGo.SetActive(false);
+
+            _capGo = new GameObject("ProfileCapture", typeof(RectTransform));
+            _capGo.transform.SetParent(_rect, false);
+            _capRt = (RectTransform)_capGo.transform;
+            _capRt.anchorMin = _capRt.anchorMax = new Vector2(0f, 1f);
+            _capRt.pivot = new Vector2(0.5f, 0.5f);
+            _capBg = _capGo.AddComponent<PanelGraphic>();
+            _capBg.raycastTarget = true;
+            _capClick = _capGo.AddComponent<RegionClickable>();
+            _capClick.Clicked = OpenCapturePanel;
+            _capLabel = HudText.Make(_capRt, "CaptureLabel", HudText.Size(9f),
+                TextAlignmentOptions.Center, warp: false);
+            var cpl = _capLabel.rectTransform;
+            cpl.anchorMin = Vector2.zero;
+            cpl.anchorMax = Vector2.one;
+            cpl.pivot = new Vector2(0.5f, 0.5f);
+            cpl.offsetMin = Vector2.zero;
+            cpl.offsetMax = Vector2.zero;
+            HudText.Set(_capLabel, "CAPTURE");   // ASCII only
+            _capGo.SetActive(false);
         }
 
         /// <summary>Structural (re)build: bind this view to <paramref name="node"/> at tree
@@ -192,15 +329,20 @@ namespace StationeersUIMod.UI.Grid
         /// and child region-views for its nested storage containers (a collapsed region renders
         /// neither). Called by the panel only when the structural signature changed, so per-rebuild
         /// allocation is acceptable; steady state does not run this. After Bind, call
-        /// <see cref="Layout"/> to place everything.</summary>
-        public void Bind(ContainerNode node, int depth)
+        /// <see cref="Layout"/> to place everything.
+        ///
+        /// <paramref name="forceExpanded"/> pins this region open regardless of the collapse store —
+        /// used by a pinned window, whose whole purpose is to show ONE bag's contents and which
+        /// suppresses the region's own collapse tab. Without it, the collapsed-by-default store would
+        /// render every pinned window empty. Nested child regions inherit the store default (false).</summary>
+        public void Bind(ContainerNode node, int depth, bool forceExpanded = false)
         {
             _node = node;
             _depth = depth;
             if (!gameObject.activeSelf) gameObject.SetActive(true);
 
             _isRoot = node != null && node.Container == null;
-            _collapsed = !_isRoot && node != null && GridCollapseStore.IsCollapsed(node.RefId);
+            _collapsed = !_isRoot && !forceExpanded && node != null && GridCollapseStore.IsCollapsed(node.RefId);
 
             // Tab content: container name (ASCII already) + its thumbnail (client-safe read). The
             // whole-inventory ROOT gets NO tab/border wrapper — it is just the flat, full-width stack
@@ -217,16 +359,53 @@ namespace StationeersUIMod.UI.Grid
                 {
                     try { icon = node.Container.GetThumbnail(); } catch { }
                 }
-                // 4-arg overload: hand the tab the container's persistent ReferenceId. The 3-arg one
+                // Passive profile badge (design O4b): the assigned profile's short ASCII tag, shown
+                // only OUTSIDE profile mode (the mode's chip strip supersedes it) and behind its
+                // config off-switch. Store reads happen here — a structural rebuild — never per
+                // frame; ProfileTag is cached per loaded profile name.
+                string badge = null;
+                if (node.Container != null && !GridProfileMode.Active && ProfileBadgesOn())
+                {
+                    try
+                    {
+                        string pn = BagProfileStore.GetAssignedProfileName(node.Container);
+                        if (!string.IsNullOrEmpty(pn)) badge = BagProfileStore.ProfileTag(pn);
+                    }
+                    catch { }
+                }
+                // 5-arg overload: hand the tab the container's persistent ReferenceId (the 3-arg one
                 // leaves GridTab.RefId at 0, and GridTab.BeginDragOut early-returns on RefId == 0 —
-                // which made the whole drag-out-to-pin gesture unreachable dead code.
-                _tab.Set(node.Title, icon, _collapsed, node.RefId);
+                // which made the whole drag-out-to-pin gesture unreachable dead code) + the badge.
+                _tab.Set(node.Title, icon, _collapsed, node.RefId, badge);
             }
 
             // Sort control: only for a real container that passes vanilla's sortable gate.
             HudText.Sync(_sortLabel);
             _sortable = !_collapsed && !_isRoot && ContainerSortable(node);
             if (_sortGo.activeSelf != _sortable) _sortGo.SetActive(_sortable);
+
+            // Profile-mode strip (design O4a): chip + CAPTURE, per real bag region, only while the
+            // mode is on. Mode flips force a rebuild (TheGridPanel diffs GridProfileMode's stamp),
+            // so evaluating here — structurally — is enough; nothing profile-ish runs per frame.
+            _stripVisible = GridProfileMode.Active && !_collapsed && !_isRoot
+                && node != null && node.Container != null;
+            if (_chipGo.activeSelf != _stripVisible) _chipGo.SetActive(_stripVisible);
+            if (_capGo.activeSelf != _stripVisible) _capGo.SetActive(_stripVisible);
+            if (_stripVisible)
+            {
+                string pn = null;
+                try { pn = BagProfileStore.GetAssignedProfileName(node.Container); } catch { }
+                _chipAssigned = !string.IsNullOrEmpty(pn);
+                string chipText = _chipAssigned ? pn : "no profile";
+                HudText.Sync(_chipLabel);
+                HudText.Set(_chipLabel, chipText);
+                float m = 40f;
+                float mm = _chipLabel.GetPreferredValues(chipText).x;
+                if (!float.IsNaN(mm) && !float.IsInfinity(mm)) m = mm;
+                _chipPrefW = Mathf.Clamp(m + ChipPad * 2f, ChipMinW, ChipMaxW);
+                HudText.Sync(_capLabel);
+                _stripStyled = false;   // repaint the strip against the fresh assignment state
+            }
 
             // Cells for this node's own slots (none while collapsed). The whole-inventory ROOT renders
             // NO own cells at all: its hands / helmet / glasses loose slots are dropped, so the window
@@ -255,9 +434,14 @@ namespace StationeersUIMod.UI.Grid
             // Hide the region box entirely when collapsed (just the tab shows), and always for the root.
             _regionGo.SetActive(!_collapsed && node != null && !_isRoot);
 
-            // Keep the tab + Sort control drawing (and raycasting) ABOVE the cells + nested regions the
-            // pool grew as later siblings.
+            // Keep the tab + Sort control + profile strip drawing (and raycasting) ABOVE the cells
+            // + nested regions the pool grew as later siblings.
             if (_sortable) _sortRt.SetAsLastSibling();
+            if (_stripVisible)
+            {
+                _chipRt.SetAsLastSibling();
+                _capRt.SetAsLastSibling();
+            }
             if (!_isRoot) _tab.Rect.SetAsLastSibling();
 
             StyleRegion();
@@ -301,10 +485,21 @@ namespace StationeersUIMod.UI.Grid
             }
             else
             {
+                // A live F9 tab-text-size edit re-applies the pooled tab's font and re-fits its
+                // PreferredWidth here (a Relayout, not a rebind, drives this — so it must run before the
+                // width read below). A no-op float compare when the size did not change.
+                _tab.SyncTextSize();
+
                 // Tab sits above the region's top border, inset from the left corner like a folder tab.
-                // Its natural (label-fitting) width, clamped so it never exceeds the region. (The Sort
-                // control now lives INSIDE the box, so the tab band is the tab's alone.)
+                // Its natural (label-fitting) width, clamped so it never exceeds the region — and, when
+                // this region is sortable, reserving the Sort control's slot in the tab band to its
+                // right, so even a very long name can never crowd the button out of the band.
+                // Live F9 Sort-button footprint (scaled, aspect-kept), read once for the reservation
+                // and the placement below.
+                float sortW = SortWidth();
+                float sortH = SortHeight();
                 float tabRoom = width - TabLeft * 2f;
+                if (_sortable) tabRoom -= SortTabGap + sortW;
                 float tabW = Mathf.Min(_tab.PreferredWidth, Mathf.Max(1f, tabRoom));
                 _tab.SetWidth(tabW);
                 _tab.Rect.anchoredPosition = new Vector2(TabLeft + tabW * 0.5f, -_tab.Height * 0.5f); // centre pivot
@@ -312,14 +507,40 @@ namespace StationeersUIMod.UI.Grid
 
                 if (_sortable)
                 {
-                    // INSIDE the box's own top-right corner, just in from the border. The FIRST cell
-                    // row reserves this control's footprint (see the cell loop), so seating it inside
-                    // the box can never cover a cell even when that row runs the full width.
-                    _sortRt.anchoredPosition = new Vector2(width - Border - 3f - SortW * 0.5f,
-                                                           -(boxTop + Border + 3f + SortH * 0.5f)); // centre pivot
-                    _sortRt.sizeDelta = new Vector2(SortW, SortH);
+                    // In the TAB BAND, just to the RIGHT of the manila tab, vertically centred on it
+                    // (sortH < the tab height). Seating it ABOVE the box — rather than inside its first
+                    // cell row — means the cell grid always uses the full width with no reserved slot,
+                    // and the reservation above guarantees it stays inside the region's right edge.
+                    float sx = TabLeft + tabW + SortTabGap + sortW * 0.5f;
+                    float sxMax = width - 2f - sortW * 0.5f;
+                    if (sx > sxMax) sx = sxMax;
+                    _sortRt.anchoredPosition = new Vector2(sx, -_tab.Height * 0.5f); // centre pivot
+                    _sortRt.sizeDelta = new Vector2(sortW, sortH);
+                    if (_sortLabel != null) _sortLabel.rectTransform.sizeDelta = new Vector2(sortW, sortH);
+                    // A live scale edit changes only Layout metrics, not GridTheme.StyleHash, so the
+                    // hash-gated StyleRegion below would keep the stale corner sweep — force one restyle.
+                    _sortStyled = false;
                     // No SetShape here: the corner sweep is part of the inherited box theme, so the
                     // ONE place it is issued is GridTheme.ApplyBox (from StyleRegion).
+                }
+
+                if (_stripVisible)
+                {
+                    // The chip + CAPTURE own the box's top edge: chip at the left, CAPTURE right after
+                    // it. The Sort control now lives in the TAB BAND above the box (not inside its
+                    // top-right corner), so the strip has the full box width and reserves nothing for
+                    // it. The cells start BELOW this band (see the y advance), so nothing here covers a cell.
+                    float bandY = boxTop + Border + 3f;
+                    float left = Border + InnerPad;
+                    float rightLimit = width - Border - 3f;
+                    float avail = Mathf.Max(24f, rightLimit - left - CapBtnW - 4f);
+                    float chipW = Mathf.Min(_chipPrefW, avail);
+                    _chipRt.anchoredPosition = new Vector2(left + chipW * 0.5f, -(bandY + StripH * 0.5f)); // centre pivot
+                    _chipRt.sizeDelta = new Vector2(chipW, StripH);
+                    _capRt.anchoredPosition = new Vector2(left + chipW + 4f + CapBtnW * 0.5f,
+                                                          -(bandY + StripH * 0.5f)); // centre pivot
+                    _capRt.sizeDelta = new Vector2(CapBtnW, StripH);
+                    _chipDrawW = chipW;
                 }
             }
 
@@ -337,52 +558,91 @@ namespace StationeersUIMod.UI.Grid
             float contentW = Mathf.Max(cell, width - 2f * inset);
 
             float y = boxTop + inset;
+            // The profile strip band occupies the box's top edge: everything (cells AND nested
+            // regions) starts below it while the mode is up.
+            if (_stripVisible) y += StripH + StripGap;
             bool hadContent = false;
 
             if (_activeCells > 0)
             {
-                // Responsive: cols falls out of the LIVE content width, so a narrower window (or a
-                // bigger F10 cell size) re-wraps the same slots without a tree rebuild.
-                int cols = Mathf.Max(1, Mathf.FloorToInt((contentW + CellGap) / (cell + CellGap)));
-                // The Sort control is seated INSIDE the box's top-right corner, so the FIRST row
-                // reserves its footprint and wraps early; every later row uses the full width. That
-                // keeps Sort in the corner of its own box without it ever covering a cell.
-                int colsFirst = cols;
-                if (_sortable)
-                {
-                    float firstRowW = contentW - (SortW + CellGap + 4f);
-                    colsFirst = Mathf.Clamp(
-                        Mathf.FloorToInt((firstRowW + CellGap) / (cell + CellGap)), 1, cols);
-                }
-                // Re-size the cells only when the F10 slider actually moved since the last pass, so a
-                // resize-drag Relayout stays pure RectTransform writes (no mesh rebuilds).
-                bool resize = cell != _cellPx;
+                // Column count: the RESPONSIVE fit (how many cells the live content width holds) capped
+                // by the configured column count (default 5 — a 15-slot bag reads as 3 rows of 5). A
+                // narrower window or bag column wraps tighter, but the grid never exceeds the chosen
+                // count. Both terms are >= 1, so cols >= 1 (no divide-by-zero below). The Sort control
+                // now lives in the tab band, so there is no first-row reservation — every row is full.
+                int responsiveCols = Mathf.Max(1, Mathf.FloorToInt((contentW + CellGap) / (cell + CellGap)));
+                int cols = Mathf.Min(responsiveCols, CellCols());
+                // Re-size the cells only when a size that feeds the cell actually moved since the last
+                // pass — the F10/F9 cell EDGE or the F9 ICON SCALE (which SetSize applies but does not
+                // change the edge, so an edge-only guard would miss it) — so a window resize-drag
+                // Relayout stays pure RectTransform writes (no mesh rebuilds).
+                float iconScale = BagGridCell.IconScale();
+                bool resize = cell != _cellPx || iconScale != _iconScale;
                 _cellPx = cell;
+                _iconScale = iconScale;
                 for (int i = 0; i < _activeCells; i++)
                 {
                     if (resize) _cells[i].SetSize(cell);
-                    int row, col;
-                    if (i < colsFirst) { row = 0; col = i; }
-                    else { int j = i - colsFirst; row = 1 + j / cols; col = j % cols; }
+                    int row = i / cols;
+                    int col = i % cols;
                     // Centre-pivot cell: place its CENTRE (content-left corner + half a cell).
                     _cells[i].Rect.anchoredPosition = new Vector2(
                         innerLeft + col * (cell + CellGap) + cell * 0.5f,
                         -(y + row * (cell + CellGap)) - cell * 0.5f);
                 }
-                int rows = _activeCells <= colsFirst
-                    ? 1
-                    : 1 + (_activeCells - colsFirst + cols - 1) / cols;
+                int rows = (_activeCells + cols - 1) / cols;
                 y += rows * (cell + CellGap) - CellGap;
                 hadContent = true;
             }
 
-            for (int i = 0; i < _activeChildren; i++)
+            if (_activeChildren > 0)
             {
-                if (hadContent) y += SectionGap;
-                var cv = _childViews[i];
-                float ch = cv.Layout(contentW - childIndent);
-                cv.Rect.anchoredPosition = new Vector2(innerLeft + childIndent, -y);
-                y += ch;
+                if (hadContent) y += SectionGap;   // one gap between the cell grid and the bag columns
+
+                // Nested bags pack into N side-by-side columns (MASONRY): the column count falls out of
+                // the band width — more columns as the window is dragged wider — capped by the
+                // configured maximum (default 2). Each column is kept wide enough to hold a full cell
+                // row (CellCols cells) inside a child region's own inset, so #7b (cell columns) and #7c
+                // (bag columns) never fight: a bag column is never so narrow it forces its cell grid
+                // below the chosen count.
+                float childBandLeft = innerLeft + childIndent;
+                float childBandW = Mathf.Max(cell, contentW - childIndent);
+                float colGap = SectionGap;
+                float regionInset = 2f * (Border + InnerPad);   // a child region's own left+right inset
+                float minBagColW = CellCols() * cell + (CellCols() - 1) * CellGap + regionInset;
+                int bagCols = Mathf.Clamp(
+                    Mathf.FloorToInt((childBandW + colGap) / (minBagColW + colGap)), 1,
+                    Mathf.Min(MaxBagCols(), _colBottoms.Length));
+                if (bagCols > _activeChildren) bagCols = Mathf.Max(1, _activeChildren);
+                float colW = (childBandW - (bagCols - 1) * colGap) / bagCols;
+
+                // Seed every column's running bottom to the band top, then drop each bag into the
+                // currently-SHORTEST column (ties → lowest index, so at bagCols == 1 this is the old
+                // in-order vertical stack). Each bag is laid out at its column width, so its own cell
+                // grid re-wraps to that width.
+                for (int c = 0; c < bagCols; c++) _colBottoms[c] = y;
+                for (int i = 0; i < _activeChildren; i++)
+                {
+                    int best = 0;
+                    for (int c = 1; c < bagCols; c++)
+                        if (_colBottoms[c] < _colBottoms[best]) best = c;
+                    var cv = _childViews[i];
+                    float cx = childBandLeft + best * (colW + colGap);
+                    float cy = _colBottoms[best];
+                    float ch = cv.Layout(colW);
+                    cv.Rect.anchoredPosition = new Vector2(cx, -cy);   // child region: top-left pivot
+                    _colBottoms[best] = cy + ch + colGap;   // trailing gap, for the next bag in this column
+                }
+
+                // Region height = the TALLEST column (each column's trailing gap stripped). Every
+                // column holds >= 1 bag because bagCols <= _activeChildren, so this is well-defined.
+                float maxBottom = y;
+                for (int c = 0; c < bagCols; c++)
+                {
+                    float b = _colBottoms[c] - colGap;
+                    if (b > maxBottom) maxBottom = b;
+                }
+                y = maxBottom;
                 hadContent = true;
             }
 
@@ -422,6 +682,34 @@ namespace StationeersUIMod.UI.Grid
             for (int i = 0; i < _activeChildren; i++) _childViews[i].RefreshIfDirty();
         }
 
+        /// <summary>Append this region's navigable targets to <paramref name="list"/> in DISPLAY order
+        /// for the scroll-select cursor (#4): its manila <see cref="GridTab"/> first (the root has
+        /// none), then — unless collapsed — its own cells, then recurse into each nested child region
+        /// (which emits its own tab, cells and children). Mirrors exactly what the eye reads top-to-
+        /// bottom, so wheeling the cursor tracks the layout. Called only on a structural rebuild (from
+        /// <see cref="GridSelection.Rebuild"/>), never per frame; allocation-free beyond the list adds.</summary>
+        public void CollectNav(List<GridSelection.NavItem> list)
+        {
+            if (list == null || _node == null || !gameObject.activeSelf) return;
+
+            if (!_isRoot && _tab != null && _tab.Rect != null && _tab.Rect.gameObject.activeSelf)
+                list.Add(GridSelection.NavItem.ForTab(_tab));
+
+            if (_collapsed) return;   // a collapsed region shows only its tab
+
+            for (int i = 0; i < _activeCells; i++)
+            {
+                var c = _cells[i];
+                if (c != null && c.Slot != null) list.Add(GridSelection.NavItem.ForCell(c));
+            }
+
+            for (int i = 0; i < _activeChildren; i++)
+            {
+                var cv = _childViews[i];
+                if (cv != null) cv.CollectNav(list);
+            }
+        }
+
         /// <summary>Paint the tab (its own <see cref="GridTab.RefreshStyle"/>), the Sort button and the
         /// region box through the ONE shared styling path, <see cref="GridTheme.ApplyBox"/>: fill,
         /// border colour, border WIDTH, the corner sweep and the same glass stack a HUD box gets, all
@@ -441,33 +729,70 @@ namespace StationeersUIMod.UI.Grid
             {
                 // The Sort button keeps its hover ACCENT: an interaction affordance, not part of the
                 // box theme. ApplyBox supplies it (and the widened line) as a delta on the inherited
-                // values. Its footprint is fixed by Layout, so w/h are the constants.
+                // values. Its footprint is the live F9 scale; Layout resets _sortStyled when the scale
+                // moves so the corner sweep re-issues here with the new w/h.
                 bool sHover = _sortClick != null && _sortClick.Hover;
                 if (!_sortStyled || _sortStyleHash != hash || _sortStyledHover != sHover)
                 {
                     _sortStyled = true;
                     _sortStyleHash = hash;
                     _sortStyledHover = sHover;
-                    GridTheme.ApplyBox(_sortBg, SortW, SortH, GridTheme.GridSurface.Button, sHover);
+                    GridTheme.ApplyBox(_sortBg, SortWidth(), SortHeight(), GridTheme.GridSurface.Button, sHover);
                     if (_sortLabel != null)
                         _sortLabel.color = sHover ? HudPalette.LineAccent.Value : HudPalette.TextLabel.Value;
                 }
             }
 
+            if (_stripVisible && _chipBg != null && _chipDrawW > 0f)
+            {
+                // The chip + CAPTURE: hash/hover-gated exactly like the Sort button above.
+                bool chHover = _chipClick != null && _chipClick.Hover;
+                bool caHover = _capClick != null && _capClick.Hover;
+                if (!_stripStyled || _stripStyleHash != hash || _stripStyledChipHover != chHover
+                    || _stripStyledCapHover != caHover || _stripStyledChipW != _chipDrawW)
+                {
+                    _stripStyled = true;
+                    _stripStyleHash = hash;
+                    _stripStyledChipHover = chHover;
+                    _stripStyledCapHover = caHover;
+                    _stripStyledChipW = _chipDrawW;
+                    GridTheme.ApplyBox(_chipBg, _chipDrawW, StripH, GridTheme.GridSurface.Button, chHover);
+                    GridTheme.ApplyBox(_capBg, CapBtnW, StripH, GridTheme.GridSurface.Button, caHover);
+                    Color accent = HudPalette.LineAccent != null
+                        ? HudPalette.LineAccent.Value : GridTheme.Border;
+                    Color muted = HudPalette.TextLabel != null
+                        ? HudPalette.TextLabel.Value : GridTheme.Text;
+                    if (_chipLabel != null)
+                        _chipLabel.color = chHover ? accent : (_chipAssigned ? GridTheme.Text : muted);
+                    if (_capLabel != null)
+                        _capLabel.color = caHover ? accent : muted;
+                }
+            }
+
             if (_regionBg == null || _collapsed || _node == null) return;
             if (_boxW <= 0f || _boxH <= 0f) return;   // pre-Layout (Bind) — the first Layout repaints
-            if (_styleHash == hash && _styledW == _boxW && _styledH == _boxH && _styledDepth == _depth)
+            // Ghost routing hint (O4d): while a cell drag is live in profile mode, the region
+            // whose container the router would pick wears the theme's own HOVER accent — the
+            // existing mechanic, on a different surface than the tab's drop cue (tab accent =
+            // "release to PIN", region accent = "G would stow HERE"). One static long compare
+            // per region per frame; zero when no drag is live.
+            bool hinted = GridGhostHint.IsHinted(_node.RefId);
+            if (_styleHash == hash && _styledW == _boxW && _styledH == _boxH && _styledDepth == _depth
+                && _styledHint == hinted)
                 return;
             _styleHash = hash;
             _styledW = _boxW;
             _styledH = _boxH;
             _styledDepth = _depth;
+            _styledHint = hinted;
 
             // Depth is expressed ONLY as the helper's relative scales (a nested region's line is
-            // 0.75x a top-level one's), never as an absolute width or a second colour.
+            // 0.75x a top-level one's), never as an absolute width or a second colour. The ghost
+            // hint rides the helper's hover delta (accent border + scaled line), same as every
+            // other interactive surface.
             GridTheme.ApplyBox(_regionBg, _boxW, _boxH,
                 _depth == 0 ? GridTheme.GridSurface.Region : GridTheme.GridSurface.RegionNested,
-                false);
+                hinted);
 
             // Faint fill so the region groups its cells without over-darkening (nested regions stack).
             // A scale on the INHERITED alpha, applied after ApplyBox resolved the fill.
@@ -485,6 +810,37 @@ namespace StationeersUIMod.UI.Grid
         {
             if (_node == null) return;
             GridCollapseStore.ToggleCollapsed(_node.RefId);
+        }
+
+        /// <summary>The bag this region currently renders (null for the root / a recycled view).
+        /// Read by the drag-to-pin drop (a tab hit resolves its owning region, then this).</summary>
+        public DynamicThing BoundContainer
+        {
+            get { return _node != null ? _node.Container : null; }
+        }
+
+        /// <summary>The chip: open the themed profile-assign popup anchored under it. Config-state
+        /// only — selecting a row writes a <c>BagProfileStore</c> assignment; nothing moves.</summary>
+        private void OpenProfilePopup()
+        {
+            if (!GridProfileMode.Active || _node == null || _node.Container == null) return;
+            Vector3 p = _chipRt != null ? _chipRt.position : transform.position;   // overlay canvas: screen px
+            GridProfilePopup.Open(_node.Container, new Vector2(p.x, p.y));
+        }
+
+        /// <summary>The CAPTURE button: open the generalizing-capture confirm panel for this bag
+        /// (design O3b). Config-state only.</summary>
+        private void OpenCapturePanel()
+        {
+            if (!GridProfileMode.Active || _node == null || _node.Container == null) return;
+            GridCapturePanel.Open(_node.Container);
+        }
+
+        /// <summary>Is the O4b badge feature on? Fail-open (default true) around an unbound config.</summary>
+        private static bool ProfileBadgesOn()
+        {
+            try { return UIAConfig.GridProfileBadges == null || UIAConfig.GridProfileBadges.Value; }
+            catch { return true; }
         }
 
         /// <summary>Sort this region's container through the mutation funnel —
@@ -548,27 +904,42 @@ namespace StationeersUIMod.UI.Grid
             _styledW = -1f;
             _styledH = -1f;
             _styledDepth = -1;
+            _styledHint = false;
             _sortStyled = false;
             _sortable = false;
             if (_sortClick != null) _sortClick.Hover = false;
             if (_sortGo != null && _sortGo.activeSelf) _sortGo.SetActive(false);
+            // Profile-mode strip: hide + drop its style guards and any shared glass material.
+            _stripVisible = false;
+            _chipAssigned = false;
+            _chipPrefW = 0f;
+            _chipDrawW = 0f;
+            _stripStyled = false;
+            _stripStyledChipW = -1f;
+            if (_chipClick != null) _chipClick.Hover = false;
+            if (_capClick != null) _capClick.Hover = false;
+            if (_chipBg != null) HudFxMaterials.Unassign(_chipBg);
+            if (_capBg != null) HudFxMaterials.Unassign(_capBg);
+            if (_chipGo != null && _chipGo.activeSelf) _chipGo.SetActive(false);
+            if (_capGo != null && _capGo.activeSelf) _capGo.SetActive(false);
             if (gameObject.activeSelf) gameObject.SetActive(false);
         }
 
-        /// <summary>Left-click surface for the region's Sort control. Records hover so the next
-        /// <see cref="StyleRegion"/> promotes the accent, and forwards a LEFT click to
-        /// <see cref="DoSort"/>. Instance-scoped (Owner back-reference) — no statics, nothing to unhook
-        /// on teardown; the component dies with the panel's canvas on Shutdown.</summary>
+        /// <summary>Left-click surface for the region's small chrome controls (Sort, the profile
+        /// chip, CAPTURE). Records hover so the next <see cref="StyleRegion"/> promotes the accent,
+        /// and forwards a LEFT click to <see cref="Clicked"/> — a method group wired once at build
+        /// (no per-rebuild delegate churn). Instance-scoped — no statics, nothing to unhook on
+        /// teardown; the component dies with the panel's canvas on Shutdown.</summary>
         private sealed class RegionClickable : MonoBehaviour,
             IPointerClickHandler, IPointerEnterHandler, IPointerExitHandler
         {
-            public GridRegionView Owner;
+            public System.Action Clicked;
             public bool Hover;
 
             public void OnPointerClick(PointerEventData e)
             {
                 if (e == null || e.button != PointerEventData.InputButton.Left) return;
-                if (Owner != null) Owner.DoSort();
+                if (Clicked != null) Clicked();
             }
 
             public void OnPointerEnter(PointerEventData e) { Hover = true; }

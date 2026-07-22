@@ -236,6 +236,36 @@ namespace StationeersUIMod.Features
 
         // ---------- Option A ----------
 
+        /// <summary>#10 — COLOUR classification only. True when this slot is a real component
+        /// SOCKET (a functional part the parent device consumes), as opposed to a Tool/Belt/Ore/
+        /// None slot that merely HOLDS an item. Only sockets get the DeviceSlotBorderColor edge;
+        /// this is an explicit allow-list rather than a "not-None" test, because a tool-belt Tool
+        /// slot is typed yet is a holder — the old predicate painted every occupied tool wedge
+        /// bright blue. Does NOT affect the empty-slot Install swipe (:301) or Replace satellite
+        /// (:355), which keep the broader typed-slot gate on purpose.</summary>
+        private static bool IsComponentSocket(Slot slot)
+        {
+            if (slot == null) return false;
+            switch (slot.Type)
+            {
+                case Slot.Class.GasCanister:
+                case Slot.Class.GasFilter:
+                case Slot.Class.Battery:
+                case Slot.Class.Cartridge:
+                case Slot.Class.Motherboard:
+                case Slot.Class.Circuitboard:
+                case Slot.Class.DataDisk:
+                case Slot.Class.LiquidCanister:
+                case Slot.Class.DirtCanister:
+                case Slot.Class.SensorProcessingUnit:
+                case Slot.Class.Organ:
+                case Slot.Class.ProgrammableChip:
+                    return true;
+                default:
+                    return false;
+            }
+        }
+
         private static RadialEntry BuildSlotEntryA(Slot slot)
         {
             DynamicThing occ = slot.Get();
@@ -257,10 +287,12 @@ namespace StationeersUIMod.Features
                 Icon = occ.GetThumbnail(),
                 DragSource = source,
                 Tag = slot,
-                // A TYPED slot (propellant canister, battery, filter, cartridge…) is a device's
-                // functional slot, not generic storage — its occupant is "in use by the device",
-                // so the wedge wears the DeviceSlotBorderColor edge. Generic (None) storage stays plain.
-                DeviceSlotStyle = slot.Type != Slot.Class.None || slot.SpecificTypePrefabHash != -1,
+                // A real component SOCKET (propellant canister, battery, filter, cartridge…) is a
+                // device's functional slot, not generic storage — its occupant is "in use by the
+                // device", so the wedge wears the DeviceSlotBorderColor edge. #10: this is an
+                // ALLOW-LIST of socket classes, NOT a "not-None" test — a tool-belt Tool slot is
+                // typed but is a holder, not a socket, and must keep the plain wedge border.
+                DeviceSlotStyle = IsComponentSocket(slot),
             };
 
             if (LooksLikeContainer(occ))
@@ -283,6 +315,21 @@ namespace StationeersUIMod.Features
                 // TAKE / REPLACE (+ its settings). A stack instead swipes to its split choices.
                 entry.SlideOutProvider = () => BuildComponentSatellite(thing, source);
                 entry.SlideOutLabel = IsPlainStack(occ) ? "Split" : "Options";
+                // Accept a DROP that SWAPS. An occupied component slot (a suit's battery, a tank's
+                // canister…) used to be a drag SOURCE only, so dragging a replacement from the hand
+                // ONTO it did nothing — while the reverse (slot -> hand) worked, because the hand box
+                // is a drop zone. Return this slot when the dragged item's live source slot may swap
+                // in; the radial's drop handler then calls SwapIntoSlot, whose occupied branch runs
+                // OnServer.SwapSlots (this exact AllowSwap re-checked at execute time — MP-safe). A
+                // matching stack merges first (TryStackMerge), and an incompatible item resolves to
+                // null here, so the wedge only lights green for a real swap. Not on the container
+                // branch above: a bag takes drops by NESTING them (FirstFreeSlot), not swapping.
+                entry.DropResolver = dragged =>
+                {
+                    if (dragged == null || slot == null) return null;
+                    Slot from = dragged.ParentSlot;
+                    return from != null && Slot.AllowSwap(from, slot) ? slot : null;
+                };
             }
             return entry;
         }

@@ -44,7 +44,7 @@ namespace StationeersUIMod.UI.Menu.Tabs
                 BindRow(col, b);
 
             UiaControls.Header(col, "Chorded actions (fixed)");
-            InfoRow(col, "Swap toolbelt / backpack (wheel open)", "Ctrl tap");
+            InfoRow(col, "Swap toolbelt / backpack (wheel open)", "Tab");
             InfoRow(col, "Open a bound bag", "Ctrl + 1 - 0");
             InfoRow(col, "Bind hovered bag to a number", "1 - 0");
             InfoRow(col, "Fine value adjust while scrolling", UiaKeybinds.Glyph("UIA_FineAdjust"));

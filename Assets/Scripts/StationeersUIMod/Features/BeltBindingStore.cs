@@ -57,6 +57,9 @@ namespace StationeersUIMod.Features
         private static readonly Dictionary<long, BeltTable> _belts = new Dictionary<long, BeltTable>();
         // prefabHash -> display label (a type's name is constant; cache to avoid per-frame alloc)
         private static readonly Dictionary<int, string> _labelByType = new Dictionary<int, string>();
+        // scratch reused by RecordPlacement to vacate a moved tool's old home without per-call
+        // alloc (cleared before every use — carries no state across calls or reloads).
+        private static readonly List<int> _vacateScratch = new List<int>();
         private static string _loadedSaveKey;
 
         private static string BeltBindingsDir => Path.Combine(BagProfileStore.ConfigDir, "BeltBindings");
@@ -204,6 +207,13 @@ namespace StationeersUIMod.Features
             int existing;
             if (table.SlotToType.TryGetValue(slotIndex, out existing) && existing == type)
                 return; // already bound to this type — no churn
+            // One home per tool TYPE (#9): if this type was bound to any OTHER slot on this belt,
+            // vacate that old slot first, so a tool that moves to a new wedge stops ghosting on the
+            // wedge it left (otherwise the frozen binding kept the grey label on the empty old slot).
+            _vacateScratch.Clear();
+            foreach (var kv in table.SlotToType)
+                if (kv.Key != slotIndex && kv.Value == type) _vacateScratch.Add(kv.Key);
+            for (int i = 0; i < _vacateScratch.Count; i++) table.SlotToType.Remove(_vacateScratch[i]);
             table.SlotToType[slotIndex] = type;
             Save();
         }
@@ -229,6 +239,7 @@ namespace StationeersUIMod.Features
         {
             _belts.Clear();
             _labelByType.Clear();
+            _vacateScratch.Clear();
             _loadedSaveKey = null;
         }
 

@@ -35,27 +35,47 @@ namespace StationeersUIMod.Dev
 
         private void Awake()
         {
-            // MUST run before anything touches the StationeersUIMod type, because its static
-            // `readonly Mod MOD = new Mod(...)` initializer calls LaunchPadBooster's Mod ctor,
-            // which does ModsByHash.Add(hash, this) — a Dictionary.Add that THROWS on a
-            // duplicate key. LaunchPadBooster.dll is never reloaded, so its registry survives
-            // every hot reload while our assembly is recreated. Without this prune, the second
-            // F6 would die in a TypeInitializationException.
-            PruneBoosterRegistry();
-
-            if (StationeersUIMod.Instance != null)
+            // The WHOLE body is guarded. On the very first ScriptEngine load (LoadOnStart=true) this
+            // Awake can run on the boot frame, before the game scene / singletons exist — and if any
+            // step throws there, an unguarded Awake would surface as ScriptEngine's opaque "Failed to
+            // load plugin" NRE and could leave a half-added StationeersUIMod component receiving
+            // Update / OnDestroy against half-initialized state. Fail soft instead: log, tidy up, stay
+            // inert. (Root-cause fix: set LoadOnStart=false in the ScriptEngine cfg so the mod loads on
+            // the first post-boot F6/watcher pass instead of the boot frame; this is belt-and-braces.)
+            StationeersUIMod added = null;
+            try
             {
-                Logger.LogWarning("StationeersUIMod already loaded (probably by StationeersLaunchPad). " +
-                                  "Dev loader staying inert — remove the mod from the SLP mods folder to hot-reload it.");
-                return;
+                // MUST run before anything touches the StationeersUIMod type, because its static
+                // `readonly Mod MOD = new Mod(...)` initializer calls LaunchPadBooster's Mod ctor,
+                // which does ModsByHash.Add(hash, this) — a Dictionary.Add that THROWS on a
+                // duplicate key. LaunchPadBooster.dll is never reloaded, so its registry survives
+                // every hot reload while our assembly is recreated. Without this prune, the second
+                // F6 would die in a TypeInitializationException.
+                PruneBoosterRegistry();
+
+                if (StationeersUIMod.Instance != null)
+                {
+                    Logger.LogWarning("StationeersUIMod already loaded (probably by StationeersLaunchPad). " +
+                                      "Dev loader staying inert — remove the mod from the SLP mods folder to hot-reload it.");
+                    return;
+                }
+
+                Core.UIALog.Init(Logger);
+
+                added = gameObject.AddComponent<StationeersUIMod>();
+                added.OnLoaded(new List<GameObject>(), Config);
+
+                Logger.LogInfo($"ScriptEngine dev loader started StationeersUIMod v{StationeersUIMod.VersionDisplay}. Press F6 to hot-reload.");
             }
-
-            Core.UIALog.Init(Logger);
-
-            var mod = gameObject.AddComponent<StationeersUIMod>();
-            mod.OnLoaded(new List<GameObject>(), Config);
-
-            Logger.LogInfo($"ScriptEngine dev loader started StationeersUIMod v{StationeersUIMod.VersionDisplay}. Press F6 to hot-reload.");
+            catch (System.Exception e)
+            {
+                Logger.LogError("ScriptEngine dev loader Awake failed; staying inert. " + e);
+                // Never leave a half-added component behind — it would tick Update / OnDestroy against
+                // half-initialized state. StationeersUIMod.OnLoaded already self-guards its own body, so
+                // reaching here means a Unity-level failure (e.g. AddComponent on the boot frame).
+                try { if (added != null) Destroy(added); }
+                catch { }
+            }
         }
 
         /// <summary>

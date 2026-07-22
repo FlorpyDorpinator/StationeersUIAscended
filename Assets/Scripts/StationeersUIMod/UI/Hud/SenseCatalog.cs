@@ -6,7 +6,9 @@ namespace StationeersUIMod.UI.Hud
     /// <see cref="HudSnapshot"/> (never from the live Human) — see <see cref="SenseCatalog.Driver"/>.</summary>
     internal enum SenseDriver
     {
-        FeltTempC, OxygenQuality, BreathKPa, Toxins, WaterRatio, FoodRatio, Damage, Sanitation01
+        FeltTempC, OxygenQuality, BreathKPa, Toxins, WaterRatio, FoodRatio, Damage, Sanitation01,
+        // 0.9.1 additional moodlet drivers (all read from MP-safe snapshot fields).
+        HygieneRaw, Mood01, Stun01, GForce, Soiled
     }
 
     /// <summary>Which way the driver crosses the threshold to trigger a band. High = a large value
@@ -40,14 +42,19 @@ namespace StationeersUIMod.UI.Hud
         /// legitimately SHOW the same word from different drivers (CHOKING from no pressure vs no
         /// oxygen) so the author can tell the two trigger rows apart.</summary>
         public readonly string EditorLabel;
+        /// <summary>Optional DEFAULT colour for this band as a palette-name-or-<c>#RRGGBBAA</c> ref.
+        /// Null = fall back to the severity default (Critical -> red, else the element's word colour).
+        /// Lets a positive/neutral moodlet (FRESH, WEIGHTLESS) carry its own hue without the author
+        /// setting it. The author's per-band <c>c_</c> override still wins over this.</summary>
+        public readonly string ColorRef;
 
         public SenseBand(string id, string word, SenseDriver drv, BandSide side, float th,
             SenseSev sev, float thMin, float thMax, string unit, string robotWord = null,
-            string editorLabel = null)
+            string editorLabel = null, string colorRef = null)
         {
             Id = id; Word = word; Driver = drv; Side = side; Threshold = th; Sev = sev;
             ThMin = thMin; ThMax = thMax; Unit = unit; RobotWord = robotWord;
-            EditorLabel = editorLabel ?? word;
+            EditorLabel = editorLabel ?? word; ColorRef = colorRef;
         }
     }
 
@@ -85,7 +92,8 @@ namespace StationeersUIMod.UI.Hud
     internal static class SenseCatalog
     {
         // INDEX-ALIGNED with BareSensesWidget.SenseKeys: temp, air, pressure, thirst, hunger,
-        // health, cognition, toilet. Keep the two in lockstep.
+        // health, cognition, toilet, mood, clean, soiled, stun, gforce. Keep the two in lockstep
+        // (SenseKeys + SlotOptions must gain a matching entry at the SAME index for every sense here).
         public static readonly SenseInfo[] Senses =
         {
             new SenseInfo("temp", "Temperature", true, false, new[]
@@ -147,6 +155,43 @@ namespace StationeersUIMod.UI.Hud
                 new SenseBand("desperate", "DESPERATE",  SenseDriver.Sanitation01, BandSide.High, 0.75f, SenseSev.Critical, 0f, 1f, "frac"),
                 new SenseBand("needtogo",  "NEED TO GO", SenseDriver.Sanitation01, BandSide.High, 0.45f, SenseSev.Warn,     0f, 1f, "frac"),
             }),
+
+            // ---- 0.9.1 additional bare-relevant moodlets (auto-surface #8). Every driver is
+            // client-safe: Mood + Hygiene are networked; Soiled + G-force are computed locally on
+            // each client; Stun is best-effort off DamageState (like the health sense's Damage).
+            // Suit-only moodlets (air tank, filter, coolant, waste, power, leak, internals, jetpack)
+            // are deliberately NOT here — they can never fire on a bare (suitless) wearer. ----
+            new SenseInfo("mood", "Mood", false, false, new[]
+            {
+                new SenseBand("miserable", "MISERABLE", SenseDriver.Mood01, BandSide.Low, 0.15f, SenseSev.Critical, 0f, 1f, "frac"),
+                new SenseBand("uneasy",    "UNEASY",    SenseDriver.Mood01, BandSide.Low, 0.5f,  SenseSev.Warn,     0f, 1f, "frac", colorRef: "#C89050"),
+            }),
+            // "Clean" is a POSITIVE sense: a word appears when hygiene is HIGH (just showered), with a
+            // dirty warning at the low end. Hygiene tops out at 1.5 (= 150%, the PRISTINE band), read
+            // from the UNCLAMPED HygieneRaw driver so the 1.0..1.5 range is reachable. A sound fires on
+            // the 150% edge (see BareSensesWidget.TickCleanSound). Client-safe (networked hygiene).
+            new SenseInfo("clean", "Clean", false, false, new[]
+            {
+                new SenseBand("pristine", "PRISTINE", SenseDriver.HygieneRaw, BandSide.High, 1.5f,  SenseSev.Notice, 0f, 1.5f, "frac", colorRef: "#7CE0C0"),
+                new SenseBand("fresh",    "FRESH",    SenseDriver.HygieneRaw, BandSide.High, 1.0f,  SenseSev.Notice, 0f, 1.5f, "frac", colorRef: "#7CE0C0"),
+                new SenseBand("grimy",    "GRIMY",    SenseDriver.HygieneRaw, BandSide.Low,  0.25f, SenseSev.Warn,   0f, 1.5f, "frac", colorRef: "#A89050"),
+            }),
+            new SenseInfo("soiled", "Soiled", false, false, new[]
+            {
+                new SenseBand("soiled", "SOILED", SenseDriver.Soiled, BandSide.High, 0.5f, SenseSev.Warn, 0f, 1f, "on/off", colorRef: "#9C7A48"),
+            }),
+            new SenseInfo("stun", "Stun", false, false, new[]
+            {
+                new SenseBand("stunned", "STUNNED", SenseDriver.Stun01, BandSide.High, 0.75f, SenseSev.Critical, 0f, 1f, "frac"),
+                new SenseBand("reeling", "REELING", SenseDriver.Stun01, BandSide.High, 0.05f, SenseSev.Warn,     0f, 1f, "frac", colorRef: "#B080E0"),
+            }),
+            // G-force is bidirectional: high = crushing acceleration, low = weightless. GForce ~1 at 1g.
+            new SenseInfo("gforce", "G-Force", false, false, new[]
+            {
+                new SenseBand("crushing", "CRUSHING G", SenseDriver.GForce, BandSide.High, 4f,    SenseSev.Critical, 0f, 6f, "g"),
+                new SenseBand("heavy",    "HEAVY G",    SenseDriver.GForce, BandSide.High, 1.5f,  SenseSev.Warn,     0f, 6f, "g", colorRef: "#E08850"),
+                new SenseBand("zerog",    "WEIGHTLESS", SenseDriver.GForce, BandSide.Low,  0.01f, SenseSev.Notice,   0f, 6f, "g", colorRef: "#88C0FF"),
+            }),
         };
 
         public static float Driver(HudSnapshot s, SenseDriver d)
@@ -162,6 +207,11 @@ namespace StationeersUIMod.UI.Hud
                 case SenseDriver.FoodRatio: return s.FoodRatio;
                 case SenseDriver.Damage: return s.Damage;
                 case SenseDriver.Sanitation01: return s.Sanitation01;
+                case SenseDriver.HygieneRaw: return s.HygieneRaw;
+                case SenseDriver.Mood01: return s.Mood01;
+                case SenseDriver.Stun01: return s.Stun01;
+                case SenseDriver.GForce: return s.GForce;
+                case SenseDriver.Soiled: return s.Soiled ? 1f : 0f;
                 default: return 0f;
             }
         }

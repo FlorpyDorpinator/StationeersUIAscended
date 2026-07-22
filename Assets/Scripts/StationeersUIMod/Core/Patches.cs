@@ -212,6 +212,33 @@ namespace StationeersUIMod.Core
         }
     }
 
+    /// <summary>Jetpack half of the radial pass-through (#9). The jetpack toggle lives in
+    /// MovementController.MovementHandler: the ENABLE arm (Animation -> Jetpack, in SetMovementMode)
+    /// only wants InventoryManager.AllowMouseControl — already forced by <see cref="RadialMovement"/> —
+    /// but the DISABLE arm (the switch's Jetpack / JetpackGravity cases, decompile :458 / :502) is
+    /// gated on <c>!Cursor.visible</c>. With a radial open the cursor is freed, so you could start the
+    /// jetpack but never stop it. Mirror the HandleJump fix: for exactly the synchronous duration of
+    /// MovementHandler, while the pass-through is Active, report the cursor as hidden. The only
+    /// Cursor.visible reads inside are jetpack-related (the toggle + HandleJetpack physics), which we
+    /// WANT to behave as normal hidden-cursor flight; vanilla's key polling runs in
+    /// KeyManager.ManagerUpdate, not inside physics, so nothing else observes the swap. Restored in a
+    /// Finalizer so an exception mid-body can't strand the cursor hidden.</summary>
+    [HarmonyPatch(typeof(Assets.Scripts.MovementController), "MovementHandler")]
+    internal static class Patch_MovementController_MovementHandler
+    {
+        private static void Prefix(out bool __state)
+        {
+            __state = false;
+            if (!RadialMovement.Active) return;
+            if (UnityEngine.Cursor.visible) { UnityEngine.Cursor.visible = false; __state = true; }
+        }
+
+        private static void Finalizer(bool __state)
+        {
+            if (__state) UnityEngine.Cursor.visible = true;
+        }
+    }
+
     /// <summary>
     /// While the HUD hides the vanilla instrument cluster, vanilla's own per-frame
     /// re-show of the jetpack box (PlayerStateWindow.UpdateJetpackPanels, 27701

@@ -2,6 +2,39 @@
 
 All notable changes to the mod. Detailed engineering write-ups live in `Changes Reports/`.
 
+## 0.9.1.1 Experimental — 2026-07-22 — STABILITY, DRAG POLISH + SIZE KNOBS
+
+A play-test → fix round on top of 0.9.1.0. Engineering detail in
+`Changes Reports/2026-07-22 - Bug-fix and polish round (...).md`.
+
+### Fixed
+- **Cursor freeze / OS-wide lag from hot-reload accumulation.** `OnDestroy` early-returned
+  (`Instance != this`) on a reload, leaking canvases and leaving all 17 Harmony patches applied;
+  each F6 stacked another set → FPS collapse. Teardown is now unconditional + idempotent; added a
+  per-frame exception circuit breaker; `LoadOnStart=false` moves load off the boot frame (dev-only
+  accumulation; a normal install never reloads).
+- **Radial cursor flicker.** (a) one-frame open hitch → `MouseModeController.Check()` in
+  `ModalScope.Open`. (b) world-hover-highlight flicker on move-to-wedge → the grid/pinned
+  cursor-block updaters now yield to an open radial (single owner, no per-frame toggle).
+- **Drag bridge.** Decoupled world-drop + box-grab from the HUD drop-zone availability gate
+  (`ZoneAt` now uses alpha-free `CollectBoxGeometry`; `ZonesAvailable` kept only for the inbound
+  false-drop guard). Fixed pinned-bag drag-out gating on the main window's interactive state.
+- **Drag/menu canvas layering.** Dragged item always renders on top (new `DragGhostLayer`, order
+  5250, incl. a mirror for the vanilla world ghost); pinned windows accept drops (added the
+  `VanillaWorldDragLive()` cursor-block exception + raycasters forced on during any drag);
+  inventory + pinned windows hide under vanilla blocking menus (ESC/pause, IC10 editor,
+  Stationpedia) via `Guards.VanillaMenuWantsFront()` + an MP-client fix (`InventoryManager.InGameMenuOpen`).
+- **Smart Stow into consumable containers.** Water-bottle bag / cereal box / burger-egg box /
+  starter supplies package are no longer stow targets nor grid storage regions (one shared
+  class-based `IsRealStorage` predicate; ore/mining bags verified safe).
+- **Yellow pinned windows** — the nested canvas from the pin's raycaster now gets the SDF shader
+  channels.
+
+### Changed / added
+- **Head-look-during-radial removed** (unreliable; cursor is now unconditionally free in radials).
+- **F9 Sizes knobs added:** manila tab icon, sort button, close/X (chrome) button, and pinned
+  window title icon + title text — all live-relayout wired.
+
 ## 0.9.1.0 Experimental — 2026-07-20 — THE UNIVERSAL INVENTORY + THE BELT WHEEL
 
 The inventory half of the redesign lands: one window for everything you carry, bags you can pin out

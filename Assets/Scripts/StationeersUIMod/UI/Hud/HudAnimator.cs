@@ -161,8 +161,12 @@ namespace StationeersUIMod.UI.Hud
                 f.Timer = 0f;
                 f.Delay = mirror ? BootStaggerStep * i++ : 0f;
                 f.DyingPower = true;
-                f.DyingCollapse = collapse;
-                f.DyingTvOff = tvOff;
+                // Gate on the element's RESOLVED strength as well as the global master. Setting
+                // these from the master alone meant an element whose tri-state said Off still took
+                // the longer PowerDeathDur and the CapAlpha clamp — it played no squash, but it
+                // still left on the death timing, so opting out only half worked.
+                f.DyingCollapse = collapse && f.CollapseAmt > 0.001f;
+                f.DyingTvOff = tvOff && f.TvOffAmt > 0.001f;
                 f.SlowFadeIn = false;
                 // A panel still mid-boot (alpha near 0) collapses from where it IS —
                 // never a full-brightness flash on its way out.

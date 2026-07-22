@@ -76,9 +76,12 @@ namespace StationeersUIMod.UI.Grid
             /// <summary>A move is in flight / this cell is the hovered drop target of a live
             /// drag — the transient "something is about to land here" cue.</summary>
             Pending,
-            /// <summary>The local player's ACTIVE hand — a persistent, always-on identity cue, so
-            /// it carries the heaviest line of the four.</summary>
-            ActiveHand
+            /// <summary>The local player's ACTIVE hand — a persistent, always-on identity cue.</summary>
+            ActiveHand,
+            /// <summary>The keyboard/scroll-select CURSOR (#4) is on this cell — the heaviest,
+            /// most prominent line of all, so the wheel cursor reads at a glance over hover and
+            /// even the active-hand accent.</summary>
+            Selected
         }
 
         public static ConfigEntry<bool> Follow;
@@ -93,6 +96,45 @@ namespace StationeersUIMod.UI.Grid
         public static ConfigEntry<float> CornerRadiusOv;
         public static ConfigEntry<float> SheenOv;
         public static ConfigEntry<float> SpecOv;
+
+        // --- The FULL override block. Same -1 = inherit convention throughout; the tri-state
+        // modes are 0 = Inherit / 1 = On / 2 = Off (an int, because a bool cannot carry
+        // "inherit" — the element popup's transition tri-state pattern). Every knob is inert
+        // while Following AND at its sentinel, so the default state stays byte-identical to a
+        // follow-global HUD box. Amount overrides >= 0 replace their global toggle+amount PAIR
+        // (0 = force off), so one slider covers both without a second checkbox.
+        public static ConfigEntry<float> BorderWidthOv;
+        public static ConfigEntry<float> FeatherOv;
+        public static ConfigEntry<float> SquircleOv;
+        public static ConfigEntry<int> GaussianMode;
+        public static ConfigEntry<float> BorderFadeOv;
+        public static ConfigEntry<float> SoftEdgeOv;
+
+        public static ConfigEntry<int> GlowMode;
+        public static ConfigEntry<float> GlowOv;
+        public static ConfigEntry<float> GlowInnerOv;
+        public static ConfigEntry<float> GlowHazeOv;
+        public static ConfigEntry<float> GlowWidthOv;
+        public static ConfigEntry<float> GlowDiffuseOv;
+        public static ConfigEntry<float> GlowExtraDiffuseOv;
+
+        public static ConfigEntry<int> RippleMode;
+        public static ConfigEntry<float> RippleOv;
+        public static ConfigEntry<float> RippleFreqOv;
+        public static ConfigEntry<float> RippleSmoothOv;
+        public static ConfigEntry<float> FlowOv;
+
+        public static ConfigEntry<bool> FrostOn;
+        public static ConfigEntry<float> FrostOv;
+        public static ConfigEntry<float> FrostDepthOv;
+
+        public static ConfigEntry<float> ShineOv;
+        public static ConfigEntry<float> IridOv;
+        public static ConfigEntry<float> ChromaOv;
+
+        /// <summary>Tri-state combo captions. A readonly literal, so an F6 reload re-initialises
+        /// it with the class — no Unity state, nothing to tear down.</summary>
+        private static readonly string[] InheritOnOff = { "Inherit", "On", "Off" };
 
         public static void Bind(ConfigFile cfg)
         {
@@ -123,6 +165,105 @@ namespace StationeersUIMod.UI.Grid
                 new ConfigDescription("Glass edge light (the bright rim highlight) on the " +
                     "window. -1 = follow the global HUD GlassEdge.",
                     new AcceptableValueRange<float>(-1f, 1f)));
+
+            BorderWidthOv = cfg.Bind(Section, "GridBorderWidth", -1f,
+                new ConfigDescription("Outline thickness (px) when NOT following the HUD " +
+                    "theme. -1 = follow the global HUD BorderWidth.",
+                    new AcceptableValueRange<float>(-1f, 6f)));
+            FeatherOv = cfg.Bind(Section, "GridEdgeFeather", -1f,
+                new ConfigDescription("Edge softness / AA (px). -1 = follow the global HUD " +
+                    "EdgeFeather.", new AcceptableValueRange<float>(-1f, 4f)));
+            SquircleOv = cfg.Bind(Section, "GridSquircle", -1f,
+                new ConfigDescription("Corner shape on the analytic SDF window shells (2 = " +
+                    "round, 8 = squircle). Anything below 2 (including -1) = follow the global " +
+                    "SdfSquircleExponent — 2 is the roundest renderable shape, so the whole " +
+                    "sub-2 band is the inherit sentinel, matching the per-element squircle " +
+                    "contract (HudElementView.SdfSquircleFor).",
+                    new AcceptableValueRange<float>(-1f, 8f)));
+            GaussianMode = cfg.Bind(Section, "GridGaussianHalo", 0,
+                new ConfigDescription("Gaussian distance falloff on the analytic SDF window " +
+                    "shells' halo (not a blur convolution). 0 = inherit the global " +
+                    "SdfGaussianHalo toggle, 1 = force on, 2 = force off.",
+                    new AcceptableValueRange<int>(0, 2)));
+            BorderFadeOv = cfg.Bind(Section, "GridBorderFade", -1f,
+                new ConfigDescription("Border fade (unlit sections dissolve). 0 = force off, " +
+                    "-1 = follow the global toggle + amount.",
+                    new AcceptableValueRange<float>(-1f, 1f)));
+            SoftEdgeOv = cfg.Bind(Section, "GridSoftEdge", -1f,
+                new ConfigDescription("Soft edge width (px). 0 = force off, -1 = follow the " +
+                    "global toggle + amount.", new AcceptableValueRange<float>(-1f, 48f)));
+
+            GlowMode = cfg.Bind(Section, "GridGlowMode", 0,
+                new ConfigDescription("Glow halo on the window shells. 0 = inherit the global " +
+                    "Glow halo toggle, 1 = force on, 2 = force off. The Tier A master still " +
+                    "gates.", new AcceptableValueRange<int>(0, 2)));
+            GlowOv = cfg.Bind(Section, "GridGlowStrength", -1f,
+                new ConfigDescription("Glow halo outward strength. -1 = follow the global.",
+                    new AcceptableValueRange<float>(-1f, 2f)));
+            GlowInnerOv = cfg.Bind(Section, "GridGlowInner", -1f,
+                new ConfigDescription("Glow halo inward strength. -1 = follow the global.",
+                    new AcceptableValueRange<float>(-1f, 2f)));
+            GlowHazeOv = cfg.Bind(Section, "GridGlowHaze", -1f,
+                new ConfigDescription("Extended atmospheric haze (analytic SDF shells only). " +
+                    "-1 = follow the global.", new AcceptableValueRange<float>(-1f, 1f)));
+            GlowWidthOv = cfg.Bind(Section, "GridGlowWidth", -1f,
+                new ConfigDescription("Halo / aura radius (px). -1 = follow the global.",
+                    new AcceptableValueRange<float>(-1f, 320f)));
+            GlowDiffuseOv = cfg.Bind(Section, "GridGlowDiffuse", -1f,
+                new ConfigDescription("Halo spread (tight rim to diffuse). -1 = follow the " +
+                    "global.", new AcceptableValueRange<float>(-1f, 1f)));
+            GlowExtraDiffuseOv = cfg.Bind(Section, "GridGlowExtraDiffuse", -1f,
+                new ConfigDescription("Halo extra diffuse (beyond max spread). -1 = follow " +
+                    "the global.", new AcceptableValueRange<float>(-1f, 1f)));
+
+            RippleMode = cfg.Bind(Section, "GridEdgeEnergyMode", 0,
+                new ConfigDescription("Edge energy (the irregular border ripple). 0 = inherit " +
+                    "the global Edge energy toggle, 1 = force on, 2 = force off. The Tier A " +
+                    "master still gates; light angle/colour stay global.",
+                    new AcceptableValueRange<int>(0, 2)));
+            RippleOv = cfg.Bind(Section, "GridEdgeRipple", -1f,
+                new ConfigDescription("Irregular edge energy amount. -1 = follow the global.",
+                    new AcceptableValueRange<float>(-1f, 2.5f)));
+            RippleFreqOv = cfg.Bind(Section, "GridEdgeRippleFreq", -1f,
+                new ConfigDescription("Edge energy frequency. -1 = follow the global.",
+                    new AcceptableValueRange<float>(-1f, 8f)));
+            RippleSmoothOv = cfg.Bind(Section, "GridRippleSmooth", -1f,
+                new ConfigDescription("Edge energy smoothness (the global path forces the " +
+                    "hard, un-smoothed ripple). -1 = follow the global (0).",
+                    new AcceptableValueRange<float>(-1f, 1f)));
+            FlowOv = cfg.Bind(Section, "GridEdgeFlowSpeed", -1f,
+                new ConfigDescription("Edge flow speed (analytic SDF shells; mesh surfaces " +
+                    "follow the shared global clock). -1 = follow the global.",
+                    new AcceptableValueRange<float>(-1f, 4f)));
+
+            FrostOn = cfg.Bind(Section, "GridFrostOn", true,
+                "The window shells take the Tier C frosted backdrop (when the global master " +
+                "and the backdrop capture are live). Off = the Grid opts out of frost.");
+            FrostOv = cfg.Bind(Section, "GridFrostStrength", -1f,
+                new ConfigDescription("Frost strength (analytic SDF shells; the mesh " +
+                    "fallback's frost strength is a shared global). -1 = follow the global.",
+                    new AcceptableValueRange<float>(-1f, 1f)));
+            FrostDepthOv = cfg.Bind(Section, "GridFrostDepth", -1f,
+                new ConfigDescription("Frost blur depth (analytic SDF shells). -1 = follow " +
+                    "the global.", new AcceptableValueRange<float>(-1f, 1f)));
+
+            ShineOv = cfg.Bind(Section, "GridShine", -1f,
+                new ConfigDescription("Shine sweep strength (analytic SDF shells). 0 = force " +
+                    "off, -1 = follow the global toggle + strength.",
+                    new AcceptableValueRange<float>(-1f, 2f)));
+            IridOv = cfg.Bind(Section, "GridIridescence", -1f,
+                new ConfigDescription("Iridescent rim strength (analytic SDF shells). 0 = " +
+                    "force off, -1 = follow the global toggle + strength.",
+                    new AcceptableValueRange<float>(-1f, 1f)));
+            ChromaOv = cfg.Bind(Section, "GridChroma", -1f,
+                new ConfigDescription("Chromatic fringe strength (analytic SDF shells; needs " +
+                    "live frost). 0 = force off, -1 = follow the global toggle + strength.",
+                    new AcceptableValueRange<float>(-1f, 1f)));
+
+            // The cached F9 popup descriptor lists close over ConfigEntry references from THIS
+            // Bind — drop them so a re-Bind can never serve closures over stale entries.
+            _propsFollow = null;
+            _propsOverride = null;
         }
 
         public static bool Following { get { return Follow == null || Follow.Value; } }
@@ -194,11 +335,20 @@ namespace StationeersUIMod.UI.Grid
             get { return Flt(SpecOv, HudConfig.GlassEdge, 0f); }
         }
 
-        /// <summary>Outline thickness. Always the global — the Grid exposes no override for it
-        /// (one fewer knob; the border COLOUR is the expressive one).</summary>
+        /// <summary>Outline thickness: the -1-sentinel override when NOT following, else the
+        /// global <c>HudConfig.BorderWidth</c>. Every surface's width is a SCALE on this.</summary>
         public static float BorderWidth
         {
-            get { return HudConfig.BorderWidth != null ? HudConfig.BorderWidth.Value : 1.4f; }
+            get { return Flt(BorderWidthOv, HudConfig.BorderWidth, 1.4f); }
+        }
+
+        /// <summary>Whether the window shells opt into the Tier C frosted backdrop. A plain bool
+        /// rather than a tri-state: a shell already always WANTS frost while following, so
+        /// "inherit" and "on" would be the same state — the only meaningful override is opting
+        /// out. The global Tier C master and a live backdrop capture still gate.</summary>
+        public static bool FrostParticipates
+        {
+            get { return Following || FrostOn == null || FrostOn.Value; }
         }
 
         private static float Flt(ConfigEntry<float> ov, ConfigEntry<float> global, float hard)
@@ -206,6 +356,42 @@ namespace StationeersUIMod.UI.Grid
             float g = global != null ? global.Value : hard;
             if (Following || ov == null || ov.Value < 0f) return g;
             return ov.Value;
+        }
+
+        /// <summary>Resolve a 0/1/2 Inherit/On/Off tri-state against its global toggle. Inert
+        /// (the global) while Following, like every other override.</summary>
+        private static bool ModeOn(ConfigEntry<int> mode, ConfigEntry<bool> global)
+        {
+            bool g = global != null && global.Value;
+            if (Following || mode == null) return g;
+            if (mode.Value == 1) return true;
+            if (mode.Value == 2) return false;
+            return g;
+        }
+
+        /// <summary>Resolve a strength the GLOBAL side expresses as a toggle + an amount. An
+        /// override >= 0 replaces BOTH (0 = force off, so one slider covers the pair); -1 (or
+        /// Following) resolves the global's toggle-gated amount.</summary>
+        private static float GatedAmt(ConfigEntry<float> ov, ConfigEntry<bool> gOn,
+            ConfigEntry<float> gAmt, float hard)
+        {
+            if (!Following && ov != null && ov.Value >= 0f) return ov.Value;
+            if (gOn == null || !gOn.Value) return 0f;
+            return gAmt != null ? gAmt.Value : hard;
+        }
+
+        /// <summary>The Tier-A edge-light spec boost (the same +FxEdgeLight*0.45 a following HUD
+        /// box gets from <see cref="HudGlobalGlass.Apply"/>), gated on the RESOLVED edge-energy
+        /// tri-state rather than the raw global toggle: forcing 'Edge energy' Off in the Grid
+        /// popup removes the rim brightening along with the ripple, so a 'Glass edge light'
+        /// override of 0 really renders a flat border. While Following, <see cref="ModeOn"/>
+        /// collapses to the global toggle and the boost is byte-identical to Apply's.</summary>
+        private static float EdgeLightBoost()
+        {
+            bool tierA = HudConfig.FxTierA != null && HudConfig.FxTierA.Value;
+            if (!tierA || !ModeOn(RippleMode, HudConfig.FxEdgeLightOn)) return 0f;
+            float s = HudConfig.FxEdgeLight != null ? HudConfig.FxEdgeLight.Value : 0f;
+            return s > 0f ? s * 0.45f : 0f;
         }
 
         /// <summary>The hover/active line is a DELTA on whatever the theme resolved, never an
@@ -252,6 +438,7 @@ namespace StationeersUIMod.UI.Grid
         {
             switch (s)
             {
+                case CellState.Selected: return 1.9f;   // the keyboard cursor: the heaviest line
                 case CellState.ActiveHand: return 1.6f;
                 case CellState.Pending: return 1.35f;
                 case CellState.Hover: return 1.25f;
@@ -268,6 +455,7 @@ namespace StationeersUIMod.UI.Grid
                 case CellState.ActiveHand:
                     return HudPalette.ActiveHandAccent != null
                         ? HudPalette.ActiveHandAccent.Value : Accent;
+                case CellState.Selected:
                 case CellState.Pending:
                 case CellState.Hover:
                     return Accent;
@@ -396,21 +584,290 @@ namespace StationeersUIMod.UI.Grid
             // and fall through to the edge-fx material when it is not.
             if (HudFxMaterials.Available)
             {
-                HudGlobalGlass.Apply(bg, includeGlow: shell, wantFrost: shell, wantTierB: true);
+                // --- the analytic SDF panel path ------------------------------------------------
+                // The WINDOW shells ride the same fragment-space SDF renderer the HUD boxes use,
+                // whenever the HUD does (SdfPanels + a loaded ABI-2 bundle): the shell is the big,
+                // gradient-filled, glow-carrying surface where the mesh fan's sparse columns paint
+                // the corner/edge creases the play-tests keep finding. Interior surfaces (regions,
+                // cells, sort/chrome buttons, tabs) deliberately STAY on the mesh path for now:
+                // they live inside the scroll RectMask2D, and while the sdfglass shader implements
+                // the _ClipRect path, it has never rendered under a mask in-game — do not gamble
+                // the scroll view on it. Assign runs FIRST (HudElementView.ApplyFx's fail-soft
+                // invariant: an SDF parameter mesh under a non-SDF material draws as a solid
+                // grid), and Apply is told to leave the material slot alone on success so the two
+                // never reassign the slot against each other per frame (a per-frame rebatch).
+                //
+                // ALL the shared-material paths (sdfglass shell, glass frost, edgefx shine) ride
+                // clock uniforms fed only by HudSystem.UpdateFxUniforms, which stops when the
+                // visor HUD stands down (VisorHudEnabled off / LegacyImGuiHud) while the Grid
+                // keeps ticking. Gate on FxClockLive so a dead clock degrades every Grid surface
+                // to the static Tier-A mesh look instead of freezing a shine band / halo breath /
+                // edge light mid-animation — the UiaControlCenter.StyleWindowPanel contract
+                // (adversarial review 2026-07-17; Grid finding 2026-07-20). StyleHash folds
+                // FxClockLive, so the hash-gated surfaces repaint on the flip too.
+                bool fxLive = HudSystem.FxClockLive;
+                bool sdfAssigned = shell && fxLive
+                    && HudConfig.SdfPanels != null && HudConfig.SdfPanels.Value
+                    && Core.HudShaderStore.SdfAvailable
+                    && HudFxMaterials.Assign(bg, "sdfglass");
 
-                // Apply resolves Sheen/Spec from the GLOBALS; re-assert this theme's resolved values
-                // so a Grid override still wins, preserving Apply's Tier-A edge-light boost as a
-                // delta on top of the global edge light.
-                float boost = bg.Spec - (HudConfig.GlassEdge != null ? HudConfig.GlassEdge.Value : 0f);
+                HudGlobalGlass.Apply(bg, includeGlow: shell,
+                    wantFrost: shell && fxLive && FrostParticipates, wantTierB: fxLive,
+                    externalMaterial: sdfAssigned);
+
+                // Apply resolves Sheen/Spec from the GLOBALS; re-assert this theme's resolved
+                // values so a Grid override still wins. The Tier-A edge-light boost is recomputed
+                // through the RESOLVED edge-energy tri-state (EdgeLightBoost) rather than carried
+                // over as a delta from Apply: forcing 'Edge energy' Off must remove the rim
+                // brightening too, or a 'Glass edge light' override of 0 keeps an un-removable
+                // ~FxEdgeLight*0.45 floor (editor-parity finding, 2026-07-20). While Following
+                // the tri-state collapses to the global toggle, so the boost is byte-identical
+                // to Apply's. (The SDF vertex packer reads these same fields, so the Grid
+                // overrides flow into the analytic path untouched.)
                 bg.Sheen = Sheen;
-                bg.Spec = Mathf.Clamp01(Spec + boost);
+                bg.Spec = Mathf.Clamp01(Spec + EdgeLightBoost());
+
+                // The rest of the override block, re-asserted the same way over Apply's globals.
+                // Only when NOT following: at the sentinels this recomputes exactly what Apply
+                // wrote, and while following the state must stay byte-identical to a HUD box.
+                if (!Following) ApplyMeshOverrides(bg, shell);
+
+                if (sdfAssigned) ApplySdfShell(bg);
+                else ResetSdf(bg);
             }
             else
             {
                 bg.Sheen = Sheen;
                 bg.Spec = Spec;
+                ResetSdf(bg);
                 HudFxMaterials.Unassign(bg);
             }
+        }
+
+        /// <summary>Neutral SDF reset — <c>HudElementView.ApplyFx</c>'s exact fallback arguments.
+        /// A stale SDF mode under the glass/edgefx/default material would draw the SDF parameter
+        /// grid as solid garbage, so every non-SDF ApplyCore pass re-asserts mesh mode. The setter
+        /// is dirty-guarded, so this is free on a panel already on the mesh path (every masked
+        /// surface, every frame).</summary>
+        private static void ResetSdf(PanelGraphic bg)
+        {
+            bg.SetSdfStyle(false, 2f, false, 0f, 0f, 1f, 0f, 0f, 0f,
+                false, 0f, 0f, 0f, 0f, 0f, 0f, 1f);
+        }
+
+        /// <summary>The override half of the mesh-field stack: re-asserts every -1-sentinel /
+        /// tri-state knob OVER what <see cref="HudGlobalGlass.Apply"/> just resolved from the
+        /// globals — the Sheen/Spec re-assert pattern in <see cref="ApplyCore"/>, extended to the
+        /// full block. Called only when NOT following; each knob at its sentinel recomputes
+        /// exactly Apply's own value, so flipping Follow off changes nothing until a slider
+        /// moves. Every setter is dirty-guarded, so this is per-frame free in steady state. The
+        /// SDF vertex packer reads these same fields, so the overrides flow into the analytic
+        /// shell path untouched — and the mesh fallback honours them identically.</summary>
+        private static void ApplyMeshOverrides(PanelGraphic bg, bool shell)
+        {
+            bool tierA = HudConfig.FxTierA != null && HudConfig.FxTierA.Value;
+
+            // Edge softness: FeatherOverride's own semantics already ARE the sentinel
+            // (-1 = the global EdgeFeather, which Apply just wrote), so it maps straight through.
+            if (FeatherOv != null && FeatherOv.Value >= 0f)
+                bg.FeatherOverride = Mathf.Clamp(FeatherOv.Value, 0f, 4f);
+
+            // Amount overrides replace their global toggle+amount pair (0 = force off).
+            // The Tier A master still wins, as it does everywhere.
+            if (BorderFadeOv != null && BorderFadeOv.Value >= 0f)
+                bg.BorderFade = tierA ? Mathf.Clamp01(BorderFadeOv.Value) : 0f;
+            if (SoftEdgeOv != null && SoftEdgeOv.Value >= 0f)
+                bg.SoftEdge = tierA ? Mathf.Clamp(SoftEdgeOv.Value, 0f, 48f) : 0f;
+
+            // The glow halo rides only the window shells (Apply's includeGlow) — the tri-state
+            // re-decides the shells, it cannot bloom the interior surfaces.
+            if (shell)
+            {
+                bool glow = tierA && ModeOn(GlowMode, HudConfig.FxGlowOn);
+                bg.Glow = glow
+                    ? Mathf.Clamp(Flt(GlowOv, HudConfig.FxGlow, 0f), 0f, 2f) : 0f;
+                bg.GlowInner = glow
+                    ? Mathf.Clamp(Flt(GlowInnerOv, HudConfig.FxGlowInner, 0f), 0f, 2f) : 0f;
+                bg.GlowWidth = Mathf.Max(0f, Flt(GlowWidthOv, HudConfig.FxGlowWidth, 14f));
+                bg.GlowDiffuse = Mathf.Clamp01(Flt(GlowDiffuseOv, HudConfig.FxGlowDiffuse, 0.5f));
+                bg.GlowExtraDiffuse = Mathf.Clamp01(
+                    Flt(GlowExtraDiffuseOv, HudConfig.FxGlowExtraDiffuse, 0f));
+            }
+
+            bool ripple = tierA && ModeOn(RippleMode, HudConfig.FxEdgeLightOn);
+            bg.EdgeRipple = ripple
+                ? Mathf.Clamp(Flt(RippleOv, HudConfig.FxEdgeRipple, 0f), 0f, 2.5f) : 0f;
+            bg.EdgeRippleFreq = Mathf.Clamp(
+                Flt(RippleFreqOv, HudConfig.FxEdgeRippleFreq, 2f), 0.05f, 8f);
+            if (RippleSmoothOv != null && RippleSmoothOv.Value >= 0f)
+                bg.RippleSmooth = Mathf.Clamp01(RippleSmoothOv.Value);
+        }
+
+        /// <summary>The INTERIOR-surface glass stack for an <see cref="IGlassSurface"/> the
+        /// PanelGraphic-typed <see cref="HudGlobalGlass.Apply"/> cannot take — the seated tab's
+        /// <c>PolygonPanelGraphic</c>. One resolution path: sheen/spec (with the tri-state-gated
+        /// <see cref="EdgeLightBoost"/>), feather, border fade / soft edge, and the ripple block
+        /// all come through this theme's override getters, so every knob in the F9 Grid popup
+        /// styles the tab exactly like its sibling surfaces (the tab used to mirror only the OLD
+        /// ApplyCore and ignored the override half — editor-parity finding, 2026-07-20). No glow
+        /// halo and no frost: interior surface, exactly as ApplyCore resolves an inner box. The
+        /// Tier B edgefx material gates on <see cref="HudSystem.FxClockLive"/> (its clock
+        /// uniforms stop with the visor HUD — the UiaControlCenter contract). Per-frame safe:
+        /// every setter is dirty-guarded and Assign/Unassign are idempotent.</summary>
+        public static void ApplyInteriorGlass(IGlassSurface g)
+        {
+            if (g == null) return;
+            bool tierA = HudConfig.FxTierA != null && HudConfig.FxTierA.Value;
+
+            g.Sheen = Sheen;
+            g.Spec = Mathf.Clamp01(Spec + EdgeLightBoost());
+
+            // Feather: -1 = the global EdgeFeather; the override maps straight through.
+            g.FeatherOverride = !Following && FeatherOv != null && FeatherOv.Value >= 0f
+                ? Mathf.Clamp(FeatherOv.Value, 0f, 4f) : -1f;
+
+            g.BorderFade = tierA
+                ? Mathf.Clamp01(GatedAmt(BorderFadeOv,
+                    HudConfig.FxBorderFadeOn, HudConfig.FxBorderFade, 0f))
+                : 0f;
+            g.SoftEdge = tierA
+                ? Mathf.Clamp(GatedAmt(SoftEdgeOv,
+                    HudConfig.FxSoftEdgeOn, HudConfig.FxSoftEdge, 0f), 0f, 48f)
+                : 0f;
+
+            g.Glow = 0f;        // interior surface: the halo is reserved for the window shells
+            g.GlowInner = 0f;
+
+            bool ripple = tierA && ModeOn(RippleMode, HudConfig.FxEdgeLightOn);
+            g.EdgeRipple = ripple
+                ? Mathf.Clamp(Flt(RippleOv, HudConfig.FxEdgeRipple, 0f), 0f, 2.5f) : 0f;
+            g.EdgeRippleFreq = Mathf.Clamp(
+                Flt(RippleFreqOv, HudConfig.FxEdgeRippleFreq, 2f), 0.05f, 8f);
+            g.RippleSmooth = !Following && RippleSmoothOv != null && RippleSmoothOv.Value >= 0f
+                ? Mathf.Clamp01(RippleSmoothOv.Value)
+                : 0f;           // the global path forces the un-smoothed ripple
+
+            // Tier B shine/irid via the shared edgefx material — only while the FX clock runs.
+            bool tierB = HudSystem.FxClockLive
+                && HudConfig.FxTierB != null && HudConfig.FxTierB.Value
+                && Core.HudShaderStore.TierBAvailable;
+            float shine = tierB
+                ? Mathf.Clamp(GatedAmt(ShineOv, HudConfig.FxShineOn, HudConfig.FxShine, 0f),
+                    0f, 2f)
+                : 0f;
+            float irid = tierB
+                ? Mathf.Clamp01(GatedAmt(IridOv, HudConfig.FxIridOn, HudConfig.FxIridescence, 0f))
+                : 0f;
+
+            if (HudFxMaterials.Available && (shine > 0.001f || irid > 0.001f))
+            {
+                g.FxStrength = 1f;
+                if (!HudFxMaterials.Assign(g.AsGraphic, "edgefx"))
+                    HudFxMaterials.Unassign(g.AsGraphic);
+            }
+            else
+            {
+                g.FxStrength = 0f;
+                HudFxMaterials.Unassign(g.AsGraphic);
+            }
+        }
+
+        /// <summary>The GLOBAL branch of the HUD's SDF-exclusive extras, applied to a Grid window
+        /// shell: squircle exponent, halo quality, edge flow speed, frost/chroma, shine/irid and
+        /// the organic-halo family — the same values a follow-global HUD box resolves in
+        /// <c>HudElementView.ApplyFx</c>, with the same feature gates <see cref="HudGlobalGlass"/>
+        /// uses for the mesh half of the stack. The Grid rides no HUD boot-dissolve clock and has
+        /// no per-element edge fades, so those stay off. Frost is consumed only while the backdrop
+        /// capture is LIVE (we never write <see cref="HudGlobalGlass.FrostDemand"/> — see the note
+        /// above ApplyCore's Apply call); a dead capture samples garbage. Every read is
+        /// null-guarded (config may be unbound around F6) and SetSdfStyle is dirty-guarded, so
+        /// this is per-frame cheap.
+        /// Every value below resolves through the Grid's own override getters
+        /// (<see cref="Flt"/> / <see cref="ModeOn"/> / <see cref="GatedAmt"/>), all of which
+        /// collapse to the raw global while Following or at their sentinels — so this stays the
+        /// GLOBAL branch by default and honours the F9 Grid popup when overridden.</summary>
+        private static void ApplySdfShell(PanelGraphic bg)
+        {
+            bool tierA = HudConfig.FxTierA != null && HudConfig.FxTierA.Value;
+            // Tier B rides the shared sdfglass clock uniforms. ApplyCore only routes here while
+            // HudSystem.FxClockLive, but the gate is kept local too so shine/irid/chroma can
+            // never pack against a stopped clock (the UiaControlCenter contract).
+            bool tierB = HudSystem.FxClockLive
+                && HudConfig.FxTierB != null && HudConfig.FxTierB.Value;
+
+            // Squircle: the ELEMENT contract's inherit sentinel (HudElementView.SdfSquircleFor)
+            // is "own < 2", not the Grid's usual -1 — an exponent below 2 is not a renderable
+            // shape, so the whole [-1, 2) band follows the global instead of snapping to plain
+            // round (same knob, same semantics as an element's squircle; parity finding
+            // 2026-07-20).
+            float squircleGlobal = HudConfig.SdfSquircle != null ? HudConfig.SdfSquircle.Value : 2f;
+            float squircleOwn = !Following && SquircleOv != null ? SquircleOv.Value : -1f;
+            float squircle = Mathf.Clamp(
+                squircleOwn >= 2f ? squircleOwn : squircleGlobal, 2f, 8f);
+
+            bool gaussian = ModeOn(GaussianMode, HudConfig.SdfGaussianHalo);
+            float flow = Mathf.Clamp(Flt(FlowOv, HudConfig.FxEdgeFlowSpeed, 0.22f), 0f, 4f);
+
+            bool frostOk = HudBackdrop.Active
+                && HudConfig.FxTierC != null && HudConfig.FxTierC.Value
+                && FrostParticipates;
+            float frost = frostOk
+                ? Mathf.Clamp01(Flt(FrostOv, HudConfig.FrostStrength, 1f))
+                : 0f;
+            float frostDepth = Mathf.Clamp01(Flt(FrostDepthOv, HudConfig.FrostDepth, 1f));
+            float chroma = frost > 0.001f && tierB
+                ? Mathf.Clamp01(GatedAmt(ChromaOv, HudConfig.FxChromaOn, HudConfig.FxChroma, 0f))
+                : 0f;
+
+            float shine = tierB
+                ? Mathf.Clamp(GatedAmt(ShineOv, HudConfig.FxShineOn, HudConfig.FxShine, 0f), 0f, 2f)
+                : 0f;
+            float irid = tierB
+                ? Mathf.Clamp01(GatedAmt(IridOv, HudConfig.FxIridOn, HudConfig.FxIridescence, 0f))
+                : 0f;
+
+            // The organic-halo family. The shell is the only Grid surface that takes the halo
+            // (ApplyCore passes includeGlow: shell), so these mirror the GLOBAL branch of
+            // HaloHazeFor / HaloBreathFor / HaloUnevenFor / HaloFlowAuraFor verbatim: haze needs
+            // the glow itself; breath/uneven ride the halo OR the flowing aura; the aura needs
+            // the edge light it crests on; the organic scale is neutral unless unevenness is live.
+            bool glowOn = tierA && ModeOn(GlowMode, HudConfig.FxGlowOn);
+            bool edgeOn = tierA && ModeOn(RippleMode, HudConfig.FxEdgeLightOn);
+            float aura = edgeOn
+                && HudConfig.FxGlowFlowAuraOn != null && HudConfig.FxGlowFlowAuraOn.Value
+                ? Mathf.Clamp(HudConfig.FxGlowFlowAura != null
+                    ? HudConfig.FxGlowFlowAura.Value : 0.6f, 0f, 2f)
+                : 0f;
+            bool auraOn = aura > 0.001f;
+            float haze = glowOn
+                ? Mathf.Clamp01(Flt(GlowHazeOv, HudConfig.FxGlowHaze, 0f))
+                : 0f;
+            float breath = (glowOn || auraOn)
+                && HudConfig.FxGlowBreathOn != null && HudConfig.FxGlowBreathOn.Value
+                ? Mathf.Clamp01(HudConfig.FxGlowBreath != null
+                    ? HudConfig.FxGlowBreath.Value : 0.35f)
+                : 0f;
+            float uneven = (glowOn || auraOn)
+                && HudConfig.FxGlowUnevenOn != null && HudConfig.FxGlowUnevenOn.Value
+                ? Mathf.Clamp01(HudConfig.FxGlowUneven != null
+                    ? HudConfig.FxGlowUneven.Value : 0.5f)
+                : 0f;
+            float organic = 1f;
+            if (uneven > 0.001f)
+            {
+                float v = HudConfig.FxGlowOrganicScale != null
+                    ? HudConfig.FxGlowOrganicScale.Value : 1f;
+                organic = v < 0.2f ? 1f : Mathf.Clamp(v, 0.25f, 4f);
+            }
+
+            bg.SetSdfStyle(true, squircle, gaussian, flow,
+                frost, frostDepth, chroma, shine, irid,
+                false,      // dissolve: the Grid does not ride the HUD's boot-dissolve clock
+                0f, 0f,     // edgeFadeX/Y: a HUD-element feature, not a Grid one
+                haze, breath, uneven, aura, organic);
+            // The SDF ABI carries independent final strengths; uv0.x's combined volume is unused
+            // there and must not force legacy mesh semantics (mirrors HudElementView.ApplyFx).
+            bg.FxStrength = 0f;
         }
 
         /// <summary>A change signal for the built window: hashes the ACTUAL resolved output (so
@@ -429,8 +886,63 @@ namespace StationeersUIMod.UI.Grid
                 h = h * 31 + Mathf.RoundToInt(Sheen * 512f);
                 h = h * 31 + Mathf.RoundToInt(Spec * 512f);
                 h = h * 31 + Mathf.RoundToInt(BorderWidth * 64f);
+                // The SDF-visible globals: the shells restyle every frame anyway, but the
+                // hash-gated consumers (TheGridPanel's LayoutChrome shape pass, the region/sort
+                // styling) must see an F9 SdfPanels/squircle edit as a theme change too.
+                h = h * 31 + (HudConfig.SdfPanels != null && HudConfig.SdfPanels.Value ? 2 : 1);
+                h = h * 31 + Mathf.RoundToInt(
+                    (HudConfig.SdfSquircle != null ? HudConfig.SdfSquircle.Value : 2f) * 64f);
+                h = h * 31 + (HudConfig.SdfGaussianHalo != null
+                    && HudConfig.SdfGaussianHalo.Value ? 2 : 1);
+                // Mesh-path globals that are read INSIDE OnPopulateMesh (EdgeFeather, via the
+                // -1 sentinel) or applied only by the hash-gated consumers (the region/sort
+                // surfaces resolve the Tier-A toggle family through ApplyBox only when this
+                // hash moves): a global Theme/Effects-tab drag must read as a theme change or
+                // those surfaces keep the stale mesh while every HUD box rebuilds
+                // (follow-mode tracking finding, 2026-07-20). TheGridPanel force-dirties the
+                // glass meshes on a hash change, which is what actually rebuilds the feather
+                // ramp — no per-graphic field carries it. FxClockLive folds in for the same
+                // reason: the SDF/TierB routing flips with the clock (ApplyCore), and the
+                // hash-gated surfaces must repaint once on a visor-HUD stand-down/return.
+                h = HF(h, HudConfig.EdgeFeather);
+                h = HB(h, HudConfig.FxTierA);
+                h = HB(h, HudConfig.FxBorderFadeOn); h = HF(h, HudConfig.FxBorderFade);
+                h = HB(h, HudConfig.FxSoftEdgeOn); h = HF(h, HudConfig.FxSoftEdge);
+                h = HB(h, HudConfig.FxEdgeLightOn); h = HF(h, HudConfig.FxEdgeRipple);
+                h = HF(h, HudConfig.FxEdgeRippleFreq);
+                h = HB(h, HudConfig.FxGlowOn);
+                h = h * 31 + (HudSystem.FxClockLive ? 2 : 1);
+                // The override block, hashed RAW: a Grid popup edit is exactly a raw-value
+                // change, every knob is inert while Following (the popup hides them then), and
+                // the hash-gated consumers must repaint the moment a slider moves. Global
+                // Effects-tab edits reach the per-frame surfaces (shells, cells) regardless.
+                h = HF(h, FeatherOv); h = HF(h, SquircleOv); h = HI(h, GaussianMode);
+                h = HF(h, BorderFadeOv); h = HF(h, SoftEdgeOv);
+                h = HI(h, GlowMode); h = HF(h, GlowOv); h = HF(h, GlowInnerOv);
+                h = HF(h, GlowHazeOv); h = HF(h, GlowWidthOv);
+                h = HF(h, GlowDiffuseOv); h = HF(h, GlowExtraDiffuseOv);
+                h = HI(h, RippleMode); h = HF(h, RippleOv); h = HF(h, RippleFreqOv);
+                h = HF(h, RippleSmoothOv); h = HF(h, FlowOv);
+                h = h * 31 + (FrostParticipates ? 2 : 1);
+                h = HF(h, FrostOv); h = HF(h, FrostDepthOv);
+                h = HF(h, ShineOv); h = HF(h, IridOv); h = HF(h, ChromaOv);
                 return h;
             }
+        }
+
+        private static int HF(int h, ConfigEntry<float> e)
+        {
+            unchecked { return h * 31 + Mathf.RoundToInt((e != null ? e.Value : -1f) * 64f); }
+        }
+
+        private static int HB(int h, ConfigEntry<bool> e)
+        {
+            unchecked { return h * 31 + (e != null && e.Value ? 2 : 1); }
+        }
+
+        private static int HI(int h, ConfigEntry<int> e)
+        {
+            unchecked { return h * 31 + (e != null ? e.Value : 0); }
         }
 
         private static int Comb(int h, Color c)
@@ -445,47 +957,213 @@ namespace StationeersUIMod.UI.Grid
             }
         }
 
-        /// <summary>Build the F9-style property list for the Grid's style popup (the same
+        /// <summary>Serve the F9-style property list for the Grid's style popup (the same
         /// <see cref="HudProp"/> descriptors an element uses, so the drawer renders the identical
         /// palette dropdown + colour wheel a Box shows). Config-backed — no undo, BepInEx
-        /// persists on write.</summary>
+        /// persists on write. Labels deliberately reuse the global Effects/Theme tab vocabulary
+        /// so the Grid never presents differently-named knobs; shared material uniforms (light
+        /// angle/colour/rim/falloff, halo motion, the clocks) are NAMED as shared in header
+        /// rows rather than silently omitted, per the element popup's parity contract.
+        ///
+        /// <para>The drawer rebuilds its scratch every ImGui frame, but the descriptors are
+        /// immutable delegate holders over live config — so the two list shapes (Following /
+        /// overriding) are BUILT ONCE and re-served identity-stable, instead of re-allocating
+        /// ~120 small objects per rendered frame while the popup is open (concurrency-hygiene
+        /// finding, 2026-07-20). The caches are dropped in <see cref="Bind"/> (the closures
+        /// capture that Bind's ConfigEntry references) and die with the assembly on F6.</para></summary>
         public static void DescribeProps(List<HudProp> into)
         {
+            List<HudProp> src = Following
+                ? (_propsFollow ?? (_propsFollow = BuildProps(true)))
+                : (_propsOverride ?? (_propsOverride = BuildProps(false)));
+            into.AddRange(src);
+        }
+
+        private static List<HudProp> _propsFollow;
+        private static List<HudProp> _propsOverride;
+
+        private static List<HudProp> BuildProps(bool following)
+        {
+            List<HudProp> into = new List<HudProp>(8);
             into.Add(HudProp.Header("Universal Inventory style"));
             into.Add(HudProp.Bool("Follow the HUD's global box theme",
                 () => Following, v => { if (Follow != null) Follow.Value = v; }));
 
-            if (Following)
+            // Sizes — ABSOLUTE px / scale / count values (NOT the -1 inherit sentinel the style knobs
+            // use), so they read and write identically whether or not the window follows the global
+            // theme. Added BEFORE the follow early-out so a follower can still resize cells and tabs.
+            // Config-backed (UIAConfig section "9. The Grid"); TheGridPanel's size-hash poll relayouts
+            // the open window (main + pinned) live, exactly as the F10 cell-size slider does.
+            List<HudProp> sizes = new List<HudProp>(11);
+            sizes.Add(Fs("Cell size (px)", UIAConfig.GridCellSize, 28f, 80f, 46f,
+                "Edge length of one inventory cell. The item icon scales with it."));
+            sizes.Add(Fs("Item icon scale", UIAConfig.GridIconScale, 0.4f, 1f, 0.70f,
+                "Fraction of a cell the item thumbnail fills (0.70 = the default)."));
+            sizes.Add(Fs("Bag tab height (px)", UIAConfig.GridTabHeight, 14f, 36f, 20f,
+                "Height of a bag's manila tab."));
+            sizes.Add(Fs("Bag tab text size", UIAConfig.GridTabTextSize, 8f, 20f, 11f,
+                "Font size of the bag name on its tab (before the global font scale)."));
+            sizes.Add(Fs("Bag tab icon size (px)", UIAConfig.GridTabIconSize, 8f, 28f, 14f,
+                "The little container icon on a bag tab (not the item-thumbnail scale inside a cell)."));
+            sizes.Add(Fs("Sort button scale", UIAConfig.GridSortButtonScale, 0.5f, 2f, 1f,
+                "Size of the per-bag SORT button in the tab band (1.0 = default; keeps aspect)."));
+            sizes.Add(Fs("Window button size (px)", UIAConfig.GridChromeButtonSize, 12f, 40f, 20f,
+                "The close (X) and shrink/restore buttons on the main + pinned windows (not Sort)."));
+            sizes.Add(Fs("Pinned title icon size (px)", UIAConfig.GridPinTitleIconSize, 8f, 32f, 16f,
+                "The thumbnail icon on a pinned window's title bar (not the bag tab icon)."));
+            sizes.Add(Fs("Pinned title text size", UIAConfig.GridPinTitleTextSize, 8f, 24f, 12f,
+                "Font size of the container name on a pinned window's title bar."));
+            sizes.Add(Is("Cells per row (max)", UIAConfig.GridCellCols, 1, 10, 5,
+                "Item cells a bag shows per row at full width; a narrow window/column wraps " +
+                "tighter but never wider."));
+            sizes.Add(Is("Bag columns (max)", UIAConfig.GridMaxBagCols, 1, 5, 2,
+                "Maximum side-by-side bag columns; fewer when the window is narrow, more as it is " +
+                "dragged wider."));
+            into.Add(HudProp.TabGroup("gridsizes",
+                new List<HudProp> { HudProp.TabPage("Sizes", sizes) }));
+
+            if (following)
             {
-                into.Add(HudProp.Header("Colours + glass follow F9 -> Palette + glass."));
-                into.Add(HudProp.Header("Uncheck above to override each value."));
-                return;
+                into.Add(HudProp.Header("Colours + glass + effects follow F9's global tabs."));
+                into.Add(HudProp.Header("Uncheck above for the full override block."));
+                return into;
             }
 
-            into.Add(HudProp.Header("Overrides (name a palette entry or type #RRGGBBAA)"));
-            into.Add(HudProp.Color("Window fill",
+            into.Add(HudProp.Header("Overrides: -1 on a slider = follow the global value."));
+            into.Add(HudProp.Header("Styles the whole Grid family (main + pinned windows)."));
+
+            List<HudProp> colours = new List<HudProp>();
+            colours.Add(HudProp.Header("Name a palette entry or type #RRGGBBAA"));
+            colours.Add(HudProp.Color("Window fill",
                 () => FillRef != null ? FillRef.Value : "",
                 v => { if (FillRef != null) FillRef.Value = v ?? ""; },
                 () => GlobalFill));
-            into.Add(HudProp.Color("Window border",
+            colours.Add(HudProp.Color("Window border",
                 () => BorderRef != null ? BorderRef.Value : "",
                 v => { if (BorderRef != null) BorderRef.Value = v ?? ""; },
                 () => GlobalBorder));
-            into.Add(HudProp.Color("Text",
+            colours.Add(HudProp.Color("Text",
                 () => TextRef != null ? TextRef.Value : "",
                 v => { if (TextRef != null) TextRef.Value = v ?? ""; },
                 () => GlobalText));
+            colours.Add(HudProp.Header(
+                "Hover / active-hand accents follow F9 -> Palette."));
 
-            into.Add(HudProp.Header("Glass (-1 = follow the global)"));
-            into.Add(HudProp.F("Corner radius",
-                () => CornerRadiusOv != null ? CornerRadiusOv.Value : -1f,
-                v => { if (CornerRadiusOv != null) CornerRadiusOv.Value = v; }, -1f, 28f));
-            into.Add(HudProp.F("Glass sheen",
-                () => SheenOv != null ? SheenOv.Value : -1f,
-                v => { if (SheenOv != null) SheenOv.Value = v; }, -1f, 1f));
-            into.Add(HudProp.F("Glass edge light",
-                () => SpecOv != null ? SpecOv.Value : -1f,
-                v => { if (SpecOv != null) SpecOv.Value = v; }, -1f, 1f));
+            List<HudProp> glass = new List<HudProp>();
+            glass.Add(Fo("Corner radius", CornerRadiusOv, 28f,
+                "Interior surfaces (regions, cells, chrome) scale this down automatically."));
+            glass.Add(Fo("Line thickness (px)", BorderWidthOv, 6f,
+                "The base width; every surface and hover state stays a scale on it."));
+            glass.Add(Fo("Edge softness / AA (px)", FeatherOv, 4f, null));
+            glass.Add(Fo("Glass sheen", SheenOv, 1f, null));
+            glass.Add(Fo("Glass edge light", SpecOv, 1f,
+                "Strength on the boxes. While edge energy is on (the tri-state under Glow & " +
+                "energy), the global Edge energy Strength adds a shared rim boost on top — " +
+                "forcing that tri-state Off removes it. Light angle, colour, rim and falloff " +
+                "are shared globals (F9 -> Effects)."));
+            glass.Add(Fo("Corner shape (2 round - 8 squircle)", SquircleOv, 8f,
+                "Analytic SDF window shells only. Values below 2 (including -1) follow the " +
+                "global corner shape."));
+            glass.Add(TriState("Gaussian distance falloff", GaussianMode,
+                "Halo falloff on the analytic SDF window shells (not a blur convolution, " +
+                "F9 -> Theme). Inherit follows the global toggle."));
+            glass.Add(Fo("Border fade (unlit sections dissolve)", BorderFadeOv, 1f,
+                "0 forces it off even when the global toggle is on."));
+            glass.Add(Fo("Soft edge (boxes melt together, px)", SoftEdgeOv, 48f,
+                "0 forces it off even when the global toggle is on."));
+
+            List<HudProp> glow = new List<HudProp>();
+            glow.Add(TriState("Glow halo", GlowMode,
+                "Window shells only. Inherit follows the global Glow halo toggle; the Tier A " +
+                "master still gates."));
+            glow.Add(Fo("  outward strength", GlowOv, 2f, null));
+            glow.Add(Fo("  inward strength", GlowInnerOv, 2f, null));
+            glow.Add(Fo("  extended atmospheric haze (SDF)", GlowHazeOv, 1f, null));
+            glow.Add(Fo("  Halo / aura radius (px)", GlowWidthOv, 320f, null));
+            glow.Add(Fo("  spread (tight rim -> diffuse)", GlowDiffuseOv, 1f, null));
+            glow.Add(Fo("  extra diffuse (beyond max spread)", GlowExtraDiffuseOv, 1f, null));
+            glow.Add(TriState("Edge energy (borders + lines)", RippleMode,
+                "Inherit follows the global Edge energy toggle; the Tier A master still " +
+                "gates. Off also removes the shared rim boost on 'Glass edge light'. Light " +
+                "angle and colour stay global."));
+            glow.Add(Fo("  irregular energy", RippleOv, 2.5f, null));
+            glow.Add(Fo("  energy frequency", RippleFreqOv, 8f, null));
+            glow.Add(Fo("  energy smoothness", RippleSmoothOv, 1f,
+                "The global path forces the hard, un-smoothed ripple (0)."));
+            glow.Add(Fo("  flow speed (0 = frozen)", FlowOv, 4f,
+                "Per-window on the analytic SDF shells; mesh surfaces ride the shared clock."));
+            glow.Add(HudProp.Header(
+                "Halo motion (breath / uneven / aura) follows F9 -> Effects."));
+
+            List<HudProp> frost = new List<HudProp>();
+            frost.Add(HudProp.Bool("Frosted glass backdrop (window shell)",
+                () => FrostOn == null || FrostOn.Value,
+                v => { if (FrostOn != null) FrostOn.Value = v; }));
+            frost.Add(Fo("  frost strength (SDF)", FrostOv, 1f,
+                "The mesh fallback's frost strength is a shared global."));
+            frost.Add(Fo("  blur depth (SDF)", FrostDepthOv, 1f, null));
+            frost.Add(Fo("Shine sweep strength (SDF)", ShineOv, 2f,
+                "0 forces it off; -1 follows the global toggle + strength."));
+            frost.Add(Fo("Iridescent rim strength (SDF)", IridOv, 1f,
+                "0 forces it off; -1 follows the global toggle + strength."));
+            frost.Add(Fo("Chromatic fringe strength (SDF)", ChromaOv, 1f,
+                "Needs live frost. 0 forces it off; -1 follows the global."));
+            frost.Add(HudProp.Header(
+                "Tier masters + clocks (F9 -> Effects) still gate these blocks."));
+
+            List<HudProp> pages = new List<HudProp>();
+            pages.Add(HudProp.TabPage("Colours", colours));
+            pages.Add(HudProp.TabPage("Glass", glass));
+            pages.Add(HudProp.TabPage("Glow & energy", glow));
+            pages.Add(HudProp.TabPage("Frost & anim", frost));
+            into.Add(HudProp.TabGroup("gridstyle", pages));
+            return into;
+        }
+
+        /// <summary>A standard -1-sentinel override slider bound straight to its ConfigEntry
+        /// (min is always -1 = follow the global; BepInEx persists on write).</summary>
+        private static HudProp Fo(string label, ConfigEntry<float> e, float max, string help)
+        {
+            HudProp p = HudProp.F(label,
+                () => e != null ? e.Value : -1f,
+                v => { if (e != null) e.Value = v; }, -1f, max);
+            p.Help = help;
+            return p;
+        }
+
+        /// <summary>An ABSOLUTE float slider bound straight to its ConfigEntry — for the Sizes page,
+        /// where the value is a real px/scale (no -1 = inherit sentinel). BepInEx clamps to the
+        /// entry's own range on write and persists it; TheGridPanel's size-hash poll relayouts.</summary>
+        private static HudProp Fs(string label, ConfigEntry<float> e, float min, float max,
+            float fallback, string help)
+        {
+            HudProp p = HudProp.F(label,
+                () => e != null ? e.Value : fallback,
+                v => { if (e != null) e.Value = v; }, min, max);
+            p.Help = help;
+            return p;
+        }
+
+        /// <summary>An ABSOLUTE int slider bound straight to its ConfigEntry — the Sizes page's
+        /// column-count knobs. Same contract as <see cref="Fs"/>.</summary>
+        private static HudProp Is(string label, ConfigEntry<int> e, int min, int max,
+            int fallback, string help)
+        {
+            HudProp p = HudProp.I(label,
+                () => e != null ? e.Value : fallback,
+                v => { if (e != null) e.Value = v; }, min, max);
+            p.Help = help;
+            return p;
+        }
+
+        /// <summary>An Inherit/On/Off tri-state combo bound to a 0/1/2 ConfigEntry.</summary>
+        private static HudProp TriState(string label, ConfigEntry<int> e, string help)
+        {
+            HudProp p = HudProp.Enum(label,
+                () => e != null ? Mathf.Clamp(e.Value, 0, 2) : 0,
+                v => { if (e != null) e.Value = v; }, InheritOnOff);
+            p.Help = help;
+            return p;
         }
     }
 }

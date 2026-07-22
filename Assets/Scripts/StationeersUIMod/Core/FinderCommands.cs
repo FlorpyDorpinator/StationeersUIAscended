@@ -138,6 +138,100 @@ namespace StationeersUIMod.Core
             }
         }
 
+        /// <summary>`stowtrace` — dump the SmartStow+ ROUTER's full candidate table for the item
+        /// currently in the ACTIVE hand: every enabled stage's best candidate in chain order, with
+        /// stage tag, destination bag, depth, score and the human reason. Row one (marked `&gt;`)
+        /// is exactly what a G press would execute. READ-ONLY by construction — it calls only
+        /// <see cref="StowRouter.ResolveAll"/> (pure decision, pooled list read immediately, no
+        /// mutation, no message); the MP-safe diagnostic for "why did my coal go in the food bag"
+        /// bug reports. The caller-policy gates the router deliberately leaves to SmartStowPlus
+        /// (master/enabled switches) are REPORTED rather than silently applied, so the trace never
+        /// diverges from what G would do without saying so.</summary>
+        public static void StowTrace(string input)
+        {
+            try
+            {
+                var human = Guards.LocalHuman;
+                if (human == null)
+                {
+                    ConsoleWindow.Print("stowtrace: no local player in the world.", ConsoleColor.Yellow);
+                    return;
+                }
+
+                Slot hand = null;
+                try { hand = Assets.Scripts.Inventory.InventoryManager.ActiveHandSlot; } catch { }
+                DynamicThing held = null;
+                try { held = hand != null ? hand.Get() : null; } catch { }
+                if (held == null)
+                {
+                    ConsoleWindow.Print("stowtrace: hold an item in the ACTIVE hand first.", ConsoleColor.Yellow);
+                    return;
+                }
+
+                string itemName = StateText.Strip(SafeName(held));
+                int depth = StowRouter.ConfiguredDepth();
+                ConsoleWindow.Print(
+                    string.Format("stowtrace: '{0}' (scan depth {1})", itemName, depth),
+                    ConsoleColor.Cyan);
+
+                bool gatedOff = false;
+                try { gatedOff = !UIAConfig.MasterEnable.Value || !UIAConfig.SmartStowPlusEnabled.Value; }
+                catch { }
+                if (gatedOff)
+                    ConsoleWindow.Print(
+                        "  (SmartStow+ is currently DISABLED - G runs vanilla; rows show what the router WOULD pick)",
+                        ConsoleColor.Yellow);
+
+                // POOLED list: compose every output line before any further resolve happens.
+                var results = StowRouter.ResolveAll(held, hand, depth);
+                if (results.Count == 0)
+                {
+                    ConsoleWindow.Print("  no stage matched - vanilla Smart Stow handles this item.", ConsoleColor.White);
+                    return;
+                }
+                for (int i = 0; i < results.Count; i++)
+                {
+                    var c = results[i];
+                    string holder = c.Holder != null ? StateText.Strip(SafeName(c.Holder)) : "inventory";
+                    ConsoleWindow.Print(
+                        string.Format("  {0} {1,-8} -> {2}  (depth {3}, score {4}) - {5}",
+                            i == 0 ? ">" : " ", StageTag(c.Stage), holder, c.Depth, c.Score, c.Reason),
+                        i == 0 ? ConsoleColor.Green : ConsoleColor.White);
+                }
+                ConsoleWindow.Print("  > = what G would do; later rows are each stage's own best candidate.", ConsoleColor.White);
+            }
+            catch (Exception e)
+            {
+                ConsoleWindow.Print("stowtrace failed: " + e.Message, ConsoleColor.Red);
+            }
+        }
+
+        private static string SafeName(Thing t)
+        {
+            if (t == null) return "?";
+            try
+            {
+                string n = t.DisplayName;
+                if (!string.IsNullOrEmpty(n)) return n;
+            }
+            catch { }
+            try { return t.PrefabName ?? "?"; } catch { return "?"; }
+        }
+
+        private static string StageTag(StowStage s)
+        {
+            if (s == StowStage.BeltTool) return "BELT";
+            if (s == StowStage.StackMerge) return "STACK";
+            if (s == StowStage.FunctionalSocket) return "SOCKET";
+            if (s == StowStage.Profile) return "PROFILE";
+            if (s == StowStage.Affinity) return "AFFINITY";
+            if (s == StowStage.BagDefault) return "DEFAULT";
+            if (s == StowStage.Memory) return "MEMORY";
+            if (s == StowStage.GenericFallback) return "GENERIC";
+            if (s == StowStage.BeltFallback) return "BELT*";
+            return "?";
+        }
+
         // The large box shares the CardboardBox class with the small one; only the prefab
         // differs ("CardboardBoxLarge"), so filter on the prefab name.
         private static bool IsLarge(CardboardBox b)
@@ -165,6 +259,7 @@ namespace StationeersUIMod.Core
                 if (Matches(cmd, "findlargebox")) { FinderCommands.FindLargeBox(cmd); return false; }
                 if (Matches(cmd, "uiaprof")) { UiaProfCommand(cmd); return false; }
                 if (Matches(cmd, "uiaflash")) { FinderCommands.FlashTest(cmd); return false; }
+                if (Matches(cmd, "stowtrace")) { FinderCommands.StowTrace(cmd); return false; }
             }
             catch { }
             return true;

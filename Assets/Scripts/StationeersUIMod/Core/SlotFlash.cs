@@ -21,7 +21,8 @@ namespace StationeersUIMod.Core
     /// </summary>
     public static class SlotFlash
     {
-        private const float DurationSec = 0.7f;  // a touch longer than vanilla's 0.5s so the swap reads
+        private const float DurationSec = 0.35f; // snappy, near vanilla's instant swap — FlorpyDorp:
+                                                 // "no slow animation of it getting smaller… make it faster"
         private const float MaxAgeSec = 6f;      // safety: drop a flash whose box never rendered
 
         private struct Entry { public Sprite Icon; public float Posted; public float StartedAt; }

@@ -82,6 +82,99 @@ namespace StationeersUIMod.Core
             });
         }
 
+        // ---- pooled scan (StowRouter's EnsureScan) -------------------------------------
+        //
+        // The router resolves per G press AND at ~4 Hz for the whole duration of a ghost-hint
+        // drag; a fresh List + HashSet + one ScannedSlot per slot (+ unread Location concats)
+        // per resolve was the mod's largest steady allocation source during a drag. These
+        // buffers are reused per call (Clear per use) and the ScannedSlot instances recycle
+        // through a grow-only pool. The returned list is valid ONLY until the next ScanPooled
+        // call — router-internal use, never handed to anything that holds it. Location stays
+        // null (no router stage reads it). ResetPool() drops every reference on mod shutdown
+        // (hot-reload rule: pooled Slot/Thing refs must not survive an F6).
+
+        private static readonly List<ScannedSlot> _pooledResult = new List<ScannedSlot>(64);
+        private static readonly List<ScannedSlot> _slotPool = new List<ScannedSlot>(64);
+        private static readonly HashSet<Thing> _pooledVisited = new HashSet<Thing>();
+        private static int _poolUsed;
+
+        /// <summary>Allocation-free variant of <see cref="Scan"/> for resolve-frequency callers.
+        /// Same slot enumeration and depth/lock semantics; Location is not composed. The result
+        /// is POOLED: read it within the same resolve, never cache or return it.</summary>
+        public static List<ScannedSlot> ScanPooled(int maxDepth, bool includeToolSlots)
+        {
+            _pooledResult.Clear();
+            _pooledVisited.Clear();
+            int prevUsed = _poolUsed;
+            _poolUsed = 0;
+
+            Human human = InventoryManager.ParentHuman;
+            if (human != null)
+            {
+                _pooledVisited.Add(human);
+                foreach (Slot slot in human.Slots)
+                {
+                    if (slot == null) continue;
+                    AddPooled(slot, human, 0, false);
+                    DynamicThing occ = slot.Get();
+                    if (occ != null) WalkPooled(occ, 1, maxDepth, includeToolSlots);
+                }
+            }
+
+            // Pool entries used by the PREVIOUS scan but not this one would otherwise pin
+            // stale Slot/Thing refs between resolves; clear just that tail (entries beyond
+            // it are already clean by induction).
+            for (int i = _poolUsed; i < prevUsed && i < _slotPool.Count; i++)
+            {
+                ScannedSlot s = _slotPool[i];
+                s.Slot = null; s.Holder = null; s.Location = null; s.Expected = null;
+                s.Depth = 0; s.InsideTool = false;
+            }
+            _pooledVisited.Clear(); // don't hold Thing refs between resolves
+            return _pooledResult;
+        }
+
+        private static void WalkPooled(Thing holder, int depth, int maxDepth, bool includeToolSlots)
+        {
+            if (depth > maxDepth || holder == null || !_pooledVisited.Add(holder)) return;
+            if (holder.Slots == null) return;
+
+            bool holderIsTool = holder is Tool || holder is PowerTool;
+            foreach (Slot slot in holder.Slots)
+            {
+                if (slot == null || slot.IsLocked) continue;
+                if (holderIsTool && !includeToolSlots) continue;
+                AddPooled(slot, holder, depth, holderIsTool);
+                DynamicThing occ = slot.Get();
+                if (occ != null) WalkPooled(occ, depth + 1, maxDepth, includeToolSlots);
+            }
+        }
+
+        private static void AddPooled(Slot slot, Thing holder, int depth, bool insideTool)
+        {
+            ScannedSlot s;
+            if (_poolUsed < _slotPool.Count) s = _slotPool[_poolUsed];
+            else { s = new ScannedSlot(); _slotPool.Add(s); }
+            _poolUsed++;
+            s.Slot = slot;
+            s.Holder = holder;
+            s.Location = null;
+            s.Depth = depth;
+            s.InsideTool = insideTool;
+            s.Expected = null;
+            _pooledResult.Add(s);
+        }
+
+        /// <summary>Hot-reload teardown (via <c>StowRouter.Reset</c>): drop every pooled
+        /// Slot/Thing reference so a reload or world change strands nothing.</summary>
+        public static void ResetPool()
+        {
+            _pooledResult.Clear();
+            _slotPool.Clear();
+            _pooledVisited.Clear();
+            _poolUsed = 0;
+        }
+
         private static string WornLocationName(Human human, Slot slot)
         {
             if (slot == human.LeftHandSlot) return "Left Hand";

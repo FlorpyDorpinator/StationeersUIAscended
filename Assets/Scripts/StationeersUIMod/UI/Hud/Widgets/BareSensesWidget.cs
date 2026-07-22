@@ -33,14 +33,18 @@ namespace StationeersUIMod.UI.Hud.Widgets
         private const int DayItem = Rows;  // the day-part word is item index 8
 
         // Sense identity. Index = the sense's slot in SenseCatalog.Senses AND the `order` token set.
+        // MUST stay index-aligned with SenseCatalog.Senses (temp..toilet, then the 0.9.1 additions).
         private static readonly string[] SenseKeys =
-            { "temp", "air", "pressure", "thirst", "hunger", "health", "cognition", "toilet" };
+            { "temp", "air", "pressure", "thirst", "hunger", "health", "cognition", "toilet",
+              "mood", "clean", "soiled", "stun", "gforce" };
         private const string NoneToken = "none";
-        private const string DefaultOrder = "temp,air,pressure,thirst,hunger,health";
+        // Toilet added so a fresh manual box shows it too (#6); auto mode surfaces it regardless.
+        private const string DefaultOrder = "temp,air,pressure,thirst,hunger,health,toilet";
 
         // Combo entries: option 0 = empty row, options 1..N = the senses in catalog order.
         private static readonly string[] SlotOptions =
-            { "— none —", "Temperature", "Air", "Pressure", "Thirst", "Hunger", "Health", "Consciousness", "Toilet" };
+            { "— none —", "Temperature", "Air", "Pressure", "Thirst", "Hunger", "Health", "Consciousness", "Toilet",
+              "Mood", "Clean", "Soiled", "Stun", "G-Force" };
         private static readonly string[] LayoutModeNames = { "Vertical", "Horizontal", "Grid" };
 
         // Per-(sense,band) Params-bag keys, precomputed once so the per-frame read path never
@@ -81,6 +85,14 @@ namespace StationeersUIMod.UI.Hud.Widgets
         private readonly int[] _slots = new int[Rows];
         private readonly int[] _slotsCache = new int[Rows];
         private string _orderCache;
+
+        // #8 auto-surface scratch (sized to the catalog; reused each frame, no per-frame alloc).
+        private readonly int[] _autoBuf = new int[SenseCatalog.Senses.Length];
+        private readonly int[] _autoSev = new int[SenseCatalog.Senses.Length];
+
+        // #7 clean-chime edge tracking: prime silently, then fire once on the upward 150% crossing.
+        private bool _cleanPrimed;
+        private bool _clean150Latch;
 
         // Per-frame layout scratch (active items in draw order + their measured line heights/widths).
         private readonly int[] _active = new int[Rows + 1];
@@ -135,12 +147,22 @@ namespace StationeersUIMod.UI.Hud.Widgets
         public override void UpdatePanel(HudSnapshot s, float scale)
         {
             float dt = Mathf.Min(Time.unscaledDeltaTime, 0.1f);
-            ReadSlots(_slots);
 
             float opacity = TextOpacity();
             _itemBoxOn = Def.GetBFor(LayoutBare, "itemBox", false);
             Color wordBase = ResolveRef(Def.GetSFor(LayoutBare, "wordColor", ""),
                 HudPalette.BareWord.Value, ref _wordCref, ref _wordCol);
+
+            // #8: AUTO mode (default on) surfaces whichever moodlets are currently active — up to the
+            // Rows cap, most-severe first — instead of the fixed author-placed order. Manual mode (auto
+            // off) uses the `order` CSV exactly as before. Either way the per-band word/colour/threshold
+            // overrides still apply, so any hand-tuning survives the switch. Needs wordBase, so it runs
+            // after it (EvalSense resolves the non-critical fallback colour from wordBase).
+            if (Def.GetBFor(LayoutBare, "auto", true)) ReadSlotsAuto(s, wordBase, _slots);
+            else ReadSlots(_slots);
+
+            // #7: chime on the 150% "PRISTINE" clean edge (the game itself plays the 100% chime).
+            TickCleanSound(s);
 
             // Every per-item box starts hidden; the arrange pass re-activates the ones in use.
             for (int i = 0; i < _itemBg.Length; i++) _itemBg[i].gameObject.SetActive(false);
@@ -151,9 +173,9 @@ namespace StationeersUIMod.UI.Hud.Widgets
             for (int row = 0; row < Rows; row++)
             {
                 int sense = _slots[row];
-                string word; Color col; bool crit;
-                EvalSense(s, sense, wordBase, out word, out col, out crit);
-                ApplySenseWord(row, word, col, crit, dt, scale, opacity);
+                string word; Color col; SenseSev sev;
+                EvalSense(s, sense, wordBase, out word, out col, out sev);
+                ApplySenseWord(row, word, col, sev == SenseSev.Critical, dt, scale, opacity);
                 if (word.Length > 0)
                 {
                     _active[count] = row;
@@ -182,9 +204,9 @@ namespace StationeersUIMod.UI.Hud.Widgets
         /// snapshot, honouring per-element threshold/word/colour overrides and the atmosphere /
         /// sanitation validity guards. Empty word = nominal or untrusted (hidden). First matching band
         /// in the catalog's severity-descending order wins, so bidirectional senses resolve correctly.</summary>
-        private void EvalSense(HudSnapshot s, int sense, Color wordBase, out string word, out Color color, out bool critical)
+        private void EvalSense(HudSnapshot s, int sense, Color wordBase, out string word, out Color color, out SenseSev sev)
         {
-            word = ""; color = wordBase; critical = false;
+            word = ""; color = wordBase; sev = SenseSev.Notice;
             if (s == null || sense < 0) return;
             var info = SenseCatalog.Senses[sense];
             if (info.NeedsAtmosphere && !s.FeltValid) return;       // can't feel the warmth of nothing
@@ -206,13 +228,15 @@ namespace StationeersUIMod.UI.Hud.Widgets
                 bool hit = band.Side == BandSide.High ? val >= th : val <= th;
                 if (!hit) continue;
                 word = Def.GetSFor(LayoutBare, WKeys[sense][b], robot ? band.RobotWord : band.Word);
-                // Critical keeps its own palette default; every other band falls back to the
-                // element's authored word colour so one picker re-tints the whole readout.
+                // Colour precedence: the author's per-band c_ override wins; else the band's own
+                // default hue (ColorRef, e.g. FRESH teal / WEIGHTLESS blue); else the severity default
+                // (Critical -> red, everything else the element's word colour). The memo caches the
+                // resolved hex so a constant band ColorRef stays zero-alloc after the first frame.
                 Color fallback = band.Sev == SenseSev.Critical
                     ? SenseCatalog.DefaultColor(band.Sev) : wordBase;
-                color = ResolveRef(Def.GetSFor(LayoutBare, CKeys[sense][b], ""), fallback,
-                    ref _crefMemo[sense][b], ref _colMemo[sense][b]);
-                critical = band.Sev == SenseSev.Critical;
+                string cref = Def.GetSFor(LayoutBare, CKeys[sense][b], band.ColorRef ?? "");
+                color = ResolveRef(cref, fallback, ref _crefMemo[sense][b], ref _colMemo[sense][b]);
+                sev = band.Sev;
                 return;
             }
         }
@@ -475,6 +499,52 @@ namespace StationeersUIMod.UI.Hud.Widgets
             return -1;
         }
 
+        /// <summary>#8 auto-surface: fill <paramref name="into"/> with the currently-active senses (a
+        /// band produced a word), most-severe first then catalog order, capped at Rows. Rows past the
+        /// active count are -1 (nominal, collapse away). Evaluates every catalog sense once; the render
+        /// loop re-evaluates only the chosen rows, which is cheap for a handful of senses.</summary>
+        private void ReadSlotsAuto(HudSnapshot s, Color wordBase, int[] into)
+        {
+            int n = 0;
+            var senses = SenseCatalog.Senses;
+            for (int i = 0; i < senses.Length && n < _autoBuf.Length; i++)
+            {
+                string w; Color c; SenseSev sv;
+                EvalSense(s, i, wordBase, out w, out c, out sv);
+                if (w.Length == 0) continue;
+                _autoBuf[n] = i;
+                _autoSev[n] = (int)sv;   // Notice=0 < Warn=1 < Critical=2
+                n++;
+            }
+            // Insertion sort by severity DESC; stable, so equal-severity keeps catalog order.
+            for (int a = 1; a < n; a++)
+            {
+                int vi = _autoBuf[a], vs = _autoSev[a], b = a - 1;
+                while (b >= 0 && _autoSev[b] < vs) { _autoBuf[b + 1] = _autoBuf[b]; _autoSev[b + 1] = _autoSev[b]; b--; }
+                _autoBuf[b + 1] = vi; _autoSev[b + 1] = vs;
+            }
+            for (int r = 0; r < Rows; r++) into[r] = r < n ? _autoBuf[r] : -1;
+        }
+
+        /// <summary>#7: the game already chimes when the "refreshed / clean" moodlet appears (hygiene
+        /// &gt; 100%). FlorpyDorp asked for a SECOND, identical chime when hygiene reaches 150% (fully
+        /// clean). Fire it on the upward 1.5 edge only, with a small hysteresis so a value parked at 1.5
+        /// can't retrigger, and PRIME silently on the first frame so entering the bare tier already at
+        /// 150% doesn't play it. Bare-tier only (this widget), matching the "clean sense" ask.</summary>
+        private void TickCleanSound(HudSnapshot s)
+        {
+            if (s == null) return;
+            float h = s.HygieneRaw;
+            bool at150 = h >= 1.5f;
+            if (!_cleanPrimed) { _cleanPrimed = true; _clean150Latch = at150; return; }
+            if (at150 && !_clean150Latch)
+            {
+                _clean150Latch = true;
+                try { UIAudioManager.Play(Animator.StringToHash("SFX_UI_Notify_NOTICE")); } catch { }
+            }
+            else if (h < 1.45f) _clean150Latch = false;
+        }
+
         private void WriteSlots(int[] slots)
         {
             var sb = new StringBuilder(64);
@@ -589,7 +659,15 @@ namespace StationeersUIMod.UI.Hud.Widgets
                 v => d.SetBFor(bare, "itemBox", v)));
             for (int i = astart; i < into.Count; i++) into[i].Group = HudPropGroup.Appearance;
 
-            into.Add(HudProp.Header("Senses (row = top → bottom)"));
+            var ap = HudProp.Bool("Auto-show active moodlets", () => d.GetBFor(bare, "auto", true),
+                v => d.SetBFor(bare, "auto", v));
+            ap.Help = "On (default): the box automatically shows whichever moodlets are currently " +
+                      "active — most-severe first, up to " + Rows + " at once — so you never pre-place " +
+                      "them. Off: use the fixed rows below. Per-sense words, colours and levels apply " +
+                      "either way.";
+            into.Add(ap);
+
+            into.Add(HudProp.Header("Manual rows (used only when auto is OFF)"));
             for (int i = 0; i < Rows; i++)
             {
                 int row = i;

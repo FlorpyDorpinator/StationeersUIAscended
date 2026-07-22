@@ -257,7 +257,7 @@ namespace StationeersUIMod.UI.Hud
                 _line.RippleSmooth = UsesGlobalStyle ? 0f : Def.GetFFor(LayoutBare, "rippleSmooth", 0f);
                 bool glowOn = tierA && StyleFeatureOn("customGlowOn", HudConfig.FxGlowOn);
                 // Same Tier-A-gated constant floor as the panels (see ApplyMeshFx).
-                _line.Glow = tierA ? HudAlertPulse.Glow(glowOn ? OwnOrGlobal("glow", HudConfig.FxGlow) : 0f) : 0f;
+                _line.Glow = tierA ? HudAlertPulse.Glow(glowOn ? OwnOrGlobal("glow", HudConfig.FxGlow) : 0f, AlertSeed) : 0f;
                 _line.GlowWidth = OwnOrGlobal("glowWidth", HudConfig.FxGlowWidth);
                 _line.GlowDiffuse = OwnOrGlobal("glowDiffuse", HudConfig.FxGlowDiffuse);
                 _line.GlowExtraDiffuse = Mathf.Clamp01(

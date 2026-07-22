@@ -347,7 +347,7 @@ namespace StationeersUIMod.UI.Grid
             else HudFxMaterials.Unassign(_headerBg);
 
             if (_chevron != null) _chevron.color = HudPalette.TextLabel.Value;
-            if (_title != null) _title.color = HudPalette.TextValue.Value;
+            if (_title != null) _title.color = GridTheme.Text;   // honours the Grid 'Text' override
             if (_count != null) _count.color = HudPalette.TextDim.Value;
 
             if (_sortGo.activeSelf)

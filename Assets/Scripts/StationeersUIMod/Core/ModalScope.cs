@@ -11,18 +11,11 @@ namespace StationeersUIMod.Core
     /// </summary>
     public sealed class ModalScope
     {
-        /// <summary>
-        /// Head-look peek: while true, the radial modal STOPS unlocking the cursor, so
-        /// <c>MouseModeController.Check()</c> re-locks it next frame and head-look resumes
-        /// (see RadialController head-look-hold). Static because there is exactly one radial
-        /// modal in flight and the controller flips it per input frame. Reset to false on
-        /// Close() and in the controller's CloseAll()/ShutdownImmediate() teardown.
-        /// </summary>
-        public static bool HeadLookPeek;
-
         private sealed class UiaModal : IModal
         {
-            public bool UnlockCursor => !ModalScope.HeadLookPeek;
+            // The cursor is unconditionally unlocked for the whole life of any radial: nothing
+            // ever asks the game to re-lock it while a radial is open.
+            public bool UnlockCursor => true;
         }
 
         private readonly UiaModal _modal = new UiaModal();
@@ -81,13 +74,22 @@ namespace StationeersUIMod.Core
             // independent of it.
             try { if (CursorManager.Instance != null) CursorManager.Instance.BlockCursorRaycast = true; }
             catch { }
+            // Assert the unlock THIS frame. The game runs MouseModeController.Check() once per frame
+            // from CursorManager.ManagerUpdate; if that ran BEFORE this Open() on the open frame, the
+            // cursor stays locked for one frame while the radial is already drawn, so vanilla's
+            // LateUpdate SetMouseLook() burns one extra frame of camera rotation on the mouse motion
+            // made while opening — a one-frame camera hitch, visible only when the mouse was moving
+            // (hence intermittent; play-test 2026-07-21). The modal is already registered above, so
+            // re-running Check() now drives SetState(false) this frame and no frame order can leave the
+            // gap. The game's own Check() later this/next frame just re-confirms (no-op).
+            try { MouseModeController.Check(); }
+            catch { }
         }
 
         public void Close()
         {
             _releasePending = false;
             _clearFrames = 0;
-            HeadLookPeek = false; // never leave the cursor re-locked once the radial is gone
             if (!IsOpen) return;
             IsOpen = false;
             TrySetBlockUguiClicks(false);

@@ -19,6 +19,12 @@ namespace StationeersUIMod.UI.Hud
     /// filters therefore pulses indefinitely, matching vanilla, which keeps its warning icon lit for
     /// exactly as long. Only the condition clearing stops it.
     ///
+    /// LEAVING an alert is a soft fade, never a snap (Mode.FadeOut): whenever the alarm stands down
+    /// with the tint still lit — a warning fixed mid-flash, a critical clearing, a critical recovering
+    /// to caution — the envelope and the forced-glow floor ease to nothing over <see cref="FadeOutSeconds"/>,
+    /// holding the on-screen colour. A caution that runs its full flash budget ends at its own trough,
+    /// so it needs no extra tail.
+    ///
     /// Both the halo hue and the ripple contour derive from BorderColor inside OnPopulateMesh
     /// (PanelGraphic.cs:755 'Color halo = hasBorder ? Color.Lerp(color, BorderColor, 0.75f) : color'
     /// and BorderAt at :1284 'Color c = BorderColor;'), so ONE colour filter drives both.
@@ -47,12 +53,14 @@ namespace StationeersUIMod.UI.Hud
         private const float ReblinkCooldown = 10f; // re-blink when a NEW channel joins
         private const float ArmCooldown = 3f;      // minimum gap between cold-start arms
         private const float HueBlendSeconds = 0.15f;
+        private const float FadeOutSeconds = 0.6f; // soft stand-down; NOT tied to breath length — a fade wants to be quick
 
         /// <summary>Off = nothing rendered (also a caution's resting state once it has flashed).
         /// Burst = the transient caution flash. Endless = the critical breath, which runs until the
         /// condition clears — there is deliberately no "held steady" mode: a critical either breathes
-        /// or it is gone.</summary>
-        private enum Mode { Off, Burst, Endless }
+        /// or it is gone. FadeOut = the soft stand-down: a captured envelope and hue easing to nothing
+        /// so LEAVING an alert is never an instant snap.</summary>
+        private enum Mode { Off, Burst, Endless, FadeOut }
 
         private static Mode _mode;
         private static WarnSev _sev;
@@ -68,6 +76,12 @@ namespace StationeersUIMod.UI.Hud
         private static UnityEngine.Object _lastHuman;
 
         private static float _env;                 // continuous, strength-folded; quantised per call
+
+        // Soft fade-out (Mode.FadeOut): the visible tail when an alarm stands down.
+        private static float _fadeFrom;            // _env snapshot at the instant the fade began
+        private static float _fadeHue;             // hue held for the visible duration of the fade
+        private static float _fadeT;               // 0..1 fade progress
+        private static float _alertGlow = 1f;      // forced-glow-floor scale: 1 while an alarm stands, eases to 0 on fade-out
 
         /// <summary>True while an alarm stands and the tint filters are live.</summary>
         internal static bool Active;
@@ -88,6 +102,7 @@ namespace StationeersUIMod.UI.Hud
             _mode = Mode.Off; _sev = WarnSev.None; _mask = 0u; _lastSeq = 0u;
             _phase = 0f; _cycles = 0; _hue = 0f; _demoteConfirm = 0; _downConfirm = 0;
             _lastReblink = -999f; _lastArm = -999f; _lastHuman = null;
+            _fadeFrom = 0f; _fadeHue = 0f; _fadeT = 0f; _alertGlow = 1f;
             _env = 0f; Active = false;
         }
 
@@ -177,6 +192,29 @@ namespace StationeersUIMod.UI.Hud
 
             if (_mode == Mode.Off) { _env = 0f; Active = false; return; }
 
+            if (_mode == Mode.FadeOut)
+            {
+                // Soft stand-down: ease the captured envelope AND the forced-glow floor to nothing,
+                // holding the colour that was on screen so leaving an alert is a gentle wash, not a
+                // snap. Unscaled time like the rest of the pulse, so it still finishes behind a pause
+                // menu. On completion the machine is finally Off, and _hue is zeroed there so a later
+                // caution cannot inherit a red first frame.
+                float dtf = Mathf.Min(Time.unscaledDeltaTime, 0.1f);
+                _fadeT += dtf / FadeOutSeconds;
+                if (_fadeT >= 1f)
+                {
+                    _mode = Mode.Off; _env = 0f; _hue = 0f; _alertGlow = 1f; Active = false;
+                    return;
+                }
+                float k = 1f - _fadeT;
+                float e = k * k;                    // quadratic ease-out: quick off the peak, gentle into nothing
+                _hue = _fadeHue;                    // Tint reads _hue; hold the on-screen colour, do not crossfade
+                _env = _fadeFrom * e;
+                _alertGlow = e;                     // RAW here; Glow() quantises it per-element (see below)
+                Active = true;
+                return;
+            }
+
             // The user picks a BREATH DURATION (seconds per full fade in-and-out) because that is what
             // you actually judge by eye; the envelope wants a rate, so invert it. The 0.35s floor
             // keeps the maximum below ~3 flashes/sec, out of the photosensitivity band.
@@ -215,7 +253,14 @@ namespace StationeersUIMod.UI.Hud
                 // here: it breathes for as long as the condition stands.
                 if (burst && !previewLoop && _cycles >= BreathCount)
                 {
-                    _mode = Mode.Off; _phase = 0f; _env = 0f; Active = false;
+                    // A caution normally ends AT its trough (the completion test fires on the phase
+                    // wrap), so _env is ~0 and BeginFade goes straight to Off — effectively instant.
+                    // Under a frame hitch it can end mid-wave and simply fade out instead, which is
+                    // fine (a soft tail beats a snap). The fade also bites when a warning is FIXED
+                    // mid-flash before the budget is spent.
+                    _phase = 0f;
+                    BeginFade();
+                    if (_mode != Mode.FadeOut) { _env = 0f; Active = false; }
                     return;
                 }
             }
@@ -232,6 +277,7 @@ namespace StationeersUIMod.UI.Hud
             _env = burst
                 ? env * Mathf.Lerp(0.5f, 1f, strength)
                 : SettleMix + (env - SettleMix) * strength;
+            _alertGlow = 1f;   // full forced-glow floor while an alarm actively stands (FadeOut eases it down)
             Active = true;
         }
 
@@ -240,10 +286,11 @@ namespace StationeersUIMod.UI.Hud
             if (sev == WarnSev.None)
             {
                 if (++_demoteConfirm < 2) return;      // two agreeing POLLS (0.5 s)
-                _mode = Mode.Off; _sev = WarnSev.None; _mask = 0u; _cycles = 0; _phase = 0f;
+                _sev = WarnSev.None; _mask = 0u; _cycles = 0; _phase = 0f;
                 _demoteConfirm = 0;
+                BeginFade();       // soft stand-down — snapshots _hue for the fade before we zero it
                 // _hue too, or a caution arriving after a cleared critical renders RED for the
-                // 0.15s the crossfade takes to walk it back down.
+                // 0.15s the crossfade takes to walk it back down. (The fade holds its own _fadeHue.)
                 _hue = 0f;
                 return;
             }
@@ -293,11 +340,12 @@ namespace StationeersUIMod.UI.Hud
                 // Recovery from critical: stand the alarm fully down rather than dropping to a
                 // standing amber. Caution is a transient annunciation, not a state colour — and
                 // recovery must not be punished with a fresh burst either.
-                // _hue and _phase MUST be cleared here like every other Off transition: Tick
-                // early-returns on Mode.Off before it advances either, so whatever the red breath
-                // left would stay frozen — giving a later caution a red first rise, and a later
-                // re-escalation a breath that resumes mid-wave instead of from the trough.
-                _sev = WarnSev.Caution; _mode = Mode.Off; _cycles = BreathCount;
+                // Soft stand-down of the red, holding its colour as it eases out (BeginFade snapshots
+                // _hue first). _hue and _phase are then cleared like every other Off transition, so a
+                // later caution cannot inherit a red first rise and a re-escalation resumes from the
+                // trough — the fade renders from its own _fadeHue snapshot, not _hue.
+                _sev = WarnSev.Caution; _cycles = BreathCount;
+                BeginFade();
                 _hue = 0f; _phase = 0f;
                 return;
             }
@@ -306,6 +354,11 @@ namespace StationeersUIMod.UI.Hud
             if (coldStart || reblink)
             {
                 _mode = Mode.Burst; _cycles = 0; _phase = 0f;
+                // A caution is ALWAYS amber. Force the hue, or a caution arming while a cleared
+                // critical is still fading (the FadeOut branch rewrites _hue to the red _fadeHue
+                // every frame) would render its first ~0.15s red as MoveTowards walks it back down.
+                // Escalation is a different branch, so its crossfade UP to red is unaffected.
+                _hue = 0f;
                 _lastArm = now; _lastReblink = now;
             }
             // NOTE: no fallback branch here. Leaving _mode at Off while _sev is Caution is now the
@@ -325,6 +378,24 @@ namespace StationeersUIMod.UI.Hud
                 return HudConfig.FxAlertCautionBreaths != null
                     ? Mathf.Clamp(HudConfig.FxAlertCautionBreaths.Value, 1, 10) : BreathsDefault;
             }
+        }
+
+        /// <summary>Stand the alarm DOWN with a soft fade instead of an instant snap. Snapshots the
+        /// current envelope and hue and eases them to nothing over <see cref="FadeOutSeconds"/>; if the
+        /// tint is already dark (a caution ending at its trough), goes straight to Off with no visible
+        /// tail. The LOGICAL state (_sev/_mask/_cycles/_phase) is the caller's responsibility — this
+        /// governs only the visible tail, so an alarm arriving mid-fade cleanly overrides it (its
+        /// Apply branch reassigns _mode away from FadeOut). Idempotent: a repeated stand-down while
+        /// already fading does NOT restart the ramp, so a persistent None never stutters the fade.</summary>
+        private static void BeginFade()
+        {
+            if (_mode == Mode.FadeOut) return;      // already fading — never restart the ramp
+            if (_env > 0.01f)
+            {
+                _fadeFrom = _env; _fadeHue = _hue; _fadeT = 0f;
+                _mode = Mode.FadeOut;
+            }
+            else _mode = Mode.Off;
         }
 
         private static float Quantise(float v, int seed)
@@ -394,10 +465,21 @@ namespace StationeersUIMod.UI.Hud
         /// documented "everything 0 = classic 0.8.0 output" invariant must hold. Within an enabled
         /// Tier A the floor DOES override a per-element customGlowOn opt-out — the alarm is a safety
         /// signal, that toggle is a styling preference, and the whole feature sits behind a checkbox.
-        /// Never applied to GlowInner (that band sits under the readout text).</summary>
-        internal static float Glow(float g)
+        /// Never applied to GlowInner (that band sits under the readout text). Scaled by _alertGlow so
+        /// the forced halo eases out with the colour on a fade rather than lingering at full intensity
+        /// and then snapping off. _alertGlow is 1 while an alarm ACTIVELY stands — so the floor is
+        /// CONSTANT then and the "changes only at onset/clear" contract holds — and only ramps during
+        /// FadeOut, where it is quantised on the SAME per-element grid as <see cref="Tint"/> so the
+        /// skirt re-tessellations spread across frames instead of every panel rebuilding at once.
+        /// <paramref name="seed"/> is the element's HudDocument.StableSeed(Def.Id).</summary>
+        internal static float Glow(float g) { return Glow(g, 0); }
+
+        internal static float Glow(float g, int seed)
         {
-            return Active ? Mathf.Max(g, GlowFloorAmt) : g;
+            if (!Active) return g;
+            // Quantise(1, seed) clamps back to 1 for every seed, so an actively-standing alarm holds a
+            // constant floor with no per-element churn; only the fade's sub-1 values vary per element.
+            return Mathf.Max(g, GlowFloorAmt * Quantise(_alertGlow, seed));
         }
     }
 }

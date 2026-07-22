@@ -1,5 +1,4 @@
 using System.Collections.Generic;
-using BepInEx.Configuration;
 using StationeersUIMod.UI.Hud;
 using TMPro;
 using UnityEngine;
@@ -42,15 +41,48 @@ namespace StationeersUIMod.UI.Grid
     public sealed class GridTab : MonoBehaviour
     {
         // Layout constants (px, at the canvas' reference resolution).
-        private const float TabH = 20f;        // tab height
         private const float Slant = 9f;        // horizontal inset of the top edge (per side) → the manila slant
         private const float PadX = 7f;         // inner horizontal padding inside the top (narrow) span
-        private const float IconSize = 14f;
+        private const float IconSizeFallback = 14f;  // used only before UIAConfig binds (hot reload)
         private const float Gap = 4f;          // gap between icon / name / chevron
         private const float ChevW = 11f;       // chevron cell width
         private const float ChevSize = 9f;     // triangle size
         private const float NameMaxW = 220f;   // clamp so a very long name can't blow the tab out
         private const float MinW = 46f;
+
+        /// <summary>The F9-editable tab HEIGHT in px (<see cref="UIAConfig.GridTabHeight"/>, clamped
+        /// 14..36, shipped default 20). Read live everywhere the old <c>TabH</c> const was used, so a
+        /// live size edit reflows the tab on the next Layout; falls back to 20 before the config binds
+        /// (hot reload before <c>UIAConfig.Init</c>).</summary>
+        private static float TabHeight()
+        {
+            try { if (UIAConfig.GridTabHeight != null) return Mathf.Clamp(UIAConfig.GridTabHeight.Value, 14f, 36f); }
+            catch { }
+            return 20f;
+        }
+
+        /// <summary>The F9-editable tab TEXT size (<see cref="UIAConfig.GridTabTextSize"/>, clamped
+        /// 8..20, shipped default 11) — the BASE size before <see cref="HudText.Size"/> applies the
+        /// global font scale. Applied at Create and re-applied by <see cref="SyncTextSize"/> on a live
+        /// edit (a pooled tab keeps its Create-time font otherwise).</summary>
+        private static float TabTextSize()
+        {
+            try { if (UIAConfig.GridTabTextSize != null) return Mathf.Clamp(UIAConfig.GridTabTextSize.Value, 8f, 20f); }
+            catch { }
+            return 11f;
+        }
+
+        /// <summary>The F9-editable tab ICON size in px (<see cref="UIAConfig.GridTabIconSize"/>, clamped
+        /// 8..28, shipped default 14) — the little container thumbnail on the tab, distinct from the
+        /// cell item-icon scale. Read live everywhere the old <c>IconSize</c> const was used, so a size
+        /// edit reflows the tab (measure + place + the drag ghost) on the next Layout; falls back to 14
+        /// before the config binds (hot reload before <c>UIAConfig.Init</c>).</summary>
+        private static float TabIconSize()
+        {
+            try { if (UIAConfig.GridTabIconSize != null) return Mathf.Clamp(UIAConfig.GridTabIconSize.Value, 8f, 28f); }
+            catch { }
+            return IconSizeFallback;
+        }
 
         private RectTransform _rect;
         private PolygonPanelGraphic _bg;
@@ -60,10 +92,29 @@ namespace StationeersUIMod.UI.Grid
         private RectTransform _chevRt;
         private TriangleGraphic _chev;
 
+        // Passive profile badge (design O4b): the assigned profile's 2-4 char uppercase ASCII tag,
+        // seated between the name and the chevron. Content is bound by the region (which reads the
+        // store on structural rebuilds only), so this file never touches BagProfileStore.
+        private TextMeshProUGUI _badge;
+        private string _badgeText;
+        private float _badgeW;
+
+        // Drag-to-pin drop cue (design O4c): the active cell drag sets this while the pointer sits
+        // over the tab in profile mode, and the tab answers with its hover accent. Reset on Idle /
+        // OnDisable like every other transient bit.
+        private bool _dropHighlight;
+
+        // Keyboard/scroll-select cursor (#4): GridSelection sets this while the cursor is on this
+        // tab; the tab answers with its hover accent. Reset on rebind (SetCore) and Idle.
+        private bool _selected;
+
         // Trapezoid contour scratch (instance-local; rebuilt only on SetWidth, not per frame).
         private readonly List<Vector2> _pts = new List<Vector2>(4);
 
         private float _preferredWidth = MinW;
+        // The tab-icon size the last MeasurePreferred used, so a live F9 tab-icon-size edit (which
+        // arrives without a structural rebind) re-fits the tab through SyncTextSize.
+        private float _measuredIconSize = IconSizeFallback;
         private bool _collapsed;
 
         // ---- drag-out (pin) gesture state; all instance-local, torn down in Idle/EndDrag ----
@@ -108,19 +159,48 @@ namespace StationeersUIMod.UI.Grid
         /// <see cref="ResetStatics"/>.</summary>
         public static System.Action<GridTab, Vector2> DragOutRequested;
 
-        /// <summary>Hot-reload teardown: drop both statics so a reloaded assembly can never be called
+        // ---- drag-to-pin success flash (design O4c feedback) ----
+        // A successful pin was previously INVISIBLE on an already-profiled bag (chip text and
+        // badge unchanged, item correctly doesn't move) — the one gesture in the set that
+        // succeeded silently. Keyed by container RefId + expiry time (NOT the component: the
+        // pin's BumpVersion triggers a rebuild that recycles tabs), read by RefreshStyle every
+        // Tick, so the accent pulse survives the rebuild and dies on its own. Static pair is
+        // cleared by ResetStatics like the other two.
+        private const float PinFlashSeconds = 1.2f;
+        private static long _pinFlashRefId;
+        private static float _pinFlashUntil;
+
+        /// <summary>Flash the tab of <paramref name="containerRefId"/> with the accent hover
+        /// style for ~a second: "the rule landed HERE". Called by the cell drag on a successful
+        /// drag-to-pin. Purely visual.</summary>
+        public static void FlashPin(long containerRefId)
+        {
+            _pinFlashRefId = containerRefId;
+            _pinFlashUntil = Time.unscaledTime + PinFlashSeconds;
+        }
+
+        private static bool PinFlashActive(long refId)
+        {
+            return refId != 0L && refId == _pinFlashRefId && Time.unscaledTime < _pinFlashUntil;
+        }
+
+        /// <summary>Hot-reload teardown: drop the statics so a reloaded assembly can never be called
         /// through a stale delegate or hold a destroyed rect. Call from <c>TheGridPanel.Shutdown</c>.</summary>
         public static void ResetStatics()
         {
             PanelBounds = null;
             DragOutRequested = null;
+            _pinFlashRefId = 0L;
+            _pinFlashUntil = 0f;
         }
 
         /// <summary>The tab's RectTransform (the region positions/sizes the tab through this).</summary>
         public RectTransform Rect { get { return _rect; } }
 
-        /// <summary>The tab's fixed height (px) — the region reserves this above the region border.</summary>
-        public float Height { get { return TabH; } }
+        /// <summary>The tab's height (px) — the region reserves this above the region border. Live
+        /// from <see cref="UIAConfig.GridTabHeight"/> (F9-editable), so the region reflows on the next
+        /// Layout after a size edit.</summary>
+        public float Height { get { return TabHeight(); } }
 
         /// <summary>The natural width (px) that fits the icon, name and chevron — computed in
         /// <see cref="Set"/>. The region uses it to size the region no narrower than its label.</summary>
@@ -161,7 +241,7 @@ namespace StationeersUIMod.UI.Grid
             tab._icon.preserveAspect = true;
             CentreChild(tab._icon.rectTransform);
 
-            tab._name = HudText.Make(rect, "Name", HudText.Size(11f),
+            tab._name = HudText.Make(rect, "Name", HudText.Size(TabTextSize()),
                 TextAlignmentOptions.Left, warp: false);
             CentreChild(tab._name.rectTransform);
 
@@ -171,6 +251,13 @@ namespace StationeersUIMod.UI.Grid
             CentreChild(tab._chevRt);
             tab._chev = chevGo.AddComponent<TriangleGraphic>();
             tab._chev.raycastTarget = false;
+
+            // The badge label — created LAST so it draws over a clamped name's overflow rather
+            // than under it. Inert (non-raycast) and inactive until a badge is actually bound.
+            tab._badge = HudText.Make(rect, "Badge", HudText.Size(9f),
+                TextAlignmentOptions.Center, warp: false);
+            CentreChild(tab._badge.rectTransform);
+            tab._badge.gameObject.SetActive(false);
 
             go.SetActive(false);
             return tab;
@@ -189,6 +276,7 @@ namespace StationeersUIMod.UI.Grid
         /// via <see cref="SetWidth"/>. Structural-only (called on rebuild), so measuring here is fine.</summary>
         public void Set(string name, Sprite icon, bool collapsed)
         {
+            _badgeText = null;
             SetCore(name, icon, collapsed);
         }
 
@@ -198,6 +286,19 @@ namespace StationeersUIMod.UI.Grid
         public void Set(string name, Sprite icon, bool collapsed, long refId)
         {
             RefId = refId;
+            _badgeText = null;
+            SetCore(name, icon, collapsed);
+        }
+
+        /// <summary>Full overload: everything above plus an optional profile <paramref name="badge"/>
+        /// (design O4b) — a short uppercase ASCII tag already sanitised by
+        /// <c>BagProfileStore.ProfileTag</c> (this file trusts it and never touches the store).
+        /// Null/empty = no badge. Width joins the preferred-width sum, so a badged tab grows to
+        /// fit rather than overlapping its name.</summary>
+        public void Set(string name, Sprite icon, bool collapsed, long refId, string badge)
+        {
+            RefId = refId;
+            _badgeText = string.IsNullOrEmpty(badge) ? null : badge;
             SetCore(name, icon, collapsed);
         }
 
@@ -205,6 +306,15 @@ namespace StationeersUIMod.UI.Grid
         {
             if (!gameObject.activeSelf) gameObject.SetActive(true);
             _collapsed = collapsed;
+            // A pooled tab re-Set for a different region starts unselected; GridSelection re-applies
+            // the cursor after the rebuild (by RefId identity), so a stale ring can never linger on a
+            // repurposed tab.
+            _selected = false;
+
+            // The tab text size is F9-editable; apply it BEFORE measuring so PreferredWidth fits the
+            // live font (a pooled tab keeps its Create-time font otherwise). SyncTextSize does the same
+            // on a live edit that arrives without a structural rebind.
+            if (_name != null) _name.fontSize = HudText.Size(TabTextSize());
 
             HudText.Sync(_name);
             HudText.Set(_name, name ?? "");
@@ -218,19 +328,64 @@ namespace StationeersUIMod.UI.Grid
             _chev.Configure(false, ChevSize);
             _chevRt.localRotation = collapsed ? Quaternion.Euler(0f, 0f, 90f) : Quaternion.identity;
 
+            // Profile badge (O4b): measured here so it joins the preferred-width sum in MeasurePreferred
+            // below — adding it only in SetWidth would overlap the name under the NameMaxW/region clamps.
+            float badgeW = 0f;
+            if (_badge != null && !string.IsNullOrEmpty(_badgeText))
+            {
+                HudText.Sync(_badge);
+                HudText.Set(_badge, _badgeText);
+                float bm = _badge.GetPreferredValues(_badgeText).x;
+                if (!float.IsNaN(bm) && !float.IsInfinity(bm)) badgeW = bm + 2f;
+            }
+            _badgeW = badgeW;
+            if (_badge != null && _badge.gameObject.activeSelf != (badgeW > 0f))
+                _badge.gameObject.SetActive(badgeW > 0f);
+
+            MeasurePreferred();
+            SetWidth(_preferredWidth);
+            RefreshStyle();
+        }
+
+        /// <summary>Recompute <see cref="PreferredWidth"/> from the CURRENT name text
+        /// (<see cref="_name"/>.text), the live tab font and the measured badge width
+        /// (<see cref="_badgeW"/>). Split out of <see cref="SetCore"/> so a live F9 tab-text-size edit
+        /// can re-fit the tab through <see cref="SyncTextSize"/> without a structural rebind.</summary>
+        private void MeasurePreferred()
+        {
             float nameW = 0f;
-            if (!string.IsNullOrEmpty(name))
+            string name = _name != null ? _name.text : null;
+            if (_name != null && !string.IsNullOrEmpty(name))
             {
                 float m = _name.GetPreferredValues(name).x;
                 if (!float.IsNaN(m) && !float.IsInfinity(m)) nameW = Mathf.Min(m, NameMaxW);
             }
-
-            // 2 slants + 2 pads bound the usable (narrow) top span; inside it: icon, gap, name, gap, chevron.
+            // 2 slants + 2 pads bound the usable (narrow) top span; inside it:
+            // icon, gap, name, gap, [badge, gap,] chevron.
+            float iconSize = TabIconSize();
+            _measuredIconSize = iconSize;   // remember what we fit around, for the live-edit re-fit
             _preferredWidth = Mathf.Max(MinW,
-                2f * Slant + 2f * PadX + IconSize + Gap + nameW + Gap + ChevW);
+                2f * Slant + 2f * PadX + iconSize + Gap + nameW + Gap
+                + (_badgeW > 0f ? _badgeW + Gap : 0f) + ChevW);
+        }
 
-            SetWidth(_preferredWidth);
-            RefreshStyle();
+        /// <summary>Re-apply the live F9 tab text size AND tab icon size, re-fitting
+        /// <see cref="PreferredWidth"/> if either changed, so a size edit reflows the tab WITHOUT a
+        /// structural rebind. The region calls this at Layout time before reading
+        /// <see cref="PreferredWidth"/>. The tab font is set only at Create and here, so a Relayout — not
+        /// just a rebind — must re-apply it (a pooled tab keeps its old font otherwise); the icon size is
+        /// read live by <see cref="SetWidth"/> for placement but only <see cref="MeasurePreferred"/>
+        /// re-fits the tab AROUND it. A no-op when both are already current, so it costs two float
+        /// compares in steady state.</summary>
+        public void SyncTextSize()
+        {
+            if (_name == null) return;
+            float fs = HudText.Size(TabTextSize());
+            bool fontChanged = !Mathf.Approximately(_name.fontSize, fs);
+            bool iconChanged = !Mathf.Approximately(_measuredIconSize, TabIconSize());
+            if (!fontChanged && !iconChanged) return;
+            if (fontChanged) _name.fontSize = fs;
+            MeasurePreferred();
         }
 
         /// <summary>Set the tab's width, rebuild the trapezoid contour to fit, and reposition the icon,
@@ -240,10 +395,12 @@ namespace StationeersUIMod.UI.Grid
         public void SetWidth(float width)
         {
             width = Mathf.Max(MinW, width);
+            float tabH = TabHeight();          // live F9 size (read once per layout pass)
+            float iconSize = TabIconSize();    // live F9 tab-icon size (read once per layout pass)
             float half = width * 0.5f;
-            float hy = TabH * 0.5f;
+            float hy = tabH * 0.5f;
 
-            _rect.sizeDelta = new Vector2(width, TabH);
+            _rect.sizeDelta = new Vector2(width, tabH);
 
             // CCW trapezoid, centred on the rect origin: wide bottom edge, narrower top edge (slant in).
             _pts.Clear();
@@ -257,19 +414,27 @@ namespace StationeersUIMod.UI.Grid
             float leftInner = -half + Slant + PadX;
             float rightInner = half - Slant - PadX;
 
-            float iconX = leftInner + IconSize * 0.5f;
+            float iconX = leftInner + iconSize * 0.5f;
             _icon.rectTransform.anchoredPosition = new Vector2(iconX, 0f);
-            _icon.rectTransform.sizeDelta = new Vector2(IconSize, IconSize);
+            _icon.rectTransform.sizeDelta = new Vector2(iconSize, iconSize);
 
             float chevX = rightInner - ChevW * 0.5f;
             _chevRt.anchoredPosition = new Vector2(chevX, 0f);
-            _chevRt.sizeDelta = new Vector2(ChevW, TabH);
+            _chevRt.sizeDelta = new Vector2(ChevW, tabH);
 
-            float nameLeft = iconX + IconSize * 0.5f + Gap;
+            // Badge (when bound) sits just left of the chevron; the name band ends before it.
             float nameRight = chevX - ChevW * 0.5f - Gap;
+            if (_badgeW > 0f && _badge != null)
+            {
+                _badge.rectTransform.anchoredPosition = new Vector2(nameRight - _badgeW * 0.5f, 0f);
+                _badge.rectTransform.sizeDelta = new Vector2(_badgeW, tabH);
+                nameRight -= _badgeW + Gap;
+            }
+
+            float nameLeft = iconX + iconSize * 0.5f + Gap;
             float nameW = Mathf.Max(4f, nameRight - nameLeft);
             _name.rectTransform.anchoredPosition = new Vector2((nameLeft + nameRight) * 0.5f, 0f);
-            _name.rectTransform.sizeDelta = new Vector2(nameW, TabH);
+            _name.rectTransform.sizeDelta = new Vector2(nameW, tabH);
         }
 
         /// <summary>Re-apply the live theme to the tab chrome (glass fill, border, name, chevron) and
@@ -282,7 +447,9 @@ namespace StationeersUIMod.UI.Grid
         {
             if (_bg == null) return;
 
-            bool hover = (_click != null && _click.Hover) || _dragging;
+            bool pinFlash = PinFlashActive(RefId);
+            bool hover = (_click != null && _click.Hover) || _dragging || _dropHighlight || pinFlash
+                || _selected;
 
             ApplyThemeBox(_bg, hover);
 
@@ -298,6 +465,37 @@ namespace StationeersUIMod.UI.Grid
 
             if (_name != null) _name.color = hover ? GridTheme.Text : HudPalette.TextLabel.Value;
             if (_chev != null) _chev.color = hover ? HudPalette.LineAccent.Value : HudPalette.TextLabel.Value;
+
+            // Badge: ACCENT-DIM (design Q5) — the accent line colour at reduced alpha, promoted to
+            // full accent while a dragged item hovers this tab (the drag-to-pin drop cue) and for
+            // the post-pin success flash.
+            if (_badge != null && _badge.gameObject.activeSelf)
+            {
+                Color bc = HudPalette.LineAccent != null ? HudPalette.LineAccent.Value : GridTheme.Border;
+                bc.a *= (_dropHighlight || pinFlash) ? 1f : 0.65f;
+                _badge.color = bc;
+            }
+        }
+
+        /// <summary>Toggle the drag-to-pin drop cue (set by the active <c>BagGridCell</c> drag
+        /// while the pointer sits over this tab in profile mode). Pure visuals — the accent hover
+        /// styling on the next <see cref="RefreshStyle"/>; the DROP itself is resolved by the cell.</summary>
+        public void SetDropHighlight(bool on)
+        {
+            if (_dropHighlight == on) return;
+            _dropHighlight = on;
+            RefreshStyle();
+        }
+
+        /// <summary>Toggle this tab's keyboard/scroll-select cursor highlight (set by
+        /// <see cref="GridSelection"/> when the cursor lands on this bag). Pure visuals — the tab wears
+        /// its hover accent; the OPEN/CLOSE action itself (F) is resolved by GridSelection through
+        /// <c>GridCollapseStore</c>.</summary>
+        public void SetSelected(bool on)
+        {
+            if (_selected == on) return;
+            _selected = on;
+            RefreshStyle();
         }
 
         // ---- theme plumbing -------------------------------------------------------------------
@@ -305,12 +503,14 @@ namespace StationeersUIMod.UI.Grid
         // GridTheme.ApplyBox is the ONE styling path for every Grid box, but its parameter is the
         // concrete PanelGraphic (it calls SetShape, which only a rect has). The tab's chrome is a
         // PolygonPanelGraphic — a sibling implementer of IGlassSurface, not a subclass — so it cannot
-        // go through that overload. ApplyThemeBox below is its trapezoid twin: it resolves the SAME
-        // values from the SAME theme getters (Fill / Border / BorderWidth / Sheen / Spec) and applies
-        // the same INTERIOR glass stack HudGlobalGlass.Apply(includeGlow:false, wantFrost:false,
-        // wantTierB:true) gives an inner HUD box — the shape step is simply absent, because a freeform
-        // contour carries no corner radius (the trapezoid's silhouette IS its shape). If GridTheme ever
-        // grows an IGlassSurface overload, delete this and call it.
+        // go through that overload. ApplyThemeBox below resolves fill/border colour/WIDTH from the
+        // SAME theme getters and hands the whole interior glass stack to GridTheme.ApplyInteriorGlass
+        // (the IGlassSurface overload this file's old trapezoid twin asked for): sheen/spec, feather,
+        // fades and the ripple block all run through the theme's OVERRIDE getters, so the F9 Grid
+        // popup styles the seated tab exactly like every sibling surface (the twin used to read raw
+        // globals and ignored the override half — editor-parity finding, 2026-07-20). The shape step
+        // is simply absent, because a freeform contour carries no corner radius (the trapezoid's
+        // silhouette IS its shape).
 
         /// <summary>Border-width scale for a tab, mirroring <c>GridTheme.WidthScale(GridSurface.Tab)</c>.
         /// Relative to the inherited global width — never an absolute line thickness.</summary>
@@ -322,13 +522,12 @@ namespace StationeersUIMod.UI.Grid
         /// <summary>How far the seated tab's inherited fill alpha drops while its ghost is in flight.</summary>
         private const float DragFadeAlpha = 0.35f;
 
-        private static float Cfg(ConfigEntry<float> e, float d) { return e != null ? e.Value : d; }
-        private static bool On(ConfigEntry<bool> e) { return e != null && e.Value; }
-
         /// <summary>Paint a tab's trapezoid from <see cref="GridTheme"/>: inherited fill, border colour
         /// (accent when <paramref name="hover"/>), inherited border WIDTH scaled per surface and by the
-        /// hover delta, plus the interior glass stack. Per-frame safe and allocation-free — every setter
-        /// is dirty-guarded and <c>HudFxMaterials.Assign</c> is idempotent.</summary>
+        /// hover delta, plus the interior glass stack through the theme's own
+        /// <see cref="GridTheme.ApplyInteriorGlass"/> (override-aware, clock-gated Tier B). Per-frame
+        /// safe and allocation-free — every setter is dirty-guarded and <c>HudFxMaterials.Assign</c>
+        /// is idempotent.</summary>
         private static void ApplyThemeBox(PolygonPanelGraphic bg, bool hover)
         {
             if (bg == null) return;
@@ -342,52 +541,7 @@ namespace StationeersUIMod.UI.Grid
                 : GridTheme.Border;
             bg.BorderWidth = width;
 
-            ApplyInteriorGlass(bg);
-        }
-
-        /// <summary>The interior-surface half of the HUD's global glass stack, for an IGlassSurface the
-        /// PanelGraphic-typed <c>HudGlobalGlass.Apply</c> cannot take. Sheen/edge light come from the
-        /// theme (so a Grid override still wins) and keep Tier A's edge-light boost; the glow halo is
-        /// reserved for the window shell and frost is a shell-only opt-in, exactly as
-        /// <c>GridTheme.ApplyBox</c> resolves them for an inner box.</summary>
-        private static void ApplyInteriorGlass(PolygonPanelGraphic g)
-        {
-            if (g == null) return;
-            bool tierA = On(HudConfig.FxTierA);
-            bool edge = tierA && On(HudConfig.FxEdgeLightOn);
-
-            float spec = GridTheme.Spec;
-            if (edge && Cfg(HudConfig.FxEdgeLight, 0f) > 0f)
-                spec = Mathf.Clamp01(spec + HudConfig.FxEdgeLight.Value * 0.45f);
-
-            g.Sheen = GridTheme.Sheen;
-            g.Spec = spec;
-            g.FeatherOverride = -1f;   // -1 = the global EdgeFeather
-
-            g.BorderFade = tierA && On(HudConfig.FxBorderFadeOn) ? Cfg(HudConfig.FxBorderFade, 0f) : 0f;
-            g.SoftEdge = tierA && On(HudConfig.FxSoftEdgeOn) ? Cfg(HudConfig.FxSoftEdge, 0f) : 0f;
-
-            g.Glow = 0f;               // interior surface: no halo
-            g.GlowInner = 0f;
-
-            g.EdgeRipple = edge ? Cfg(HudConfig.FxEdgeRipple, 0f) : 0f;
-            g.EdgeRippleFreq = Cfg(HudConfig.FxEdgeRippleFreq, 2f);
-            g.RippleSmooth = 0f;       // global forces the un-smoothed ripple
-
-            bool tierB = On(HudConfig.FxTierB) && Core.HudShaderStore.TierBAvailable;
-            bool shineOn = tierB && On(HudConfig.FxShineOn) && Cfg(HudConfig.FxShine, 0f) > 0.001f;
-            bool iridOn = tierB && On(HudConfig.FxIridOn) && Cfg(HudConfig.FxIridescence, 0f) > 0.001f;
-
-            if (HudFxMaterials.Available && (shineOn || iridOn))
-            {
-                g.FxStrength = 1f;
-                if (!HudFxMaterials.Assign(g, "edgefx")) HudFxMaterials.Unassign(g);
-            }
-            else
-            {
-                g.FxStrength = 0f;
-                HudFxMaterials.Unassign(g);
-            }
+            GridTheme.ApplyInteriorGlass(bg);
         }
 
         // ---- drag-out (pin) gesture ----
@@ -499,13 +653,15 @@ namespace StationeersUIMod.UI.Grid
             if (host == null) return;
 
             float w = Mathf.Max(MinW, _rect != null ? _rect.sizeDelta.x : _preferredWidth);
+            float tabH = TabHeight();          // live F9 size, so the ghost matches the seated tab
+            float iconSize = TabIconSize();    // live F9 tab-icon size, so the ghost matches too
 
             _ghostGo = new GameObject("GridTabDragGhost", typeof(RectTransform));
             _ghostGo.transform.SetParent(host, false);
             _ghostRt = (RectTransform)_ghostGo.transform;
             _ghostRt.anchorMin = _ghostRt.anchorMax = new Vector2(0.5f, 0.5f);
             _ghostRt.pivot = new Vector2(0.5f, 0.5f);   // centre pivot: PanelGraphic draws about the origin
-            _ghostRt.sizeDelta = new Vector2(w, TabH);
+            _ghostRt.sizeDelta = new Vector2(w, tabH);
 
             // Own nested canvas so the ghost outranks pinned windows (5030), not just its siblings.
             var gc = _ghostGo.AddComponent<Canvas>();
@@ -528,20 +684,20 @@ namespace StationeersUIMod.UI.Grid
             _ghostIcon.sprite = _icon != null ? _icon.sprite : null;
             _ghostIcon.enabled = _ghostIcon.sprite != null;
             CentreChild(_ghostIcon.rectTransform);
-            float iconX = leftInner + IconSize * 0.5f;
+            float iconX = leftInner + iconSize * 0.5f;
             _ghostIcon.rectTransform.anchoredPosition = new Vector2(iconX, 0f);
-            _ghostIcon.rectTransform.sizeDelta = new Vector2(IconSize, IconSize);
+            _ghostIcon.rectTransform.sizeDelta = new Vector2(iconSize, iconSize);
 
             // ASCII already (the region hands the tab an ASCII container name); copied verbatim from
             // the live label so the ghost can never introduce a glyph the game's TMP font tofus.
-            _ghostName = HudText.Make(_ghostRt, "Name", HudText.Size(11f),
+            _ghostName = HudText.Make(_ghostRt, "Name", HudText.Size(TabTextSize()),
                 TextAlignmentOptions.Left, warp: false);
             CentreChild(_ghostName.rectTransform);
-            float nameLeft = iconX + IconSize * 0.5f + Gap;
+            float nameLeft = iconX + iconSize * 0.5f + Gap;
             _ghostName.rectTransform.anchoredPosition =
                 new Vector2((nameLeft + rightInner) * 0.5f, 0f);
             _ghostName.rectTransform.sizeDelta =
-                new Vector2(Mathf.Max(4f, rightInner - nameLeft), TabH);
+                new Vector2(Mathf.Max(4f, rightInner - nameLeft), tabH);
             HudText.Sync(_ghostName);
             HudText.Set(_ghostName, _name != null ? _name.text : "");
 
@@ -561,7 +717,7 @@ namespace StationeersUIMod.UI.Grid
         {
             if (_ghostBg == null) return;
             float w = _ghostRt != null ? _ghostRt.sizeDelta.x : _preferredWidth;
-            float h = _ghostRt != null ? _ghostRt.sizeDelta.y : TabH;
+            float h = _ghostRt != null ? _ghostRt.sizeDelta.y : TabHeight();
             GridTheme.ApplyBox(_ghostBg, w, h, GridTheme.GridSurface.TabGhost, _outside);
 
             Color fill = _ghostBg.color;
@@ -604,6 +760,11 @@ namespace StationeersUIMod.UI.Grid
             _dragging = false;
             _outside = false;
             _bounds = null;
+            _dropHighlight = false;
+            _selected = false;
+            _badgeText = null;
+            _badgeW = 0f;
+            if (_badge != null && _badge.gameObject.activeSelf) _badge.gameObject.SetActive(false);
             DestroyGhost();
             if (_icon != null) { _icon.sprite = null; _icon.enabled = false; }
             if (_bg != null) HudFxMaterials.Unassign(_bg);
@@ -616,6 +777,7 @@ namespace StationeersUIMod.UI.Grid
         /// the drag state and tear it down; DestroyGhost is idempotent.</summary>
         private void OnDisable()
         {
+            _dropHighlight = false;   // the active drag can never deliver the clear to a dead tab
             if (!_dragging && _ghostGo == null) return;
             _dragging = false;
             _outside = false;

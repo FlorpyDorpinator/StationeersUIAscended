@@ -63,11 +63,23 @@ namespace StationeersUIMod.Core
         /// (F9/F10 editors) are not included.</summary>
         public static bool VanillaMenuWantsFront()
         {
-            if (WorldManager.IsGamePaused) return true;       // escape / start / options menu
+            if (WorldManager.IsGamePaused) return true;       // escape / start / options menu (single-player: pauses)
             if (ConsoleWindow.IsOpen) return true;
             if (InputWindowBase.IsInputWindow) return true;   // IC/logic editor, naming windows, dialogs
             if (Stationpedia.IsOpenAndLocked) return true;
             if (ImguiCreativeSpawnMenu.Show) return true;
+            // The ESC/pause menu on a MULTIPLAYER CLIENT does NOT pause the world (IsGamePaused stays
+            // false), so the checks above miss it there. Detect the menu panel itself:
+            // InventoryManager.InGameMenuOpen == GameMenuPanel.activeInHierarchy (verified
+            // InventoryManager.cs:923/927, 27701). GameMenuPanel is a serialized prefab field that is
+            // dereferenced unguarded inside the getter, so null-guard the singleton (not yet
+            // instantiated during early load) and swallow a bare-field NRE.
+            try
+            {
+                var im = InventoryManager.Instance;
+                if (im != null && im.InGameMenuOpen) return true;
+            }
+            catch { }
             return false;
         }
 

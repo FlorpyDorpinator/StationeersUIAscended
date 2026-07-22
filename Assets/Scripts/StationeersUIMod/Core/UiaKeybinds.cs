@@ -94,8 +94,6 @@ namespace StationeersUIMod.Core
                 () => UIAConfig.RadialPageKey.Value, k => UIAConfig.RadialPageKey.Value = k);
             Add("UIA_FineAdjust", "Fine value adjust (radial)", KeyCode.C,
                 () => UIAConfig.RadialFineAdjustKey.Value, k => UIAConfig.RadialFineAdjustKey.Value = k);
-            Add("UIA_HeadLook", "Head-look (hold, radial open)", KeyCode.Mouse2,
-                () => UIAConfig.RadialHeadLookKey.Value, k => UIAConfig.RadialHeadLookKey.Value = k);
         }
 
         private static void Add(string id, string label, KeyCode def, Func<KeyCode> get, Action<KeyCode> set,

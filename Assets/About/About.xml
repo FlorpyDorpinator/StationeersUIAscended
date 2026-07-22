@@ -2,7 +2,7 @@
   <Name>StationeersUIMod</Name>
   <ModID>StationeersUIAscended</ModID>
   <Author>FlorpyDorp + JXSN</Author>
-  <Version>0.9.1.0</Version>
+  <Version>0.9.1.1</Version>
   <Description>
 	  [h1]Stationeers UI Mod[/h1]
 	  
@@ -19,6 +19,16 @@ Ported from BepInEx proof-of-concept into Unity mod project. Radials are now dra
 <br>
 ]]></InGameDescription>
   <ChangeLog>
+    [h3]Version 0.9.1.1 EXPERIMENTAL — STABILITY, DRAG POLISH + SIZE KNOBS:[/h3]
+    [list]
+    [*] DRAG ANYTHING, ANYWHERE: drag items freely between the Universal Inventory, pinned bags, your hands, the 1-6 equipment slots and the world — both directions. The carried item now always draws IN FRONT of the windows, and pinned bags finally accept drops (they no longer freeze the item at their edge)
+    [*] MENUS ON TOP: opening the pause menu (Esc), the IC10 logic editor, or Stationpedia now hides the inventory windows so the game's menu is on top — and they come back exactly as they were when you close it
+    [*] SMART STOW respects consumable containers: it will no longer stuff items into a water-bottle bag, a cereal-bar box, a burger/egg box or the game-start supplies package — those are no longer treated as storage (real bags, belts and crates still work; ore still fills mining bags)
+    [*] CURSOR is stable in radials: fixed a flicker of the world-selection highlight when you opened a radial and swept to a wedge with the inventory open, plus a one-frame hitch on open. The "hold to look around in a radial" feature was removed (it was unreliable) — the cursor is simply free while any radial is open
+    [*] MORE F9 SIZE KNOBS (F9 > the inventory > Sizes): the manila tab icon, the Sort button, the window close/X button, and the pinned-window title icon + title text — all adjust live, alongside the existing cell/column/tab-size knobs
+    [*] Fixed pinned bag windows rendering as solid yellow boxes (they're frosted glass again)
+    [*] Stability: fixed a hot-reload issue that could make the cursor lag over a long dev session; a stray per-frame error can no longer flood the log or tank the frame rate
+    [/list]
     [h3]Version 0.9.1.0 EXPERIMENTAL — THE UNIVERSAL INVENTORY + THE BELT WHEEL:[/h3]
     [list]
     [*] THE UNIVERSAL INVENTORY (press B): one window showing EVERY slot you own — worn equipment, your hands' contents, and every bag nested inside them, however deep. Laid out as one flat grid: each storage bag is a bordered block of item boxes with a trapezoidal manila-folder tab, while tools that merely have slots (drills, welders, tablets) stay a single box instead of unfolding
