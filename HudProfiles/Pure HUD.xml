@@ -1208,10 +1208,10 @@
     <E k="cfg:FxBloom2SatBias" v="1" />
     <E k="pal:HudPanelFill" v="27272700" />
     <E k="pal:HudPanelBorder" v="33CE00E3" />
-    <E k="pal:HudLineAccent" v="35C8E8CC" />
+    <E k="pal:HudLineAccent" v="33CE00CC" />
     <E k="pal:HudTextLabel" v="33CE00E3" />
     <E k="pal:HudTextValue" v="33CE00E3" />
-    <E k="pal:HudTextDim" v="6A8E9BA8" />
+    <E k="pal:HudTextDim" v="6B8C5BA8" />
     <E k="pal:HudGood" v="33E20BD0" />
     <E k="pal:HudWarn" v="FFF300E6" />
     <E k="pal:HudCritical" v="FF1400F0" />

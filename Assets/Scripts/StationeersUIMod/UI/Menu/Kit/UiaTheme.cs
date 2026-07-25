@@ -29,7 +29,12 @@ namespace StationeersUIMod.UI.Menu.Kit
         public static Color PanelRaised => M.Following ? Lift(HFill, 0.13f, 0.98f) : M.Ov("PanelRaised");
         public static Color PanelHover  => M.Following ? Lift(HFill, 0.20f, 1.00f) : M.Ov("PanelHover");
         public static Color Track       => M.Following ? Lift(HFill, 0.24f, 1.00f) : M.Ov("Track");
-        public static Color Divider     => M.Following ? new Color(1f, 1f, 1f, 0.08f) : M.Ov("Divider");
+        public static Color Divider     => M.Following ? WithA(Text, 0.08f) : M.Ov("Divider");
+
+        // ---- structural border: the HUD box border colour, so the window/button glass edges
+        // actually match a HUD box's edge (not the line accent, which is a different palette
+        // entry on any theme that splits the two — see Pure HUD). ----
+        public static Color Border      => M.Following ? Opaque(HBorder) : M.Ov("Border");
 
         // ---- accents: the HUD line accent (cyan) + active-hand accent (orange) ----
         public static Color Accent      => M.Following ? Opaque(HAccent) : M.Ov("Accent");
@@ -62,6 +67,7 @@ namespace StationeersUIMod.UI.Menu.Kit
         // ---- derivation helpers (M = UiaMenuTheme, aliased above for the compact getter table) ----
         private static Color HFill => Pal(HudPalette.PanelFill, new Color(0.08f, 0.09f, 0.11f, 0.90f));
         private static Color HAccent => Pal(HudPalette.LineAccent, new Color(0.35f, 0.78f, 0.90f, 1f));
+        private static Color HBorder => Pal(HudPalette.PanelBorder, new Color(0.18f, 0.48f, 0.58f, 0.67f));
         private static Color HSelected => Pal(HudPalette.ActiveHandAccent, new Color(1.00f, 0.55f, 0.16f, 1f));
         private static Color HText => Pal(HudPalette.TextValue, new Color(0.94f, 0.97f, 1.00f, 1f));
         private static Color HLabel => Pal(HudPalette.TextLabel, new Color(0.72f, 0.80f, 0.87f, 1f));

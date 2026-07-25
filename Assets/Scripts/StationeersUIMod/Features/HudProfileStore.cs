@@ -91,9 +91,12 @@ namespace StationeersUIMod.Features
 
                     string prev;
                     bool known = manifest.TryGetValue(name, out prev);
-                    // Untouched = matches what we last shipped (known), or — for a pre-manifest
-                    // install — is canonically identical to what we'd ship now (adopt that copy).
-                    bool untouched = known ? diskHash == prev : diskHash == shipHash;
+                    // Untouched = canonically identical to what we CURRENTLY ship (always wins, known
+                    // or not — this is what lets a pristine file self-heal into management even if a
+                    // past mod version's canonical serialization drifted and the manifest hash is
+                    // stale), or — for a pre-manifest install, or a manifest recorded under a stale
+                    // serialization — matches what we last shipped (known).
+                    bool untouched = diskHash == shipHash || (known && diskHash == prev);
 
                     if (untouched)
                     {

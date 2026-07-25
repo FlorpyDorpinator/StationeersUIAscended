@@ -28,7 +28,9 @@ installs do. Same story for a shipped theme they already have. That is the whole
 systems exist to solve.
 
 **Fresh installs are never a problem** — they seed everything current. All of the below is about
-*updating* players.
+*updating* players. (One subtlety in detecting "fresh": StationeersLaunchPad pre-creates the new
+`.cfg` empty before `OnLoaded` runs, so an existing-but-0-byte file still counts as fresh — see the
+Gotchas in §2.)
 
 ---
 
@@ -83,10 +85,15 @@ case 2: // v2 -> v3  — "OldKey" became "NewKey"
   out-of-range stored value then can't break the UI, migration or not.
 
 ### Gotchas
-- `freshInstall` is computed *before* the `.cfg` is created (`!File.Exists(cfg) &&
-  !File.Exists(legacyCfg)`). Don't move `ConfigMigration.Run` before `UIAConfig.Bind` — steps read
-  bound `ConfigEntry` values.
-- A hand-edited `ConfigVersion` higher than `CurrentVersion` is clamped back; steps never re-run.
+- `freshInstall` is computed *before* the legacy-copy block and before `UIAConfig.Bind` runs, using
+  `!cfgExists && !File.Exists(legacyCfg)`, where `cfgExists` requires the file to both exist AND be
+  non-empty — SLP's pre-created stub is 0 bytes, so it reads as absent (see §1). Without that
+  non-empty check, fresh-install detection never fires in production: the file is always already
+  there by the time `OnLoaded` runs. Don't move `ConfigMigration.Run` before `UIAConfig.Bind` —
+  steps read bound `ConfigEntry` values.
+- A hand-edited `ConfigVersion` **higher** than `CurrentVersion` is left as-is — migration only ever
+  runs steps for versions *below* `CurrentVersion` and never lowers the stamp, so an ahead-of-current
+  value is a no-op, not a downgrade.
 - Steps must be safe on any older config and must never assume a value exists.
 
 ---
@@ -96,8 +103,8 @@ case 2: // v2 -> v3  — "OldKey" became "NewKey"
 ### How it works
 Runs every launch (`OnLoaded`). It compares the themes in the **mod folder**
 (`StationeersUIMod/HudProfiles/*.xml`) against the player's config folder, using a provenance file
-**`.shipped-manifest`** (`<filename>|<md5>`) that records exactly what the mod last shipped. Three
-moves — **none of which ever touches a profile the player made or edited**:
+**`.shipped-manifest`** (`<filename>|<hash>`, FNV-1a 64-bit) that records exactly what the mod last
+shipped. Three moves — **none of which ever touches a profile the player made or edited**:
 
 | Move | When | Result |
 |---|---|---|

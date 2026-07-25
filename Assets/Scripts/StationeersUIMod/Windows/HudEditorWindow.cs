@@ -67,7 +67,13 @@ namespace StationeersUIMod.Windows
             ClampWindowToScreen();
             DrawEditorToolbar();
 
-            if (!ImGui.BeginTabBar("##UIAHudEditorTabs")) return;
+            // Push the active tab noticeably brighter than an idle/hovered one — the five tabs
+            // (Build/Theme/Effects/View & Behavior/Diagnostics) otherwise read as near-identical
+            // grey, which made the current tab hard to spot at a glance (FlorpyDorp).
+            ImGui.PushStyleColor(ImGuiCol.Tab, new Vector4(0.10f, 0.11f, 0.14f, 1f));
+            ImGui.PushStyleColor(ImGuiCol.TabHovered, new Vector4(0.20f, 0.48f, 0.66f, 1f));
+            ImGui.PushStyleColor(ImGuiCol.TabActive, new Vector4(0.16f, 0.60f, 0.84f, 1f));
+            if (!ImGui.BeginTabBar("##UIAHudEditorTabs")) { ImGui.PopStyleColor(3); return; }
             if (ImGui.BeginTabItem("Build"))
             {
                 ActivateEditorTab("Build");
@@ -109,6 +115,7 @@ namespace StationeersUIMod.Windows
                 ImGui.EndTabItem();
             }
             ImGui.EndTabBar();
+            ImGui.PopStyleColor(3);
         }
 
         /// <summary>A colour picker can disappear without an ImGui deactivation event when its
@@ -134,9 +141,16 @@ namespace StationeersUIMod.Windows
 
             ImGui.TextDisabled("Preview:");
             ImGui.SameLine();
-            ImGui.SetNextItemWidth(175f);
+            // Fit the widest option ("Live (whatever you wear)") instead of a fixed 175f, which
+            // clipped "SUITED (full readout)" (user screenshot). If the row is too narrow to also
+            // fit Undo/Redo/Exit, drop only that FIRST join to SameLine so the buttons wrap to
+            // their own line rather than overflowing the window.
+            float tierComboW = ComboFitWidth(PreviewTierOptions, 220f);
+            ImGui.SetNextItemWidth(tierComboW);
             PreviewTierCombo();
-            ImGui.SameLine();
+            float trailingBtnW = ButtonWidth("Undo##toolbar") + ButtonWidth("Redo##toolbar")
+                + ButtonWidth("Exit##toolbar") + ImGui.GetStyle().ItemSpacing.x * 2f;
+            if (ImGui.GetContentRegionAvail().x >= trailingBtnW) ImGui.SameLine();
             if (ImGui.Button("Undo##toolbar") && UI.Hud.HudDocumentHistory.CanUndo)
             {
                 FlushPendingElementEdit();
@@ -151,8 +165,7 @@ namespace StationeersUIMod.Windows
             ImGui.SameLine();
             if (ImGui.Button("Exit##toolbar"))
                 StationeersUIMod.Instance?.ToggleHudEditor();
-            if (UI.Hud.HudElementView.EditBareTier)
-                ImGui.TextDisabled("Editing BARE layout — moves write to bare-mode positions.");
+            DrawEditTargetLine();
             ImGui.Separator();
         }
 
@@ -486,11 +499,24 @@ namespace StationeersUIMod.Windows
             // per-element toggles are honoured in both style states.
             if (ImGui.CollapsingHeader("Suit power & transitions", ImGuiTreeNodeFlags.DefaultOpen))
             {
+                // Merged in from View & Behavior (2026-07-25): the section was duplicated across
+                // two tabs (audit 03), so everything suit-power-and-transition-related now lives
+                // here in one place; View & Behavior leaves a one-line pointer instead.
+                Toggle(HudConfig.DiegeticTiers, "Diegetic tiers (no suit power = words only)");
                 Toggle(HudConfig.FxPowerDownMirrorsBoot, "Power DOWN mirrors power UP (staggered flicker)");
                 ImGui.TextDisabled("  On: the HUD leaves the same way it arrives, element by element.");
                 ImGui.TextDisabled("  Off: the old all-at-once power-death.");
                 Toggle(HudConfig.FxDissolveOnPowerDown, "Dissolve frontier also runs on power DOWN");
                 ImGui.TextDisabled("  Off: the dissolve reveals on boot only; power-down just fades.");
+
+                Toggle(HudConfig.LowPowerDropouts, "Low-power dropout glitches");
+                if (HudConfig.LowPowerDropouts.Value)
+                    FloatSlider(HudConfig.LowPowerThreshold, "  low-power threshold (%)", 0f, 40f);
+
+                ImGui.Spacing();
+                if (ImGui.Button("Test power-death flicker")) HudSystem.TestPowerDeath();
+                ImGui.SameLine();
+                if (ImGui.Button("Test boot sequence")) HudSystem.TestBoot();
 
                 ImGui.Spacing();
                 ImGui.TextColored(new Vector4(0.25f, 0.85f, 0.93f, 1f), "TRANSITION EFFECTS");
@@ -516,6 +542,17 @@ namespace StationeersUIMod.Windows
                         TipLines(fx.Tip);
                     }
                     ImGui.PopID();
+                }
+
+                ImGui.Spacing();
+                Toggle(HudConfig.GlitchEnabled, "Power-transition tear / shake");
+                if (HudConfig.GlitchEnabled.Value)
+                {
+                    FloatSlider(HudConfig.GlitchDuration, "  duration (seconds)", 0.1f, 4f);
+                    FloatSlider(HudConfig.GlitchIntensity, "  severity", 0f, 1f);
+                    Toggle(HudConfig.GlitchOnPowerDown, "  fire on power DOWN / suit removed");
+                    Toggle(HudConfig.GlitchOnPowerUp, "  fire on power UP / boot");
+                    if (ImGui.Button("Test glitch now")) HudGlitch.TriggerTest();
                 }
 
                 ImGui.Spacing();
@@ -585,32 +622,9 @@ namespace StationeersUIMod.Windows
                     FloatSlider(HudConfig.WorldCanvasDistance, "Visor distance (m)", 0.25f, 2f);
             }
 
-            if (ImGui.CollapsingHeader("Suit power & transitions", ImGuiTreeNodeFlags.DefaultOpen))
-            {
-                Toggle(HudConfig.DiegeticTiers, "Diegetic tiers (no suit power = words only)");
-                // Flicker's master is a registry effect: it is toggled (with its strength, and its
-                // per-element Inherit/On/Off) on the Effects tab, so it is named here, not duplicated.
-                ImGui.TextDisabled("Flicker animations: Effects tab > Suit power & transitions.");
-                Toggle(HudConfig.LowPowerDropouts, "Low-power dropout glitches");
-                if (HudConfig.LowPowerDropouts.Value)
-                    FloatSlider(HudConfig.LowPowerThreshold, "  low-power threshold (%)", 0f, 40f);
-                if (ImGui.Button("Test power-death flicker")) HudSystem.TestPowerDeath();
-                ImGui.SameLine();
-                if (ImGui.Button("Test boot sequence")) HudSystem.TestBoot();
-
-                ImGui.Spacing();
-                Toggle(HudConfig.GlitchEnabled, "Power-transition tear / shake");
-                if (HudConfig.GlitchEnabled.Value)
-                {
-                    FloatSlider(HudConfig.GlitchDuration, "  duration (seconds)", 0.1f, 4f);
-                    FloatSlider(HudConfig.GlitchIntensity, "  severity", 0f, 1f);
-                    Toggle(HudConfig.GlitchOnPowerDown, "  fire on power DOWN / suit removed");
-                    Toggle(HudConfig.GlitchOnPowerUp, "  fire on power UP / boot");
-                    if (ImGui.Button("Test glitch now")) HudGlitch.TriggerTest();
-                }
-                ImGui.TextDisabled("Every transition (collapse, TV off, dissolve, flicker, glitch,");
-                ImGui.TextDisabled("warp, pulse) is Inherit/On/Off per element in its inspector.");
-            }
+            // Merged into the Effects tab (2026-07-25, audit 03 P0): this section was duplicated
+            // across both tabs with the same config bindings living in two places at once.
+            ImGui.TextDisabled("Suit power, transitions & dropouts: Effects tab.");
 
             if (ImGui.CollapsingHeader("Vanilla panels", ImGuiTreeNodeFlags.DefaultOpen))
             {
@@ -771,7 +785,14 @@ namespace StationeersUIMod.Windows
         {
             ImGui.TextDisabled("Active profile (shareable XML; edits autosave):");
             string active = HudEditorMode.ActiveProfileName();
-            ImGui.SetNextItemWidth(200f);
+            // Fit the row instead of a fixed 200f, which clipped longer profile names ("Stationeers
+            // Blue" — user screenshot). If the "Open folder" button no longer fits beside a combo
+            // widened to its 220f floor, it wraps to its own line rather than overflowing the window.
+            float openFolderW = ButtonWidth("Open folder");
+            float avail = ImGui.GetContentRegionAvail().x;
+            float spacing = ImGui.GetStyle().ItemSpacing.x;
+            float profileComboW = Mathf.Max(220f, avail - openFolderW - spacing);
+            ImGui.SetNextItemWidth(profileComboW);
             bool comboOpen = ImGui.BeginCombo("##profile", active);
             if (comboOpen)
             {
@@ -794,7 +815,7 @@ namespace StationeersUIMod.Windows
                 ImGui.EndCombo();
             }
             _profileComboOpen = comboOpen;
-            ImGui.SameLine();
+            if (avail - profileComboW - spacing >= openFolderW) ImGui.SameLine();
             if (ImGui.Button("Open folder"))
             {
                 try { System.Diagnostics.Process.Start("explorer.exe", Features.HudProfileStore.Dir); }
@@ -803,7 +824,11 @@ namespace StationeersUIMod.Windows
 
             ImGui.TextDisabled("New copy:");
             ImGui.SameLine();
-            ImGui.SetNextItemWidth(145f);
+            // Widen modestly beyond the old fixed 145f when the row has room, but never shrink
+            // below it.
+            float dupW = ButtonWidth("Duplicate as");
+            float newCopyAvail = ImGui.GetContentRegionAvail().x - dupW - spacing;
+            ImGui.SetNextItemWidth(Mathf.Clamp(newCopyAvail, 145f, 220f));
             ImGui.InputText("##saveas", ref _saveAsName, 48);
             ImGui.SameLine();
             if (ImGui.Button("Duplicate as") && !string.IsNullOrEmpty(_saveAsName))
@@ -1540,6 +1565,58 @@ namespace StationeersUIMod.Windows
                     HudSystem.ForceTier = HudTier.Robot;
                 ImGui.EndCombo();
             }
+        }
+
+        /// <summary>The combo's own option labels, so its fit-width can be measured without
+        /// duplicating the literal strings drawn inside <see cref="PreviewTierCombo"/>.</summary>
+        private static readonly string[] PreviewTierOptions =
+        {
+            "Live (whatever you wear)", "BARE (no suit power)", "SUITED (full readout)", "ROBOT",
+        };
+
+        /// <summary>Sizes a combo to fit its widest option (a fixed pixel width silently clipped
+        /// "Stationeers Blue" / "SUITED (full readout)" — user screenshot), clamped to a sane
+        /// minimum so a short current value never shrinks the control to nothing.</summary>
+        private static float ComboFitWidth(string[] options, float minWidth)
+        {
+            float widest = 0f;
+            if (options != null)
+                for (int i = 0; i < options.Length; i++)
+                    if (!string.IsNullOrEmpty(options[i]))
+                        widest = Mathf.Max(widest, ImGui.CalcTextSize(options[i]).x);
+            // Frame padding both sides + room for the dropdown arrow glyph.
+            float w = widest + ImGui.GetStyle().FramePadding.x * 2f + 28f;
+            return Mathf.Max(minWidth, w);
+        }
+
+        /// <summary>A button's on-screen width for the SAME label ImGui will draw, so a caller can
+        /// decide whether a row of buttons still fits before committing to SameLine.</summary>
+        private static float ButtonWidth(string label)
+        {
+            return ImGui.CalcTextSize(label).x + ImGui.GetStyle().FramePadding.x * 2f;
+        }
+
+        /// <summary>Per-tier colour so the edit target (which layout your drags actually write to)
+        /// is unmistakable at a glance — upgrades the old plain "Editing BARE layout" line, which
+        /// only ever appeared for Bare, to a coloured line that is always visible and follows
+        /// whichever tier the Preview combo above is currently forcing.</summary>
+        private static void DrawEditTargetLine()
+        {
+            HudTier? forced = HudSystem.ForceTier;
+            if (!forced.HasValue)
+            {
+                ImGui.TextDisabled("Editing: LIVE layout - moves write to whatever tier you're wearing.");
+                return;
+            }
+            if (forced.Value == HudTier.Bare)
+                ImGui.TextColored(new Vector4(1f, 0.72f, 0.25f, 1f),
+                    "Editing: BARE layout - moves write to bare-mode positions.");
+            else if (forced.Value == HudTier.Suited)
+                ImGui.TextColored(new Vector4(0.25f, 0.85f, 0.93f, 1f),
+                    "Editing: SUITED layout - moves write to the base (suited) positions.");
+            else
+                ImGui.TextColored(new Vector4(0.35f, 0.9f, 0.45f, 1f),
+                    "Editing: ROBOT layout - moves write to the base (suited) positions, shared with Suited.");
         }
 
         /// <summary>Bloom bright-pass base resolution: Full = crisp hairline glow (priciest),

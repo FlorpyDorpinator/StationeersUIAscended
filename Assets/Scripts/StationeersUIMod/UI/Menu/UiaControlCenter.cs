@@ -89,7 +89,7 @@ namespace StationeersUIMod.UI.Menu
             var size = _window.sizeDelta;
             float corner = UI.Hud.HudConfig.CornerRadius != null ? UI.Hud.HudConfig.CornerRadius.Value : 10f;
             _windowPanel.color = UiaTheme.Window;
-            _windowPanel.BorderColor = UiaTheme.Accent;
+            _windowPanel.BorderColor = UiaTheme.Border;
             float bw = UI.Hud.HudConfig.BorderWidth != null ? UI.Hud.HudConfig.BorderWidth.Value : 1.4f;
             _windowPanel.BorderWidth = bw;
             _windowPanel.SetShape(size.x, size.y, corner);
@@ -309,7 +309,7 @@ namespace StationeersUIMod.UI.Menu
             _windowPanel = winGo.AddComponent<UI.Hud.PanelGraphic>();
             _windowPanel.raycastTarget = true; // still blocks clicks to the world behind it
             _windowPanel.color = UiaTheme.Window;
-            _windowPanel.BorderColor = UiaTheme.Accent;
+            _windowPanel.BorderColor = UiaTheme.Border;
             StyleWindowPanel();
             UiaUi.VLayout(win, 0f, (int)UiaTheme.Pad, (int)UiaTheme.Pad, (int)UiaTheme.Pad, (int)UiaTheme.Pad);
 

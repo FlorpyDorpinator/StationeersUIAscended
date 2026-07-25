@@ -1381,15 +1381,10 @@ namespace StationeersUIMod.Windows
                 e.SetF("customChroma", HudConfig.FxChroma != null ? HudConfig.FxChroma.Value : 0f);
                 e.SetB("customFrostOn", true);
                 e.SetF("customFrost", HudConfig.FrostStrength != null ? HudConfig.FrostStrength.Value : 1f);
-                e.SetB("customDissolve", HudConfig.FxDissolveBoot != null && HudConfig.FxDissolveBoot.Value);
-                e.SetB("fxCollapse", true);
-                e.SetF("fxCollapseAmt", 1f);
-                e.SetB("fxGlitch", true);
-                e.SetF("fxGlitchAmt", 1f);
-                e.SetB("fxWarp", true);
-                e.SetF("fxWarpAmt", 1f);
-                e.SetB("fxPulse", false);
-                e.SetF("fxPulseAmt", 1f);
+                // Reset-to-Inherit for transitions (dissolve/collapse/glitch/warp/pulse) is fully
+                // expressed by the registry loop above. Legacy keys must NOT be re-seeded here —
+                // that would pin each effect's momentary master value as an explicit per-element
+                // override, exactly the master-vs-element conflation the tri-state refactor removed.
                 e.SetB("customStyleReady", true);
             }
             CommitDocumentMutation(before);

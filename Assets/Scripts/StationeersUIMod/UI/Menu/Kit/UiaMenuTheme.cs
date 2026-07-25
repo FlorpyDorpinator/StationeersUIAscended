@@ -50,6 +50,7 @@ namespace StationeersUIMod.UI.Menu.Kit
             new Ovr("PanelHover",  "Panel (hover)",         new Color(0.33f, 0.34f, 0.36f, 1.00f)),
             new Ovr("Track",       "Slider / toggle track", new Color(0.36f, 0.37f, 0.39f, 1.00f)),
             new Ovr("Divider",     "Divider line",          new Color(1f, 1f, 1f, 0.08f)),
+            new Ovr("Border",      "Border (structural)",   new Color(0.18f, 0.48f, 0.58f, 0.67f)),
             new Ovr("Accent",      "Accent (primary)",      new Color(0.35f, 0.78f, 0.90f, 1.00f)),
             new Ovr("Selected",    "Selected (active)",     new Color(1.00f, 0.55f, 0.16f, 1.00f)),
             new Ovr("On",          "Toggle ON",             new Color(0.36f, 0.82f, 0.48f, 1.00f)),
@@ -110,6 +111,7 @@ namespace StationeersUIMod.UI.Menu.Kit
                 h = Comb(h, UiaTheme.PanelHover);
                 h = Comb(h, UiaTheme.Track);
                 h = Comb(h, UiaTheme.Divider);
+                h = Comb(h, UiaTheme.Border);
                 h = Comb(h, UiaTheme.Accent);
                 h = Comb(h, UiaTheme.Selected);
                 h = Comb(h, UiaTheme.On);

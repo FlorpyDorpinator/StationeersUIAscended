@@ -47,7 +47,7 @@ namespace StationeersUIMod.UI.Menu.Kit
             float corner = UiaTheme.Corner;
             float bw = UI.Hud.HudConfig.BorderWidth != null ? UI.Hud.HudConfig.BorderWidth.Value : 1.4f;
             _panel.color = Transparent;              // no fill — the host keeps its own
-            _panel.BorderColor = UiaTheme.Accent;    // themed edge line
+            _panel.BorderColor = UiaTheme.Border;    // themed edge line (the HUD box border, not the accent)
             _panel.BorderWidth = bw;
             _panel.SetShape(size.x, size.y, corner);
             // Edge light + ripple + sheen from the globals; NO glow halo, no frost (interiors).

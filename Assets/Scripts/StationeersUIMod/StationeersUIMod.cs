@@ -103,14 +103,18 @@ namespace StationeersUIMod
                 // Fresh-install detection for ConfigMigration — must be read BEFORE the legacy copy
                 // below and before UIAConfig.Bind, either of which creates the .cfg. Fresh = neither
                 // the SLP cfg nor the legacy dev-shim cfg exists yet; such installs already carry the
-                // current defaults, so migrations are skipped for them.
+                // current defaults, so migrations are skipped for them. SLP pre-creates the new cfg
+                // (saveOnInit:true) BEFORE OnLoaded runs, so it always exists by the time we get here
+                // — an existing-but-0-byte file is SLP's untouched stub, not a real prior install, so
+                // it counts as absent (mirrors the zero-length check the legacy-copy block below uses).
                 bool freshInstall;
                 try
                 {
                     string cfgPath = config.ConfigFilePath;
                     string legacyPath = System.IO.Path.Combine(
                         BepInEx.Paths.ConfigPath, "com.stationeersuimod.ui.scriptengine.cfg");
-                    freshInstall = !System.IO.File.Exists(cfgPath) && !System.IO.File.Exists(legacyPath);
+                    bool cfgExists = System.IO.File.Exists(cfgPath) && new System.IO.FileInfo(cfgPath).Length > 0;
+                    freshInstall = !cfgExists && !System.IO.File.Exists(legacyPath);
                 }
                 catch { freshInstall = false; }
 
