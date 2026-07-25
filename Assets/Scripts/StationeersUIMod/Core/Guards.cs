@@ -86,15 +86,25 @@ namespace StationeersUIMod.Core
         /// <summary>True while an OPEN radial may stay open (cursor is intentionally free).</summary>
         public static bool CanKeepRadialOpen()
         {
-            if (!CanDraw()) return false;
-            if (WorldManager.IsGamePaused) return false;
-            if (ConsoleWindow.IsOpen) return false;
-            if (InputWindowBase.IsInputWindow) return false;
-            if (Stationpedia.IsOpenAndLocked) return false;
-            if (ImguiCreativeSpawnMenu.Show) return false;
+            return CanKeepRadialOpenWhy() == null;
+        }
+
+        /// <summary>The NAME of the first check that would close an open radial, or null if it may stay
+        /// open. Exists so <c>RadialController</c> can log exactly WHICH gate tripped when a wheel closes
+        /// with reason <c>cankeep-*</c> — the difference between "a vanilla input window opened",
+        /// "the game paused" and "the player went unresponsive" is the whole fix.</summary>
+        public static string CanKeepRadialOpenWhy()
+        {
+            if (!CanDraw()) return "!CanDraw";
+            if (WorldManager.IsGamePaused) return "paused";
+            if (ConsoleWindow.IsOpen) return "console";
+            if (InputWindowBase.IsInputWindow) return "inputWindow";
+            if (Stationpedia.IsOpenAndLocked) return "stationpedia";
+            if (ImguiCreativeSpawnMenu.Show) return "creative";
             var parent = InventoryManager.Parent;
-            if (parent == null || parent.IsUnresponsive) return false;
-            return true;
+            if (parent == null) return "noParent";
+            if (parent.IsUnresponsive) return "unresponsive";
+            return null;
         }
     }
 }

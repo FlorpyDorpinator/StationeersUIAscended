@@ -247,7 +247,7 @@ namespace StationeersUIMod.UI.Menu
             _modalHeld = true;
             try { KeyManager.SetInputState(InputStateKey, KeyInputState.Typing); } catch { }
             try { MouseModeController.AddModal(_modal); } catch { }
-            try { if (CursorManager.Instance != null) CursorManager.Instance.BlockCursorRaycast = true; } catch { }
+            Core.CursorBlockArbiter.Hold("controlcenter");
         }
 
         private static void ReleaseModal()
@@ -256,13 +256,11 @@ namespace StationeersUIMod.UI.Menu
             _modalHeld = false;
             try { KeyManager.RemoveInputState(InputStateKey); } catch { }
             try { MouseModeController.RemoveModal(_modal); } catch { }
+            Core.CursorBlockArbiter.Release("controlcenter");
             try
             {
                 if (CursorManager.Instance != null)
-                {
-                    CursorManager.Instance.BlockCursorRaycast = false;
                     CursorManager.Instance.OnApplicationFocus(true); // re-lock the cursor next frame
-                }
             }
             catch { }
         }

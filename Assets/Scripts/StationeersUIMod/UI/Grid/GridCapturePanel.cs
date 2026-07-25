@@ -204,7 +204,7 @@ namespace StationeersUIMod.UI.Grid
             if (TheGridPanel.IsInteractive)
             {
                 _blockHeld = true;
-                try { if (CursorManager.Instance != null) CursorManager.Instance.BlockCursorRaycast = true; } catch { }
+                Core.CursorBlockArbiter.Hold("capture");
             }
             else ReleaseBlock();
         }
@@ -819,7 +819,7 @@ namespace StationeersUIMod.UI.Grid
         {
             if (!_blockHeld) return;
             _blockHeld = false;
-            try { if (CursorManager.Instance != null) CursorManager.Instance.BlockCursorRaycast = false; } catch { }
+            Core.CursorBlockArbiter.Release("capture");
         }
 
         /// <summary>Left-click surface for the dialog's buttons and row toggles. The action is a

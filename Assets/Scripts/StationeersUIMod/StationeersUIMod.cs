@@ -18,8 +18,8 @@ namespace StationeersUIMod
     /// </summary>
     public sealed class StationeersUIMod : MonoBehaviour
     {
-        public const string ModVersion = "0.9.1.1";
-        public const string VersionDisplay = "0.9.1.1 Experimental";
+        public const string ModVersion = "0.9.2.0";
+        public const string VersionDisplay = "0.9.2.0 Experimental";
         public const string ModGuid = "com.stationeersuimod.ui";
 
         public static StationeersUIMod Instance { get; private set; }
@@ -191,7 +191,12 @@ namespace StationeersUIMod
                     // Inbound world->visor-box drag. PRIVATE vanilla targets, so a rename in a game
                     // update degrades only this feature (that is what the harness is for).
                     typeof(Core.Patch_InputMouse_Drag),
-                    typeof(Core.Patch_InputMouse_DragSlot));
+                    typeof(Core.Patch_InputMouse_DragSlot),
+                    // Cursor/drag diagnostics (`uiadiag`): the SetCursor funnel trace + modal-identity
+                    // logging. Read-only; the trace itself is off unless the console command turns it on.
+                    typeof(Core.Patch_CursorManager_SetCursor),
+                    typeof(Core.Patch_MouseModeController_AddModal),
+                    typeof(Core.Patch_MouseModeController_RemoveModal));
 
                 // The static `new Mod(...)` above registers us with LaunchPadBooster for the optional client-side mod list.
                 // (Proper direct reference - no reflection hack.)
@@ -255,7 +260,7 @@ namespace StationeersUIMod
                 // below: it pumps the deferred modal release and is guard-aware itself.
                 if (!Guards.CanDraw())
                 {
-                    if (_radials.IsRadialOpen) _radials.CloseAll();
+                    if (_radials.IsRadialOpen) _radials.CloseAll("standdown-nocandraw-early");
                     if (Windows.RadialEditorMode.Active) Windows.RadialEditorMode.Exit();
                     // The F9 editor's dim backdrop must never survive onto the loading
                     // screen / main menu; close its window through the game's manager.
@@ -301,7 +306,7 @@ namespace StationeersUIMod
                 }
                 else
                 {
-                    if (_radials.IsRadialOpen) _radials.CloseAll();
+                    if (_radials.IsRadialOpen) _radials.CloseAll("radial-half-disabled");
                     if (Windows.RadialEditorMode.Active) Windows.RadialEditorMode.Exit();
                     UI.UnityRadialView.Hide();
                     UI.ParkedItemsView.Hide();
@@ -386,6 +391,10 @@ namespace StationeersUIMod
                 // vanishing behind. Ticked unconditionally so it always self-hides when the drag ends or
                 // leaves those bounds; a no-op (one InputMouse read) when no world drag is live.
                 Core.DragGhostLayer.TickWorldMirror();
+
+                // Cursor/drag trace (OFF unless `uiadiag` in the console): sampled LAST so it sees the
+                // fully-resolved frame state, and writes a log line only when something changed.
+                Core.CursorDiag.Sample();
 
                 // A clean frame clears the failure streak, so the circuit breaker only ever trips on a
                 // genuine RUN of consecutive throws, never on an isolated hiccup. It also re-arms the
@@ -805,7 +814,7 @@ namespace StationeersUIMod
 
                 if (!Guards.CanDraw())
                 {
-                    if (_radials.IsRadialOpen) _radials.CloseAll();
+                    if (_radials.IsRadialOpen) _radials.CloseAll("standdown-nocandraw-draw");
                     if (Windows.RadialEditorMode.Active) Windows.RadialEditorMode.Exit();
                     return;
                 }
@@ -813,7 +822,7 @@ namespace StationeersUIMod
                 // Editor mode owns the screen: black backdrop + example radials.
                 if (Windows.RadialEditorMode.Active)
                 {
-                    if (_radials.IsRadialOpen) _radials.CloseAll();
+                    if (_radials.IsRadialOpen) _radials.CloseAll("radial-editor-active");
                     Windows.RadialEditorMode.Draw();
                     return;
                 }
@@ -979,6 +988,10 @@ namespace StationeersUIMod
                 ClearPinPress();                    // never carry an armed press across a reload
                 UI.Hud.HudSystem.Shutdown();
                 Core.DragGhostLayer.Shutdown();    // destroy the shared top-most ghost canvas + world mirror
+                Core.CursorDiag.Shutdown();        // silence the cursor/drag trace
+                Core.CursorBlockArbiter.Shutdown(); // force-clear the world-pick block (no stale hold post-reload)
+                Core.WorldSlotCue.Hide();          // drop any live world-slot placement highlight
+                Core.WorldSlotCue.Shutdown();
                 _hud?.RestoreVanillaIfNeeded();
                 BagProfileStore.SaveAssignments();
                 IconCache.Clear();

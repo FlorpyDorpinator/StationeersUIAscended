@@ -273,10 +273,16 @@ namespace StationeersUIMod.Windows
                 ImGui.TextDisabled("Hover an element in the preview - its colours light up ORANGE here.");
 
             if (ImGui.Button("Undo"))
+            {
                 Overlay.RadialPalette.History.Undo();
+                Features.HudProfileStore.MarkThemeChanged();
+            }
             ImGui.SameLine();
             if (ImGui.Button("Redo"))
+            {
                 Overlay.RadialPalette.History.Redo();
+                Features.HudProfileStore.MarkThemeChanged();
+            }
             ImGui.SameLine();
             ImGui.TextDisabled(Overlay.RadialPalette.History.CanUndo ? "" : "(nothing to undo)");
             ImGui.Spacing();
@@ -301,7 +307,10 @@ namespace StationeersUIMod.Windows
 
             ImGui.Spacing();
             if (ImGui.Button("Reset all colours to defaults"))
+            {
                 Overlay.RadialPalette.ResetToDefaults(); // pushes its own undo step
+                Features.HudProfileStore.MarkThemeChanged();
+            }
         }
 
         private static void SchemaCombo()
@@ -375,7 +384,12 @@ namespace StationeersUIMod.Windows
                                             | ImGuiColorEditFlags.AlphaPreviewHalf
                                             | ImGuiColorEditFlags.PickerHueWheel;
             if (ImGui.ColorEdit4(entry.Name, ref v, flags))
+            {
                 entry.Value = new Color(v.x, v.y, v.z, v.w);
+                // Radial colours belong to the active HUD profile's theme too (they follow the
+                // chosen UI theme even when the visor HUD itself is turned off).
+                Features.HudProfileStore.MarkThemeChanged();
+            }
             // One drag = one undo step: capture the pre-edit state when the widget is
             // picked up, commit it when the edit finishes.
             if (ImGui.IsItemActivated())

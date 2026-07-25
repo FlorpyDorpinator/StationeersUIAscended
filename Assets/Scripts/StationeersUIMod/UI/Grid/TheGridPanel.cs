@@ -347,6 +347,24 @@ namespace StationeersUIMod.UI.Grid
             if (!_interactive) ReleaseCursorBlock();
         }
 
+        /// <summary>Force the main + pinned window raycasters ON for THIS frame when a drag is in flight,
+        /// so a release raycast that runs EARLIER in the frame than <see cref="ApplyInteractive"/> still
+        /// lands on a cell. The bug: <see cref="ApplyInteractive"/> (the only writer of the raycaster
+        /// enable) runs from <c>TheGridPanel.Tick</c> — AFTER <c>HudSlotDrag.Release</c>, which resolves
+        /// its drop via <c>EventSystem.RaycastAll</c> from <c>HudSystem.Update</c> earlier in the same
+        /// frame. So a hand/1-6 flick-drop onto a pinned cell saw a one-frame-stale, still-DISABLED pin
+        /// raycaster (the cursor was locked last frame → not interactive → raycaster off) and missed.
+        /// Priming here — called by the drop resolver just before its raycast — closes that gap. Pure
+        /// raycaster writes; none of <see cref="ApplyInteractive"/>'s cursor-block / cancel side effects,
+        /// and a no-op unless a drag is actually live.</summary>
+        public static void PrimeDragRaycasters()
+        {
+            bool dragInFlight = HudSlotDrag.IsDragging || Core.DropResolver.VanillaWorldDragLive() || BagGridCell.IsDragActive;
+            if (!dragInFlight) return;
+            if (_raycaster != null && _open) _raycaster.enabled = true;
+            PinnedInventoryWindow.PrimeDragRaycasters();
+        }
+
         /// <summary>Enter/leave EDIT PREVIEW — the <c>UiaControlCenter.ApplyEditPreview</c> pattern.
         /// In preview the window yields all input to the F9 editor (raycaster off) and is just a
         /// live-themed surface the editor can click to select and restyle.</summary>
@@ -402,7 +420,7 @@ namespace StationeersUIMod.UI.Grid
             // can resolve its through-the-panel physics WorldSlot, so the drop stays exactly one message.
             if (Core.DropResolver.VanillaWorldDragLive()) { ReleaseCursorBlock(); return; }
             _blockHeld = true;
-            try { if (CursorManager.Instance != null) CursorManager.Instance.BlockCursorRaycast = true; } catch { }
+            Core.CursorBlockArbiter.Hold(BlockId);
         }
 
         /// <summary>Drop the cursor-raycast block if WE are the ones holding it. Called from every
@@ -412,8 +430,11 @@ namespace StationeersUIMod.UI.Grid
         {
             if (!_blockHeld) return;
             _blockHeld = false;
-            try { if (CursorManager.Instance != null) CursorManager.Instance.BlockCursorRaycast = false; } catch { }
+            Core.CursorBlockArbiter.Release(BlockId);
         }
+
+        /// <summary>Stable arbiter hold id for the main Universal Inventory window.</summary>
+        private const string BlockId = "grid";
 
         // ---- Esc consumption (the ModalScope deferred-release idiom, for one key only) ----
         // Vanilla binds Escape (KeyMap._Cancel) at key-UP to the pause menu, while our Esc chain

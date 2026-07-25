@@ -20,6 +20,7 @@ namespace StationeersUIMod.Core
 
         private readonly UiaModal _modal = new UiaModal();
         private readonly string _inputStateKey;
+        private readonly string _blockId;
         private bool _releasePending;
         private int _clearFrames;
         public bool IsOpen { get; private set; }
@@ -27,6 +28,7 @@ namespace StationeersUIMod.Core
         public ModalScope(string inputStateKey)
         {
             _inputStateKey = inputStateKey;
+            _blockId = "radial:" + inputStateKey;
         }
 
         /// <summary>
@@ -71,9 +73,10 @@ namespace StationeersUIMod.Core
             // vanilla's InputMouse click/drag machine would run UNDER our radial (world
             // pickups through the wedges). BlockCursorRaycast gates both InputMouse.Update
             // and CursorManager.SetCursorTarget; the mod's own world-grab raycast is
-            // independent of it.
-            try { if (CursorManager.Instance != null) CursorManager.Instance.BlockCursorRaycast = true; }
-            catch { }
+            // independent of it. Routed through the arbiter (a NAMED hold) so a later
+            // deferred Close cannot stomp The Grid / a pinned window that also holds it —
+            // the whole reason those surfaces used to re-assert the flag every frame.
+            CursorBlockArbiter.Hold(_blockId);
             // Assert the unlock THIS frame. The game runs MouseModeController.Check() once per frame
             // from CursorManager.ManagerUpdate; if that ran BEFORE this Open() on the open frame, the
             // cursor stays locked for one frame while the radial is already drawn, so vanilla's
@@ -96,8 +99,7 @@ namespace StationeersUIMod.Core
             KeyManager.RemoveInputState(_inputStateKey);
             MouseModeController.RemoveModal(_modal);
             CursorManager instance = CursorManager.Instance;
-            try { if (instance != null) instance.BlockCursorRaycast = false; }
-            catch { }
+            CursorBlockArbiter.Release(_blockId);
             if (instance != null)
                 instance.OnApplicationFocus(true);
             if (PanelToolTip.Instance != null)

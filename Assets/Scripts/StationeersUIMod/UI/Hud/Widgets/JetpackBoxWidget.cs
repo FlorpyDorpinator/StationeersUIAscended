@@ -86,15 +86,32 @@ namespace StationeersUIMod.UI.Hud.Widgets
 
             // Propellant row: canister glyph pinned to the left, value text filling the rest.
             // 0.28 was hard-coded; keep it as the default so un-keyed profiles are unchanged.
-            float isz = Mathf.Clamp((topEdge - botEdge) * Mathf.Clamp(Def.GetFFor(LayoutBare, "iconScale", 0.28f), 0.1f, 1f),
-                10f * scale, 24f * scale);
+            // "Show canister icon" off collapses the glyph so the kPa value fills the whole row.
+            bool showIcon = Def.GetBFor(LayoutBare, "icon", true);
+            float isz = showIcon
+                ? Mathf.Clamp((topEdge - botEdge) * Mathf.Clamp(Def.GetFFor(LayoutBare, "iconScale", 0.28f), 0.1f, 1f),
+                    10f * scale, 24f * scale)
+                : 0f;
             _canisterRt.anchoredPosition = new Vector2(left + isz * 0.5f, propY);
             _canisterRt.sizeDelta = new Vector2(isz, isz);
 
-            float textLeft = left + isz + 4f * scale;
-            float tw = Mathf.Max(20f, right - textLeft);
-            _propRt.anchoredPosition = new Vector2(textLeft + tw * 0.5f, propY);
-            _propRt.sizeDelta = new Vector2(tw, 20f * scale);
+            if (showIcon)
+            {
+                // Canister on the left; the kPa value fills the rest of the row, left-aligned.
+                float textLeft = left + isz + 4f * scale;
+                float tw = Mathf.Max(20f, right - textLeft);
+                _propRt.anchoredPosition = new Vector2(textLeft + tw * 0.5f, propY);
+                _propRt.sizeDelta = new Vector2(tw, 20f * scale);
+                _prop.alignment = TextAlignmentOptions.MidlineLeft;
+            }
+            else
+            {
+                // No canister icon: centre the kPa across the box, under the (centred) THRUST
+                // text, instead of leaving it left-aligned in the empty icon gutter.
+                _propRt.anchoredPosition = new Vector2(cx, propY);
+                _propRt.sizeDelta = new Vector2(cw, 20f * scale);
+                _prop.alignment = TextAlignmentOptions.Center;
+            }
         }
 
         public override void UpdatePanel(HudSnapshot s, float scale)
@@ -128,7 +145,9 @@ namespace StationeersUIMod.UI.Hud.Widgets
             catch { present = false; gas = false; }
 
             // --- canister icon (late-resolve, native colour) ---
-            if (present)
+            // "Show canister icon" off hides it entirely (Layout reclaims its gutter).
+            bool showIcon = Def.GetBFor(LayoutBare, "icon", true);
+            if (present && showIcon)
             {
                 if (_canister.sprite == null)
                 {
@@ -192,6 +211,8 @@ namespace StationeersUIMod.UI.Hud.Widgets
             // icon. Clamped by the same 10..24 px band as before, so extremes stay sane.
             into.Add(HudProp.F("Canister icon scale", () => d.GetFFor(EditBare(d), "iconScale", 0.28f),
                 v => d.SetFFor(EditBare(d), "iconScale", Mathf.Clamp(v, 0.1f, 1f)), 0.1f, 1f));
+            into.Add(HudProp.Bool("Show canister icon", () => d.GetBFor(EditBare(d), "icon", true),
+                v => d.SetBFor(EditBare(d), "icon", v)));
             for (int i = appearanceStart; i < into.Count; i++) into[i].Group = HudPropGroup.Appearance;
         }
     }

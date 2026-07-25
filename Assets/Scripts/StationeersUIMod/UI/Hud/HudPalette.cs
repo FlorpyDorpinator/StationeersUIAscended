@@ -83,6 +83,9 @@ namespace StationeersUIMod.UI.Hud
         public static Entry Vignette;
         public static Entry Scanline;
 
+        // Item icons (hands / 1-6 / inventory grids) — the optional global tint (default white).
+        public static Entry ItemIconTint;
+
         // ---------- colour-ref resolution ----------
         //
         // A "colour ref" is either a palette entry Name (so re-tinting the palette re-tints
@@ -206,7 +209,11 @@ namespace StationeersUIMod.UI.Hud
             Vignette = Add(cfg, "HudVignette", "01070AB8",
                 "Darkening around the screen edges — the visor rim shadow.");
             Scanline = Add(cfg, "HudScanline", "0A20281C",
-                "Scanline shading in Dome projection mode (alpha 0 = off).");
+                "Scanline shading — the global 'Projector scan-lines' overlay AND Dome projection " +
+                "mode (alpha 0 = off).");
+            ItemIconTint = Add(cfg, "HudItemIconTint", "FFFFFFFF",
+                "Tint multiplied over every ITEM icon (hands, 1-6 slots, inventory/bag grids) when " +
+                "'Tint item icons' is on. White = no change; e.g. a green washes all item art green.");
 
             // One-time restyle: configs saved before the current default set keep the old
             // look forever otherwise. Runs once, then the user's wheels rule again.

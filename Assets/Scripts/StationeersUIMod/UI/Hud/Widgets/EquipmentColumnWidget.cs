@@ -31,7 +31,8 @@ namespace StationeersUIMod.UI.Hud.Widgets
             public PanelGraphic Panel;
             public TextMeshProUGUI Number, Label;
             public Image Icon;
-            public Image Warn; // damage/leak/broken alert overlay (vanilla parity)
+            public ThresholdBarGraphic Bar; // vanilla-style damage/health bar (green->yellow->red)
+            public Image Warn; // leak / fire glyph overlay (vanilla parity) - NO broken-X
         }
 
         private readonly List<Box> _boxes = new List<Box>();
@@ -44,8 +45,19 @@ namespace StationeersUIMod.UI.Hud.Widgets
                 b.Panel = MakePanel(root, "Box" + i);
                 b.Number = HudText.Make(root, "Num" + i, 12f, TextAlignmentOptions.TopLeft);
                 b.Icon = MakeIcon(root, "Icon" + i);
+                // Damage bar draws over the thumbnail's lower edge (created after the icon, before
+                // the label/warn so it sits under them in z). VisorWarp keeps it on the curve.
+                var barGo = new GameObject("Bar" + i, typeof(RectTransform));
+                barGo.transform.SetParent(root, false);
+                b.Bar = barGo.AddComponent<ThresholdBarGraphic>();
+                b.Bar.raycastTarget = false;
+                barGo.AddComponent<VisorWarp>();
+                var brt0 = (RectTransform)barGo.transform;
+                brt0.anchorMin = brt0.anchorMax = new Vector2(0.5f, 0.5f);
+                b.Bar.SetRange(0f, 1f);
+                b.Bar.gameObject.SetActive(false);
                 b.Label = HudText.Make(root, "Label" + i, 10f, TextAlignmentOptions.Center);
-                // Created LAST so it draws on top of icon/label: the damage/leak alert overlay.
+                // Created LAST so it draws on top of icon/bar/label: the leak / fire glyph overlay.
                 b.Warn = MakeIcon(root, "Warn" + i);
                 b.Warn.gameObject.SetActive(false);
                 _boxes.Add(b);
@@ -73,7 +85,7 @@ namespace StationeersUIMod.UI.Hud.Widgets
                 b.Number.gameObject.SetActive(inSlice);
                 b.Icon.gameObject.SetActive(inSlice);
                 b.Label.gameObject.SetActive(inSlice && labels);
-                if (!inSlice) { b.Warn.gameObject.SetActive(false); continue; }
+                if (!inSlice) { b.Warn.gameObject.SetActive(false); b.Bar.gameObject.SetActive(false); continue; }
                 var center = BoxCenter(i - first, c, box, gap, horizontal, count);
 
                 var prt = (RectTransform)b.Panel.transform;
@@ -101,11 +113,23 @@ namespace StationeersUIMod.UI.Hud.Widgets
                 b.Label.rectTransform.anchoredPosition = new Vector2(center.x, center.y - box * 0.5f + box * 0.13f);
                 b.Label.enabled = labels;
 
-                // Damage alert overlay — centred over the item like vanilla's DamageImage X, sized
-                // to cover the thumbnail (UpdatePanel toggles it and drives the red<->white pulse).
+                // Leak / fire glyph — centred over the item (UpdatePanel toggles it and drives
+                // the red<->white pulse). Sized as a fraction of the box.
                 float warnSize = box * Mathf.Clamp(Def.GetFFor(LayoutBare, "warnScale", 0.72f), 0.2f, 1.2f);
                 b.Warn.rectTransform.sizeDelta = new Vector2(warnSize, warnSize);
                 b.Warn.rectTransform.anchoredPosition = center;
+
+                // Vanilla-style damage bar: a thin pill-ended track pinned to the bottom edge of
+                // the thumbnail, width tracking the icon. Shown / hidden / coloured in UpdatePanel.
+                float barThick = Mathf.Max(2f, box * Mathf.Clamp(Def.GetFFor(LayoutBare, "damageBarThick", 0.085f), 0.03f, 0.25f));
+                float barW = iconSize * 0.98f;
+                float iconCY = center.y + box * 0.04f + Def.GetFFor(LayoutBare, "iconDY", 0f) * scale;
+                var brt = b.Bar.rectTransform;
+                brt.sizeDelta = new Vector2(barW, barThick);
+                brt.anchoredPosition = new Vector2(
+                    center.x + Def.GetFFor(LayoutBare, "iconDX", 0f) * scale,
+                    iconCY - iconSize * 0.5f + barThick * 0.5f);
+                b.Bar.CornerRadius = barThick * 0.5f;
             }
         }
 
@@ -117,6 +141,13 @@ namespace StationeersUIMod.UI.Hud.Widgets
             var box = BoxSize(SizeFor(scale), Def.GetFFor(LayoutBare, "gap", 8f) * scale,
                 Def.GetB("horizontal", false), count);
             bool labels = Def.GetBFor(LayoutBare, "labels", true);
+
+            // Per-element text colours (the slot number + the slot label filled/empty were locked
+            // to the blue-grey TextDim/TextLabel palette slots with no per-element control). Empty
+            // ref = today's palette default; alloc-free on the palette-name path.
+            Color numColor = GlobalOr(Def.GetSFor(LayoutBare, "numColor", ""), HudPalette.TextDim.Value);
+            Color labelColor = GlobalOr(Def.GetSFor(LayoutBare, "labelColor", ""), HudPalette.TextLabel.Value);
+            Color labelEmptyColor = GlobalOr(Def.GetSFor(LayoutBare, "labelEmptyColor", ""), HudPalette.TextDim.Value);
 
             for (int i = first; i < first + count; i++)
             {
@@ -154,8 +185,8 @@ namespace StationeersUIMod.UI.Hud.Widgets
                 HudText.Sync(b.Number);
                 b.Number.fontSize = HudText.Size(11f * Def.FontScaleFor(LayoutBare)) * scale;
                 // The dim label grey, not the bright slot-number white (FlorpyDorp:
-                // "make the numbers more grey so it isn't so bright").
-                b.Number.color = HudPalette.TextDim.Value;
+                // "make the numbers more grey so it isn't so bright") — now an editable ref.
+                b.Number.color = numColor;
                 HudText.Set(b.Number, i >= 0 && i < SlotNums.Length ? SlotNums[i] : (i + 1).ToString());
 
                 Sprite icon = null;
@@ -168,66 +199,77 @@ namespace StationeersUIMod.UI.Hud.Widgets
                 if (flash != null) icon = flash;
                 b.Icon.sprite = icon;
                 b.Icon.enabled = icon != null;
-                b.Icon.color = new Color(1f, 1f, 1f, (filled || flash != null) ? 0.95f : 0f);
+                // #9: optional global item-icon tint, keeping the filled/empty alpha cue.
+                b.Icon.color = HudConfig.TintIcon(new Color(1f, 1f, 1f, (filled || flash != null) ? 0.95f : 0f));
                 b.Icon.rectTransform.localScale = Vector3.one * (flash != null ? 1f + 0.22f * flashP : 1f);
 
                 HudText.Sync(b.Label);
                 b.Label.enabled = labels;
                 b.Label.fontSize = HudText.Size(9.9f * Def.FontScaleFor(LayoutBare)) * scale;
-                var lc = filled ? HudPalette.TextLabel.Value : HudPalette.TextDim.Value;
+                var lc = filled ? labelColor : labelEmptyColor;
                 if (!filled) lc.a *= 0.7f;
                 b.Label.color = lc;
                 HudText.Set(b.Label, i == 4 && s.IsRobot ? "BATTERY" : Labels[i]);
 
-                // Damage / leak / broken alert. Vanilla lights an animated warning on a damaged
-                // suit or helmet inventory slot; we mirror it on our boxes. IsLeaking (a leaking
-                // suit) and IsBurning are NETWORKED (MP-safe on a client); IsBroken/DamageState
-                // are best-effort. The pulse supplies the "glow" without borrowing vanilla's
-                // prefab Animator. Leak sprite is vanilla's own (VanillaIcons -> StatusUpdates).
-                bool warn = false, wFire = false, wLeak = false;
+                // Damage / leak / fire. Vanilla shows a health BAR on a damaged worn item
+                // (green->yellow->red, hidden when pristine) plus a small animated leak / fire
+                // glyph while the suit is venting or burning. We mirror both exactly — and, unlike
+                // before, draw NO broken-X (vanilla never shows one for a damaged item; a full
+                // break just reads as an empty red bar). IsLeaking / IsBurning are NETWORKED
+                // (MP-safe on a client); DamageState is best-effort. Leak / fire sprites are
+                // vanilla's own (VanillaIcons -> SlotDisplayButton / StatusUpdates).
+                bool showBar = false, wFire = false, wLeak = false;
+                float health = 1f;
                 if (filled && Def.GetBFor(LayoutBare, "damageWarn", true))
                 {
                     try
                     {
-                        bool broken = occ.IsBroken;
                         bool leaking = occ.IsLeaking;
                         bool burning = occ.IsBurning;
                         float dmg = 0f;
-                        try { if (occ.DamageState != null) dmg = occ.DamageState.TotalRatioClamped; } catch { }
-                        // Vanilla shows the broken-X only for a FULL break; the mod also raises it
-                        // for a leak / fire / heavy damage, the "your gear is failing" states the
-                        // alert is for. Light scuffs (dmg < ~0.2) stay quiet.
-                        warn = broken || leaking || burning || dmg > 0.2f;
+                        try { if (occ.DamageState != null) dmg = Mathf.Clamp01(occ.DamageState.TotalRatioClamped); } catch { }
+                        // Bar shows for any real damage (a <2% scuff stays quiet). Health is the
+                        // exact slider value vanilla uses: 1 - TotalRatioClamped (MedicalAnalyser
+                        // parity, SlotDisplay.RefreshDamage). A full break -> health 0 -> the fill
+                        // is empty (bare track), same as vanilla's slider at value 0; a leaking or
+                        // burning broken suit still raises its glyph on top.
+                        showBar = dmg > 0.02f;
+                        health = 1f - dmg;
                         // CAUSE precedence copied from vanilla SlotDisplay.RefreshState (27701):
-                        //   StatusFire  <- IsBurning
-                        //   StatusLeak  <- !IsBurning && IsLeaking
-                        // and the broken-X (StateImage) is its own break-only state. A leaking suit
-                        // must therefore draw the LEAK glyph, never the X (play-test: "it's still an X").
+                        //   StatusFire <- IsBurning ; StatusLeak <- !IsBurning && IsLeaking.
                         wFire = burning;
                         wLeak = leaking && !burning;
                     }
-                    catch { warn = false; }
+                    catch { showBar = false; wFire = false; wLeak = false; }
                 }
 
-                if (warn)
+                if (showBar)
                 {
-                    // The glyph vanilla itself would draw for THIS cause, harvested live off a
+                    b.Bar.gameObject.SetActive(true);
+                    b.Bar.Value = health;                    // full bar = healthy
+                    // Vanilla's EXACT gradient colour for this damage ratio (0=green..1=red),
+                    // pulled live off StatusUpdates.DamageGradient; our own ramp is only the
+                    // pre-manager fallback (main menu / early load).
+                    b.Bar.FillColor = Core.VanillaIcons.DamageColor(1f - health, DamageBarColor(health));
+                    b.Bar.TrackColor = DamageBarTrack;
+                }
+                else b.Bar.gameObject.SetActive(false);
+
+                if (wFire || wLeak)
+                {
+                    // The glyph vanilla itself draws for THIS cause, harvested live off a
                     // SlotDisplayButton so we always match the current build's art:
-                    //   burning -> StatusFire, leaking -> StatusLeak, broken/heavy damage -> StateImage (X).
-                    // Fail-soft chain: the slot UI may not exist yet, so fall back to the X and then
-                    // the legacy named lookup rather than drawing nothing.
-                    Sprite ws = wFire ? Core.VanillaIcons.FireIcon()
-                              : wLeak ? Core.VanillaIcons.LeakIcon()
-                              : Core.VanillaIcons.BrokenCross();
-                    if (ws == null) ws = Core.VanillaIcons.BrokenCross() ?? Core.VanillaIcons.TryGet("leak");
+                    //   burning -> StatusFire, leaking -> StatusLeak. Fail-soft to the named
+                    // leak lookup rather than drawing nothing if the slot UI isn't up yet.
+                    Sprite ws = wFire ? Core.VanillaIcons.FireIcon() : Core.VanillaIcons.LeakIcon();
+                    if (ws == null) ws = Core.VanillaIcons.LeakIcon() ?? Core.VanillaIcons.TryGet("leak");
                     b.Warn.sprite = ws;
                     b.Warn.gameObject.SetActive(ws != null);
                     if (ws != null)
                     {
-                        // ONE pulse for every alert glyph (leak / fire / broken): white -> red ->
-                        // white, endlessly. FlorpyDorp: an alpha-only pulse on the leak icon read as
-                        // "just white" — the red is the alarm, so every state cycles through it.
-                        // #ED1C24 is vanilla's own DamageImage tint; ~0.66 s period ("rapid").
+                        // White -> red -> white pulse (vanilla's own DamageImage tint #ED1C24),
+                        // ~0.66 s period ("rapid"). The red is the alarm; alpha-only read as "just
+                        // white" in play-test, so the whole glyph cycles through red.
                         float t = Mathf.PingPong(Time.unscaledTime * 3f, 1f);
                         b.Warn.color = Color.Lerp(new Color(0.929f, 0.110f, 0.141f, 1f), Color.white, t);
                     }
@@ -253,10 +295,26 @@ namespace StationeersUIMod.UI.Hud.Widgets
             for (int i = layoutStart; i < into.Count; i++) into[i].Group = HudPropGroup.Layout;
 
             into.Add(HudProp.Bool("Show labels", () => d.GetBFor(EditBare(d), "labels", true), v => d.SetBFor(EditBare(d), "labels", v)));
-            into.Add(HudProp.Bool("Damage alert (leak / fire / broken)", () => d.GetBFor(EditBare(d), "damageWarn", true), v => d.SetBFor(EditBare(d), "damageWarn", v)));
-            into.Add(HudProp.F("Alert overlay scale (× box)", () => d.GetFFor(EditBare(d), "warnScale", 0.72f), v => d.SetFFor(EditBare(d), "warnScale", Mathf.Clamp(v, 0.2f, 1.2f)), 0.2f, 1.2f));
+            into.Add(HudProp.Bool("Damage bar + leak / fire alert", () => d.GetBFor(EditBare(d), "damageWarn", true), v => d.SetBFor(EditBare(d), "damageWarn", v)));
+            into.Add(HudProp.F("Damage bar thickness (× box)", () => d.GetFFor(EditBare(d), "damageBarThick", 0.085f), v => d.SetFFor(EditBare(d), "damageBarThick", Mathf.Clamp(v, 0.03f, 0.25f)), 0.03f, 0.25f));
+            into.Add(HudProp.F("Leak / fire glyph scale (× box)", () => d.GetFFor(EditBare(d), "warnScale", 0.72f), v => d.SetFFor(EditBare(d), "warnScale", Mathf.Clamp(v, 0.2f, 1.2f)), 0.2f, 1.2f));
             into.Add(HudProp.I("First slot (0=helmet)", () => d.GetI("first", 0), v => d.SetI("first", Mathf.Clamp(v, 0, 5)), 0, 5));
             into.Add(HudProp.I("Slot count", () => d.GetI("count", 6), v => d.SetI("count", Mathf.Clamp(v, 1, 6)), 1, 6));
+
+            // Per-element text colours: the 1-6 slot number and the slot label (filled/empty) were
+            // locked to the palette. Expose all three (empty ref = the palette default).
+            into.Add(HudProp.Color("Slot number colour", () => d.GetSFor(EditBare(d), "numColor", ""),
+                v => d.SetSFor(EditBare(d), "numColor", string.IsNullOrEmpty(v) ? null : v),
+                () => HudPalette.TextDim.Value));
+            into[into.Count - 1].Group = HudPropGroup.Appearance;
+            into.Add(HudProp.Color("Slot label colour", () => d.GetSFor(EditBare(d), "labelColor", ""),
+                v => d.SetSFor(EditBare(d), "labelColor", string.IsNullOrEmpty(v) ? null : v),
+                () => HudPalette.TextLabel.Value));
+            into[into.Count - 1].Group = HudPropGroup.Appearance;
+            into.Add(HudProp.Color("Empty slot label colour", () => d.GetSFor(EditBare(d), "labelEmptyColor", ""),
+                v => d.SetSFor(EditBare(d), "labelEmptyColor", string.IsNullOrEmpty(v) ? null : v),
+                () => HudPalette.TextDim.Value));
+            into[into.Count - 1].Group = HudPropGroup.Appearance;
 
             AddDropHighlightProps(into); // #4: drag-over drop cue mode + colour
         }
@@ -319,6 +377,23 @@ namespace StationeersUIMod.UI.Hud.Widgets
             return horizontal
                 ? new Vector2(center.x - start + orderIdx * (box + gap), center.y)
                 : new Vector2(center.x, center.y + start - orderIdx * (box + gap));
+        }
+
+        // --- damage bar colouring ---
+        // Live fill colour is vanilla's own StatusUpdates.DamageGradient (see UpdatePanel /
+        // VanillaIcons.DamageColor). DamageBarColor below is only the FALLBACK ramp used before
+        // that manager exists — a two-stop green->yellow->red lerp through yellow at the midpoint.
+        private static readonly Color DamageBarTrack = new Color(0f, 0f, 0f, 0.55f);
+
+        private static Color DamageBarColor(float health)
+        {
+            health = Mathf.Clamp01(health);
+            Color green = new Color(0.30f, 0.85f, 0.35f, 1f);
+            Color yellow = new Color(0.95f, 0.80f, 0.15f, 1f);
+            Color red = new Color(0.90f, 0.20f, 0.18f, 1f);
+            return health > 0.5f
+                ? Color.Lerp(yellow, green, (health - 0.5f) * 2f)
+                : Color.Lerp(red, yellow, health * 2f);
         }
 
         private static Slot SlotFor(Human human, int i)

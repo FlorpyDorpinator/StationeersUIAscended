@@ -2,7 +2,7 @@
   <Name>StationeersUIMod</Name>
   <ModID>StationeersUIAscended</ModID>
   <Author>FlorpyDorp + JXSN</Author>
-  <Version>0.9.1.1</Version>
+  <Version>0.9.2.0</Version>
   <Description>
 	  [h1]Stationeers UI Mod[/h1]
 	  
@@ -19,6 +19,19 @@ Ported from BepInEx proof-of-concept into Unity mod project. Radials are now dra
 <br>
 ]]></InGameDescription>
   <ChangeLog>
+    [h3]Version 0.9.2.0 EXPERIMENTAL — THEMES THAT TRAVEL + THE RADIAL/CURSOR POLISH:[/h3]
+    [list]
+    [*] THE CURSOR NO LONGER FLICKERS IN RADIALS: the arrow pointer strobing while a radial was open is fixed at the root — the "walk/jump/jetpack while a wheel is up" feature was hiding and re-showing the cursor every physics frame. It now only touches the cursor on the exact frames you actually press jump or jetpack
+    [*] MIDDLE-MOUSE ONLY CLOSES A RADIAL: tapping MMB over an item while a radial is open used to select that item — now it just closes the wheel (and dumps any chips you were sorting to the ground, as before)
+    [*] PER-PROFILE THEMES: your HUD colours, glass/glow effects and the radial palette now travel WITH the saved profile — switch profiles and the whole look changes together. Shipped with two curated themes, [b]Stationeers Blue[/b] and [b]Pure HUD[/b] (the old themes are kept in an "Old Themes" folder you can still load)
+    [*] PROJECTED-LENS THEMING: moodlet warning words, per-element colours, icon toggles, optional scan-lines and a carried-item tint — the HUD reads like one coherent projected display
+    [*] DRAG FROM HANDS / 1-6 INTO ANY WINDOW: dragging an item out of a hand box or a 1-6 equipment box into the Universal Inventory or a pinned bag now lands every time (a fast flick-drop used to miss and drop at your feet)
+    [*] VANILLA PLACEMENT BOX WHEN DRAGGING FROM A RADIAL: dragging a chip/item from a radial toward a locker, charger or device slot now shows the game's own coloured placement box (green place/swap, yellow merge, blue insert, red refused)
+    [*] GREYED RADIAL ITEMS ARE STILL DRAGGABLE: with both hands full, a greyed item won't jump into your hand on click — but you can still drag it out as an icon onto the world, a bag or a slot
+    [*] SMART STOW (G) WORKS WITH A RADIAL OPEN: hold the belt wheel, press G, and a belt tool stows to the belt (with the "went in here" flash) — the wedge updates in place
+    [*] EQUIPMENT DAMAGE BARS: a worn item taking damage shows a thin health bar under its icon (green -> yellow -> red), exactly like the vanilla inventory, tinted by the game's OWN damage gradient; the body damage-doll matches it
+    [*] Fixes: splitting a stack to the ground no longer spawns the items inside you (they're placed and launched clear, no self-damage); a suit-power moodlet could get stuck lit in the borrowed status strip — fixed
+    [/list]
     [h3]Version 0.9.1.1 EXPERIMENTAL — STABILITY, DRAG POLISH + SIZE KNOBS:[/h3]
     [list]
     [*] DRAG ANYTHING, ANYWHERE: drag items freely between the Universal Inventory, pinned bags, your hands, the 1-6 equipment slots and the world — both directions. The carried item now always draws IN FRONT of the windows, and pinned bags finally accept drops (they no longer freeze the item at their edge)
@@ -29,124 +42,7 @@ Ported from BepInEx proof-of-concept into Unity mod project. Radials are now dra
     [*] Fixed pinned bag windows rendering as solid yellow boxes (they're frosted glass again)
     [*] Stability: fixed a hot-reload issue that could make the cursor lag over a long dev session; a stray per-frame error can no longer flood the log or tank the frame rate
     [/list]
-    [h3]Version 0.9.1.0 EXPERIMENTAL — THE UNIVERSAL INVENTORY + THE BELT WHEEL:[/h3]
-    [list]
-    [*] THE UNIVERSAL INVENTORY (press B): one window showing EVERY slot you own — worn equipment, your hands' contents, and every bag nested inside them, however deep. Laid out as one flat grid: each storage bag is a bordered block of item boxes with a trapezoidal manila-folder tab, while tools that merely have slots (drills, welders, tablets) stay a single box instead of unfolding
-    [*] PIN A BAG OUT: drag a bag's folder tab out of the window and it becomes its own movable, resizable window with a shrink button to send it back. Shift+1-6 pops that worn bag out (press again to close it); mouse-mod + click a HUD equipment slot pins it too. Pinned bags stay on screen when you close the main window — only the vanilla close-all (`) puts everything away
-    [*] It never steals your mouse: B opens the window with the cursor still locked so you keep looking around and moving. Free the mouse with your mouse-modifier only when you actually want to click something
-    [*] Move items by dragging box to box (move / swap / merge onto a stack), click an item to put it in your hand, right-click for that item's radial, and Sort each container from its own corner button
-    [*] Resize from the bottom-right grip, drag it around by the title bar, and it remembers where and how big it was. The grid re-flows as you resize, and an F10 slider sets the box size (icons scale with it)
-    [*] Fully themed: it inherits your global box look — colour, border width, corner radius, glass sheen, edge light and frost — and you can click it in the F9 designer to restyle it like any other box
-    [*] THE BELT WHEEL (the middle-mouse tool radial, renamed): press Q to swap which tool belt you are wearing — the belt IS the loadout, so a second belt is a second kit
-    [*] Tools remember their home: smart-stow (G) puts each tool type back in the slot it lives in, per belt, remembered per save — so your wrench is always in the same place. Slots keep their angle even while the tool is in your hand, with the bound tool's name ghosted in place
-    [*] New radial feel: flick-commit (flick straight to a tool without the ring ever drawing), double-tap to repeat your last pick, hover/commit/denied sounds, hint text that fades away as you learn it, and hold-MMB to look around without closing the radial
-    [*] HUD glass hunt: the halo corner rays were root-caused (the specular light lobe) and reshaped with a soft cosine; ray streaks now fade with depth; the halo X crease fix is ungated; freeform pen shapes get halos and corner fans; halos can breathe and flow organically, with per-element ripple desync
-    [*] Designer: pen tool reworked to an Illustrator-style Bezier model with point editing in the popup, resolution-independent HUD scaling (authoring resolution travels with the profile), off-screen element self-heal, stacked readout row heights, custom elements reach parity with the global Effects tab, and a full inspector audit of missing/lying controls
-    [*] Bare senses overhauled (layout, editable sense catalog, nested tabs) and per-mode bare-suit visual overrides; suit warnings now tint and breathe the whole HUD
-    [*] F10 Control Center is real HUD glass now, follows your F9 theme, is click-to-edit, and keeps its scroll position
-    [*] Drag items out of the HUD hand and 1-6 boxes — and drop a world item straight INTO a HUD slot; double-tap the mouse modifier to latch the cursor
-    [*] Fixes: the bowtie "X" artifact is gone from EVERY inventory box; the smart-stow flash was root-caused (an InventoryTweaks conflict) and the leak/damage icons are the real ones; the vanilla controls-conflict banner is gone; dragging an item out of a HUD slot no longer opens the inventory
-    [/list]
-    [h3]Version 0.9.0.1 EXPERIMENTAL — THE PEN, THE CONTROL CENTER + LIGHT YOU AIM:[/h3]
-    [list]
-    [*] THE PEN TOOL: draw your own filled glass shapes — click points to lay a path, close it, then edit it like Adobe: drag anchors, Bezier handles for smooth curves, corner points, insert/delete points. Every glass effect (sheen, edge light, glow, frost) works on your own shapes
-    [*] UGUI CONTROL CENTER: a proper in-game settings hub alongside the ImGui F9/F10 windows — master on/off for the radial half and the HUD half independently, an in-world hint bar + guide that teaches the controls, key rebinding (in our menu AND the game's own Controls screen), HUD profiles front-and-centre, and bag-profile setup
-    [*] EDGE LIGHT YOU AIM: the border/line highlight is now fully yours — pick its COLOUR, the DIRECTION it comes from (spin the angle and the catch sweeps around the frame), how much the opposite edge catches, and the falloff (tight catch vs broad wash). Borders and drawn lines light alike
-    [*] EDGE FADE: a box's far ends dissolve softly into the visor, so a wide bar melts away at the edges instead of stopping on a hard line (matches the concept art)
-    [*] MAKE FLAT: one click strips a box's glass, glow and edge light back to a plain slightly-transparent bordered box — per element, or the whole HUD at once
-    [*] Every effect is now per-element: glass sheen + edge light, edge softness (AA), border fade, soft edge, glow (out/in/width/diffuse) and edge ripple all have their own slider with "-1 = follow the global"
-    [*] "Follow global effects" is now its OWN checkbox, separate from colours — and separating anything from global FREEZES it at the current global value, so nothing jumps: it stays exactly what you were looking at until you change it
-    [*] Ripple, reworked: goes far WIDER (a single slow light-to-dark sweep across a full-width bar) and a new "gradient" slider smooths the choppy noise into a clean gradient
-    [*] Global glass sheen / edge-light / frost strength sliders — set the look once for the whole HUD, override any box that needs it
-    [*] Dynamic bloom: anamorphic streak, pulse, state-reactive response and a resolution control
-    [*] Fixes: the bright "bowtie X" artifact across glass panels is gone; the compass no longer breaks under curvature; the F10 menu's dropdown bug fixed and restyled (grey/rounded); thinner hairlines than before
-    [/list]
-    [h3]Version 0.9.0 EXPERIMENTAL — EFFECTS + THE PROFILER:[/h3]
-    [list]
-    [*] Three tiers of new HUD effects, every one togglable globally (F9 > "Effects (global)") AND per element (each element's popup): Tier A mesh effects ON by default, Tier B shader effects ON when the effects bundle is present, Tier C frosted glass OFF by default (experimental)
-    [*] Tier A: razor-thin lines now FADE smoothly instead of vanishing (draw down to 0.05px); drawn lines get a directional edge light matching the panel borders; per-element "breathing" pulse (opt-in)
-    [*] Tier B (needs uia_effects.bundle): a light sweep that travels across panels, subtle iridescent edges, a dissolve "power-on" reveal on boot; degrades cleanly to Tier A when the bundle is missing
-    [*] Tier C (experimental, Flat/Warp curvature): true frosted glass — panels blur, darken and tint the world behind them (gray-leaning tint, all adjustable)
-    [*] HUD BLOOM — elements light each other: any bright HUD pixel (borders, text, accent chips, glow halos) bleeds real light onto its neighbours, in every curvature mode. Full F9 control set: strength, threshold, soft knee, blur steps, continuous spread, fine-detail (thin lines glow too), saturation, and a tint colour wheel. Coexists with frosted glass. Default OFF
-    [*] Inner + outer GLOW, separately dialable — frames glow into the glass and out of it, with a diffuseness slider (tight rim -> wide soft haze), overdrivable edge-light ripple (lines break up into light and dark), and per-element overrides. A week of artifact-hunting fixed: banded halos, corner rays, radial spokes, inner-glow corner crosses, and glow escaping through trapezoid slants
-    [*] Radial menus join the effects: frosted-glass wedges + sheen + rim edge light, controlled from a new "Effects (0.9.0)" section in the F10 radial editor
-    [*] Frosted glass no longer sees THROUGH the first-person helmet (the capture now includes the helmet camera); frost + glow reach the hand boxes and 1-6 slots
-    [*] Built-in profiler (Profilicus by JacksonTheMaster, vendored with permission): F9 > Profiler or console `uiaprof`; `uiaprof ab &lt;effect&gt;` measures any effect's real frame cost ON vs OFF and prints the delta — now including MEMORY (allocation KB/frame + GC collections); snapshots to BepInEx/config/StationeersUIMod/ProfilerSnapshots
-    [*] Shipped HUD layout profiles now install themselves on first run; the play-test default layout is "Smaller Test"
-    [*] Packaging fix: releases no longer ship the dev hot-reload shim (settings migrate automatically); fixed a latent mode-C bug where elements added in the editor lost their world-space material
-    [/list]
-    [h3]Version 0.8.0 — GLASSY + THE DESIGNER, DEEPER:[/h3]
-    [list]
-    [*] New shipped look: the "Glassy" car-dashboard HUD (procedural glass boxes, the game's own ramp-bar gauge art, de-blued restyle) — Glassy 4.0 is the default; your custom profiles are left untouched
-    [*] Moodlets relocated into the bar as centered dashboard chips that bend onto the visor curve, keep their hover tooltips, and hide the vanilla strip — with transparency + brightness sliders
-    [*] Curvature: Mode C's walk-swim is fixed (head-locked to the camera); NEW Mode D gives the curved look with no swim; each element remembers its placement per curvature mode
-    [*] Designer gets deeper: per-element effect toggles + strength (death collapse / glitch / warp), per-tier layout (bare vs suit), global box colours with per-element follow, live Z re-layering, and curved (smooth spline) line-work
-    [*] Bare senses: place any of 8 felt-senses (now incl. Consciousness + Toilet) in any row; health reads as general wellness; hunger/thirst match the vitals card
-    [*] Radials: single/double settings show inline, split-stack wedges, live stats on swap/replace/eject, smarter swipe chevrons, sorting-class colours, and wedge hotkeys that never shadow a game keybind (press the letter again to unbind)
-    [*] Optional power-transition static/distortion effect (reuses the game's CameraFilterPack); PNG body-doll damage colours are editable; crash fix for duplicate moodlet/doll borrows
-    [*] Console: finddead (dead-player body bags) and findlargebox (large cardboard boxes) locators with coordinates
-    [/list]
-    [h3]Version 0.7.0 — THE HUD DESIGNER:[/h3]
-    [list]
-    [*] The whole HUD is now a LAYOUT you own: press F9, click any element — drag it anywhere, resize it by its handles (with a toggleable snap grid), restyle every color per element, change any gauge's data source, flip gauges vertical/horizontal with your own zone colors
-    [*] Draw your own UI: add boxes (each corner's rounding adjustable), your own text labels, icons (26 built-in thin-line glyphs, or drop PNGs in config/StationeersUIMod/HudIcons), and free-drawn line work (click points on screen)
-    [*] Moodlets now appear as small dashboard chips under the top bar, spreading out from the center like a car's warning lights; the vanilla strip is hidden
-    [*] New: body-damage silhouette (7 regions), suit status chips with state dots, vertical instrument cards with target markers, world name / day / active-hand badge elements
-    [*] Layouts autosave as named, shareable profiles (config/StationeersUIMod/HudProfiles); full undo/redo; the shipped default matches the new concept art
-    [*] Vanilla's bottom-right instrument cluster and status strip are hidden through the game's own visibility paths (everything restorable)
-    [/list]
-    [h3]Version 0.6.2:[/h3]
-    [list]
-    [*] Drag a chip out of a radial and drop it straight onto a HAND box or a 1-6 equipment box — it moves into that slot (swaps when occupied, all through the usual multiplayer-safe checks)
-    [*] While you're dragging an item, child radials (slide-out satellites) no longer pop up in the way
-    [*] NEW option (on by default, F10): keep moving with WASD and jump with Space while a radial is open — typing in the search panel never moves you, and it disables while seated
-    [/list]
-    [h3]Version 0.6.1:[/h3]
-    [list]
-    [*] Option B hold mode: resting the cursor on ANY branch wedge (Backpack, a category, a nested bag) now dives into it — hold MMB and hover your way from The Hub all the way to an item, release to grab it
-    [*] Fixed: pressing F9 in a Creative world threw a vanilla NullReferenceException (F9 is also vanilla's spawn-item key and its handler crashes with nothing selected) — the vanilla spawn is now guarded and auto-suppressed while the HUD editor owns F9; with the creative spawn menu open F9 spawns as vanilla intends
-    [/list]
-    [h3]Version 0.6.0:[/h3]
-    [list]
-    [*] Radial Option B — "The Hub": the toolbelt radial (MMB) grows a top-center wedge that branches into everything Tab opens (search + every worn piece)
-    [*] TAP middle mouse = the toolbelt radial opens sticky; tap MMB again on a wedge to select it (branches navigate, actions run and close), tap empty space to dismiss
-    [*] HOLD middle mouse = transient as always: point at The Hub for a beat (or LMB) to dive in, LMB enters bags/categories, RMB backs out, release runs the hovered action and closes
-    [*] Option B keeps ALL of Option A (STOW wedges, satellites, scroll values, search, parking); pick the schema in F10 or the config
-    [/list]
-    [h3]Version 0.5.0:[/h3]
-    [list]
-    [*] The visor HUD: full-screen UGUI replacement built to the concept art — curved top status bar (UTC, pressure, O2, temp, power, water, suit status), compass ribbon with cardinals + degrees, left equipment column (1-6), bottom hand tray, vitals card with the live 3D player as a cyan hologram, visor-edge vignette
-    [*] Diegetic tiers: full readout only with a powered suit; without one you get felt-sense WORDS (WARM, HUNGRY, THIN AIR) that flare on change; the robot always sees everything
-    [*] Suit power death collapses the HUD in a CRT flicker; a powered suit boots it back panel by panel; low battery causes dropout glitches
-    [*] All THREE curvature implementations: A vertex warp, B RenderTexture dome projection (+scanlines), C curved world-space canvas — switchable live
-    [*] F9 HUD editor: click any HUD element on screen to edit its colours/sizes in a popup right there; hover highlights its palette entries; every colour/font/size/behavior knob with Undo/Redo
-    [*] docs/Moodlets-Reference.md: every vanilla status/moodlet with exact triggers
-    [/list]
-    [h3]Version 0.4.0:[/h3]
-    [list]
-    [*] Generic device settings: every setting vanilla's inventory window shows, with vanilla's live labels (jetpack stabilizer, suit A/C / air / filter / pressure / temperature, helmet visor / light / flush) — SETTINGS wedge everywhere by one shared rule
-    [*] Component satellites: slide over a battery / canister / cartridge for TAKE / REPLACE (full swap list) / its settings
-    [*] Tab parity: all six worn pieces (glasses included) open exactly the radial their 1-6 key opens; empty worn slots are STOW wedges
-    [*] Search is a radial now: SEARCH wedge on top with the text box, results fill the bottom half as draggable wedges, wheel pages
-    [*] Z-grab (mouse-mod key): grab world items under the cursor into the radial drag layer; drag-move the whole radial by its hub; CLOSE button at the hub bottom
-    [*] Shift keeps radials open across actions; E swaps hands (indicator stays lit); bag presentation options (grouping toggle, empty-slot modes, max wedges); icons scale with wedges; chip size + shine intensity in the editor
-    [/list]
-    [h3]Version 0.3.0:[/h3]
-    [list]
-    [*] Option A control schema (F10-switchable vs classic Option D): STOW wedges, device-control child radials with scroll-wheel value adjust, take/open satellites on nested bags, auto-close after actions
-    [*] Search all bags: type-to-filter panel; click puts the item in a free hand or drops it at your feet
-    [*] Drag-out parking: press-drag items out of radials onto the screen, drop them into slots, or RMB-out to drop them all
-    [*] Radial editor (F10): black-screen playground with live example radials; every colour, font, size and thickness tunable
-    [*] Full wedge outlines with side borders, wedge gaps and side-edge anti-aliasing; bold RBNo font; live state under icons (battery %, kPa, stack counts)
-    [*] Custom UIA sorting classes (22 classes for 785 items) replace the game's coarse groups in bag radials
-    [/list]
-    [h3]Version 0.2.0:[/h3]
-    [list]
-    [*] Rebased as StationeersUIMod Unity/SLP mod (namespace StationeersUIMod)
-    [*] Procedural Unity UGUI radial renderer (built in code, no prefabs) as primary
-    [*] Hooked to SLP OnLoaded entrypoint; legacy ImGui painter retained for reference
-    [*] All BepInEx plugin code integrated, patches preserved (fail-soft)
-    [/list]
+    [i]Full version history (0.9.1.0 and earlier) is in CHANGELOG.md, in the mod folder and on GitHub.[/i]
   </ChangeLog>
   <WorkshopHandle>0</WorkshopHandle>
   <Tags>

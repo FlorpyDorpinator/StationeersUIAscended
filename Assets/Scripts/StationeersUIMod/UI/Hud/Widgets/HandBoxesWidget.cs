@@ -119,6 +119,14 @@ namespace StationeersUIMod.UI.Hud.Widgets
 
             float labelSize = HudConfig.LabelFontSize != null ? HudConfig.LabelFontSize.Value : 11f;
 
+            // Per-element colours (empty ref = today's palette default; alloc-free on the
+            // palette-name path so resolving once here is cheap). The active-hand accent drives
+            // BOTH the selected box border and its side bar; the two "dim" text states (the
+            // inactive hand name + the empty state line) were previously hardcoded to the palette.
+            Color activeAccent = GlobalOr(Def.GetSFor(LayoutBare, "activeBorderColor", ""), HudPalette.ActiveHandAccent.Value);
+            Color titleInactive = GlobalOr(Def.GetSFor(LayoutBare, "titleInactiveColor", ""), HudPalette.TextLabel.Value);
+            Color stateEmpty = GlobalOr(Def.GetSFor(LayoutBare, "stateEmptyColor", ""), HudPalette.TextDim.Value);
+
             for (int i = 0; i < 2; i++)
             {
                 bool isRight = i == 1;
@@ -130,7 +138,7 @@ namespace StationeersUIMod.UI.Hud.Widgets
                 try { occ = slot?.Get(); } catch { }
 
                 _box[i].color = FillColor();
-                _box[i].BorderColor = active ? HudPalette.ActiveHandAccent.Value : BorderColor();
+                _box[i].BorderColor = active ? activeAccent : BorderColor();
                 _box[i].BorderWidth = BorderWidthFor() * (active ? 1.4f : 1f);
                 // The active border IS the which-hand cue — specular whitening at a lit
                 // corner would wash the accent out, so the active box never catches
@@ -150,14 +158,14 @@ namespace StationeersUIMod.UI.Hud.Widgets
                     else { _box[i].BorderColor = hi; _box[i].BorderWidth = BorderWidthFor() * 2f; }
                 }
 
-                var ac = HudPalette.ActiveHandAccent.Value;
+                var ac = activeAccent;
                 if (!active) ac.a = 0f;
                 _accent[i].color = ac;
                 _accent[i].BorderColor = Color.clear;
 
                 HudText.Sync(_title[i]);
                 _title[i].fontSize = HudText.Size(labelSize * Def.FontScaleFor(LayoutBare)) * scale;
-                _title[i].color = active ? TextColor() : HudPalette.TextLabel.Value;
+                _title[i].color = active ? TextColor() : titleInactive;
                 HudText.Set(_title[i], isRight ? "RIGHT HAND" : "LEFT HAND");
 
                 Sprite icon = null;
@@ -170,7 +178,7 @@ namespace StationeersUIMod.UI.Hud.Widgets
                 if (flash != null) icon = flash;
                 _icon[i].sprite = icon;
                 _icon[i].enabled = icon != null;
-                _icon[i].color = Color.white;
+                _icon[i].color = HudConfig.TintIcon(Color.white);   // #9: optional global item-icon tint
                 _icon[i].rectTransform.localScale = Vector3.one * (flash != null ? 1f + 0.22f * flashP : 1f);
 
                 HudText.Sync(_state[i]);
@@ -178,7 +186,7 @@ namespace StationeersUIMod.UI.Hud.Widgets
                 string state = "";
                 if (occ == null) state = "empty";
                 else { try { state = StateText.For(occ) ?? ""; } catch { } }
-                _state[i].color = occ == null ? HudPalette.TextDim.Value : TextColor();
+                _state[i].color = occ == null ? stateEmpty : TextColor();
                 HudText.Set(_state[i], state);
             }
         }
@@ -237,6 +245,23 @@ namespace StationeersUIMod.UI.Hud.Widgets
 
             into.Add(HudProp.Bool("Show tray shelf", () => d.GetBFor(EditBare(d), "tray", true),
                 v => d.SetBFor(EditBare(d), "tray", v)));
+            into[into.Count - 1].Group = HudPropGroup.Appearance;
+
+            // Per-element colours. The ACTIVE hand box border + side bar (was the fixed orange
+            // HudActiveHand accent); the INACTIVE hand name and the EMPTY state line (were the
+            // fixed blue-grey TextLabel/TextDim). The active hand's own name/state follow the base
+            // "Text / accent" ref. Empty = the palette default.
+            into.Add(HudProp.Color("Active hand border colour", () => d.GetSFor(EditBare(d), "activeBorderColor", ""),
+                v => d.SetSFor(EditBare(d), "activeBorderColor", string.IsNullOrEmpty(v) ? null : v),
+                () => HudPalette.ActiveHandAccent.Value));
+            into[into.Count - 1].Group = HudPropGroup.Appearance;
+            into.Add(HudProp.Color("Inactive hand-name colour", () => d.GetSFor(EditBare(d), "titleInactiveColor", ""),
+                v => d.SetSFor(EditBare(d), "titleInactiveColor", string.IsNullOrEmpty(v) ? null : v),
+                () => HudPalette.TextLabel.Value));
+            into[into.Count - 1].Group = HudPropGroup.Appearance;
+            into.Add(HudProp.Color("Empty state-line colour", () => d.GetSFor(EditBare(d), "stateEmptyColor", ""),
+                v => d.SetSFor(EditBare(d), "stateEmptyColor", string.IsNullOrEmpty(v) ? null : v),
+                () => HudPalette.TextDim.Value));
             into[into.Count - 1].Group = HudPropGroup.Appearance;
 
             AddDropHighlightProps(into); // #4: drag-over drop cue mode + colour

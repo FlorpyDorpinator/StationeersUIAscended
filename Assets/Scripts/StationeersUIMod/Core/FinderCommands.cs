@@ -260,6 +260,19 @@ namespace StationeersUIMod.Core
                 if (Matches(cmd, "uiaprof")) { UiaProfCommand(cmd); return false; }
                 if (Matches(cmd, "uiaflash")) { FinderCommands.FlashTest(cmd); return false; }
                 if (Matches(cmd, "stowtrace")) { FinderCommands.StowTrace(cmd); return false; }
+                if (Matches(cmd, "uiadiag"))
+                {
+                    // `uiadiag cursor` = focused pointer-flicker trace (cursor lock/visibility + every
+                    // SetCursor call + CURSORFLIP corrections only, no world-highlight noise).
+                    bool cursorOnly = cmd.IndexOf("cursor", StringComparison.OrdinalIgnoreCase) >= 0;
+                    bool on = CursorDiag.Toggle(cursorOnly);
+                    ConsoleWindow.Print(
+                        on ? ("uiadiag: " + (cursorOnly ? "CURSOR-ONLY " : "") + "trace ON - reproduce the flicker, then run `uiadiag` again to stop. "
+                              + "Watch the BepInEx log (LogOutput.log) for SetCursor(...) and CURSORFLIP lines.")
+                           : "uiadiag: trace OFF.",
+                        on ? ConsoleColor.Green : ConsoleColor.Cyan);
+                    return false;
+                }
             }
             catch { }
             return true;

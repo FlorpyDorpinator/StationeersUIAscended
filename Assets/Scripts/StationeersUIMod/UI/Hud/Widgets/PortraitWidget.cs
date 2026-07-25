@@ -171,7 +171,13 @@ namespace StationeersUIMod.UI.Hud.Widgets
                     ? new Rect(0.5f - 0.5f / aspect, 0f, 1f / aspect, 1f)
                     : new Rect(0f, 0.5f - 0.5f * aspect, 1f, aspect);
             }
-            _holo.color = holo ? HudPalette.HologramTint.Value : Color.white;
+            // The hologram tint is now author-controlled: a per-element colour ref (falling back
+            // to the global HudHologramTint) and a 0..1 strength. Lerping FROM white means
+            // strength 0 = the opaque natural portrait and strength 1 = the full tint (which is
+            // semi-transparent at the default alpha), so the old hard on/off is the strength-1 case.
+            Color holoTint = GlobalOr(Def.GetSFor(LayoutBare, "holoTint", ""), HudPalette.HologramTint.Value);
+            float holoStr = Mathf.Clamp01(Def.GetFFor(LayoutBare, "holoStrength", 1f));
+            _holo.color = holo ? Color.Lerp(Color.white, holoTint, holoStr) : Color.white;
             _holoScan.color = (_holo.enabled && scanlines) ? HudPalette.Scanline.Value : Color.clear;
 
             // Rim chrome: transparent fill (alpha 0) so only the border draws as a ring.
@@ -275,6 +281,16 @@ namespace StationeersUIMod.UI.Hud.Widgets
             // They previously both defaulted to true here, so on any element without the keys the
             // checkboxes read ON while the render was OFF — the inspector lying about live state.
             into.Add(HudProp.Bool("Hologram tint", () => d.GetBFor(EditBare(d), "holo", false), v => d.SetBFor(EditBare(d), "holo", v)));
+            into[into.Count - 1].Group = HudPropGroup.Appearance;
+
+            // The tint colour + strength (only visible while "Hologram tint" is on). Colour ref
+            // falls back to the global HudHologramTint; strength default 1 matches the old full tint.
+            into.Add(HudProp.Color("Hologram tint colour", () => d.GetSFor(EditBare(d), "holoTint", ""),
+                v => d.SetSFor(EditBare(d), "holoTint", string.IsNullOrEmpty(v) ? null : v),
+                () => HudPalette.HologramTint.Value));
+            into[into.Count - 1].Group = HudPropGroup.Appearance;
+            into.Add(HudProp.F("Hologram tint strength", () => d.GetFFor(EditBare(d), "holoStrength", 1f),
+                v => d.SetFFor(EditBare(d), "holoStrength", Mathf.Clamp01(v)), 0f, 1f));
             into[into.Count - 1].Group = HudPropGroup.Appearance;
 
             into.Add(HudProp.Bool("Scanlines", () => d.GetBFor(EditBare(d), "scanlines", d.GetBFor(EditBare(d), "holo", false)),

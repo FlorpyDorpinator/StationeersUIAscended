@@ -46,6 +46,7 @@ namespace StationeersUIMod.UI.Hud
         private static VignetteGraphic _vignette;
         private static CanvasGroup _vignetteGroup;
         private static HudAnimator.Fader _vignetteFader;
+        private static ScanlineGraphic _scanlines; // #8: global projector scan-line overlay (top of the HUD canvas)
 
         private static readonly List<HudPanel> _panels = new List<HudPanel>();
         private static VitalsCard _vitals;
@@ -169,6 +170,21 @@ namespace StationeersUIMod.UI.Hud
             vrt.anchorMax = Vector2.one;
             vrt.offsetMin = vrt.offsetMax = Vector2.zero;
 
+            // Scanlines LAST: a full-screen projector/CRT line overlay ON TOP of every panel
+            // (opposite the vignette, which sits behind). MaskTex stays null so the strips cover
+            // the whole HUD canvas; colour = the HudScanline palette entry, gated per-frame by
+            // HudConfig.ShowScanlines. ApplyZOrder keeps it the last sibling as panels rebuild.
+            var scgo = new GameObject("UIA_Scanlines", typeof(RectTransform));
+            scgo.transform.SetParent(go.transform, false);
+            _scanlines = scgo.AddComponent<ScanlineGraphic>();
+            _scanlines.raycastTarget = false;
+            _scanlines.color = Color.clear; // off until the per-frame drive turns it on
+            var scrt = (RectTransform)scgo.transform;
+            scrt.anchorMin = Vector2.zero;
+            scrt.anchorMax = Vector2.one;
+            scrt.offsetMin = scrt.offsetMax = Vector2.zero;
+            scrt.SetAsLastSibling();
+
             _panels.Clear();
             _animator.Clear();
             _vignetteFader = _animator.Register(vrt, _vignetteGroup, suitTier: false, seed: 91);
@@ -258,23 +274,13 @@ namespace StationeersUIMod.UI.Hud
                 }
                 _docRebuildNeeded = false; // SetActive fired the event; we build right after
 
-                // Ship the alternate "Glassy" look alongside Default. Seeded only when
-                // the file is ABSENT, so a user's edits to it are never overwritten;
-                // deleting it respawns a fresh copy next session (Default's contract).
-                bool haveGlassy2 = false, haveGlassy40 = false;
-                foreach (var n in Features.HudProfileStore.ListProfiles())
-                {
-                    if (string.Equals(n, "Glassy 2.0", System.StringComparison.OrdinalIgnoreCase)) haveGlassy2 = true;
-                    if (string.Equals(n, Glassy40Default.Name, System.StringComparison.OrdinalIgnoreCase)) haveGlassy40 = true;
-                }
-                // Glassy 2.0: the full car-dashboard redesign. Seeded only when absent
-                // (user edits survive); switch to it in F9 → Profiles.
-                if (!haveGlassy2)
-                    Features.HudProfileStore.Save(BuildGlassy2Document(), "Glassy 2.0");
-                // Glassy 4.0: the SHIPPED DEFAULT (FlorpyDorp's hand-arranged layout). Seeded
-                // when absent; it's also the default active profile.
-                if (!haveGlassy40)
-                    Features.HudProfileStore.Save(BuildGlassy40Document(), Glassy40Default.Name);
+                // The shipped profiles are now Stationeers Blue + Pure HUD, delivered by
+                // HudProfileStore.ImportShipped from the mod folder on first run — they are no
+                // longer code-seeded here. The old proactive Glassy 2.0 / Glassy 4.0 auto-seed was
+                // retired when the shipped set was curated to those two (2026-07-24); it would
+                // otherwise recreate the archived profiles on every fresh install. The embedded
+                // Glassy builders (BuildGlassy2/40Document) survive ONLY as the self-heal factory
+                // above, for a user whose active Glassy profile file goes missing.
             }
         }
 
@@ -371,6 +377,11 @@ namespace StationeersUIMod.UI.Hud
                     Core.UIALog.Warn("HUD element '" + def.Id + "' (" + def.Type + ") failed to build: " + e.Message);
                 }
             }
+
+            // Panels were just parented AFTER the scanline overlay (built in EnsureBuilt); push the
+            // scanlines back to the last sibling so they draw ON TOP of every panel. ResortByZ does
+            // the same, but it only runs on a Z change — this covers boot and every profile rebuild.
+            if (_scanlines != null) _scanlines.transform.SetAsLastSibling();
         }
 
         private static readonly List<HudElementDef> _docSorted = new List<HudElementDef>();
@@ -458,6 +469,8 @@ namespace StationeersUIMod.UI.Hud
             if (_vignette != null) { _vignette.transform.SetAsFirstSibling(); baseIndex = 1; }
             for (int i = 0; i < _zSortScratch.Count; i++)
                 _zSortScratch[i].Root.SetSiblingIndex(baseIndex + i);
+            // Scanlines stay the LAST sibling so they draw on top of the panels just reordered.
+            if (_scanlines != null) _scanlines.transform.SetAsLastSibling();
         }
 
         /// <summary>Torn down and rebuilt in place (document swap): panels die, the
@@ -847,6 +860,7 @@ namespace StationeersUIMod.UI.Hud
             _canvas = null;
             _rootGroup = null;
             _vignette = null;
+            _scanlines = null; // the GO dies with the canvas above; clear the static for hot-reload
             if (_domeCanvas != null) UnityEngine.Object.Destroy(_domeCanvas.gameObject);
             _domeCanvas = null;
             _domeDisplay = null;
@@ -1209,6 +1223,11 @@ namespace StationeersUIMod.UI.Hud
 
             // --- content ---
             _vignette.color = HudPalette.Vignette.Value;
+            // #8: projector scan-lines. Off => Color.clear, which ScanlineGraphic skips entirely
+            // (no mesh), so the overlay costs nothing until enabled.
+            if (_scanlines != null)
+                _scanlines.color = (HudConfig.ShowScanlines != null && HudConfig.ShowScanlines.Value)
+                    ? HudPalette.Scanline.Value : Color.clear;
             using (Profiling.ProfilicusUniversalis.Time("Hud.Content"))
             {
                 foreach (var p in _panels)

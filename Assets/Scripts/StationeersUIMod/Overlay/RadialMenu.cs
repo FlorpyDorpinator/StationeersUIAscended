@@ -345,6 +345,7 @@ namespace StationeersUIMod.Overlay
             _dwellIndex = -1;
             _liveWedges = -1;   // the scroll-to-focus wedge count is per-open; drop it on close
             HudDropCue.Clear(); // #4: no drag in flight once the radial is gone
+            Core.WorldSlotCue.Hide(); // take the world-slot placement box down with the radial
             UI.SearchPanelView.Hide();
         }
 
@@ -672,34 +673,14 @@ namespace StationeersUIMod.Overlay
                 try { imguiOwnsM = ImGui.GetIO().WantCaptureMouse; } catch { }
                 if (!imguiOwnsM)
                 {
-                    if (_closeHovered)
-                    {
-                        DumpChipsToGround(); // same contract as clicking CLOSE
-                        Close();
-                        return;
-                    }
-                    RadialEntry mmb = null;
-                    bool mmbFromSat = false;
-                    if (_satellite != null && _satHovered >= 0)
-                    {
-                        mmb = SatEntry(_satHovered);
-                        mmbFromSat = true;
-                    }
-                    else if (_hovered >= 0 && _mainDist <= _lastOuterR * 1.2f)
-                    {
-                        mmb = MainEntry(_hovered);
-                    }
-                    if (mmb == null)
-                    {
-                        Close(); // tap on nothing = dismiss
-                        return;
-                    }
-                    if (!mmb.Enabled)
-                    {
-                        UIAudioManager.Play(UIAudioManager.ActionFailHash);
-                        return;
-                    }
-                    SelectSticky(mmb, mmbFromSat);
+                    // MMB is CLOSE-ONLY in radials (FlorpyDorp 2026-07-24). It must NEVER pick the wedge
+                    // under the cursor: that silently equipped whatever tool you moused over, and the
+                    // resulting pick -> close -> reopen loop is EXACTLY what blinked the cursor (each close
+                    // hides the pointer, each reopen shows it — the "flicker"). Selection is LMB. Over the
+                    // CLOSE band MMB still dumps parked chips to the ground (the deliberate-dump contract);
+                    // anywhere else it just dismisses, and parked chips stay in their slots.
+                    if (_closeHovered) DumpChipsToGround();
+                    Close();
                     return;
                 }
             }
@@ -723,7 +704,14 @@ namespace StationeersUIMod.Overlay
                 {
                     entry = MainEntry(_hovered);
                 }
-                if (entry == null || !entry.Enabled) return;
+                // A greyed (disabled) entry can still be DRAGGED out — only its click/activate is
+                // blocked. Both hands full greys the "take to hand" affordance, but the item icon must
+                // still be tearable onto the world, a bag, a device slot, etc. (FlorpyDorp 2026-07-23).
+                // Capture the press when the entry is enabled OR carries a drag source; the release path
+                // (below) refuses Execute for a still-disabled entry so a pure CLICK never fires the
+                // into-hand action the greying was meant to forbid.
+                if (entry == null) return;
+                if (!entry.Enabled && !entry.CanDrag) return;
                 _press = entry;
                 _pressFromSat = fromSat;
                 _pressAt = Time.unscaledTime;
@@ -772,6 +760,16 @@ namespace StationeersUIMod.Overlay
                                         : _hovered >= 0 && _mainDist <= _lastOuterR * 1.2f ? MainEntry(_hovered)
                                         : null;
                 if (!ReferenceEquals(entry, underCursor)) return;
+
+                // A disabled entry was press-captured ONLY so it could be dragged out. If the press
+                // resolved as a plain click (no drag ever started, so we are still here with _parking
+                // idle), do NOT run its action — greyed means "won't go into your hands". Give the
+                // fail cue so the refusal is felt, matching the dimmed affordance.
+                if (!entry.Enabled)
+                {
+                    try { UIAudioManager.Play(UIAudioManager.ActionFailHash); } catch { }
+                    return;
+                }
 
                 SelectSticky(entry, fromSat);
             }
@@ -1273,6 +1271,19 @@ namespace StationeersUIMod.Overlay
             RefreshSatellite();
         }
 
+        /// <summary>Like <see cref="RefreshAll"/>, but for an inventory MUTATION triggered from outside
+        /// the wheel's own click path while it stays open — the G-key Smart Stow pass-through
+        /// (<c>RadialController.UpdatePassthroughKeys</c>). Rebuilds now (single-player applies the move
+        /// synchronously, so the belt/hand wedges re-read immediately) AND schedules the same
+        /// post-roundtrip re-read every action path uses, so on an MP client the wedges refill once the
+        /// server has applied the stow instead of freezing until the wheel is reopened.</summary>
+        public void RefreshAfterExternalMutation()
+        {
+            if (!IsOpen) return;
+            RefreshAll();
+            _pendingRefreshAt = Time.unscaledTime + 0.6f; // MP: re-read after the server applies it
+        }
+
         // ---------- internals ----------
 
         private Level Top() => _stack[_stack.Count - 1];
@@ -1438,6 +1449,11 @@ namespace StationeersUIMod.Overlay
             // #4: publish the dragged item so the visor HUD can light up a hand / equipment box
             // the cursor is over (cleared in Close()).
             HudDropCue.Dragging = _parking.Dragging?.Item;
+
+            // Drive vanilla's world-slot placement box (green/yellow/blue/red) for a chip dragged over a
+            // charger / locker / device slot — vanilla's own version is frozen while we hold the cursor
+            // block. A no-op when not dragging or not over a world slot; taken down again in Close().
+            Core.WorldSlotCue.Tick(_parking.Dragging?.Item);
 
             var center = DrawUtil.ScreenCenter + _centerOffset;
             float outerR = UIAConfig.RadialOuterRadius.Value;

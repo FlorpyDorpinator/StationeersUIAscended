@@ -55,8 +55,8 @@ namespace StationeersUIMod.UI.Hud
         private static readonly List<RaycastResult> _hits = new List<RaycastResult>(8);
         private static int _lastDragEndFrame = -999;
         private static int _armFrame = -999;        // the frame the grab was PROMOTED to a live drag
-        private static bool _blockedRaycast;        // did WE assert CursorManager.BlockCursorRaycast?
-        private static bool _priorBlock;            // its value before we did (restore, never clobber)
+        private static bool _blockedRaycast;        // did WE assert the cursor-raycast block (via the arbiter)?
+        private const string BlockId = "hudslotdrag";   // our named hold in Core.CursorBlockArbiter
 
         // ---- ARMED-BUT-NOT-YET-DRAGGING press (the click/drag split) ----
         // A mouse-down on an occupied box ARMS here without setting _source: IsDragging stays FALSE so
@@ -150,6 +150,12 @@ namespace StationeersUIMod.UI.Hud
             if (_source.Occupant == null) { Cancel(); return; }
 
             UpdateGhost();
+            // The Grid + pinned raycasters are refreshed LATER this frame (TheGridPanel.Tick), but our
+            // drop resolves NOW — HudSystem.Update (which pumps us) runs before that Tick. Force them on
+            // for the release pick so a flick-drop onto a pinned cell, whose raycaster was disabled last
+            // frame while the cursor was still locked, lands instead of falling through to drop-at-feet.
+            // No-op unless a drag is live; pure raycaster writes.
+            Grid.TheGridPanel.PrimeDragRaycasters();
             if (Input.GetMouseButtonUp(0)) Release();
         }
 
@@ -244,29 +250,24 @@ namespace StationeersUIMod.UI.Hud
         /// runs <c>Click()</c> → <c>MoveCurrentItemToHand</c>. Two mutations from one press, through a
         /// path the prefixes never see. Blocking the raycast shuts the whole machine off at the source.
         ///
-        /// SAVES AND RESTORES the previous value (CinematicCamera's pattern) instead of forcing it
-        /// false, so we can never stomp another owner's block.
+        /// Routed through <see cref="CursorBlockArbiter"/> as a NAMED hold, so overlapping owners (a
+        /// radial, The Grid, a pinned window) keep the flag up until the LAST releases — our release can
+        /// never stomp theirs, and theirs can never stomp ours. The arbiter is edge-driven exactly like
+        /// the old save/restore, so it still never fights a non-UIA writer.
         /// </summary>
         private static void BlockVanillaCursor(bool on)
         {
-            try
+            if (on)
             {
-                var cm = CursorManager.Instance;
-                if (cm == null) { if (!on) _blockedRaycast = false; return; }
-                if (on)
-                {
-                    if (_blockedRaycast) return;
-                    _priorBlock = cm.BlockCursorRaycast;
-                    cm.BlockCursorRaycast = true;
-                    _blockedRaycast = true;
-                }
-                else if (_blockedRaycast)
-                {
-                    cm.BlockCursorRaycast = _priorBlock;
-                    _blockedRaycast = false;
-                }
+                if (_blockedRaycast) return;
+                _blockedRaycast = true;
+                CursorBlockArbiter.Hold(BlockId);
             }
-            catch { _blockedRaycast = false; }
+            else if (_blockedRaycast)
+            {
+                _blockedRaycast = false;
+                CursorBlockArbiter.Release(BlockId);
+            }
         }
 
         /// <summary>True while some surface has parked vanilla's cursor raycast — which also freezes

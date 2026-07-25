@@ -339,7 +339,9 @@ namespace StationeersUIMod.UI.Grid
             // uses — no new object, no per-frame cost, clears everywhere the moment the mode flips
             // (Repaint runs each Tick and the colour setters are equality-guarded).
             else if (GridProfileMode.Active) a *= 0.5f;
-            _icon.color = new Color(1f, 1f, 1f, a);
+            // #9: optional global item-icon tint (hands / 1-6 / inventory grids share one toggle),
+            // preserving the base/drag/pending/profile alpha computed above.
+            _icon.color = HudConfig.TintIcon(new Color(1f, 1f, 1f, a));
         }
 
         // ---- interaction (left-click → equip to active hand; right-click → the item's radial) ----
@@ -800,7 +802,8 @@ namespace StationeersUIMod.UI.Grid
             img.sprite = _icon != null ? _icon.sprite : null;
             img.preserveAspect = true;
             img.raycastTarget = false;
-            img.color = new Color(1f, 1f, 1f, 0.85f);
+            // #9: keep a dragged item's ghost tinted too, so the green wash doesn't drop mid-drag.
+            img.color = HudConfig.TintIcon(new Color(1f, 1f, 1f, 0.85f));
 
             _ghostRt.SetAsLastSibling();   // draw above the panel within the overlay canvas
             _ghostRt.position = new Vector3(e.position.x, e.position.y, 0f);

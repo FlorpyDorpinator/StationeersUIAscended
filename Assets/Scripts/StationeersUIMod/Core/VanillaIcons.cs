@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using Assets.Scripts.UI; // StatusUpdates.GetDamageColor / DamageGradient
 using UnityEngine;
 
 namespace StationeersUIMod.Core
@@ -29,6 +30,28 @@ namespace StationeersUIMod.Core
         /// <summary>Whether this name addresses a game icon (regardless of whether it can
         /// be resolved right now) — decides icon routing at element build time.</summary>
         public static bool IsKey(string name) => !string.IsNullOrEmpty(name) && _keys.Contains(name);
+
+        /// <summary>Vanilla's EXACT damage colour for a damage ratio (0 = pristine → green end,
+        /// 1 = broken → red end), read live off <c>StatusUpdates.DamageGradient</c> — the same ramp
+        /// vanilla tints its inventory damage bar and body-doll with (StatusUpdates.cs:33,
+        /// <c>GetDamageColor</c>). Returns <paramref name="fallback"/> before the manager exists
+        /// (main menu / early load) or if the lookup throws. Alpha is forced opaque so the bar fill
+        /// never inherits a translucent gradient key. No caching: a Gradient.Evaluate is a cheap
+        /// struct return and the ramp can be re-authored by the game at runtime.</summary>
+        public static Color DamageColor(float damageRatio, Color fallback)
+        {
+            try
+            {
+                if (StatusUpdates.Instance != null)
+                {
+                    Color c = StatusUpdates.GetDamageColor(Mathf.Clamp01(damageRatio));
+                    c.a = 1f;
+                    return c;
+                }
+            }
+            catch { }
+            return fallback;
+        }
 
         public static Sprite TryGet(string key)
         {

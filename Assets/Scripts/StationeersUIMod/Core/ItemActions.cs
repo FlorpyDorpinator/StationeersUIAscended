@@ -581,18 +581,31 @@ namespace StationeersUIMod.Core
                 }
                 else
                 {
-                    // Both hands full → create the split ON THE GROUND at the player (host/SP only,
-                    // gated). This mirrors vanilla's own SplitStack(Interaction): create the new
-                    // stack at a WORLD position, set its quantity, then reduce the source. The old
-                    // SplitStack(count, null) spawned it at the world ORIGIN, which despawns — that's
-                    // why the split "vanished" instead of dropping.
+                    // Both hands full → drop the split at a physics-SAFE position out in front of
+                    // the player (host/SP only, gated). This mirrors vanilla's own
+                    // Stackable.SplitStack(Interaction) exactly (27701 Stackable.cs:389-416):
+                    // raycast forward 0.5m from the body centre (or the helmet when aiming) and
+                    // spawn at the clear point, then copy colour/damage and reduce the source.
+                    //   Old bug: we spawned at human.ThingTransformPosition — the player ORIGIN,
+                    //   *inside* the character capsule collider — so physics violently ejected the
+                    //   new stack, launching the player and damaging the suit. GetSafeDropPosition
+                    //   is the vanilla helper that avoids exactly that.
                     if (human == null) return Fail();
                     var prefab = s.SourcePrefab;
                     if (prefab == null) return Fail();
+                    UnityEngine.Vector3 origin = human.AimIk
+                        ? human.HelmetSlot.Location.position : human.CenterPosition;
+                    UnityEngine.Vector3 forward = human.AimIk
+                        ? human.HelmetSlot.Location.forward : human.ThingTransform.forward;
+                    UnityEngine.Vector3 dropPos =
+                        s.GetSafeDropPosition(origin + forward * 0.1f, forward, 0.5f);
                     var split = OnServer.Create<Assets.Scripts.Objects.Items.Stackable>(
-                        prefab, human.ThingTransformPosition, UnityEngine.Quaternion.identity);
+                        prefab, dropPos, s.ThingTransform.rotation);
                     if (split == null) return Fail();
+                    if (s.CustomColor != null && s.CustomColor.IsSet)
+                        OnServer.SetCustomColor(split, s.CustomColor.Index);
                     split.Quantity = UnityEngine.Mathf.Min(count, split.MaxQuantity);
+                    split.DamageState.Copy(s.DamageState);   // split keeps the source's damage
                     s.Quantity -= count;            // vanilla reduces the source by the split amount
                 }
                 UIAudioManager.Play(UIAudioManager.AddToInventoryHash);

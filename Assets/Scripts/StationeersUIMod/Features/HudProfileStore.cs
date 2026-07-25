@@ -73,6 +73,7 @@ namespace StationeersUIMod.Features
 
         private static string _activeName;
         private static bool _dirty;
+        private static bool _themeDirty;   // a GLOBAL (theme) setting changed → recapture on next save
         private static bool _rearm;
         private static float _saveAt;
 
@@ -213,11 +214,17 @@ namespace StationeersUIMod.Features
         /// <see cref="ActiveReplaced"/> so views rebuild against the new tree.</summary>
         public static void SetActive(HudDocument doc, string profileName)
         {
-            FlushNow();          // persist the document we are leaving, under its own name
+            FlushNow();          // persist the document we are leaving, under its own name (+ its theme)
             Active = doc;
             _activeName = profileName;
             _dirty = false;      // the incoming document starts clean
+            _themeDirty = false;
             _rearm = false;
+            // Restore THIS profile's global look — colours, effects, curvature, AND the radial
+            // palette — before views rebuild. A themeless profile (null/empty Theme) leaves the
+            // globals exactly as they are (the pre-theme behaviour), so nothing regresses.
+            try { HudTheme.Apply(doc != null ? doc.Theme : null); }
+            catch (Exception e) { UIALog.Warn("HUD theme apply failed: " + e.Message); }
             Version++;
             var handler = ActiveReplaced;
             if (handler != null) handler();
@@ -232,6 +239,22 @@ namespace StationeersUIMod.Features
             _dirty = true;
             _rearm = true;
         }
+
+        /// <summary>Signal that a GLOBAL setting (HUD palette, radial palette, an effect, curvature,
+        /// sizing…) changed while this profile is active, so the next save recaptures the profile's
+        /// <see cref="HudDocument.Theme"/> snapshot. Deliberately SEPARATE from
+        /// <see cref="MarkChanged"/>: a mere LAYOUT edit must NEVER restamp the theme, or a profile
+        /// would silently capture whatever globals happen to be current (e.g. stamping a green theme
+        /// onto a blue profile just because you nudged an element). Only an actual global edit — or
+        /// the explicit "save theme into profile" button — (re)captures the look.</summary>
+        public static void MarkThemeChanged()
+        {
+            _themeDirty = true;
+            _rearm = true;
+        }
+
+        /// <summary>Whether the active profile carries its own captured theme (global look).</summary>
+        public static bool ActiveHasTheme => Active != null && Active.Theme != null && Active.Theme.Count > 0;
 
         /// <summary>Make <paramref name="profileName"/> the live document, self-healing a missing or
         /// corrupt file: the starter factory builds the shipped default and it is written back, so an
@@ -264,11 +287,12 @@ namespace StationeersUIMod.Features
                 _saveAt = unscaledNow + AutosaveDebounceSeconds;
                 _rearm = false;
             }
-            if (!_dirty || Active == null || string.IsNullOrEmpty(_activeName)) return;
+            if ((!_dirty && !_themeDirty) || Active == null || string.IsNullOrEmpty(_activeName)) return;
             if (unscaledNow < _saveAt) return;
             try
             {
-                if (Save(Active, _activeName)) _dirty = false;
+                if (_themeDirty) Active.Theme = HudTheme.Snapshot(); // recapture the global look
+                if (Save(Active, _activeName)) { _dirty = false; _themeDirty = false; }
                 else _saveAt = unscaledNow + AutosaveDebounceSeconds; // back off; don't hammer
             }
             catch (Exception e)
@@ -281,15 +305,37 @@ namespace StationeersUIMod.Features
         /// <summary>Persist the live document immediately if it has unsaved edits (on-close save).</summary>
         public static void FlushNow()
         {
-            if (!_dirty || Active == null || string.IsNullOrEmpty(_activeName)) return;
+            if ((!_dirty && !_themeDirty) || Active == null || string.IsNullOrEmpty(_activeName)) return;
             try
             {
-                if (Save(Active, _activeName)) _dirty = false;
+                if (_themeDirty) Active.Theme = HudTheme.Snapshot();
+                if (Save(Active, _activeName)) { _dirty = false; _themeDirty = false; }
             }
             catch (Exception e)
             {
                 UIALog.Warn("HUD flush-save failed: " + e.Message);
             }
+        }
+
+        /// <summary>Explicitly capture the CURRENT globals into the active profile's theme and save
+        /// it now — the F9 "Save theme into this profile" button. Lets a player stamp the look they
+        /// have set up onto the active profile without nudging a setting first (the recovery path:
+        /// dial in blue globals, click save, and Blue owns them forever after).</summary>
+        public static void CaptureThemeNow()
+        {
+            if (Active == null || string.IsNullOrEmpty(_activeName)) return;
+            _themeDirty = true;
+            FlushNow();
+        }
+
+        /// <summary>Drop the active profile's stored theme so it follows the live globals again
+        /// (the pre-theme behaviour) — the F9 "Clear saved theme" action.</summary>
+        public static void ClearActiveTheme()
+        {
+            if (Active == null) return;
+            Active.Theme = null;
+            _dirty = true;
+            _rearm = true;
         }
 
         /// <summary>Hot-reload teardown: flush, drop the live document, and reset every static
@@ -301,6 +347,7 @@ namespace StationeersUIMod.Features
             _activeName = null;
             Version = 0;
             _dirty = false;
+            _themeDirty = false;
             _rearm = false;
             _saveAt = 0f;
             _warned.Clear();

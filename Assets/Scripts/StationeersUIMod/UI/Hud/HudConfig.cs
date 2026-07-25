@@ -60,6 +60,8 @@ namespace StationeersUIMod.UI.Hud
         public static ConfigEntry<bool> ShowVitals;
         public static ConfigEntry<bool> ShowVignette;
         public static ConfigEntry<bool> ShowHologram;
+        public static ConfigEntry<bool> ShowScanlines;   // global CRT/projector scan-line overlay over the HUD canvas
+        public static ConfigEntry<bool> TintItemIcons;    // multiply a tint (HudItemIconTint) over every item icon
 
         // Layout / sizes
         public static ConfigEntry<float> HudScale;
@@ -289,6 +291,18 @@ namespace StationeersUIMod.UI.Hud
             h = Mathf.Max(240f, h);
         }
 
+        /// <summary>Multiply the global item-icon tint (the HudItemIconTint palette colour) over an
+        /// icon colour when "TintItemIcons" is on, preserving the icon's own alpha (so an empty-slot
+        /// fade stays invisible). Off, or before Bind, returns the colour unchanged. Called at every
+        /// item-icon draw site (hand boxes, the 1-6 equipment column, the inventory/bag grid cells)
+        /// so ONE toggle recolours them all — e.g. a green wash for the projected-lens theme.</summary>
+        public static Color TintIcon(Color c)
+        {
+            if (TintItemIcons == null || !TintItemIcons.Value || HudPalette.ItemIconTint == null) return c;
+            Color t = HudPalette.ItemIconTint.Value;
+            return new Color(c.r * t.r, c.g * t.g, c.b * t.b, c.a);
+        }
+
         public static void Bind(ConfigFile cfg)
         {
             const string S = "10. Visor HUD";
@@ -300,10 +314,10 @@ namespace StationeersUIMod.UI.Hud
                 "Render the HUD from the active layout profile (a document of movable, " +
                 "restylable elements — the HUD Designer). Off = the fixed 0.5.0 panel set, " +
                 "kept as a fallback during the transition.");
-            HudActiveProfile = cfg.Bind(S, "HudActiveProfile", "Smaller Test",
+            HudActiveProfile = cfg.Bind(S, "HudActiveProfile", "Stationeers Blue",
                 "Which HUD layout profile to render (a .xml in config/StationeersUIMod/" +
-                "HudProfiles). 'Smaller Test' is the shipped default for the 0.9.0 play-test " +
-                "(FlorpyDorp's pick); shipped profiles import from the mod folder on first run.");
+                "HudProfiles). 'Stationeers Blue' is the shipped default; shipped profiles " +
+                "(Stationeers Blue + Pure HUD) import from the mod folder on first run.");
             GridSnapEnabled = cfg.Bind(S, "GridSnapEnabled", true,
                 "HUD editor: snap dragged/resized elements to the grid. Toggleable live in " +
                 "the F9 window; hold Alt while dragging for temporary freeform.");
@@ -356,6 +370,15 @@ namespace StationeersUIMod.UI.Hud
             ShowVignette = cfg.Bind(S, "ShowVignette", true, "Visor-edge darkening.");
             ShowHologram = cfg.Bind(S, "ShowHologram", true,
                 "The live 3D character hologram inside the vitals card.");
+            ShowScanlines = cfg.Bind(S, "ShowScanlines", false,
+                "Projector scan-lines: horizontal CRT/HUD-lens lines across the whole visor HUD " +
+                "canvas (colour = the HudScanline palette entry; alpha 0 = invisible). Covers the " +
+                "visor HUD; the radial menus and inventory grid are separate canvases.");
+            TintItemIcons = cfg.Bind(S, "TintItemIcons", false,
+                "Tint every ITEM icon (hands, the 1-6 equipment slots, and the inventory/bag " +
+                "grids) by the HudItemIconTint palette colour — e.g. a green wash for a projected-" +
+                "lens theme. Off = native item art. The tint multiplies RGB and keeps each icon's " +
+                "own alpha.");
 
             HudScale = cfg.Bind(S, "VisorHudScale", 1.0f,
                 new ConfigDescription("Overall visor HUD scale.", new AcceptableValueRange<float>(0.6f, 1.6f)));

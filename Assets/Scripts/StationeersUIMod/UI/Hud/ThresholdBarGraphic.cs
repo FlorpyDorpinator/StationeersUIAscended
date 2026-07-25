@@ -147,9 +147,13 @@ namespace StationeersUIMod.UI.Hud
             AddRoundedTrack(vh, rect, radius, _trackColor, f);
 
             // Inner area shared by zones, fill and caret: the track inset so the fill reads
-            // as framed and never pokes out of the rounded ends.
-            float ix0 = rect.xMin + FillInset, iy0 = rect.yMin + FillInset;
-            float ix1 = rect.xMax - FillInset, iy1 = rect.yMax - FillInset;
+            // as framed and never pokes out of the rounded ends. The inset is capped to a
+            // fraction of the short side — on a thin bar (the equipment damage bar can be
+            // ~2px from its F9 slider) a fixed 1.5px per edge would consume the whole fill and
+            // render only a bare track. Thicker bars keep the full framing hairline.
+            float inset = Mathf.Min(FillInset, shortSide * 0.30f);
+            float ix0 = rect.xMin + inset, iy0 = rect.yMin + inset;
+            float ix1 = rect.xMax - inset, iy1 = rect.yMax - inset;
             if (ix1 <= ix0 || iy1 <= iy0) return;
 
             float mainLo = _vertical ? iy0 : ix0;

@@ -2,6 +2,60 @@
 
 All notable changes to the mod. Detailed engineering write-ups live in `Changes Reports/`.
 
+## 0.9.2.0 Experimental — 2026-07-24 — THEMES THAT TRAVEL + RADIAL/CURSOR POLISH
+
+A play-test → fix round plus a HUD theming pass from a parallel work stream. Engineering
+detail across several reports in `Changes Reports/` (2026-07-23 and 2026-07-24).
+
+### Fixed
+- **The cursor flicker in radials — real root cause.** The long-hunted arrow-pointer strobe
+  was the "walk / jump / jetpack while a radial is open" feature (`RadialMovement`): its
+  `HandleJump` / `MovementHandler` Harmony patches hid then re-showed `Cursor.visible` **every
+  physics frame** merely to satisfy a `!Cursor.visible` gate that is only *reached* when the
+  ascend/jetpack input is actually held. A direct sub-frame write, invisible to any
+  end-of-frame sampler. Both patches now gate the toggle on the real input
+  (`KeyManager.GetAscend() > 0.01` / `KeyManager.GetButton(KeyMap.Jetpack)`), so on the vast
+  majority of frames the pointer is left completely alone. Fail-safe: if the input accessor
+  throws, fall back to the old always-toggle so jump/jetpack never break.
+  (`Changes Reports/2026-07-24 - Cursor flicker root cause ...`)
+- **Cursor-block stomp race.** `CursorManager.BlockCursorRaycast` had eight independent UIA
+  writers each on its own private flag; whichever released first stomped the others. Replaced
+  by a single `CursorBlockArbiter` (named holds; flag true iff ≥1 hold; edge-driven;
+  `Shutdown()` force-clears). (`Changes Reports/2026-07-23 - Cursor-block arbiter ...`)
+- **Can't drag hand / 1-6 items into the Universal Inventory or pinned windows.** A fast
+  flick-drop resolved its drop raycast before the receiving window's `GraphicRaycaster` was
+  re-enabled that frame. `PrimeDragRaycasters()` now force-enables raycasters for the frame
+  while a drag is in flight, before the release resolves.
+- **Smart Stow (G) did nothing with a radial open.** The pass-through called the
+  `InventoryWindowManager.SmartStow()` wrapper, which early-returns while the cursor is free.
+  Now calls `InventoryManager.SmartStow(ActiveHandSlot)` directly + refreshes the wedge.
+  (`Changes Reports/2026-07-24 - Smart Stow (G) works again ...`)
+- **Split-to-ground spawned the items inside the player** (physics launch + self-damage) — now
+  placed and launched clear. (`Changes Reports/2026-07-23 - Split-to-ground ...`)
+- **A suit-power moodlet could stick lit** in the borrowed vanilla status strip (our brightness
+  tint clobbered vanilla's fade). (`Changes Reports/2026-07-24 - Suit-power moodlet stuck ...`)
+
+### Changed / added
+- **Middle mouse now only closes a radial.** MMB over an item used to select it; it now closes
+  the wheel (dumping any in-progress sort chips to the ground). (`RadialMenu.UpdateStickyOptionA`)
+- **Vanilla-style placement box when dragging from a radial.** Dragging a chip/item from a
+  radial toward a world device/locker/charger slot drives the game's own
+  `CursorManager.SetSelection` cue (green place/swap, yellow merge, blue insert, red refused),
+  matching vanilla. Read-only — the move still funnels through `ItemActions`. (`Core/WorldSlotCue.cs`)
+- **Greyed (hands-full) radial items stay draggable.** A greyed item refuses a click (won't jump
+  into a full hand) but can still be dragged out as an icon.
+- **Per-profile themes.** Global colours, glass/glow effects and the radial palette now travel
+  with the saved HUD profile (`UI/Hud/HudTheme.cs`, new). Shipped profiles curated to
+  **Stationeers Blue** + **Pure HUD**; retired themes moved to `Old Themes/`.
+  (`Changes Reports/2026-07-24 - Per-profile themes ...`, `... Curate shipped HUD profiles ...`)
+- **Projected-lens HUD theming pass** — moodlet warning words, per-element colours, icon
+  toggles, scan-lines, carried-item tint. (`Changes Reports/2026-07-24 - Projected-lens ...`)
+- **Equipment damage bars** — a worn item taking damage shows a thin green→yellow→red health bar
+  under its icon, tinted by the game's own damage gradient; the body damage-doll matches.
+  (`Changes Reports/2026-07-23 - Equipment damage bar ...`)
+- **`uiadiag` console diagnostic** (`uiadiag` / `uiadiag cursor`) — read-only cursor/drag trace;
+  OFF by default. (`Core/CursorDiag.cs`, `Core/CursorDiagPatches.cs`)
+
 ## 0.9.1.1 Experimental — 2026-07-22 — STABILITY, DRAG POLISH + SIZE KNOBS
 
 A play-test → fix round on top of 0.9.1.0. Engineering detail in

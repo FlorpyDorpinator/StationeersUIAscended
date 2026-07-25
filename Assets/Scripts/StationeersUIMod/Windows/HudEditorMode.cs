@@ -40,15 +40,8 @@ namespace StationeersUIMod.Windows
             Selected = null;
             // The world stays live behind the editor; without this, editor clicks also
             // ran vanilla's cursor machine (same latent hole ModalScope plugs for radials).
-            try
-            {
-                if (CursorManager.Instance != null)
-                {
-                    CursorManager.Instance.BlockCursorRaycast = true;
-                    _blockedCursor = true;
-                }
-            }
-            catch { }
+            Core.CursorBlockArbiter.Hold("hudeditor");
+            _blockedCursor = true;
         }
 
         public static void Exit()
@@ -83,12 +76,7 @@ namespace StationeersUIMod.Windows
             if (_blockedCursor)
             {
                 _blockedCursor = false;
-                try
-                {
-                    if (CursorManager.Instance != null)
-                        CursorManager.Instance.BlockCursorRaycast = false;
-                }
-                catch { }
+                Core.CursorBlockArbiter.Release("hudeditor");
             }
         }
 

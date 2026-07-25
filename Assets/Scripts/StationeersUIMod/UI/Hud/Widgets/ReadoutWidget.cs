@@ -138,6 +138,9 @@ namespace StationeersUIMod.UI.Hud.Widgets
             bool showBar = Def.GetB("bar", true);
             bool vertical = Def.GetB("barVertical", false);
             float iconScale = Def.GetFFor(LayoutBare, "iconScale", 1f); // F9 "Icon scale" multiplier
+            // Per-element "Show icon" (default on). Off collapses the icon gutter so the label/
+            // value reclaim it — this is how the SPEED box drops its velocity glyph.
+            bool showIcon = _iconRt != null && Def.GetBFor(LayoutBare, "icon", true);
 
             // Per-element "Wrap text": the label/target wrap to the box width or spill on one line.
             bool wrapText = Def.GetB("wrap", true);
@@ -206,7 +209,7 @@ namespace StationeersUIMod.UI.Hud.Widgets
                 _valueRt.anchoredPosition = new Vector2(cx, valY);
                 _valueRt.sizeDelta = new Vector2(cw, 22f * scale);
                 _autoValueRef = (cTop - cBot) / Mathf.Max(0.01f, scale) * 0.19f;
-                if (_iconRt != null)
+                if (showIcon)
                 {
                     // Conditional hot/cold glyph sits just left of the value row (item 7:
                     // vanilla's hot/cold icon reads ~1.5× the old size).
@@ -230,7 +233,7 @@ namespace StationeersUIMod.UI.Hud.Widgets
                 _targetRt.anchoredPosition = new Vector2(cx, tgtY);
                 _targetRt.sizeDelta = new Vector2(cw, 12f * scale);
                 _autoValueRef = cw / Mathf.Max(0.01f, scale) * 0.22f;
-                if (_iconRt != null)
+                if (showIcon)
                 {
                     float isz = Mathf.Clamp(cw * 0.5f, 14f * scale, 44f * scale) * iconScale;
                     _iconRt.anchoredPosition = new Vector2(cx, cBot + isz * 0.5f + 2f * scale);
@@ -242,12 +245,12 @@ namespace StationeersUIMod.UI.Hud.Widgets
                 // Compact row (the mockup's cluster rows): icon left, label top beside it,
                 // value right-of-label, thin bar already reserved along the bottom.
                 _autoValueRef = (cTop - cBot) / Mathf.Max(0.01f, scale) * 0.42f;
-                float isz = _iconRt != null
+                float isz = showIcon
                     ? Mathf.Clamp((cTop - cBot) * 0.82f, 14f * scale, 44f * scale) * iconScale : 0f;
                 float textLeft = cLeft + (isz > 0f ? isz + 6f * scale : 0f);
                 float tw = Mathf.Max(20f, cRight - textLeft);
                 float midY = (cTop + cBot) * 0.5f;
-                if (_iconRt != null)
+                if (showIcon)
                 {
                     _iconRt.anchoredPosition = new Vector2(cLeft + isz * 0.5f, midY);
                     _iconRt.sizeDelta = new Vector2(isz, isz);
@@ -280,34 +283,45 @@ namespace StationeersUIMod.UI.Hud.Widgets
             }
 
             var accent = TextColor();
-            if (_glyph != null) _glyph.color = accent;
-            // Conditional temperature icon: vanilla shows the hot sprite above 50°C, the
-            // cold sprite below 0°C, nothing between (PlayerStateWindow thresholds). Driven
-            // from the live reading, overriding the static Def.Icon sprite each frame.
-            bool tempIcon = Def.GetB("tempIcon", false);
-            if (_iconSprite != null && tempIcon)
+            // Per-element "Show icon" (default on): when off, hide both icon channels entirely —
+            // Layout already reclaims the gutter — and skip the resolve. This is the SPEED box's
+            // "remove the icon" toggle.
+            bool showIcon = Def.GetBFor(LayoutBare, "icon", true);
+            if (_glyph != null) { _glyph.enabled = showIcon; if (showIcon) _glyph.color = accent; }
+            if (!showIcon)
             {
-                var ts = r.Valid ? Core.VanillaIcons.TempStateIcon(r.Raw) : null;
-                _iconSprite.sprite = ts;
-                _iconSprite.enabled = ts != null;
-                _iconSprite.color = Color.white;
+                if (_iconSprite != null) _iconSprite.enabled = false;
             }
-            else if (_iconSprite != null)
+            else
             {
-                if (_iconIsVanilla)
+                // Conditional temperature icon: vanilla shows the hot sprite above 50°C, the
+                // cold sprite below 0°C, nothing between (PlayerStateWindow thresholds). Driven
+                // from the live reading, overriding the static Def.Icon sprite each frame.
+                bool tempIcon = Def.GetB("tempIcon", false);
+                if (_iconSprite != null && tempIcon)
                 {
-                    // Game art keeps its native colours; retry until the singleton exists.
-                    if (_iconSprite.sprite == null)
-                    {
-                        var late = Core.VanillaIcons.TryGet(Def.Icon);
-                        _iconSprite.sprite = late;
-                        _iconSprite.enabled = late != null;
-                    }
+                    var ts = r.Valid ? Core.VanillaIcons.TempStateIcon(r.Raw) : null;
+                    _iconSprite.sprite = ts;
+                    _iconSprite.enabled = ts != null;
                     _iconSprite.color = Color.white;
                 }
-                else
+                else if (_iconSprite != null)
                 {
-                    _iconSprite.color = accent; // PNG overrides are white-on-transparent
+                    if (_iconIsVanilla)
+                    {
+                        // Game art keeps its native colours; retry until the singleton exists.
+                        if (_iconSprite.sprite == null)
+                        {
+                            var late = Core.VanillaIcons.TryGet(Def.Icon);
+                            _iconSprite.sprite = late;
+                            _iconSprite.enabled = late != null;
+                        }
+                        _iconSprite.color = Color.white;
+                    }
+                    else
+                    {
+                        _iconSprite.color = accent; // PNG overrides are white-on-transparent
+                    }
                 }
             }
 
@@ -353,9 +367,14 @@ namespace StationeersUIMod.UI.Hud.Widgets
             _value.fontSize = HudText.Size(vs) * scale;
             _label.fontSize = HudText.Size(vs * 0.62f) * scale;
             _target.fontSize = HudText.Size(vs * 0.55f) * scale;
-            _label.color = HudPalette.TextLabel.Value;
+            // Label + TARGET line were hardcoded to the (blue-grey) TextLabel/TextDim palette
+            // slots with no per-element control — the only editable text colour was the VALUE
+            // (via the base "Text / accent"). Route both through their own ColorRefs so a themed
+            // HUD can recolour the "INTERNAL PRESSURE" label and the "TARGET ##" line (empty ref
+            // = today's palette default).
+            _label.color = GlobalOr(Def.GetSFor(LayoutBare, "labelColor", ""), HudPalette.TextLabel.Value);
             _value.color = vcol;
-            _target.color = HudPalette.TextDim.Value;
+            _target.color = GlobalOr(Def.GetSFor(LayoutBare, "targetColor", ""), HudPalette.TextDim.Value);
             HudText.Set(_label, lbl);
             HudText.Set(_value, valueText);
             HudText.Set(_target, tgtText);
@@ -712,6 +731,13 @@ namespace StationeersUIMod.UI.Hud.Widgets
 
             int appearanceStart = into.Count;
             into.Add(HudProp.Bool("Background box", () => d.GetBFor(EditBare(d), "box", true), v => d.SetBFor(EditBare(d), "box", v)));
+            into.Add(HudProp.Bool("Show icon", () => d.GetBFor(EditBare(d), "icon", true), v => d.SetBFor(EditBare(d), "icon", v)));
+            // Per-element text colours: the LABEL ("INTERNAL PRESSURE") and the TARGET line were
+            // previously locked to the palette; expose both (empty = the palette default).
+            into.Add(HudProp.Color("Label colour", () => d.GetSFor(EditBare(d), "labelColor", ""),
+                v => d.SetSFor(EditBare(d), "labelColor", Empty(v)), () => HudPalette.TextLabel.Value));
+            into.Add(HudProp.Color("Target colour", () => d.GetSFor(EditBare(d), "targetColor", ""),
+                v => d.SetSFor(EditBare(d), "targetColor", Empty(v)), () => HudPalette.TextDim.Value));
             into.Add(HudProp.Enum("Bar style", () => UseGameBar() ? 1 : 0,
                 v => d.SetSFor(EditBare(d), "barStyle", v == 1 ? "game" : null), BarStyleNames));
             // Bar refs are colours, and colours are per-element in BOTH style states (the

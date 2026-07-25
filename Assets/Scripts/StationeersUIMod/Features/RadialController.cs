@@ -294,6 +294,7 @@ namespace StationeersUIMod.Features
                 return;
             }
             _active = feature;
+            Core.CursorDiag.NoteRadial("OPEN " + feature.Title + " sticky=" + sticky);
             _modal.Open();
             _menu.Open(feature.Title, feature.BuildRoot, sticky);
             UIAudioManager.Play(UIAudioManager.ClickLightHash);
@@ -303,9 +304,10 @@ namespace StationeersUIMod.Features
         {
             // Bail out whenever the world stops being interactable or vanilla UI takes over
             // (pause, console, keyboard windows, Stationpedia, creative menu, unconscious).
-            if (!Guards.CanKeepRadialOpen())
+            var cankeepWhy = Guards.CanKeepRadialOpenWhy();
+            if (cankeepWhy != null)
             {
-                CloseAll();
+                CloseAll("cankeep:" + cankeepWhy);
                 return;
             }
 
@@ -356,17 +358,17 @@ namespace StationeersUIMod.Features
                 // radial (hub drag), drag items off wedges, Alt-grab from the world, drop,
                 // click-select (self-gates to Option A). A click-select/close tears down here.
                 _menu.UpdateHoldInteractiveA();
-                if (!_menu.IsOpen) { CloseAll(); return; }
+                if (!_menu.IsOpen) { CloseAll("holdA-menu-closed"); return; }
 
                 if (_active != null && !Input.GetKey(_active.Key))
                 {
                     bool stayOpen = _menu.OnHoldReleased();
-                    if (!stayOpen) CloseAll();
+                    if (!stayOpen) CloseAll("hold-released");
                     return;
                 }
                 if (Input.GetKeyDown(KeyCode.Escape))
                 {
-                    CloseAll();
+                    CloseAll("escape-hold");
                     return;
                 }
                 // Option B: while the key is held, LMB dives into branches (The Hub),
@@ -376,7 +378,7 @@ namespace StationeersUIMod.Features
                     _menu.UpdateHoldB();
                     if (!_menu.IsOpen)
                     {
-                        CloseAll();
+                        CloseAll("holdB-menu-closed");
                         return;
                     }
                 }
@@ -395,7 +397,7 @@ namespace StationeersUIMod.Features
                         && _active.Key == KeyCode.Mouse2;
                     if (_active != null && !repressSelects && Input.GetKeyDown(_active.Key))
                     {
-                        CloseAll();
+                        CloseAll("sticky-repress");
                         return;
                     }
                     // Option A only: tapping middle mouse dismisses any sticky radial it
@@ -403,14 +405,14 @@ namespace StationeersUIMod.Features
                     if (UIAConfig.IsA && !UIAConfig.IsB && Input.GetMouseButtonDown(2)
                         && _active != null && _active.Key != KeyCode.Mouse2)
                     {
-                        CloseAll();
+                        CloseAll("mmb-dismiss");
                         return;
                     }
                 }
                 _menu.UpdateSticky();
                 if (wasOpen && !_menu.IsOpen)
                 {
-                    CloseAll();
+                    CloseAll("sticky-menu-closed");
                     return;
                 }
             }
@@ -510,8 +512,23 @@ namespace StationeersUIMod.Features
             {
                 try
                 {
-                    var iwm = Assets.Scripts.UI.InventoryWindowManager.Instance;
-                    if (iwm != null) iwm.SmartStow();   // re-enters SmartStowPlus's own prefix
+                    // NOT InventoryWindowManager.SmartStow(): that wrapper early-returns whenever the
+                    // cursor is free (InputMouse.IsMouseControl, decompile InventoryWindowManager.cs:523)
+                    // — which is ALWAYS the case with a radial open — so G silently did nothing (the very
+                    // toolbelt-radial-with-a-tool-in-hand case FlorpyDorp reported, 2026-07-24). Call the
+                    // real handler directly on the active hand slot: it is the exact static method vanilla's
+                    // PerformSmartSwapClick reaches, and the one SmartStowPlus's prefix patches, so the belt/
+                    // profile/affinity routing (and the worn-box stow flash) run identically. It no-ops on an
+                    // empty hand of its own accord (selectedSlot.Occupant == null, InventoryManager.cs:1817).
+                    var slot = Assets.Scripts.Inventory.InventoryManager.ActiveHandSlot;
+                    if (slot != null && slot.Get() != null)
+                    {
+                        Assets.Scripts.Inventory.InventoryManager.SmartStow(slot);
+                        // The wheel's wedges are built from a snapshot; the stow just changed the belt
+                        // and the hand, so re-read them now (and again post-roundtrip on an MP client) —
+                        // otherwise the wedge stays stale until the radial is closed and reopened.
+                        _menu.RefreshAfterExternalMutation();
+                    }
                 }
                 catch (System.Exception e) { UIALog.Warn("Radial smart-stow pass-through failed: " + e.Message); }
             }
@@ -616,7 +633,7 @@ namespace StationeersUIMod.Features
                     var eq = EquipFeatureForDigit(digit);
                     if (eq != null)
                     {
-                        if (_active == eq) { CloseAll(); return true; }
+                        if (_active == eq) { CloseAll("eq-key-toggle"); return true; }
                         SwitchToFeature(eq); return true;
                     }
                 }
@@ -724,8 +741,9 @@ namespace StationeersUIMod.Features
             UI.SearchPanelView.Hide();
         }
 
-        public void CloseAll()
+        public void CloseAll(string reason = null)
         {
+            Core.CursorDiag.NoteRadial("CLOSE reason=" + (reason ?? "?") + " sticky=" + _menu.IsSticky);
             _menu.Close();
             _releaseKey = _active?.Key ?? KeyCode.None;
             _modal.RequestDeferredClose();

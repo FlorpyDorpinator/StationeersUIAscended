@@ -151,7 +151,7 @@ namespace StationeersUIMod.UI.Grid
             }
 
             _blockHeld = true;
-            try { if (CursorManager.Instance != null) CursorManager.Instance.BlockCursorRaycast = true; } catch { }
+            Core.CursorBlockArbiter.Hold("profilepopup");
         }
 
         /// <summary>Tear the popup down (idempotent). Unassigns any shared glass material BEFORE
@@ -184,7 +184,7 @@ namespace StationeersUIMod.UI.Grid
         {
             if (!_blockHeld) return;
             _blockHeld = false;
-            try { if (CursorManager.Instance != null) CursorManager.Instance.BlockCursorRaycast = false; } catch { }
+            Core.CursorBlockArbiter.Release("profilepopup");
         }
 
         /// <summary>Canvas + scrim + panel + scroll shell (no rows yet).</summary>

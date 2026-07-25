@@ -193,6 +193,16 @@ namespace StationeersUIMod.Core
         {
             __state = default(Scope);
             if (!RadialMovement.Active) return;
+            // CURSOR-FLICKER FIX (2026-07-24). HandleJump runs every physics frame; its jump gate
+            // (MovementController.cs:594) reads `!Cursor.visible` ONLY when the ascend input is active
+            // (`IsInputAscend` == `KeyManager.GetAscend() > 0.01`). Hiding + restoring Cursor.visible every
+            // single frame merely to satisfy an unreached gate STROBED the OS arrow pointer once per frame
+            // while a radial was open on foot — the long-hunted "cursor flickers in radials" (it was a
+            // direct Cursor.visible write, invisible to the SetCursor trace, and back to true by frame end).
+            // No ascend input this frame => the gate is unreachable => leave the pointer completely alone.
+            bool ascend;
+            try { ascend = KeyManager.GetAscend() > 0.01f; } catch { ascend = true; } // fail-safe: keep jump working
+            if (!ascend) return;
             if (UnityEngine.Cursor.visible)
             {
                 UnityEngine.Cursor.visible = false;
@@ -230,6 +240,14 @@ namespace StationeersUIMod.Core
         {
             __state = false;
             if (!RadialMovement.Active) return;
+            // CURSOR-FLICKER FIX (2026-07-24) — same root cause as HandleJump. MovementHandler's jetpack
+            // gates (MovementController.cs:458/502) read `!Cursor.visible` ONLY when
+            // `KeyManager.GetButton(KeyMap.Jetpack)` is held. Hiding+restoring Cursor.visible EVERY frame
+            // otherwise strobed the arrow pointer while a radial was open. Only hide it when the jetpack
+            // key is actually held (the sole frames the gate is reached).
+            bool jetHeld;
+            try { jetHeld = KeyManager.GetButton(KeyMap.Jetpack); } catch { jetHeld = true; } // fail-safe
+            if (!jetHeld) return;
             if (UnityEngine.Cursor.visible) { UnityEngine.Cursor.visible = false; __state = true; }
         }
 

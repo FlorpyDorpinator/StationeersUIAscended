@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using StationeersUIMod.Core; // VanillaIcons.DamageColor (StatusUpdates.DamageGradient)
 using UnityEngine;
 using UnityEngine.UI;
 
@@ -7,10 +8,11 @@ namespace StationeersUIMod.UI.Hud.Widgets
     /// <summary>
     /// The injured-body silhouette: a seven-part humanoid figure — head disc, chest and
     /// lower-torso boxes, two arm capsules, two leg capsules — synthesised entirely from the
-    /// snapshot's per-region damage ratios. Each part fades from a dim neutral silhouette
-    /// toward the warn then critical colour as ITS region's damage climbs (head reads the
-    /// head ratio, chest the chest ratio, everything else the whole-body ratio), so a glance
-    /// tells you where you're hurt.
+    /// snapshot's per-region damage ratios. Each part is tinted by VANILLA's own damage-doll
+    /// gradient (StatusUpdates.DamageGradient, pulled live) for its region's damage ratio —
+    /// green when healthy through to red when hurt, matching the vanilla body indicator — while
+    /// a dim ramp stands in before that manager exists (head reads the head ratio, chest the
+    /// chest ratio, everything else the whole-body ratio), so a glance tells you where you're hurt.
     ///
     /// The figure is proportional to the element rect (a fixed ~1:2.4 humanoid aspect, roughly
     /// 40% of the rect wide) and re-centres in it, so resizing in the editor scales the whole
@@ -112,7 +114,12 @@ namespace StationeersUIMod.UI.Hud.Widgets
                 }
                 else
                 {
-                    fill = ColorFor(r, dim, warn, crit);
+                    // Vanilla's OWN damage-doll colour for this region's ratio (green healthy ->
+                    // yellow -> red hurt), pulled live off StatusUpdates.DamageGradient so the doll
+                    // matches the vanilla body indicator exactly. Vanilla's DamageIndicatorAlpha is
+                    // 1 (opaque). Our dim->warn->crit ramp (ColorFor) is only the pre-manager
+                    // fallback (main menu / early load).
+                    fill = VanillaIcons.DamageColor(r, ColorFor(r, dim, warn, crit));
                     border = dim; border.a = 0f;
                     borderW = 0f;
                 }
@@ -157,8 +164,9 @@ namespace StationeersUIMod.UI.Hud.Widgets
             p.SetShape(w, h, r, r, r, r);
         }
 
-        /// <summary>Dim neutral silhouette at rest, brightening and reddening through the warn
-        /// band and on to critical as a region's damage ratio climbs.</summary>
+        /// <summary>FALLBACK ramp only (used before StatusUpdates exists — see UpdatePanel, which
+        /// prefers vanilla's DamageGradient). Dim neutral silhouette at rest, brightening and
+        /// reddening through the warn band and on to critical as a region's damage ratio climbs.</summary>
         private static Color ColorFor(float r, Color dim, Color warn, Color crit)
         {
             Color baseDim = dim; baseDim.a *= 0.35f;

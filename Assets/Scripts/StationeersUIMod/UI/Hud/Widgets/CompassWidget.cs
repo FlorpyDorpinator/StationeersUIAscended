@@ -160,7 +160,7 @@ namespace StationeersUIMod.UI.Hud.Widgets
             }
 
             _caret.Configure(pointsUp: false, size: 9f);
-            _caret.color = HudPalette.CompassNeedle.Value;
+            _caret.color = GlobalOr(Def.GetSFor(LayoutBare, "needleColor", ""), HudPalette.CompassNeedle.Value);
             // No per-frame SetVerticesDirty: the caret geometry never moves, and Configure /
             // the color setter already dirty the mesh on any actual change. Position (below)
             // is a transform update that needs no vertex rebuild.
@@ -172,7 +172,7 @@ namespace StationeersUIMod.UI.Hud.Widgets
                 PlaceOnCurveRoot(_degrees.rectTransform, new Vector2(0f, -h * 0.5f - 9f * scale));
                 HudText.Sync(_degrees);
                 _degrees.fontSize = HudText.Size(12f * Def.FontScaleFor(LayoutBare)) * scale;
-                _degrees.color = HudPalette.CompassCardinal.Value;
+                _degrees.color = GlobalOr(Def.GetSFor(LayoutBare, "degreesColor", ""), HudPalette.CompassCardinal.Value);
                 int hd = Mathf.RoundToInt(heading);
                 if (hd != _lastDeg || _degStr == null) { _lastDeg = hd; _degStr = hd + "°"; }
                 HudText.Set(_degrees, _degStr);
@@ -188,8 +188,8 @@ namespace StationeersUIMod.UI.Hud.Widgets
             int cardStep = Mathf.Max(1, Mathf.RoundToInt(cardinalEvery / tickEvery));
 
             float pxPerDeg = (w - 12f * scale) / span;
-            var tickColor = HudPalette.CompassTick.Value;
-            var cardColor = HudPalette.CompassCardinal.Value;
+            var tickColor = GlobalOr(Def.GetSFor(LayoutBare, "tickColor", ""), HudPalette.CompassTick.Value);
+            var cardColor = GlobalOr(Def.GetSFor(LayoutBare, "cardinalColor", ""), HudPalette.CompassCardinal.Value);
             int tick = 0, label = 0;
 
             int first = Mathf.CeilToInt((heading - span * 0.5f) / tickEvery);
@@ -233,6 +233,26 @@ namespace StationeersUIMod.UI.Hud.Widgets
             var d = Def;
             into.Add(HudProp.Bool("Backdrop box", () => d.GetBFor(EditBare(d), "box", true),
                 v => d.SetBFor(EditBare(d), "box", v)));
+            into[into.Count - 1].Group = HudPropGroup.Appearance;
+
+            // Per-element colours for each ribbon sub-element. Each falls back to its global
+            // HudCompass* palette entry (so leaving them blank keeps the shipped look), and the
+            // degree readout is its OWN ref so it can differ from the cardinal letters/ticks.
+            into.Add(HudProp.Color("Needle colour", () => d.GetSFor(EditBare(d), "needleColor", ""),
+                v => d.SetSFor(EditBare(d), "needleColor", string.IsNullOrEmpty(v) ? null : v),
+                () => HudPalette.CompassNeedle.Value));
+            into[into.Count - 1].Group = HudPropGroup.Appearance;
+            into.Add(HudProp.Color("Tick colour", () => d.GetSFor(EditBare(d), "tickColor", ""),
+                v => d.SetSFor(EditBare(d), "tickColor", string.IsNullOrEmpty(v) ? null : v),
+                () => HudPalette.CompassTick.Value));
+            into[into.Count - 1].Group = HudPropGroup.Appearance;
+            into.Add(HudProp.Color("Cardinal colour (ticks + letters)", () => d.GetSFor(EditBare(d), "cardinalColor", ""),
+                v => d.SetSFor(EditBare(d), "cardinalColor", string.IsNullOrEmpty(v) ? null : v),
+                () => HudPalette.CompassCardinal.Value));
+            into[into.Count - 1].Group = HudPropGroup.Appearance;
+            into.Add(HudProp.Color("Degrees colour", () => d.GetSFor(EditBare(d), "degreesColor", ""),
+                v => d.SetSFor(EditBare(d), "degreesColor", string.IsNullOrEmpty(v) ? null : v),
+                () => HudPalette.CompassCardinal.Value));
             into[into.Count - 1].Group = HudPropGroup.Appearance;
 
             into.Add(HudProp.F("Compass FOV°", () => d.GetF("fov", 90f),

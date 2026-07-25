@@ -242,6 +242,21 @@ namespace StationeersUIMod.UI.Grid
             }
         }
 
+        /// <summary>Force every live pin's raycaster ON for THIS frame when a drag is in flight, so a
+        /// release raycast running earlier in the frame than the <see cref="Interactive"/> setter still
+        /// resolves onto a pinned cell. See <c>TheGridPanel.PrimeDragRaycasters</c> for the full frame-
+        /// ordering rationale. Pure raycaster writes; a no-op unless a drag is live.</summary>
+        public static void PrimeDragRaycasters()
+        {
+            bool dragInFlight = HudSlotDrag.IsDragging || DropResolver.VanillaWorldDragLive() || BagGridCell.IsDragActive;
+            if (!dragInFlight) return;
+            for (int i = 0; i < _live.Count; i++)
+            {
+                var w = _live[i];
+                if (w != null && w._raycaster != null) w._raycaster.enabled = true;
+            }
+        }
+
         // We are the ones holding vanilla's CursorManager.BlockCursorRaycast on behalf of the PINS.
         // Tracked so the flag is only ever cleared by its owner (the main window tracks its own hold
         // separately) and so no path can leave vanilla world-picking blocked.
@@ -286,7 +301,7 @@ namespace StationeersUIMod.UI.Grid
             // Hand the raycast back while a world drag is live — mirrors TheGridPanel.UpdateCursorBlock.
             if (Core.DropResolver.VanillaWorldDragLive()) { ReleaseCursorBlock(); return; }
             _blockHeld = true;
-            try { if (CursorManager.Instance != null) CursorManager.Instance.BlockCursorRaycast = true; } catch { }
+            Core.CursorBlockArbiter.Hold(BlockId);
         }
 
         /// <summary>Drop the world-pick block if WE are the ones holding it, leaving the main window's
@@ -297,10 +312,15 @@ namespace StationeersUIMod.UI.Grid
         {
             if (!_blockHeld) return;
             _blockHeld = false;
-            // The main window re-asserts its own hold every frame it is hovered and interactive, so
-            // handing the flag back here can at worst cost it a single frame.
-            try { if (CursorManager.Instance != null) CursorManager.Instance.BlockCursorRaycast = false; } catch { }
+            // Releases only OUR named hold — the arbiter keeps the flag up for the main window / a
+            // radial if either still holds, so this can no longer strand another owner (the reason the
+            // old code re-asserted every frame and still left one-frame gaps).
+            Core.CursorBlockArbiter.Release(BlockId);
         }
+
+        /// <summary>Stable arbiter hold id shared by the whole pinned-window family (the block state is
+        /// static: "the cursor is over ANY live, interactive pinned window").</summary>
+        private const string BlockId = "pinned";
 
         /// <summary>Abort this window's own move/resize gestures. Called when the raycasters go dark
         /// underneath them (the player let go of the mouse-control key mid-drag), where Unity would

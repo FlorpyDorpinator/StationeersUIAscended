@@ -568,6 +568,10 @@ namespace StationeersUIMod.Windows
                     Toggle(HudConfig.ShowHologram, "  Player hologram in vitals card");
                 }
                 Toggle(HudConfig.ShowVignette, "Visor-edge vignette");
+                Toggle(HudConfig.ShowScanlines, "Projector scan-lines (whole HUD canvas)");
+                ImGui.TextDisabled("  Colour: 'HudScanline' in the palette below. Radials / inventory grid excluded.");
+                Toggle(HudConfig.TintItemIcons, "Tint item icons green (hands / 1-6 / inventory)");
+                ImGui.TextDisabled("  Colour: 'HudItemIconTint' in the palette below (white = off).");
             }
 
             if (ImGui.CollapsingHeader("Curvature & projection", ImGuiTreeNodeFlags.DefaultOpen))
@@ -1629,17 +1633,34 @@ namespace StationeersUIMod.Windows
 
         private static void DrawColourControls()
         {
+            // --- per-profile THEME: the whole global look (HUD colours + effects + curvature +
+            // radial palette) belongs to the active profile, so switching profiles restores it. ---
+            bool hasTheme = Features.HudProfileStore.ActiveHasTheme;
+            ImGui.TextColored(new Vector4(0.25f, 0.85f, 0.93f, 1f), "PROFILE THEME");
+            ImGui.TextDisabled(hasTheme
+                ? "This profile stores its own theme (colours + effects + radial); switching restores it."
+                : "No saved theme yet - this profile follows the live globals until you save one.");
+            if (ImGui.Button("Save theme into this profile")) Features.HudProfileStore.CaptureThemeNow();
+            if (hasTheme)
+            {
+                ImGui.SameLine();
+                if (ImGui.Button("Clear saved theme")) Features.HudProfileStore.ClearActiveTheme();
+            }
+            ImGui.Separator();
+
             ImGui.TextDisabled("Click a swatch for a colour wheel. The A slider is transparency.");
             if (ImGui.Button("Undo"))
             {
                 FlushPendingPaletteEdit();
                 HudPalette.History.Undo();
+                Features.HudProfileStore.MarkThemeChanged();
             }
             ImGui.SameLine();
             if (ImGui.Button("Redo"))
             {
                 FlushPendingPaletteEdit();
                 HudPalette.History.Redo();
+                Features.HudProfileStore.MarkThemeChanged();
             }
             ImGui.SameLine();
             ImGui.TextDisabled(HudPalette.History.CanUndo ? "" : "(nothing to undo)");
@@ -1675,6 +1696,7 @@ namespace StationeersUIMod.Windows
             {
                 FlushPendingPaletteEdit();
                 HudPalette.ResetToDefaults();
+                Features.HudProfileStore.MarkThemeChanged();
             }
         }
 
@@ -1726,7 +1748,10 @@ namespace StationeersUIMod.Windows
                 _pendingUndo = _frameSnapshot;
             }
             if (changed)
+            {
                 entry.Value = new Color(v.x, v.y, v.z, v.w);
+                Features.HudProfileStore.MarkThemeChanged(); // a palette colour is part of the theme
+            }
             if (ImGui.IsItemDeactivatedAfterEdit())
             {
                 FlushPendingPaletteEdit();
@@ -1740,13 +1765,13 @@ namespace StationeersUIMod.Windows
         private static void Toggle(ConfigEntry<bool> entry, string label)
         {
             bool v = entry.Value;
-            if (ImGui.Checkbox(label, ref v)) entry.Value = v;
+            if (ImGui.Checkbox(label, ref v)) { entry.Value = v; Features.HudProfileStore.MarkThemeChanged(); }
         }
 
         private static void FloatSlider(ConfigEntry<float> entry, string label, float min, float max)
         {
             float v = entry.Value;
-            if (ImGui.SliderFloat(label, ref v, min, max)) entry.Value = v;
+            if (ImGui.SliderFloat(label, ref v, min, max)) { entry.Value = v; Features.HudProfileStore.MarkThemeChanged(); }
         }
 
         /// <summary>Print an explanatory blurb as indented, word-wrapped TextDisabled lines.

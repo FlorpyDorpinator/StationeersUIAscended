@@ -80,6 +80,13 @@ namespace StationeersUIMod.UI.Hud.Widgets
             Color border = BorderColor();
             float bw = BorderWidthFor();
 
+            // #7: optional single tint over ALL three chip icons. Vanilla art is native-colour
+            // (white multiply) by default; a green ref here recolours the whole state-chip strip
+            // at once. Empty ref resolves to white = no-op.
+            Color iconTint = Def.GetB("iconTintOn", false)
+                ? HudPalette.Resolve(Def.GetS("iconTint", ""), Color.white)
+                : Color.white;
+
             for (int i = 0; i < N; i++)
             {
                 bool vis = _sprite[i] != null;
@@ -93,7 +100,7 @@ namespace StationeersUIMod.UI.Hud.Widgets
                 ApplyGlass(_panel[i]);
 
                 _icon[i].sprite = _sprite[i];
-                _icon[i].color = Color.white;   // vanilla art shows at native colour
+                _icon[i].color = iconTint;   // native colour by default; F9 tint recolours all chips
             }
         }
 
@@ -114,6 +121,11 @@ namespace StationeersUIMod.UI.Hud.Widgets
             int appearanceStart = into.Count;
             into.Add(HudProp.F("Icon inset (0..0.4)", () => d.GetFFor(EditBare(d), "inset", 0.14f),
                 v => d.SetFFor(EditBare(d), "inset", Mathf.Clamp(v, 0f, 0.4f)), 0f, 0.4f));
+            // #7: tint every chip icon at once (off = native vanilla colours).
+            into.Add(HudProp.Bool("Tint chip icons", () => d.GetB("iconTintOn", false),
+                v => d.SetB("iconTintOn", v)));
+            into.Add(HudProp.Color("Chip icon tint", () => d.GetS("iconTint", ""),
+                v => d.Set("iconTint", string.IsNullOrEmpty(v) ? null : v), () => Color.white));
             for (int i = appearanceStart; i < into.Count; i++) into[i].Group = HudPropGroup.Appearance;
         }
 

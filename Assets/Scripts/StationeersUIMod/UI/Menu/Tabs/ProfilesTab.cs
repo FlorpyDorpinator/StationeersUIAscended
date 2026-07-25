@@ -17,9 +17,10 @@ namespace StationeersUIMod.UI.Menu.Tabs
         public string Title => "Profiles";
 
         // The default UIs we want front-and-center, in order. Only the ones that actually exist
-        // on disk become cards; the rest of the list falls through to the dropdown.
+        // on disk become cards; the rest of the list falls through to the dropdown. Curated to the
+        // shipped set (2026-07-24) — Stationeers Blue is the default, Pure HUD the green alternate.
         private static readonly string[] Featured =
-            { "Glassy 4.0", "Smaller Test", "Glassy 3.0", "Glassy 2.0", "Default", "Glassy" };
+            { "Stationeers Blue", "Pure HUD" };
 
         public void Build(RectTransform content, bool advanced)
         {

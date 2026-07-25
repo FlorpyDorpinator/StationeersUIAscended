@@ -110,6 +110,23 @@ namespace StationeersUIMod.UI.Hud
         /// "frozen" values silently drifted across sessions). Never serialized.</summary>
         [XmlIgnore] public bool RepairedOnLoad;
 
+        /// <summary>One captured global setting (a colour, an effect toggle/slider, curvature…),
+        /// stored as its config key + serialized value. See <see cref="HudTheme"/>.</summary>
+        public sealed class ThemeEntry
+        {
+            [XmlAttribute("k")] public string K;
+            [XmlAttribute("v")] public string V;
+        }
+
+        /// <summary>This profile's THEME: a snapshot of the GLOBAL look (HUD palette + radial
+        /// palette + all global effects/curvature/sizing) captured by <see cref="HudTheme"/>.
+        /// Null/empty on an older or never-themed profile — that profile then just uses whatever
+        /// globals are current (the pre-theme behaviour), so nothing regresses. Applied on load so
+        /// switching profiles restores the whole look, not only the element layout.</summary>
+        [XmlArray("Theme")]
+        [XmlArrayItem("E")]
+        public List<ThemeEntry> Theme;
+
         /// <summary>Deep copy WITHOUT a serialize/deserialize round-trip. The editor's undo
         /// stack snapshots the whole document on every drag, so this runs many times a
         /// session — an XmlSerializer round-trip per snapshot would be needless GC and CPU.</summary>
@@ -119,6 +136,7 @@ namespace StationeersUIMod.UI.Hud
             {
                 Schema = Schema, Name = Name, Font = Font, Description = Description, Author = Author,
                 RefW = RefW, RefH = RefH,
+                Theme = HudTheme.CopyOf(Theme), // the captured global look travels with an undo clone
             };
             copy.Elements = new List<HudElementDef>(Elements.Count);
             for (int i = 0; i < Elements.Count; i++)

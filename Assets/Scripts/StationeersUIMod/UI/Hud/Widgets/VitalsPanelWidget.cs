@@ -49,6 +49,13 @@ namespace StationeersUIMod.UI.Hud.Widgets
             // Percentage-string cache: rebuilt only when the shown integer changes.
             public int ShownInt;
             public string Text;
+            // The left-column NAME label, shown ONLY in icons-as-words mode so the percentage can
+            // right-align in its own column (a neat "Hunger 3/4 ....... 37%" table). Its string is
+            // rebuilt only when the food-quality level changes (the name itself is constant).
+            public TextMeshProUGUI Name;
+            public RectTransform NameRt;
+            public int NameLevel;
+            public string NameStr;
         }
 
         private readonly Row[] _rows = new Row[RowCount];
@@ -78,7 +85,7 @@ namespace StationeersUIMod.UI.Hud.Widgets
 
             for (int i = 0; i < RowCount; i++)
             {
-                var row = new Row { ShownInt = int.MinValue, Text = "--" };
+                var row = new Row { ShownInt = int.MinValue, Text = "--", NameLevel = int.MinValue };
                 row.Icon = MakeIcon(root, "Icon" + i);
                 row.Icon.enabled = false; // born hidden: a sprite-less Image draws a white box
                 row.IconRt = row.Icon.rectTransform;
@@ -94,6 +101,10 @@ namespace StationeersUIMod.UI.Hud.Widgets
 
                 row.Value = HudText.Make(root, "Value" + i, 15f, TextAlignmentOptions.MidlineRight);
                 row.ValueRt = row.Value.rectTransform;
+                // Left-column name label (icons-as-words mode only), born hidden.
+                row.Name = HudText.Make(root, "Name" + i, 15f, TextAlignmentOptions.MidlineLeft);
+                row.Name.enabled = false;
+                row.NameRt = row.Name.rectTransform;
                 _rows[i] = row;
             }
 
@@ -134,12 +145,18 @@ namespace StationeersUIMod.UI.Hud.Widgets
             bool showBox = Def.GetBFor(LayoutBare, "box", true);
             bool rowLines = Def.GetBFor(LayoutBare, "rowLines", true);
             bool showIcons = Def.GetBFor(LayoutBare, "icons", true);
+            // "Icons as words": hides every row icon AND prefixes each value with the need's
+            // NAME (e.g. "Thirst 37%", "Hunger 2/4 100%"). Distinct from "Words mode", which
+            // shows a level WORD in place of the number and keeps the icon.
+            bool iconWords = Def.GetBFor(LayoutBare, "iconWords", false);
 
             // rowLines/icons feed the signature so toggling either re-flows (separators live in
-            // Reflow, and the text column shifts left when the icons are gone).
+            // Reflow, and the text column shifts left when the icons are gone). iconWords does the
+            // same (icons hidden + gutter reclaimed), so it feeds the signature too.
             int sig = (vHunger ? 1 : 0) | (vWater ? 2 : 0) | (vToilet ? 4 : 0)
                 | (vHealth ? 8 : 0) | (vCognition ? 256 : 0) | (vPressure ? 16 : 0) | (vTemp ? 32 : 0)
-                | (words ? 64 : 0) | (showBox ? 128 : 0) | (rowLines ? 512 : 0) | (showIcons ? 1024 : 0);
+                | (words ? 64 : 0) | (showBox ? 128 : 0) | (rowLines ? 512 : 0) | (showIcons ? 1024 : 0)
+                | (iconWords ? 2048 : 0);
             if (sig != _sig)
             {
                 _sig = sig;
@@ -159,22 +176,33 @@ namespace StationeersUIMod.UI.Hud.Widgets
             Color accent = TextColor();
             Color dim = HudPalette.TextDim.Value;
 
+            // The hunger row's "N/4" level in icons-as-words mode: vanilla's own food-quality
+            // banding (<0.45/<0.7/<0.9 -> 1..4, PlayerStateWindow.GetFoodQualityIndex). FoodQuality
+            // is networked (MP-safe). Only computed when iconWords is on.
+            int foodLevel = 0;
+            if (iconWords)
+            {
+                float q = 0.5f;
+                try { var h = Core.Guards.LocalHuman; if (h != null) q = h.FoodQuality; } catch { }
+                foodLevel = q < 0.45f ? 1 : q < 0.7f ? 2 : q < 0.9f ? 3 : 4;
+            }
+
             // --- rows ---
-            PushNeedRow(Hunger, vHunger, s != null ? s.FoodRatio : 0f, words, accent, dim,
-                "FED", "PECKISH", "STARVING");
-            PushNeedRow(Water, vWater, s != null ? s.WaterRatio : 0f, words, accent, dim,
-                "HYDRATED", "THIRSTY", "PARCHED");
+            PushNeedRow(Hunger, vHunger, s != null ? s.FoodRatio : 0f, words, iconWords, accent, dim,
+                "FED", "PECKISH", "STARVING", "Hunger", foodLevel);
+            PushNeedRow(Water, vWater, s != null ? s.WaterRatio : 0f, words, iconWords, accent, dim,
+                "HYDRATED", "THIRSTY", "PARCHED", "Thirst", 0);
             // Toilet: Sanitation01 is the WASTE ratio (high = need to go, decompile Human.cs
             // :2807 GetWasteRatio + IsSanitationCritical = ratio > threshold). Invert it to a
             // "holding capacity" reserve so it reads like the other needs (high % = fine,
             // green RELIEVED; low % = urgent, red DESPERATE) in both bare words and suited %.
-            PushNeedRow(Toilet, vToilet, s != null ? (1f - s.Sanitation01) : 1f, words, accent, dim,
-                "RELIEVED", "UNEASY", "DESPERATE");
-            PushNeedRow(Health, vHealth, s != null ? s.HealthRatio : 0f, words, accent, dim,
-                "OK", "HURT", "CRITICAL");
+            PushNeedRow(Toilet, vToilet, s != null ? (1f - s.Sanitation01) : 1f, words, iconWords, accent, dim,
+                "RELIEVED", "UNEASY", "DESPERATE", "Toilet", 0);
+            PushNeedRow(Health, vHealth, s != null ? s.HealthRatio : 0f, words, iconWords, accent, dim,
+                "OK", "HURT", "CRITICAL", "Health", 0);
             // Cognition/consciousness (icon-cognition): high O2Quality = ALERT, low = blacking out.
-            PushNeedRow(Cognition, vCognition, s != null ? s.O2Quality : 1f, words, accent, dim,
-                "ALERT", "DAZED", "FADING");
+            PushNeedRow(Cognition, vCognition, s != null ? s.O2Quality : 1f, words, iconWords, accent, dim,
+                "ALERT", "DAZED", "FADING", "Cognition", 0);
 
             PushPressureRow(vPressure, s, dim);
             PushTempRow(vTemp, s, dim);
@@ -211,13 +239,14 @@ namespace StationeersUIMod.UI.Hud.Widgets
 
         /// <summary>A need row: icon + either a coloured level word (words mode) or a NN%
         /// value coloured by the same good/warn/crit band.</summary>
-        private void PushNeedRow(int i, bool visible, float ratio01, bool words,
-            Color accent, Color dim, string good, string warn, string crit)
+        private void PushNeedRow(int i, bool visible, float ratio01, bool words, bool iconWords,
+            Color accent, Color dim, string good, string warn, string crit, string wordName, int level)
         {
             var row = _rows[i];
             ResolveIcon(row, i, accent);
             EnableRowIcon(row, visible);
             row.Value.enabled = visible;
+            if (row.Name != null) row.Name.enabled = visible && iconWords;
             if (!visible) return;
 
             SyncValueFont(row, _lastScale);
@@ -225,17 +254,19 @@ namespace StationeersUIMod.UI.Hud.Widgets
             int band = ratio01 > 0.66f ? 0 : ratio01 > 0.33f ? 1 : 2;
             Color col = band == 0 ? HudPalette.Good.Value
                 : band == 1 ? HudPalette.Warn.Value : HudPalette.Critical.Value;
+            row.Value.color = col;
 
-            if (words)
+            if (iconWords)
             {
-                row.Value.color = col;
-                HudText.Set(row.Value, band == 0 ? good : band == 1 ? warn : crit);
-            }
-            else
-            {
-                row.Value.color = col;
+                // Two columns: the NAME (+ the hunger N/4) hugs the LEFT, and the percentage stays
+                // in row.Value RIGHT-aligned, so every "%" lines up in a neat vertical column.
+                if (row.Name != null) { row.Name.color = col; HudText.Set(row.Name, ComposeName(row, wordName, level)); }
                 HudText.Set(row.Value, NumberText(row, ratio01));
             }
+            else if (words)
+                HudText.Set(row.Value, band == 0 ? good : band == 1 ? warn : crit);
+            else
+                HudText.Set(row.Value, NumberText(row, ratio01));
         }
 
         /// <summary>A numeric-only row (toilet): icon + NN%, neutral accent colour.</summary>
@@ -403,7 +434,8 @@ namespace StationeersUIMod.UI.Hud.Widgets
         /// can read as bare value-only rows.</summary>
         private void EnableRowIcon(Row row, bool visible)
         {
-            bool showIcon = visible && Def.GetBFor(LayoutBare, "icons", true);
+            bool showIcon = visible && Def.GetBFor(LayoutBare, "icons", true)
+                && !Def.GetBFor(LayoutBare, "iconWords", false);
             row.Icon.enabled = showIcon && !row.UsesGlyph && row.Icon.sprite != null;
             if (row.Glyph != null) row.Glyph.enabled = showIcon && row.UsesGlyph;
         }
@@ -421,6 +453,19 @@ namespace StationeersUIMod.UI.Hud.Widgets
             return row.Text;
         }
 
+        /// <summary>The left-column NAME string for icons-as-words mode: "Name" (or "Name N/4"
+        /// when level &gt; 0, the hunger row). Rebuilt only when the level changes — the name is
+        /// constant — so a steady value never allocates. All ASCII (letters/digits/'/'/space).</summary>
+        private static string ComposeName(Row row, string name, int level)
+        {
+            if (level != row.NameLevel)
+            {
+                row.NameLevel = level;
+                row.NameStr = level > 0 ? name + " " + level + "/4" : name;
+            }
+            return row.NameStr;
+        }
+
         private float _lastScale = 1f;
 
         private void SyncValueFont(Row row, float scale)
@@ -430,7 +475,9 @@ namespace StationeersUIMod.UI.Hud.Widgets
             // key sized its fonts for a 30px row while the layout flowed 42px rows, and touching
             // the slider once "fixed" it permanently — reading as a font bug, not a default bug.
             float px = Def.GetFFor(LayoutBare, "rowHeight", 42f) * 0.5f;
-            row.Value.fontSize = HudText.Size(px * Def.FontScaleFor(LayoutBare)) * scale;
+            float size = HudText.Size(px * Def.FontScaleFor(LayoutBare)) * scale;
+            row.Value.fontSize = size;
+            if (row.Name != null) { HudText.Sync(row.Name); row.Name.fontSize = size; }
         }
 
         // ---- layout ----
@@ -445,7 +492,8 @@ namespace StationeersUIMod.UI.Hud.Widgets
             float pad = 5f * scale;
             float iconScale = Def.GetFFor(LayoutBare, "iconScale", 0.92f);
             bool rowLines = Def.GetBFor(LayoutBare, "rowLines", true);
-            bool icons = Def.GetBFor(LayoutBare, "icons", true);
+            bool icons = Def.GetBFor(LayoutBare, "icons", true)
+                && !Def.GetBFor(LayoutBare, "iconWords", false);
 
             // Build the visible-order list.
             var order = new List<int>(RowCount);
@@ -506,8 +554,14 @@ namespace StationeersUIMod.UI.Hud.Widgets
                 // With icons off, the value column reclaims the icon gutter (full-width rows).
                 float textLeft = icons ? left + iconSz + 6f * scale : left;
                 float tw = Mathf.Max(12f, right - textLeft);
-                row.ValueRt.anchoredPosition = new Vector2(textLeft + tw * 0.5f, rowCy);
-                row.ValueRt.sizeDelta = new Vector2(tw, rowH);
+                var valPos = new Vector2(textLeft + tw * 0.5f, rowCy);
+                var valSize = new Vector2(tw, rowH);
+                row.ValueRt.anchoredPosition = valPos;
+                row.ValueRt.sizeDelta = valSize;
+                // The name label shares the value's rect; opposite alignment (left vs right) puts
+                // the name at the far left and the percentage at the far right, so the percentages
+                // form a clean vertical column (icons-as-words mode only).
+                if (row.NameRt != null) { row.NameRt.anchoredPosition = valPos; row.NameRt.sizeDelta = valSize; }
             }
         }
 
@@ -523,6 +577,8 @@ namespace StationeersUIMod.UI.Hud.Widgets
 
             into.Add(HudProp.Bool("Row icons", () => d.GetBFor(EditBare(d), "icons", true), v => d.SetBFor(EditBare(d), "icons", v)));
             into.Add(HudProp.Bool("Words mode (bare)", () => d.GetBFor(EditBare(d), "words", false), v => d.SetBFor(EditBare(d), "words", v)));
+            // #3: replace icons with the need NAME + value ("Thirst 37%", "Hunger 2/4 100%").
+            into.Add(HudProp.Bool("Icons as words", () => d.GetBFor(EditBare(d), "iconWords", false), v => d.SetBFor(EditBare(d), "iconWords", v)));
             into.Add(HudProp.Bool("Pressure row (words)", () => d.GetB("rowPressure", false), v => d.SetB("rowPressure", v)));
             into.Add(HudProp.Bool("Temp row (words)", () => d.GetB("rowTemp", false), v => d.SetB("rowTemp", v)));
 
