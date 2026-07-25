@@ -100,6 +100,20 @@ namespace StationeersUIMod
                 // If we were loaded as BepInEx plugin too, the old Awake may have run; guard below.
                 UIALog.Info("OnLoaded entry for StationeersUIMod.");
 
+                // Fresh-install detection for ConfigMigration — must be read BEFORE the legacy copy
+                // below and before UIAConfig.Bind, either of which creates the .cfg. Fresh = neither
+                // the SLP cfg nor the legacy dev-shim cfg exists yet; such installs already carry the
+                // current defaults, so migrations are skipped for them.
+                bool freshInstall;
+                try
+                {
+                    string cfgPath = config.ConfigFilePath;
+                    string legacyPath = System.IO.Path.Combine(
+                        BepInEx.Paths.ConfigPath, "com.stationeersuimod.ui.scriptengine.cfg");
+                    freshInstall = !System.IO.File.Exists(cfgPath) && !System.IO.File.Exists(legacyPath);
+                }
+                catch { freshInstall = false; }
+
                 // One-time config migration: pre-0.9.0 packages shipped the DEV shim, so all user
                 // settings live in its cfg. Now that SLP's DefaultEntrypoint owns init, the cfg
                 // name changed — seed the new file from the legacy one so nobody loses settings.
@@ -121,6 +135,10 @@ namespace StationeersUIMod
                 catch (Exception mig) { UIALog.Warn("Config migration skipped: " + mig.Message); }
 
                 UIAConfig.Bind(config);
+                // Config-schema migration: force corrected defaults / renamed keys onto EXISTING
+                // players' .cfg where BepInEx would otherwise keep their stale stored value. Runs
+                // after every setting is bound; no-op on a fresh install. See ConfigMigration.
+                Core.ConfigMigration.Run(config, freshInstall);
                 Core.UiaKeybinds.EnsureBuilt();
 
                 if (GameManager.IsBatchMode)
@@ -140,10 +158,11 @@ namespace StationeersUIMod
                 // profile-aware wrapper (defers to vanilla per-compare when a bag has no profile;
                 // restored in OnDestroy). Reflection field swap, fail-soft — see ProfileSort.
                 Features.ProfileSort.Install();
-                // Shipped HUD profiles (zip: StationeersUIMod/HudProfiles/) land in config on
-                // first run — required for the shipped default ("Smaller Test") to exist on a
-                // fresh install. No-overwrite, fail-soft; inert under F6 (ModDirectory null).
-                Features.HudProfileStore.ImportShipped(ModDirectory);
+                // Shipped HUD themes (zip: StationeersUIMod/HudProfiles/) are synced into config
+                // each launch: seed if absent, refresh an untouched shipped theme we've updated, and
+                // prune a retired shipped theme the player never edited — never touching the player's
+                // own profiles. Fail-soft; inert under F6 (ModDirectory null). See SyncShipped.
+                Features.HudProfileStore.SyncShipped(ModDirectory);
 
                 // Register UIA_Menu in the game's native Controls screen (the only bind that gets a
                 // vanilla row — see UiaKeybinds' class remarks). The SetupKeyBindings postfix also

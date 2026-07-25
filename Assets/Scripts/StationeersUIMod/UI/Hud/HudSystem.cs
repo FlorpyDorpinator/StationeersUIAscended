@@ -275,7 +275,7 @@ namespace StationeersUIMod.UI.Hud
                 _docRebuildNeeded = false; // SetActive fired the event; we build right after
 
                 // The shipped profiles are now Stationeers Blue + Pure HUD, delivered by
-                // HudProfileStore.ImportShipped from the mod folder on first run — they are no
+                // HudProfileStore.SyncShipped from the mod folder each launch — they are no
                 // longer code-seeded here. The old proactive Glassy 2.0 / Glassy 4.0 auto-seed was
                 // retired when the shipped set was curated to those two (2026-07-24); it would
                 // otherwise recreate the archived profiles on every fresh install. The embedded

@@ -206,9 +206,9 @@ namespace StationeersUIMod.UI.Hud.Widgets
             LayoutCellsCurved(sc);
         }
 
-        /// <summary>Centred horizontal row of the currently-active moodlet cells, each bent
-        /// onto the visor curve. Vanilla still owns which cells are active (SetActive); we
-        /// only place the live ones.</summary>
+        /// <summary>Centred row (or, with the "vertical" toggle, a centred column) of the
+        /// currently-active moodlet cells, each bent onto the visor curve. Vanilla still owns which
+        /// cells are active (SetActive); we only place the live ones.</summary>
         private void LayoutCellsCurved(float sc)
         {
             _cells.Clear();
@@ -223,6 +223,7 @@ namespace StationeersUIMod.UI.Hud.Widgets
             float cell = _gCellSize.x > 1f ? _gCellSize.x : 192f;   // strip-local px
             float stride = cell + 10f;                              // gap between centres
             float startX = -(n - 1) * 0.5f * stride;
+            bool vertical = Def.GetBFor(LayoutBare, "vertical", false); // stack down instead of across
             Vector2 center = _holder.anchoredPosition;              // element centre, canvas coords
             var mid = new Vector2(0.5f, 0.5f);
             var cellSize = new Vector2(cell, cell);
@@ -247,8 +248,12 @@ namespace StationeersUIMod.UI.Hud.Widgets
                 { ch.anchorMin = ch.anchorMax = mid; ch.pivot = mid; }
                 if (ch.sizeDelta != cellSize) ch.sizeDelta = cellSize;
 
-                float lx = startX + k * stride;                    // flat strip-local x
-                Vector3 abs = new Vector3(center.x + lx * sc, center.y, 0f); // canvas coords
+                float lx = startX + k * stride;                    // flat strip-local offset
+                // Horizontal: the offset runs along x (a centred row). Vertical: down the y axis,
+                // top -> bottom (a centred column). Warp + strip-local conversion are unchanged.
+                Vector3 abs = vertical
+                    ? new Vector3(center.x, center.y - lx * sc, 0f)
+                    : new Vector3(center.x + lx * sc, center.y, 0f); // canvas coords
                 if (HudWarp.Enabled) abs = HudWarp.Warp(abs);
                 // Back to strip-local (strip sits at centre, scaled by sc).
                 ch.anchoredPosition3D = new Vector3(
@@ -436,6 +441,14 @@ namespace StationeersUIMod.UI.Hud.Widgets
                     {
                         string raw = "";
                         try { raw = _wGrpWin[g].GetDisplayName(); } catch { }
+                        // GetDisplayName can carry unresolved localization ERROR markers — the
+                        // "<A:EN:hash>" placeholders vanilla's Localization emits for a missing
+                        // string (Localization.ErrorAction = "<A:{0}:{1}>"). The game's own TMP
+                        // hides/expands them; our plain text would print them raw. Strip the tags;
+                        // if nothing readable remains, fall back to the moodlet's stable id name.
+                        raw = Core.StateText.Strip(raw);
+                        if (raw != null) raw = raw.Trim();
+                        if (string.IsNullOrEmpty(raw)) { try { raw = _wGrpWin[g].DisplayName; } catch { } }
                         if (string.IsNullOrEmpty(raw)) continue;
                         _wordStr[_wordCount] = raw.ToUpperInvariant();
                         _wordLvl[_wordCount] = _wGrpLvl[g];
@@ -475,6 +488,8 @@ namespace StationeersUIMod.UI.Hud.Widgets
             float lineH = wsize * 1.18f;
             float rowStep = lineH + gap;
             float colW = cols > 1 ? (size.x - gap * (cols - 1)) / cols : size.x;
+            bool vertical = Def.GetBFor(LayoutBare, "vertical", false);
+            int rows = Mathf.CeilToInt(_wordCount / (float)cols); // used for column-major (vertical) fill
 
             int alignIx = Mathf.Clamp(Def.GetIFor(LayoutBare, "wordAlign", 1), 0, 2);
             var tmpAlign = alignIx == 0 ? TextAlignmentOptions.Left
@@ -491,7 +506,10 @@ namespace StationeersUIMod.UI.Hud.Widgets
             {
                 var t = _words[i];
                 if (t == null) continue;
-                int r = i / cols, c = i % cols;
+                // Horizontal fills across-then-down (row-major); vertical fills down-then-across.
+                int r, c;
+                if (vertical) { c = i / rows; r = i % rows; }
+                else { r = i / cols; c = i % cols; }
                 HudText.Sync(t);
                 t.fontSize = wsize;
                 t.alignment = tmpAlign;
@@ -515,6 +533,10 @@ namespace StationeersUIMod.UI.Hud.Widgets
                 () => d.GetBFor(EditBare(d), "words", false), v => d.SetBFor(EditBare(d), "words", v)));
 
             int wStart = into.Count;
+            // Orientation for BOTH modes: the borrowed icon strip stacks as a column instead of a
+            // row; the words grid fills top-to-bottom (column-major) instead of across.
+            into.Add(HudProp.Bool("Vertical (column instead of row)",
+                () => d.GetBFor(EditBare(d), "vertical", false), v => d.SetBFor(EditBare(d), "vertical", v)));
             into.Add(HudProp.F("Word text size", () => d.GetFFor(EditBare(d), "wordSize", 16f),
                 v => d.SetFFor(EditBare(d), "wordSize", Mathf.Clamp(v, 6f, 48f)), 6f, 48f));
             into.Add(HudProp.F("Word separation", () => d.GetFFor(EditBare(d), "wordGap", 4f),

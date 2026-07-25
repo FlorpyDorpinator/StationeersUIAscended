@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Text;
 using System.Xml.Serialization;
 using BepInEx;
 using StationeersUIMod.Core;
@@ -29,12 +30,29 @@ namespace StationeersUIMod.Features
         /// <summary>Shareable profile folder — global (not per-save), mirrors BagProfileStore's roots.</summary>
         public static string Dir => Path.Combine(Paths.ConfigPath, "StationeersUIMod", "HudProfiles");
 
-        /// <summary>First-run import of the profile XMLs shipped INSIDE the mod folder (zip layout:
-        /// <c>StationeersUIMod/HudProfiles/*.xml</c>) into the live config folder. NEVER overwrites —
-        /// a player's edited copy of a shipped profile always wins over the shipped one. This is what
-        /// makes the shipped default ("Smaller Test") actually exist on disk for a fresh install:
-        /// the 0.8.0 zip carried the folder but nothing imported it, so it sat inert. Fail-soft.</summary>
-        public static void ImportShipped(string modDirectory)
+        /// <summary>Provenance of the profiles WE shipped, so an update can refresh / retire a
+        /// shipped theme the player never touched WITHOUT harming their own profiles. One line per
+        /// shipped file: <c>&lt;filename&gt;|&lt;hash&gt;</c>. Extension-less so <see cref="ListProfiles"/>
+        /// (globs <c>*.xml</c>) never shows it. See Documentation/Config-and-Theme-Migration.md.</summary>
+        private static string ManifestPath => Path.Combine(Dir, ".shipped-manifest");
+
+        /// <summary>Sync the shipped profile set from the mod folder into the player's config, every
+        /// launch. Three moves, and NONE of them ever touches a profile the player created or edited:
+        ///  - SEED    a shipped profile that is absent.
+        ///  - REFRESH a shipped profile we shipped before, that the player never edited, when we
+        ///            ship a NEW version of it (so shipped-theme fixes actually reach existing players).
+        ///  - PRUNE   a shipped profile we RETIRED, only if the player never edited it (a retired
+        ///            theme the player customised becomes theirs and is kept).
+        /// "Never edited" = the on-disk bytes still match exactly what we last shipped (recorded in
+        /// the manifest). A player edit, a rename, or a hand-made profile has a different hash / no
+        /// record, so it is left alone. If a pruned profile was the active one, the active profile
+        /// falls back to the shipped default. Fail-soft; inert under F6 (modDirectory null).
+        ///
+        /// LIMITATION: this manages the set from THIS version forward. Junk profiles a player already
+        /// has from a PRE-manifest version have no record, so they are never auto-pruned (we can't
+        /// prove they're pristine) — only future retirements are swept. A pristine copy of a CURRENT
+        /// shipped theme IS adopted into management on first sync.</summary>
+        public static void SyncShipped(string modDirectory)
         {
             try
             {
@@ -42,20 +60,156 @@ namespace StationeersUIMod.Features
                 string src = Path.Combine(modDirectory, "HudProfiles");
                 if (!Directory.Exists(src)) return;
                 Directory.CreateDirectory(Dir);
+
+                // Current shipped set: filename -> CANONICAL hash of the shipped source (null if it
+                // won't parse). Canonical (not raw bytes) so Load's idempotent rewrite-on-open — a
+                // shipped theme with legacy fx bools is re-serialized in canonical form the first time
+                // it's opened — does NOT read as a player edit. See CanonHash.
+                var shipped = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
                 foreach (string f in Directory.GetFiles(src, "*.xml"))
+                    shipped[Path.GetFileName(f)] = CanonHash(f);
+
+                var manifest = LoadManifest(); // filename -> canonical hash we last shipped
+
+                // ---- SEED + REFRESH ----
+                foreach (var kv in shipped)
                 {
-                    string dst = Path.Combine(Dir, Path.GetFileName(f));
-                    if (!File.Exists(dst)) File.Copy(f, dst);
+                    string name = kv.Key, shipHash = kv.Value;
+                    string dst = Path.Combine(Dir, name);
+                    string srcPath = Path.Combine(src, name);
+
+                    if (!File.Exists(dst))
+                    {
+                        File.Copy(srcPath, dst);          // seed an absent shipped theme
+                        if (shipHash != null) manifest[name] = shipHash; // manage it (skip if unhashable)
+                        continue;
+                    }
+
+                    if (shipHash == null) continue;       // our own source won't parse → seed-only, don't manage
+                    string diskHash = CanonHash(dst);
+                    if (diskHash == null) continue;       // player's file won't parse → leave it, never touch
+
+                    string prev;
+                    bool known = manifest.TryGetValue(name, out prev);
+                    // Untouched = matches what we last shipped (known), or — for a pre-manifest
+                    // install — is canonically identical to what we'd ship now (adopt that copy).
+                    bool untouched = known ? diskHash == prev : diskHash == shipHash;
+
+                    if (untouched)
+                    {
+                        if (diskHash != shipHash) File.Copy(srcPath, dst, true); // refresh to new version
+                        manifest[name] = shipHash;         // now managed at the current shipped hash
+                    }
+                    else if (!known)
+                    {
+                        manifest.Remove(name);             // player-owned copy of a shipped name → leave it
+                    }
+                    // (known && edited): keep manifest[name] as-is; on-disk != it, so we never touch it.
                 }
-                // Preview art travels beside the profile as a <name>.png sidecar so the Control
-                // Center can show a thumbnail for each shipped "default UI". Same no-overwrite rule.
+
+                // ---- PRUNE retired shipped themes (in manifest, no longer shipped) ----
+                foreach (var name in new List<string>(manifest.Keys))
+                {
+                    if (shipped.ContainsKey(name)) continue; // still shipped
+                    string dst = Path.Combine(Dir, name);
+                    if (File.Exists(dst))
+                    {
+                        string dh = CanonHash(dst);
+                        if (dh != null && dh == manifest[name]) // untouched since we shipped it
+                        {
+                            string profName = Path.GetFileNameWithoutExtension(name);
+                            File.Delete(dst);
+                            // If the pruned theme was active, fall back to the shipped default.
+                            if (string.Equals(HudConfig.HudActiveProfile.Value, profName, StringComparison.OrdinalIgnoreCase))
+                                HudConfig.HudActiveProfile.Value = (string)HudConfig.HudActiveProfile.DefaultValue;
+                            UIALog.Info("Retired shipped HUD theme '" + profName + "' (untouched) removed on update.");
+                        }
+                        // else: edited by the player (or unparseable) → keep it (it's theirs now)
+                    }
+                    manifest.Remove(name); // stop tracking (deleted, or kept because the player edited it)
+                }
+
+                // Preview art: a <name>.png thumbnail travels beside the profile. Seed-if-absent only
+                // (don't churn art) — same no-overwrite rule as before.
                 foreach (string f in Directory.GetFiles(src, "*.png"))
                 {
                     string dst = Path.Combine(Dir, Path.GetFileName(f));
                     if (!File.Exists(dst)) File.Copy(f, dst);
                 }
+
+                SaveManifest(manifest);
             }
-            catch (Exception e) { UIALog.Warn("HudProfileStore.ImportShipped: " + e.Message); }
+            catch (Exception e) { UIALog.Warn("HudProfileStore.SyncShipped: " + e.Message); }
+        }
+
+        /// <summary>Hash of a profile's CANONICAL content — deserialize, <see cref="HudDocument.Sanitize"/>
+        /// (the exact repair <see cref="Load"/> applies), then reserialize — so Load's idempotent
+        /// rewrite-on-open and any cosmetic serialization difference do NOT read as a player edit.
+        /// The name is normalized out so a rename can't skew it. Returns null if the file won't
+        /// parse; the caller then leaves that file alone (never refreshed, never pruned). Sanitize
+        /// is self-contained (no runtime singletons) so this is safe at OnLoaded time.</summary>
+        private static string CanonHash(string path)
+        {
+            try
+            {
+                var ser = new XmlSerializer(typeof(HudDocument));
+                HudDocument doc;
+                using (var s = File.OpenRead(path)) doc = (HudDocument)ser.Deserialize(s);
+                if (doc == null) return null;
+                doc.Sanitize();
+                doc.Name = Path.GetFileNameWithoutExtension(path); // name never skews the content hash
+                using (var ms = new MemoryStream())
+                {
+                    ser.Serialize(ms, doc);
+                    return Hash(ms.ToArray());
+                }
+            }
+            catch { return null; }
+        }
+
+        /// <summary>FNV-1a 64-bit. A change-detection hash, NOT security — chosen over MD5 so it never
+        /// throws under a Windows FIPS policy and needs no System.Security.Cryptography.</summary>
+        private static string Hash(byte[] data)
+        {
+            ulong h = 14695981039346656037UL;
+            for (int i = 0; i < data.Length; i++) { h ^= data[i]; h *= 1099511628211UL; }
+            return h.ToString("x16");
+        }
+
+        private static Dictionary<string, string> LoadManifest()
+        {
+            var m = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            try
+            {
+                string p = ManifestPath;
+                if (!File.Exists(p)) return m;
+                foreach (var raw in File.ReadAllLines(p))
+                {
+                    string line = raw.Trim();
+                    if (line.Length == 0 || line[0] == '#') continue;
+                    int i = line.IndexOf('|');
+                    if (i <= 0) continue;
+                    string name = line.Substring(0, i).Trim();
+                    string hash = line.Substring(i + 1).Trim();
+                    if (name.Length > 0 && hash.Length > 0) m[name] = hash;
+                }
+            }
+            catch (Exception e) { UIALog.Warn("HudProfileStore manifest read failed: " + e.Message); }
+            return m;
+        }
+
+        private static void SaveManifest(Dictionary<string, string> m)
+        {
+            try
+            {
+                var sb = new StringBuilder();
+                sb.Append("# Stationeers UI Ascended - shipped-profile provenance. Do not edit.\n");
+                sb.Append("# <filename>|<hash>: what the mod SHIPPED, so updates can refresh/retire\n");
+                sb.Append("# shipped themes you never touched while leaving your own profiles alone.\n");
+                foreach (var kv in m) sb.Append(kv.Key).Append('|').Append(kv.Value).Append('\n');
+                File.WriteAllText(ManifestPath, sb.ToString());
+            }
+            catch (Exception e) { UIALog.Warn("HudProfileStore manifest write failed: " + e.Message); }
         }
 
         // --- active document ---
