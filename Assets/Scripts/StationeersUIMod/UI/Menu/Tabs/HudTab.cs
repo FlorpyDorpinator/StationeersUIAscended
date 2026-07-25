@@ -35,7 +35,6 @@ namespace StationeersUIMod.UI.Menu.Tabs
 
             UiaControls.Header(col, "Show");
             UiaControls.ToggleRow(col, "Visor-edge vignette", HudConfig.ShowVignette.Value, v => HudConfig.ShowVignette.Value = v);
-            UiaControls.ToggleRow(col, "Player hologram", HudConfig.ShowHologram.Value, v => HudConfig.ShowHologram.Value = v);
             UiaControls.ToggleRow(col, "Diegetic tiers (words when unpowered)", HudConfig.DiegeticTiers.Value, v => HudConfig.DiegeticTiers.Value = v);
             UiaControls.ToggleRow(col, "Flicker / boot animations", HudConfig.FlickerAnimations.Value, v => HudConfig.FlickerAnimations.Value = v);
 
@@ -50,7 +49,7 @@ namespace StationeersUIMod.UI.Menu.Tabs
             UiaControls.Header(col, "Power & glitch (advanced)");
             UiaControls.ToggleRow(col, "Low-power dropouts", HudConfig.LowPowerDropouts.Value, v => HudConfig.LowPowerDropouts.Value = v);
             UiaControls.SliderRow(col, "Low-power threshold (%)", 0f, 40f, HudConfig.LowPowerThreshold.Value, v => HudConfig.LowPowerThreshold.Value = v, "0");
-            UiaControls.ToggleRow(col, "Power-transition glitch", HudConfig.GlitchEnabled.Value, v => HudConfig.GlitchEnabled.Value = v);
+            UiaControls.ToggleRow(col, "Power-transition glitch", HudConfig.FxGlitchOn.Value, v => HudConfig.FxGlitchOn.Value = v);
 
             var curveAll = new List<string> { "Flat", "Vertex warp (A)", "Dome (B)", "World canvas (C)", "Curved RT (D)" };
             UiaControls.DropdownRow(col, "Curvature mode (full)", curveAll, (int)HudConfig.Curvature.Value, i => HudConfig.Curvature.Value = (HudCurvature)i);

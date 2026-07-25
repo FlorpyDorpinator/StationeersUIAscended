@@ -172,12 +172,6 @@ namespace StationeersUIMod.Windows
         private void DrawBuildTab()
         {
             ImGui.TextDisabled("PROFILE — layout and element changes are saved to the active HUD profile.");
-            if (!HudSystem.DocumentMode)
-            {
-                ImGui.TextColored(new Vector4(1f, 0.72f, 0.25f, 1f),
-                    "The document HUD is off. Enable it under View & Behavior to use the designer.");
-                return;
-            }
             DrawDesignerSection();
         }
 
@@ -230,32 +224,13 @@ namespace StationeersUIMod.Windows
                             "  Shader bundle unavailable — panels fail soft to the mesh renderer.");
                 }
                 ImGui.Spacing();
-                if (HudSystem.DocumentMode)
-                {
-                    ImGui.TextDisabled("Apply one coherent source mode to every element:");
-                    if (ImGui.Button("ALL follow Theme + Effects globals"))
-                        HudEditorMode.SetAllFollowGlobal(true);
-                    ImGui.SameLine();
-                    if (ImGui.Button("Snapshot ALL as Custom"))
-                        HudEditorMode.SetAllFollowGlobal(false);
-                    if (ImGui.Button("Flatten ALL boxes")) HudEditorMode.MakeAllFlat();
-                }
-            }
-
-            if (!HudSystem.DocumentMode && ImGui.CollapsingHeader("Legacy panel sizes"))
-            {
-                FloatSlider(HudConfig.TopBarHeight, "Top bar height (px)", 36f, 120f);
-                FloatSlider(HudConfig.TopBarCurve, "Top bar curve (end drop px)", 0f, 120f);
-                FloatSlider(HudConfig.TopBarWidthPct, "Top bar width (fraction)", 0.5f, 1f);
-                FloatSlider(HudConfig.CompassWidthPct, "Compass width (fraction)", 0.05f, 0.4f);
-                FloatSlider(HudConfig.CompassHeight, "Compass height (px)", 20f, 80f);
-                FloatSlider(HudConfig.CompassFovDeg, "Compass span (degrees)", 40f, 200f);
-                FloatSlider(HudConfig.EquipBoxSize, "Equipment box size (px)", 44f, 128f);
-                FloatSlider(HudConfig.EquipSpacing, "Equipment box gap (px)", 2f, 30f);
-                FloatSlider(HudConfig.HandBoxWidth, "Hand box width (px)", 80f, 240f);
-                FloatSlider(HudConfig.HandBoxHeight, "Hand box height (px)", 56f, 160f);
-                FloatSlider(HudConfig.VitalsWidth, "Vitals card width (px)", 160f, 420f);
-                FloatSlider(HudConfig.VitalsHeight, "Vitals card height (px)", 100f, 300f);
+                ImGui.TextDisabled("Apply one coherent source mode to every element:");
+                if (ImGui.Button("ALL follow Theme + Effects globals"))
+                    HudEditorMode.SetAllFollowGlobal(true);
+                ImGui.SameLine();
+                if (ImGui.Button("Snapshot ALL as Custom"))
+                    HudEditorMode.SetAllFollowGlobal(false);
+                if (ImGui.Button("Flatten ALL boxes")) HudEditorMode.MakeAllFlat();
             }
 
             if (ImGui.CollapsingHeader("Typography", ImGuiTreeNodeFlags.DefaultOpen))
@@ -263,10 +238,6 @@ namespace StationeersUIMod.Windows
                 FontCombo();
                 FloatSlider(HudConfig.FontScale, "Font scale (all HUD text)", 0.6f, 1.8f);
                 FloatSlider(HudConfig.LabelFontSize, "Label size (PRESSURE, HELMET...)", 7f, 22f);
-                FloatSlider(HudConfig.ValueFontSize, "Value size (101 kPa...)", 10f, 30f);
-                FloatSlider(HudConfig.CompassFontSize, "Compass text size", 8f, 22f);
-                FloatSlider(HudConfig.VitalsRowFontSize, "Vitals row size", 9f, 22f);
-                FloatSlider(HudConfig.BareWordFontSize, "Felt-sense word size", 12f, 36f);
             }
 
             if (ImGui.CollapsingHeader("Palette", ImGuiTreeNodeFlags.DefaultOpen))
@@ -540,19 +511,22 @@ namespace StationeersUIMod.Windows
                         ConfigEntry<float> amt = fx.AmountEntry;
                         if (amt != null) FloatSlider(amt, "  Strength", 0f, 2f);
                         TipLines(fx.Tip);
+
+                        // The glitch tear is also HudGlitch's transform-jitter envelope (the tear/
+                        // shake on power transitions, not just the per-panel participation weight)
+                        // — unified onto this ONE row 0.9.2.5 (audit 04 #7: two live glitch systems
+                        // exposed twice). Duration and the per-event gates have no tri-state
+                        // analogue, so they hang off this row rather than living on their own.
+                        if (string.Equals(fx.Key, "fxGlitch", System.StringComparison.Ordinal))
+                        {
+                            if (HudConfig.FxGlitchDuration != null)
+                                FloatSlider(HudConfig.FxGlitchDuration, "  duration (seconds)", 0.1f, 4f);
+                            Toggle(HudConfig.GlitchOnPowerDown, "  fire on power DOWN / suit removed");
+                            Toggle(HudConfig.GlitchOnPowerUp, "  fire on power UP / boot");
+                            if (ImGui.Button("Test glitch now")) HudGlitch.TriggerTest();
+                        }
                     }
                     ImGui.PopID();
-                }
-
-                ImGui.Spacing();
-                Toggle(HudConfig.GlitchEnabled, "Power-transition tear / shake");
-                if (HudConfig.GlitchEnabled.Value)
-                {
-                    FloatSlider(HudConfig.GlitchDuration, "  duration (seconds)", 0.1f, 4f);
-                    FloatSlider(HudConfig.GlitchIntensity, "  severity", 0f, 1f);
-                    Toggle(HudConfig.GlitchOnPowerDown, "  fire on power DOWN / suit removed");
-                    Toggle(HudConfig.GlitchOnPowerUp, "  fire on power UP / boot");
-                    if (ImGui.Button("Test glitch now")) HudGlitch.TriggerTest();
                 }
 
                 ImGui.Spacing();
@@ -593,17 +567,6 @@ namespace StationeersUIMod.Windows
             if (ImGui.CollapsingHeader("HUD renderer", ImGuiTreeNodeFlags.DefaultOpen))
             {
                 Toggle(HudConfig.VisorHudEnabled, "Visor HUD enabled");
-                Toggle(HudConfig.UseDocumentHud, "Use profile-driven document HUD");
-                if (!HudSystem.DocumentMode)
-                {
-                    ImGui.TextDisabled("Legacy fixed panels:");
-                    Toggle(HudConfig.ShowTopBar, "  Top status bar");
-                    Toggle(HudConfig.ShowCompass, "  Compass ribbon");
-                    Toggle(HudConfig.ShowEquipment, "  Equipment column (1-6)");
-                    Toggle(HudConfig.ShowHands, "  Hand boxes");
-                    Toggle(HudConfig.ShowVitals, "  Vitals card / felt senses");
-                    Toggle(HudConfig.ShowHologram, "  Player hologram in vitals card");
-                }
                 Toggle(HudConfig.ShowVignette, "Visor-edge vignette");
                 Toggle(HudConfig.ShowScanlines, "Projector scan-lines (whole HUD canvas)");
                 ImGui.TextDisabled("  Colour: 'HudScanline' in the palette below. Radials / inventory grid excluded.");
@@ -648,12 +611,10 @@ namespace StationeersUIMod.Windows
 
             if (ImGui.CollapsingHeader("Renderer status", ImGuiTreeNodeFlags.DefaultOpen))
             {
-                ImGui.Text("Document HUD: " + (HudSystem.DocumentMode ? "ACTIVE" : "legacy fixed panels"));
                 ImGui.Text("Effects bundle: " + (Core.HudShaderStore.TierBAvailable ? "READY" : "NOT LOADED"));
                 ImGui.Text("Analytic panel shader: " + (Core.HudShaderStore.SdfAvailable ? "READY" : "FALLBACK MESH"));
                 ImGui.Text("Frost capture: " + (HudBackdrop.Active ? "ACTIVE" : "IDLE"));
                 ImGui.Text("Bloom: " + (HudBloomFx.Available ? "AVAILABLE" : "UNAVAILABLE"));
-                Toggle(HudConfig.LegacyImGuiHud, "Draw legacy ImGui HUD diagnostics overlay");
             }
 
             if (ImGui.CollapsingHeader("Profiler", ImGuiTreeNodeFlags.DefaultOpen))
@@ -863,7 +824,6 @@ namespace StationeersUIMod.Windows
         /// (8 samples per edge) so the box hugs curved elements.</summary>
         private static void DrawGizmos()
         {
-            if (!HudSystem.DocumentMode) return;
             var dl = ImGui.GetForegroundDrawList();
             float scale = HudConfig.EffectiveHudScale();
             uint selCol = ImGui.GetColorU32(new Vector4(1f, 0.62f, 0.15f, 0.95f));
@@ -1053,8 +1013,6 @@ namespace StationeersUIMod.Windows
 
         /// <summary>The click-to-edit popup, drawn inside the game's ImGui frame near
         /// wherever the user clicked. Static: called from the plugin draw hook.</summary>
-        private static int _popupStamp = -1;
-
         private static int _elementPopupStamp = -1;
         private static int _menuPopupStamp = -1;
         private static readonly List<UI.Hud.HudProp> _propScratch = new List<UI.Hud.HudProp>();
@@ -1189,174 +1147,143 @@ namespace StationeersUIMod.Windows
                 HudEditorMode.GridSelected = false;
             }
 
-            // Document mode: the selected ELEMENT gets the generic property popup.
-            if (HudSystem.DocumentMode)
+            // The selected ELEMENT gets the generic property popup.
+            var el = HudEditorMode.SelectedElement;
+            if (el == null || el.Def == null)
             {
-                var el = HudEditorMode.SelectedElement;
-                if (el == null || el.Def == null)
-                {
-                    FlushPendingElementEdit();
-                    _activeElementPropGroup = null;
-                    return;
-                }
-                bool elMoved = _elementPopupStamp != HudEditorMode.ElementStamp;
-                if (elMoved)
-                {
-                    FlushPendingElementEdit();
-                    _activeElementPropGroup = null;
-                }
-                _elementPopupStamp = HudEditorMode.ElementStamp;
-                // Open CENTERED (FlorpyDorp: the click-point spawn kept landing bottom-
-                // right) and freely resizable up to nearly the screen — the old 400x560
-                // cap cut off long property lists.
-                ImGui.SetNextWindowPos(new Vector2(Screen.width * 0.5f, Screen.height * 0.5f),
-                    elMoved ? ImGuiCond.Always : ImGuiCond.Appearing, new Vector2(0.5f, 0.5f));
-                ImGui.SetNextWindowSizeConstraints(new Vector2(320f, 120f),
-                    new Vector2(Screen.width * 0.92f, Screen.height * 0.92f));
-                bool elOpen = true;
-                if (ImGui.Begin("Edit: " + el.Def.Type + "###UIAHudElementPopup",
-                    ref elOpen, ImGuiWindowFlags.NoCollapse))
-                {
-                    // Per-mode edit selector. A "Both" element (shown in bare AND suited) can be
-                    // styled differently for each mode; these two buttons pick which mode every
-                    // Layout / Appearance / Effects value below reads and writes. They drive the
-                    // live preview tier (HudSystem.ForceTier) so what you SEE is what you're
-                    // editing, and EditBareTier — the edit target — follows it. Hidden for
-                    // single-mode elements: there is nothing to fork, so all edits hit the base.
-                    if (UI.Hud.HudElementView.IsBoth(el.Def.Tiers))
-                    {
-                        bool editingBare = HudSystem.ForceTier.HasValue
-                            && HudSystem.ForceTier.Value == HudTier.Bare;
-                        ImGui.TextDisabled("Editing mode:");
-                        ImGui.SameLine();
-                        if (ModeTabButton("SUITED", !editingBare)) HudSystem.ForceTier = HudTier.Suited;
-                        ImGui.SameLine();
-                        if (ModeTabButton("BARE", editingBare)) HudSystem.ForceTier = HudTier.Bare;
-                        ImGui.SameLine();
-                        ImGui.TextDisabled(editingBare
-                            ? "bare — unset values inherit Suited"
-                            : "suited — the base bare inherits from");
-                        ImGui.Separator();
-                    }
-                    _propScratch.Clear();
-                    try { el.DescribeProps(_propScratch); }
-                    catch { }
-                    // Undo is pushed on COMMIT, not on focus: IsItemActivated fires on a
-                    // mere click into a widget, and pushing there wiped the redo stack
-                    // with dead steps (review finding). The begin-stash keeps the
-                    // pre-gesture state; only a real change spends it.
-                    System.Action beginElementEdit = () =>
-                    {
-                        if (_pendingElementUndo != null) return;
-                        var doc = Features.HudProfileStore.Active;
-                        _pendingElementUndo = doc != null ? doc.Clone() : null;
-                        _pendingElementDocument = doc;
-                        _pendingElementProfile = HudEditorMode.ActiveProfileName();
-                        _pendingElementChanged = false;
-                    };
-                    System.Action commitElementEdit = () =>
-                    {
-                        FlushPendingElementEdit();
-                    };
-                    System.Action cancelElementEdit = () =>
-                    {
-                        CancelPendingElementEdit();
-                    };
-                    System.Action noteElementChanged = () =>
-                    {
-                        if (_pendingElementUndo != null) _pendingElementChanged = true;
-                    };
-
-                    if (ImGui.BeginTabBar("##UIAHudElementTabs"))
-                    {
-                        DrawElementPropTab("Content", UI.Hud.HudPropGroup.Content,
-                            beginElementEdit, commitElementEdit, cancelElementEdit, noteElementChanged);
-                        DrawElementPropTab("Layout", UI.Hud.HudPropGroup.Layout,
-                            beginElementEdit, commitElementEdit, cancelElementEdit, noteElementChanged);
-                        DrawElementPropTab("Appearance", UI.Hud.HudPropGroup.Appearance,
-                            beginElementEdit, commitElementEdit, cancelElementEdit, noteElementChanged);
-                        DrawElementPropTab("Effects", UI.Hud.HudPropGroup.Effects,
-                            beginElementEdit, commitElementEdit, cancelElementEdit, noteElementChanged);
-                        DrawElementPropTab("Interaction", UI.Hud.HudPropGroup.Interaction,
-                            beginElementEdit, commitElementEdit, cancelElementEdit, noteElementChanged);
-                        ImGui.EndTabBar();
-                    }
-                    // Live feedback only while a widget is actually being edited — an
-                    // idle popup must not rebuild the element's meshes every frame.
-                    bool editing = false;
-                    try { editing = ImGui.IsAnyItemActive(); } catch { }
-                    if (editing) HudSystem.RelayoutElement(el);
-                    ImGui.Separator();
-                    // Point editing for shapes/lines rides the element popup — the whole context
-                    // for editing THIS element is here (moved out of the F9 window, play-test ask).
-                    if (HudEditorMode.IsPointEditable(el.Def))
-                    {
-                        if (HudEditorMode.EditingPoints)
-                        {
-                            var hintCol = new Vector4(1f, 0.62f, 0.15f, 1f);
-                            ImGui.TextColored(hintCol,
-                                "EDIT POINTS: drag anchors - Alt+click deletes - click anywhere adds");
-                            bool bez = el.Def.GetI("curveMode", el.Def.GetB("smooth", false) ? 1 : 0) == 2;
-                            if (bez)
-                            {
-                                ImGui.TextColored(hintCol,
-                                    "Bezier: PULL a segment to curve it - Ctrl+click a segment = straight");
-                                ImGui.TextColored(hintCol,
-                                    "Ctrl+click an anchor = corner/smooth - Alt+drag a handle = cusp");
-                            }
-                            if (ImGui.Button("Done editing points##pop")) HudEditorMode.EndEditPoints();
-                        }
-                        else if (ImGui.Button("Edit points (drag / add / delete / curve)##pop"))
-                        {
-                            HudEditorMode.BeginEditPoints();
-                        }
-                        ImGui.Separator();
-                    }
-                    if (ImGui.Button("Duplicate##pop")) HudEditorMode.DuplicateSelected();
-                    ImGui.SameLine();
-                    if (ImGui.Button("Delete##pop")) HudEditorMode.DeleteSelected();
-                    if (el.CanFlatten)
-                    {
-                        if (ImGui.Button("Make flat (strip optical effects)##pop")) HudEditorMode.MakeSelectedFlat();
-                        ImGui.TextDisabled("Snapshots this panel as Custom, then disables glass, glow and optical layers.");
-                    }
-                }
-                ImGui.End();
-                if (!elOpen)
-                {
-                    FlushPendingElementEdit();
-                    _activeElementPropGroup = null;
-                    HudEditorMode.ClearElementSelection();
-                }
+                FlushPendingElementEdit();
+                _activeElementPropGroup = null;
                 return;
             }
-
-            var target = HudEditorMode.Selected;
-            if (target == null) return;
-
-            // A NEW selection moves the popup to the new click; afterwards the user may
-            // drag it wherever they like.
-            bool moved = _popupStamp != HudEditorMode.SelectionStamp;
-            _popupStamp = HudEditorMode.SelectionStamp;
-            ImGui.SetNextWindowPos(new Vector2(HudEditorMode.PopupPos.x, HudEditorMode.PopupPos.y),
-                moved ? ImGuiCond.Always : ImGuiCond.Appearing);
-            ImGui.SetNextWindowSizeConstraints(new Vector2(300f, 0f), new Vector2(380f, 480f));
-            bool open = true;
-            if (ImGui.Begin("Edit: " + target.Title + "###UIAHudEditPopup",
-                ref open, ImGuiWindowFlags.AlwaysAutoResize | ImGuiWindowFlags.NoCollapse))
+            bool elMoved = _elementPopupStamp != HudEditorMode.ElementStamp;
+            if (elMoved)
             {
-                _frameSnapshot = HudPalette.Snapshot();
-                foreach (var name in target.Palette)
+                FlushPendingElementEdit();
+                _activeElementPropGroup = null;
+            }
+            _elementPopupStamp = HudEditorMode.ElementStamp;
+            // Open CENTERED (FlorpyDorp: the click-point spawn kept landing bottom-
+            // right) and freely resizable up to nearly the screen — the old 400x560
+            // cap cut off long property lists.
+            ImGui.SetNextWindowPos(new Vector2(Screen.width * 0.5f, Screen.height * 0.5f),
+                elMoved ? ImGuiCond.Always : ImGuiCond.Appearing, new Vector2(0.5f, 0.5f));
+            ImGui.SetNextWindowSizeConstraints(new Vector2(320f, 120f),
+                new Vector2(Screen.width * 0.92f, Screen.height * 0.92f));
+            bool elOpen = true;
+            if (ImGui.Begin("Edit: " + el.Def.Type + "###UIAHudElementPopup",
+                ref elOpen, ImGuiWindowFlags.NoCollapse))
+            {
+                // Per-mode edit selector. A "Both" element (shown in bare AND suited) can be
+                // styled differently for each mode; these two buttons pick which mode every
+                // Layout / Appearance / Effects value below reads and writes. They drive the
+                // live preview tier (HudSystem.ForceTier) so what you SEE is what you're
+                // editing, and EditBareTier — the edit target — follows it. Hidden for
+                // single-mode elements: there is nothing to fork, so all edits hit the base.
+                if (UI.Hud.HudElementView.IsBoth(el.Def.Tiers))
                 {
-                    var entry = HudPalette.All.Find(e => e.Name == name);
-                    if (entry != null) ColorWheel(entry);
+                    bool editingBare = HudSystem.ForceTier.HasValue
+                        && HudSystem.ForceTier.Value == HudTier.Bare;
+                    ImGui.TextDisabled("Editing mode:");
+                    ImGui.SameLine();
+                    if (ModeTabButton("SUITED", !editingBare)) HudSystem.ForceTier = HudTier.Suited;
+                    ImGui.SameLine();
+                    if (ModeTabButton("BARE", editingBare)) HudSystem.ForceTier = HudTier.Bare;
+                    ImGui.SameLine();
+                    ImGui.TextDisabled(editingBare
+                        ? "bare — unset values inherit Suited"
+                        : "suited — the base bare inherits from");
+                    ImGui.Separator();
                 }
-                if (target.Values.Length > 0) ImGui.Separator();
-                foreach (var v in target.Values)
-                    DrawConfigWidget(v);
+                _propScratch.Clear();
+                try { el.DescribeProps(_propScratch); }
+                catch { }
+                // Undo is pushed on COMMIT, not on focus: IsItemActivated fires on a
+                // mere click into a widget, and pushing there wiped the redo stack
+                // with dead steps (review finding). The begin-stash keeps the
+                // pre-gesture state; only a real change spends it.
+                System.Action beginElementEdit = () =>
+                {
+                    if (_pendingElementUndo != null) return;
+                    var doc = Features.HudProfileStore.Active;
+                    _pendingElementUndo = doc != null ? doc.Clone() : null;
+                    _pendingElementDocument = doc;
+                    _pendingElementProfile = HudEditorMode.ActiveProfileName();
+                    _pendingElementChanged = false;
+                };
+                System.Action commitElementEdit = () =>
+                {
+                    FlushPendingElementEdit();
+                };
+                System.Action cancelElementEdit = () =>
+                {
+                    CancelPendingElementEdit();
+                };
+                System.Action noteElementChanged = () =>
+                {
+                    if (_pendingElementUndo != null) _pendingElementChanged = true;
+                };
+
+                if (ImGui.BeginTabBar("##UIAHudElementTabs"))
+                {
+                    DrawElementPropTab("Content", UI.Hud.HudPropGroup.Content,
+                        beginElementEdit, commitElementEdit, cancelElementEdit, noteElementChanged);
+                    DrawElementPropTab("Layout", UI.Hud.HudPropGroup.Layout,
+                        beginElementEdit, commitElementEdit, cancelElementEdit, noteElementChanged);
+                    DrawElementPropTab("Appearance", UI.Hud.HudPropGroup.Appearance,
+                        beginElementEdit, commitElementEdit, cancelElementEdit, noteElementChanged);
+                    DrawElementPropTab("Effects", UI.Hud.HudPropGroup.Effects,
+                        beginElementEdit, commitElementEdit, cancelElementEdit, noteElementChanged);
+                    DrawElementPropTab("Interaction", UI.Hud.HudPropGroup.Interaction,
+                        beginElementEdit, commitElementEdit, cancelElementEdit, noteElementChanged);
+                    ImGui.EndTabBar();
+                }
+                // Live feedback only while a widget is actually being edited — an
+                // idle popup must not rebuild the element's meshes every frame.
+                bool editing = false;
+                try { editing = ImGui.IsAnyItemActive(); } catch { }
+                if (editing) HudSystem.RelayoutElement(el);
+                ImGui.Separator();
+                // Point editing for shapes/lines rides the element popup — the whole context
+                // for editing THIS element is here (moved out of the F9 window, play-test ask).
+                if (HudEditorMode.IsPointEditable(el.Def))
+                {
+                    if (HudEditorMode.EditingPoints)
+                    {
+                        var hintCol = new Vector4(1f, 0.62f, 0.15f, 1f);
+                        ImGui.TextColored(hintCol,
+                            "EDIT POINTS: drag anchors - Alt+click deletes - click anywhere adds");
+                        bool bez = el.Def.GetI("curveMode", el.Def.GetB("smooth", false) ? 1 : 0) == 2;
+                        if (bez)
+                        {
+                            ImGui.TextColored(hintCol,
+                                "Bezier: PULL a segment to curve it - Ctrl+click a segment = straight");
+                            ImGui.TextColored(hintCol,
+                                "Ctrl+click an anchor = corner/smooth - Alt+drag a handle = cusp");
+                        }
+                        if (ImGui.Button("Done editing points##pop")) HudEditorMode.EndEditPoints();
+                    }
+                    else if (ImGui.Button("Edit points (drag / add / delete / curve)##pop"))
+                    {
+                        HudEditorMode.BeginEditPoints();
+                    }
+                    ImGui.Separator();
+                }
+                if (ImGui.Button("Duplicate##pop")) HudEditorMode.DuplicateSelected();
+                ImGui.SameLine();
+                if (ImGui.Button("Delete##pop")) HudEditorMode.DeleteSelected();
+                if (el.CanFlatten)
+                {
+                    if (ImGui.Button("Make flat (strip optical effects)##pop")) HudEditorMode.MakeSelectedFlat();
+                    ImGui.TextDisabled("Snapshots this panel as Custom, then disables glass, glow and optical layers.");
+                }
             }
             ImGui.End();
-            if (!open) HudEditorMode.Selected = null;
+            if (!elOpen)
+            {
+                FlushPendingElementEdit();
+                _activeElementPropGroup = null;
+                HudEditorMode.ClearElementSelection();
+            }
         }
 
         /// <summary>A segmented-style button for the per-mode edit selector: the ACTIVE mode is
@@ -1394,41 +1321,6 @@ namespace StationeersUIMod.Windows
                 noteChanged);
             ImGui.EndChild();
             ImGui.EndTabItem();
-        }
-
-        /// <summary>Generic widget for any config entry — the popup doesn't know panels.</summary>
-        private static void DrawConfigWidget(ConfigEntryBase e)
-        {
-            if (e == null) return;
-            string label = e.Definition.Key;
-            var asBool = e as ConfigEntry<bool>;
-            if (asBool != null) { Toggle(asBool, label); return; }
-            var asFloat = e as ConfigEntry<float>;
-            if (asFloat != null)
-            {
-                var range = e.Description?.AcceptableValues as AcceptableValueRange<float>;
-                FloatSlider(asFloat, label,
-                    range != null ? range.MinValue : 0f, range != null ? range.MaxValue : 10f);
-                return;
-            }
-            var asInt = e as ConfigEntry<int>;
-            if (asInt != null)
-            {
-                var range = e.Description?.AcceptableValues as AcceptableValueRange<int>;
-                int v = asInt.Value;
-                if (ImGui.SliderInt(label, ref v, range != null ? range.MinValue : 0,
-                        range != null ? range.MaxValue : 100))
-                    asInt.Value = v;
-                return;
-            }
-            var asString = e as ConfigEntry<string>;
-            if (asString != null && label.IndexOf("Font", System.StringComparison.OrdinalIgnoreCase) >= 0)
-            {
-                FontCombo();
-                return;
-            }
-            var asCurve = e as ConfigEntry<HudCurvature>;
-            if (asCurve != null) CurvatureCombo();
         }
 
         // ------------------------------------------------------------------ pieces

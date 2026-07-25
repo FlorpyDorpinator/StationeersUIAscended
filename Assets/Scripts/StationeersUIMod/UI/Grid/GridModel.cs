@@ -87,8 +87,8 @@ namespace StationeersUIMod.UI.Grid
         /// <summary>
         /// The ONE layout The Grid renders. <see cref="GridDisplayMode.Nested"/> is deprecated and
         /// deliberately unreachable: its escape hatches (the title-bar toggle and the F10 selector)
-        /// were removed, so honouring a stale <c>UIAConfig.GridMode</c> of <c>Nested</c> would strand
-        /// the user in a view they cannot leave. The config value is read by nothing here.
+        /// were removed. The <c>UIAConfig.GridMode</c> config entry that used to gate this was itself
+        /// removed in 0.9.2.5's config-migration cleanup (it had zero readers).
         /// </summary>
         public const GridDisplayMode ActiveMode = GridDisplayMode.Grid;
 

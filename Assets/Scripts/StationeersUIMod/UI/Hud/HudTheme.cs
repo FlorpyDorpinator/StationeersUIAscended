@@ -30,7 +30,7 @@ namespace StationeersUIMod.UI.Hud
         // (HudActiveProfile especially: restoring it would change WHICH profile is active mid-load.)
         private static readonly HashSet<string> Exclude = new HashSet<string>
         {
-            "VisorHudEnabled", "UseDocumentHud", "LegacyImGuiHud", "HudActiveProfile", "HudEditorKey",
+            "VisorHudEnabled", "HudActiveProfile", "HudEditorKey",
             "GridSnapEnabled", "GridSnapSize", "ShowGrid", "DebugShowAll", "DebugShowAllBare",
             "HudScaleWithRes", "HudRefWidth", "HudRefHeight", "HudScaleMatch",
         };

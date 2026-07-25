@@ -74,6 +74,33 @@ case 2: // v2 -> v3  — "OldKey" became "NewKey"
     break;
 ```
 
+**Deleting a key outright** (no rename — the setting is just gone, e.g. a whole feature was
+removed): unlike a default-fix or a rename, simply removing the `cfg.Bind` call does **not**
+remove the key from the player's `.cfg`. BepInEx keeps any key it didn't `Bind` this run as an
+**orphaned entry** and writes it straight back out on the next `Save()` — it lingers forever and
+keeps reappearing in the SLP settings panel. Strip it explicitly:
+
+```csharp
+case 3: // v3 -> v4 — "DeadKey" was removed outright, no replacement
+    RemoveOrphaned(cfg, "10. Visor HUD", "DeadKey");
+    cfg.Save();
+    break;
+```
+
+`RemoveOrphaned`/`TryReadOrphaned` (added for the 0.9.2.5 Wave B cleanup, `ApplyStep(1->2)`,
+see `Documentation/Release Prep Reports/wave-b-removed-keys.md` for a worked example with 38
+keys) reach BepInEx's own `ConfigFile.OrphanedEntries` — the dictionary `Save()` reads to decide
+what to write back for keys nobody bound this run. **Gotcha:** on the exact `BepInEx.dll` this
+project references, `OrphanedEntries` is a **private** property (verified by reflecting the
+get-accessor's IL attributes — `Private`, not the public one upstream BepInEx documents), so
+`cfg.OrphanedEntries` is a compile error (CS1061) here. The helpers reach it through a small
+cached reflection lookup (`BindingFlags.NonPublic | BindingFlags.Instance`) instead — reflection
+isn't restricted by C#'s compile-time visibility check, so a removal through it is
+indistinguishable from what the public API would have done. Fail-soft: if a future BepInEx
+rebuild ever renames or removes the member, the helper returns null and the step simply stops
+deleting orphans instead of throwing. Always call `cfg.Save()` once after a batch of
+`RemoveOrphaned` calls (not per-key) to flush the change to disk in one write.
+
 ### The disciplines that avoid most migrations entirely
 - **Never repurpose a key.** New meaning ⇒ **new key name**. Reusing a key with different
   semantics silently misreads everyone's stored value — the worst kind of bug because it looks fine
@@ -170,5 +197,7 @@ This is the blunt instrument. The two systems above are what make it so you *rar
 - [ ] Packaged from a **fresh `dist/` stage**: current Release DLL, current `About.xml`, and
       `HudProfiles/` mirrored from repo-root `HudProfiles/` (the `dist/` folder goes stale — this
       has shipped the wrong profiles/changelog before).
-- [ ] Changed a shipped default or key meaning? → **added a ConfigMigration step** (§2).
+- [ ] Changed a shipped default, renamed a key, or **removed one outright**? → **added a
+      ConfigMigration step** (§2) — removed keys need `RemoveOrphaned` + `cfg.Save()`, not just
+      a deleted `Bind` call, or they linger in players' `.cfg` forever.
 - [ ] Changed the shipped theme set? → source is repo-root `HudProfiles/`; themes authored clean (§3).

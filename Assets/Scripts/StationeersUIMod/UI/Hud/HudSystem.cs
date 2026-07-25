@@ -49,7 +49,6 @@ namespace StationeersUIMod.UI.Hud
         private static ScanlineGraphic _scanlines; // #8: global projector scan-line overlay (top of the HUD canvas)
 
         private static readonly List<HudPanel> _panels = new List<HudPanel>();
-        private static VitalsCard _vitals;
         private static readonly HudAnimator _animator = new HudAnimator();
 
         private static HudTier _prevTier = HudTier.Bare;
@@ -125,14 +124,9 @@ namespace StationeersUIMod.UI.Hud
 
         // ------------------------------------------------------------------ lifecycle
 
-        /// <summary>Which mode the current canvas was built for — a live flag flip
-        /// tears down and rebuilds (see Update).</summary>
-        private static bool _builtDocMode;
-
         private static void EnsureBuilt()
         {
             if (_canvas != null) return;
-            _builtDocMode = DocumentMode;
 
             var go = new GameObject("UIAscended_HudCanvas");
             UnityEngine.Object.DontDestroyOnLoad(go);
@@ -189,21 +183,8 @@ namespace StationeersUIMod.UI.Hud
             _animator.Clear();
             _vignetteFader = _animator.Register(vrt, _vignetteGroup, suitTier: false, seed: 91);
 
-            if (DocumentMode)
-            {
-                EnsureActiveDocument();
-                BuildViewsFromDocument();
-            }
-            else
-            {
-                AddPanel(new TopStatusBar(), 1);
-                AddPanel(new CompassRibbon(), 2);
-                AddPanel(new EquipmentColumn(), 3);
-                AddPanel(new HandBoxes(), 4);
-                _vitals = new VitalsCard();
-                AddPanel(_vitals, 5);
-                AddPanel(new BareSensesPanel(), 6);
-            }
+            EnsureActiveDocument();
+            BuildViewsFromDocument();
 
             SetLayerRecursively(go, HudLayerUi);
             _screenW = Screen.width;
@@ -219,9 +200,8 @@ namespace StationeersUIMod.UI.Hud
         }
 
         // ------------------------------------------------------------------ document mode
-
-        internal static bool DocumentMode => HudConfig.UseDocumentHud != null
-            && HudConfig.UseDocumentHud.Value;
+        // The HUD is ALWAYS document-driven since 0.9.2.5 — the pre-document fixed panel set
+        // and its UseDocumentHud gate are gone. Everything below is the only render path.
 
         /// <summary>Set when the store swaps documents (profile switch, editor load) —
         /// views are renderers of a dead document at that point and must rebuild.</summary>
@@ -423,11 +403,10 @@ namespace StationeersUIMod.UI.Hud
             }
         }
 
-        /// <summary>Hand the vanilla portrait back from WHOEVER borrowed it — the legacy
-        /// vitals card or any document PortraitWidget. Safe on empty/none.</summary>
+        /// <summary>Hand every borrowed vanilla object back from WHOEVER borrowed it (portrait
+        /// camera, damage doll, moodlet strip). Safe on empty/none.</summary>
         private static void RestoreAnyPortraits()
         {
-            try { _vitals?.RestorePortrait(); } catch { }
             foreach (var p in _panels)
             {
                 var pw = p as Widgets.PortraitWidget;
@@ -450,7 +429,7 @@ namespace StationeersUIMod.UI.Hud
         /// because it is a child of that element's Root.</summary>
         private static void ResortByZ()
         {
-            if (!DocumentMode || _panels.Count == 0) return;
+            if (_panels.Count == 0) return;
 
             _zSortScratch.Clear();
             for (int i = 0; i < _panels.Count; i++)
@@ -480,7 +459,6 @@ namespace StationeersUIMod.UI.Hud
             RestoreAnyPortraits();
             foreach (var p in _panels) p.Destroy();
             _panels.Clear();
-            _vitals = null;
             _animator.Clear();
             if (_vignette != null)
                 _vignetteFader = _animator.Register((RectTransform)_vignette.transform,
@@ -855,7 +833,6 @@ namespace StationeersUIMod.UI.Hud
             foreach (var p in _panels) p.Destroy();
             _panels.Clear();
             _animator.Clear();
-            _vitals = null;
             if (_canvas != null) UnityEngine.Object.Destroy(_canvas.gameObject);
             _canvas = null;
             _rootGroup = null;
@@ -914,8 +891,7 @@ namespace StationeersUIMod.UI.Hud
             // its landing observed rather than timing out unseen.
             try { Core.SlotFlash.Tick(); } catch { }
 
-            bool enabled = HudConfig.VisorHudEnabled != null && HudConfig.VisorHudEnabled.Value
-                && (HudConfig.LegacyImGuiHud == null || !HudConfig.LegacyImGuiHud.Value);
+            bool enabled = HudConfig.VisorHudEnabled != null && HudConfig.VisorHudEnabled.Value;
             if (editorActive) enabled = true;
 
             // Non-HUD glass consumers (the F10 menu window) gate their Tier B/C on this so their
@@ -954,14 +930,6 @@ namespace StationeersUIMod.UI.Hud
                 return;
             }
 
-            // Flipping the Document-HUD toggle live must rebuild the whole surface —
-            // panel set and document views are different worlds (review finding: the
-            // in-window checkbox otherwise left a stale mix on screen).
-            if (_canvas != null && _builtDocMode != DocumentMode)
-            {
-                Shutdown();
-            }
-
             EnsureBuilt();
             _canvas.gameObject.SetActive(true);
 
@@ -984,23 +952,20 @@ namespace StationeersUIMod.UI.Hud
             // over so the box widgets can light it up as they paint below.
             Core.HudDropCue.HoveredSlot = Core.HudDropCue.Active ? ZoneAt()?.Slot : null;
 
-            if (DocumentMode)
+            // Profile switched / editor loaded a different document: views render a
+            // dead object now — rebuild in place (canvas + animator survive).
+            if (_docRebuildNeeded)
             {
-                // Profile switched / editor loaded a different document: views render a
-                // dead object now — rebuild in place (canvas + animator survive).
-                if (_docRebuildNeeded)
-                {
-                    _docRebuildNeeded = false;
-                    _zResortNeeded = false; // a rebuild already lays out in Z order
-                    RebuildViews();
-                }
-                else if (_zResortNeeded)
-                {
-                    _zResortNeeded = false;
-                    ResortByZ();
-                }
-                Features.HudProfileStore.Tick(Time.unscaledTime); // debounced autosave
+                _docRebuildNeeded = false;
+                _zResortNeeded = false; // a rebuild already lays out in Z order
+                RebuildViews();
             }
+            else if (_zResortNeeded)
+            {
+                _zResortNeeded = false;
+                ResortByZ();
+            }
+            Features.HudProfileStore.Tick(Time.unscaledTime); // debounced autosave
 
             // Debug "show everything": fill the snapshot before sampling reads the flag, and
             // the bare variant additionally forces the power-off tier so the suit-off layout
@@ -1067,8 +1032,8 @@ namespace StationeersUIMod.UI.Hud
                 var ev = pan as HudElementView;
                 if (ev == null || ev.Def == null)
                 {
-                    // A panel with no document element (legacy fixed HUD, or a Def momentarily null
-                    // during a profile swap) must still obey the GLOBAL masters. Skipping left its
+                    // A panel with no document element (a Def momentarily null during a profile
+                    // swap) must still obey the GLOBAL masters. Skipping left its
                     // Fader on the 1f field defaults, so it played every transition at full strength
                     // no matter what the globals said.
                     pan.Fader.CollapseAmt = HudTransitionFx.GlobalAmtFor("fxCollapse");
@@ -1123,8 +1088,7 @@ namespace StationeersUIMod.UI.Hud
                     // Portrait holders borrow the vanilla portrait camera; the moment one
                     // is no longer wanted (tier drop, toggle, document edit) the portrait
                     // goes back to vanilla.
-                    if (!want && ReferenceEquals(p, _vitals)) _vitals.RestorePortrait();
-                    else if (!want && p is Widgets.PortraitWidget pw) pw.RestorePortrait();
+                    if (!want && p is Widgets.PortraitWidget pw) pw.RestorePortrait();
                     // The borrowed vanilla damage doll goes back the instant it's unwanted.
                     else if (!want && p is Widgets.DamageDollBorrowWidget dw) dw.RestoreDoll();
                     // Same for the borrowed vanilla moodlet strip.
@@ -1472,13 +1436,8 @@ namespace StationeersUIMod.UI.Hud
         private static float LayoutHash(float scale)
         {
             return scale * 3.1f
-                + HudConfig.TopBarHeight.Value * 1.01f + HudConfig.TopBarCurve.Value * 1.37f
-                + HudConfig.TopBarWidthPct.Value * 211f
-                + HudConfig.CompassWidthPct.Value * 401f + HudConfig.CompassHeight.Value * 1.61f
-                + HudConfig.EquipBoxSize.Value * 2.03f + HudConfig.EquipSpacing.Value * 2.71f
-                + HudConfig.HandBoxWidth.Value * 0.97f + HudConfig.HandBoxHeight.Value * 1.13f
-                + HudConfig.VitalsWidth.Value * 0.89f + HudConfig.VitalsHeight.Value * 1.19f
-                + HudConfig.CornerRadius.Value * 5.3f + HudConfig.BareWordFontSize.Value * 3.7f
+                + HudConfig.CornerRadius.Value * 5.3f
+                + HudConfig.LabelFontSize.Value * 3.7f
                 + HudConfig.FontScale.Value * 97f
                 + HudConfig.EdgeFeather.Value * 41f   // read inside OnPopulateMesh — meshes
                                                       // must rebuild when the slider moves
@@ -1489,10 +1448,9 @@ namespace StationeersUIMod.UI.Hud
                 + (HudWarp.BareFlat ? 1289f : 0f) // bare→flat transition re-lays-out + re-meshes
                 // Per-tier layout: a bare↔suit change re-lays-out the document so elements with a
                 // bare override jump to their bare position/size.
-                + (DocumentMode && HudElementView.LayoutBare ? 4099f : 0f)
-                // Document mode: any element edit bumps the store version — geometry
-                // lives in the document, so this replaces the per-panel size entries.
-                + (DocumentMode ? Features.HudProfileStore.Version * 3571f : 0f);
+                + (HudElementView.LayoutBare ? 4099f : 0f)
+                // Any element edit bumps the store version — geometry lives in the document.
+                + Features.HudProfileStore.Version * 3571f;
         }
 
         /// <summary>A hash of the CONFIGURABLE edge-light appearance (colour / angle / rim / falloff
@@ -2056,24 +2014,6 @@ namespace StationeersUIMod.UI.Hud
         }
 
         // ------------------------------------------------------------------ editor
-
-        public static void CollectEditTargets(List<HudEditTarget> into)
-        {
-            float scale = HudConfig.EffectiveHudScale();
-            foreach (var p in _panels)
-            {
-                try { p.CollectEditTargets(into, scale); } catch { }
-            }
-            into.Add(new HudEditTarget
-            {
-                Title = "Vignette / screen",
-                Palette = new[] { "HudVignette", "HudScanline" },
-                Values = new ConfigEntryBase[] { HudConfig.ShowVignette, HudConfig.Curvature,
-                    HudConfig.CurveStrength, HudConfig.CurveInvert,
-                    HudConfig.WorldCanvasDistance, HudConfig.HudScale },
-                CanvasRect = new Rect(-HudWarp.HalfW, -HudWarp.HalfH, 60f, HudWarp.HalfH * 2f),
-            });
-        }
 
         /// <summary>The live document views, for the designer's hit-testing/selection.
         /// Empty when document mode is off or nothing is built.</summary>

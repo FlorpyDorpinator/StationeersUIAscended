@@ -31,7 +31,6 @@ namespace StationeersUIMod
         private RadialController _radials;
         private ToolRadialFeature _toolRadial;
         private BagRadialFeature _bagRadial;
-        private HudOverlayFeature _hud;
         private SettingsWindow _settingsWindow;
         private ProfileEditorWindow _profileEditor;
         private HudEditorWindow _hudEditorWindow;
@@ -187,7 +186,6 @@ namespace StationeersUIMod
                     _equipFeatures.Add(equipFeature);
                     _radials.Register(equipFeature);
                 }
-                _hud = new HudOverlayFeature();
 
                 _harmony = new Harmony(ModGuid);
                 PatchHarness.TryPatchAll(_harmony,
@@ -811,9 +809,8 @@ namespace StationeersUIMod
         /// <c>GridModel.ShouldRecurse</c> exactly so a shortcut can never pin something the tree walk
         /// then refuses to produce a node for — which would leave a pin record with no window forever.
         /// The renderer is unconditionally <see cref="UI.Grid.GridModel.ActiveMode"/> (Grid; Nested is
-        /// deprecated and unreachable), so this must NOT branch on the stale <c>UIAConfig.GridMode</c>
-        /// entry — a leftover "Nested" value in a user's config would otherwise let a shortcut pin a
-        /// non-storage tool that the Grid walk never produces a region for.</summary>
+        /// deprecated and unreachable) — there is no config branch here (the dead
+        /// <c>UIAConfig.GridMode</c> entry was removed in 0.9.2.5's config-migration cleanup).</summary>
         private static bool IsPinnableContainer(Assets.Scripts.Objects.DynamicThing thing)
         {
             if (thing == null || thing.Slots == null || thing.Slots.Count == 0) return false;
@@ -853,15 +850,9 @@ namespace StationeersUIMod
                 // The click-to-edit popup rides the game's ImGui frame.
                 Windows.HudEditorWindow.DrawPopupOverlay();
 
-                // VisorHudEnabled is the HUD half's master switch: OFF now means NO HUD at all
-                // (vanilla restored), not "fall back to the legacy ImGui HUD". The legacy ImGui
-                // overlay is a diagnostics-only escape hatch that draws solely when the HUD half
-                // is ON and the player explicitly opted into the legacy renderer. The UGUI visor
-                // HUD itself draws from Update (HudSystem stands down when the master is off).
-                if (UI.Hud.HudConfig.VisorHudEnabled.Value && UI.Hud.HudConfig.LegacyImGuiHud.Value)
-                    _hud.Draw();
-                else
-                    _hud.RestoreVanillaIfNeeded();
+                // The visor HUD is pure UGUI and draws from Update (HudSystem stands down, and
+                // restores vanilla's panels, when VisorHudEnabled is off). The 0.1.0 ImGui HUD
+                // overlay was retired in 0.9.2.5 — document mode IS the HUD now.
 
                 if (UIAConfig.RadialEnabled.Value)
                     _radials.Draw();
@@ -1015,7 +1006,6 @@ namespace StationeersUIMod
                 Core.CursorBlockArbiter.Shutdown(); // force-clear the world-pick block (no stale hold post-reload)
                 Core.WorldSlotCue.Hide();          // drop any live world-slot placement highlight
                 Core.WorldSlotCue.Shutdown();
-                _hud?.RestoreVanillaIfNeeded();
                 BagProfileStore.SaveAssignments();
                 IconCache.Clear();
                 Core.VanillaIcons.Clear();          // drop borrowed vanilla sprites (dead refs after a reload)

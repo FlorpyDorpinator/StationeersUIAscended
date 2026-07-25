@@ -66,8 +66,8 @@ namespace StationeersUIMod.Core
 
         /// <summary>Mandatory hot-reload reset: the cached delegates pin a live StatusUpdates
         /// instance and a method handle into an assembly that is about to be replaced. Deliberately
-        /// does NOT clear _failures — HudSystem.Shutdown() is re-entrant from inside Update on a
-        /// DocumentMode toggle, and a user toggle must not refill a per-session poison budget. A
+        /// does NOT clear _failures — HudSystem.Shutdown() can be re-entered from inside Update
+        /// (a mid-session teardown), and that must not refill a per-session poison budget. A
         /// genuine F6 reload replaces the assembly and re-zeroes the static anyway.</summary>
         public static void Shutdown()
         {

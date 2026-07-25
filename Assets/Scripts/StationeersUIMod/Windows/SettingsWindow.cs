@@ -93,21 +93,10 @@ namespace StationeersUIMod.Windows
                 ImGui.SameLine();
                 ImGui.TextDisabled("click HUD elements to edit them");
                 ImGui.Separator();
-                ImGui.TextDisabled("Legacy ImGui overlay (0.1.0 fallback):");
-                Toggle(UIAConfig.HudEnabled, "Enable HUD overlay");
-                Toggle(UIAConfig.HudHandBoxes, "Two-hand boxes");
-                Toggle(UIAConfig.HudStatusStrip, "Top status strip");
-                Toggle(UIAConfig.HudVitals, "Vitals panel");
-                Toggle(UIAConfig.HudClock, "Day / time");
-                Toggle(UIAConfig.HudContextPanel, "Context panel (look-at)");
-                Toggle(UIAConfig.HudVisorArcs, "Visor edge arcs");
-                FloatSlider(UIAConfig.HudScale, "HUD scale", 0.6f, 1.6f);
-                ImGui.Separator();
                 ImGui.TextDisabled("Vanilla panels (hidden, never destroyed):");
                 Toggle(UIAConfig.HideVanillaHands, "Hide vanilla hands panel");
                 Toggle(UIAConfig.HideVanillaClothing, "Hide vanilla clothing panel");
                 Toggle(UIAConfig.HideVanillaStatus, "Hide vanilla status panel");
-                Toggle(UIAConfig.HardcoreGating, "Hardcore gating (helmet / sensors)");
             }
 
             if (ImGui.CollapsingHeader("Slot finder"))
@@ -259,7 +248,6 @@ namespace StationeersUIMod.Windows
             FloatSlider(UIAConfig.RadialSatelliteHubRatio, "Child radial hub ratio", 0.2f, 0.6f);
             Toggle(UIAConfig.RadialDynamicReadoutText, "Dynamic child-hub text (no overlap)");
             FontCombo();
-            Toggle(UIAConfig.UseUnityRadial, "Unity UGUI renderer (procedural wedges, TMP, animations)");
         }
 
         private static string _lastHotSig = "";

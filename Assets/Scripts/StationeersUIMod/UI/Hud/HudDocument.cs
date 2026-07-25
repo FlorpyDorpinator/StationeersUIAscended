@@ -33,7 +33,10 @@ namespace StationeersUIMod.UI.Hud
         Box, Label, Polyline, Icon,
         Readout, Clock, WorldName, DayCounter, ActiveHandBadge, Compass,
         MoodletDashboard, EquipmentColumn, HandBoxes, KeybindChips,
-        Portrait, BodyDoll, SuitChips, BareSenses, Vignette,
+        // (A 'Vignette' member sat here until 0.9.2.5 — never constructible from the editor,
+        // never present in any shipped profile, and mapped to no widget. The visor-edge
+        // vignette is a HudSystem-owned screen overlay, not a document element.)
+        Portrait, BodyDoll, SuitChips, BareSenses,
         // Glassy 2.0 additions (append-only — see enum note above):
         VitalsPanel, DamageDoll, JetpackBox, StateChips,
         // A body doll assembled from user PNG art (config/StationeersUIMod/HudIcons), each

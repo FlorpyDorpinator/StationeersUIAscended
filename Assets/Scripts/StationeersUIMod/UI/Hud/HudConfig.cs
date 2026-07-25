@@ -35,9 +35,7 @@ namespace StationeersUIMod.UI.Hud
     public static class HudConfig
     {
         public static ConfigEntry<bool> VisorHudEnabled;
-        public static ConfigEntry<bool> LegacyImGuiHud;
         public static ConfigEntry<KeyCode> HudEditorKey;
-        public static ConfigEntry<bool> UseDocumentHud;
         public static ConfigEntry<string> HudActiveProfile;
         public static ConfigEntry<bool> GridSnapEnabled;
         public static ConfigEntry<float> GridSnapSize;
@@ -52,35 +50,21 @@ namespace StationeersUIMod.UI.Hud
         public static ConfigEntry<float> WorldCanvasDistance;
         public static ConfigEntry<bool> BareFlattens;
 
-        // Panels
-        public static ConfigEntry<bool> ShowTopBar;
-        public static ConfigEntry<bool> ShowCompass;
-        public static ConfigEntry<bool> ShowEquipment;
-        public static ConfigEntry<bool> ShowHands;
-        public static ConfigEntry<bool> ShowVitals;
+        // Screen-wide overlays. (The six per-panel Show* toggles — top bar, compass, equipment,
+        // hands, vitals, hologram — went with the pre-document fixed panel set in 0.9.2.5:
+        // element visibility now lives in the profile document, per element.)
         public static ConfigEntry<bool> ShowVignette;
-        public static ConfigEntry<bool> ShowHologram;
         public static ConfigEntry<bool> ShowScanlines;   // global CRT/projector scan-line overlay over the HUD canvas
         public static ConfigEntry<bool> TintItemIcons;    // multiply a tint (HudItemIconTint) over every item icon
 
-        // Layout / sizes
+        // Layout / sizes. (The twelve fixed-panel size sliders — TopBar*/Compass*/Equip*/
+        // HandBox*/Vitals* — were deleted with the legacy panels; the document HUD sizes
+        // every element itself.)
         public static ConfigEntry<float> HudScale;
         public static ConfigEntry<bool> HudScaleWithRes;   // scale the HUD with the screen resolution
         public static ConfigEntry<float> HudRefWidth;      // the resolution the layout was authored at
         public static ConfigEntry<float> HudRefHeight;
         public static ConfigEntry<float> HudScaleMatch;    // 0 = follow width, 1 = follow height, 0.5 = blend
-        public static ConfigEntry<float> TopBarHeight;
-        public static ConfigEntry<float> TopBarCurve;
-        public static ConfigEntry<float> TopBarWidthPct;
-        public static ConfigEntry<float> CompassWidthPct;
-        public static ConfigEntry<float> CompassHeight;
-        public static ConfigEntry<float> CompassFovDeg;
-        public static ConfigEntry<float> EquipBoxSize;
-        public static ConfigEntry<float> EquipSpacing;
-        public static ConfigEntry<float> HandBoxWidth;
-        public static ConfigEntry<float> HandBoxHeight;
-        public static ConfigEntry<float> VitalsWidth;
-        public static ConfigEntry<float> VitalsHeight;
 
         // Panel styling
         public static ConfigEntry<float> CornerRadius;
@@ -96,10 +80,9 @@ namespace StationeersUIMod.UI.Hud
         public static ConfigEntry<string> FontName;
         public static ConfigEntry<float> FontScale;
         public static ConfigEntry<float> LabelFontSize;
-        public static ConfigEntry<float> ValueFontSize;
-        public static ConfigEntry<float> CompassFontSize;
-        public static ConfigEntry<float> BareWordFontSize;
-        public static ConfigEntry<float> VitalsRowFontSize;
+        // ValueFontSize / CompassFontSize / BareWordFontSize / VitalsRowFontSize were read only
+        // by the legacy fixed panels and went with them (0.9.2.5); document elements carry their
+        // own FontScale. LabelFontSize survives — HandBoxesWidget still reads it.
 
         // Diegetic behavior
         public static ConfigEntry<bool> DiegeticTiers;
@@ -107,13 +90,14 @@ namespace StationeersUIMod.UI.Hud
         public static ConfigEntry<bool> LowPowerDropouts;
         public static ConfigEntry<float> LowPowerThreshold;
 
-        // Power-transition glitch (transform-jitter envelope; see HudGlitch)
-        // NOTE: the old GlitchShader knob was RETIRED in 0.9.0 — it was bound but read by
-        // nothing (a leftover from the abandoned CameraFilterPack screen-shader approach);
-        // its orphaned value in existing cfg files is harmless (FlorpyDorp-approved call).
-        public static ConfigEntry<bool> GlitchEnabled;
-        public static ConfigEntry<float> GlitchDuration;
-        public static ConfigEntry<float> GlitchIntensity;
+        // Power-transition glitch (transform-jitter envelope; see HudGlitch). Unified onto the
+        // fxGlitch tri-state family (0.9.2.5, audit 04 #7): the master on/off and the severity
+        // are now HudConfig.FxGlitchOn / FxGlitchAmt (FX section below) — the same globals the
+        // per-element tri-state resolver uses — instead of a second, easy-to-forget switch that
+        // left the F9 "Glitch tear" row inert by default. GlitchEnabled/GlitchIntensity are gone;
+        // duration has no tri-state analogue and moved to FxGlitchDuration. These two per-event
+        // gates survive because a user may want the tear on only ONE side of the transition
+        // (e.g. suit death but not boot) — the tri-state has no way to express that.
         public static ConfigEntry<bool> GlitchOnPowerDown;
         public static ConfigEntry<bool> GlitchOnPowerUp;
 
@@ -161,6 +145,7 @@ namespace StationeersUIMod.UI.Hud
         public static ConfigEntry<float> FxCollapseAmt;
         public static ConfigEntry<bool> FxGlitchOn;
         public static ConfigEntry<float> FxGlitchAmt;
+        public static ConfigEntry<float> FxGlitchDuration; // seconds the tear envelope runs (no tri-state analogue)
         public static ConfigEntry<bool> FxWarpOn;
         public static ConfigEntry<float> FxWarpAmt;
         // The rest of the transition registry (see HudTransitionFx): every effect owns a MASTER
@@ -308,12 +293,9 @@ namespace StationeersUIMod.UI.Hud
             const string S = "10. Visor HUD";
 
             VisorHudEnabled = cfg.Bind(S, "VisorHudEnabled", true,
-                "The UGUI visor HUD: curved top status bar, compass, equipment column, hand " +
-                "boxes, vitals card, diegetic power tiers. Replaces the legacy ImGui overlay.");
-            UseDocumentHud = cfg.Bind(S, "UseDocumentHud", true,
-                "Render the HUD from the active layout profile (a document of movable, " +
-                "restylable elements — the HUD Designer). Off = the fixed 0.5.0 panel set, " +
-                "kept as a fallback during the transition.");
+                "The UGUI visor HUD, rendered from the active layout profile (a document of " +
+                "movable, restylable elements — the HUD Designer). Off = no HUD at all and " +
+                "vanilla's own panels come back.");
             HudActiveProfile = cfg.Bind(S, "HudActiveProfile", "Stationeers Blue",
                 "Which HUD layout profile to render (a .xml in config/StationeersUIMod/" +
                 "HudProfiles). 'Stationeers Blue' is the shipped default; shipped profiles " +
@@ -333,8 +315,6 @@ namespace StationeersUIMod.UI.Hud
             DebugShowAllBare = cfg.Bind(S, "DebugShowAllBare", false,
                 "F9 DEBUG: same as DebugShowAll but forces the POWER-OFF (bare) tier, to lay " +
                 "out the suit-off HUD full.");
-            LegacyImGuiHud = cfg.Bind(S, "LegacyImGuiHud", false,
-                "Draw the old 0.1.0 ImGui HUD instead (kept as a fallback during the port).");
             HudEditorKey = cfg.Bind(S, "HudEditorKey", KeyCode.F9,
                 "Key that opens the HUD editor: click any HUD element to edit its colours, " +
                 "fonts and sizes in place. NOTE: vanilla binds F9 to CREATIVE spawn-item; " +
@@ -362,14 +342,7 @@ namespace StationeersUIMod.UI.Hud
                 "When the suit is off or powered down (BARE), drop all visor curvature so the " +
                 "remaining HUD reads flat. The top bar hides itself by tier regardless.");
 
-            ShowTopBar = cfg.Bind(S, "ShowTopBar", true, "The curved top status bar.");
-            ShowCompass = cfg.Bind(S, "ShowCompass", true, "Compass ribbon under the top bar.");
-            ShowEquipment = cfg.Bind(S, "ShowEquipment", true, "Left equipment column (1-6).");
-            ShowHands = cfg.Bind(S, "ShowHands", true, "Bottom-centre hand boxes. Never a hotbar.");
-            ShowVitals = cfg.Bind(S, "ShowVitals", true, "Bottom-right vitals card.");
             ShowVignette = cfg.Bind(S, "ShowVignette", true, "Visor-edge darkening.");
-            ShowHologram = cfg.Bind(S, "ShowHologram", true,
-                "The live 3D character hologram inside the vitals card.");
             ShowScanlines = cfg.Bind(S, "ShowScanlines", false,
                 "Projector scan-lines: horizontal CRT/HUD-lens lines across the whole visor HUD " +
                 "canvas (colour = the HudScanline palette entry; alpha 0 = invisible). Covers the " +
@@ -400,34 +373,6 @@ namespace StationeersUIMod.UI.Hud
                     "HEIGHT only, 0.5 = blend both (same curve as Unity's CanvasScaler). Height-match keeps " +
                     "text size steady on ultrawide; width-match keeps full-width bars proportional.",
                     new AcceptableValueRange<float>(0f, 1f)));
-            TopBarHeight = cfg.Bind(S, "TopBarHeight", 64f,
-                new ConfigDescription("Top bar band thickness (px).", new AcceptableValueRange<float>(36f, 120f)));
-            TopBarCurve = cfg.Bind(S, "TopBarCurve", 26f,
-                new ConfigDescription("How far the top bar's ends sweep down (px). 0 = straight bar.",
-                    new AcceptableValueRange<float>(0f, 120f)));
-            TopBarWidthPct = cfg.Bind(S, "TopBarWidth", 0.98f,
-                new ConfigDescription("Top bar width as a fraction of the screen.",
-                    new AcceptableValueRange<float>(0.5f, 1f)));
-            CompassWidthPct = cfg.Bind(S, "CompassWidth", 0.12f,
-                new ConfigDescription("Compass ribbon width as a fraction of the screen (the " +
-                    "'about 10% of the top centre' ask).", new AcceptableValueRange<float>(0.05f, 0.4f)));
-            CompassHeight = cfg.Bind(S, "CompassHeight", 34f,
-                new ConfigDescription("Compass ribbon height (px).", new AcceptableValueRange<float>(20f, 80f)));
-            CompassFovDeg = cfg.Bind(S, "CompassSpanDegrees", 90f,
-                new ConfigDescription("How many compass degrees the ribbon spans.",
-                    new AcceptableValueRange<float>(40f, 200f)));
-            EquipBoxSize = cfg.Bind(S, "EquipBoxSize", 76f,
-                new ConfigDescription("Equipment column box size (px).", new AcceptableValueRange<float>(44f, 128f)));
-            EquipSpacing = cfg.Bind(S, "EquipSpacing", 10f,
-                new ConfigDescription("Gap between equipment boxes (px).", new AcceptableValueRange<float>(2f, 30f)));
-            HandBoxWidth = cfg.Bind(S, "HandBoxWidth", 132f,
-                new ConfigDescription("Hand box width (px).", new AcceptableValueRange<float>(80f, 240f)));
-            HandBoxHeight = cfg.Bind(S, "HandBoxHeight", 92f,
-                new ConfigDescription("Hand box height (px).", new AcceptableValueRange<float>(56f, 160f)));
-            VitalsWidth = cfg.Bind(S, "VitalsWidth", 250f,
-                new ConfigDescription("Vitals card width (px).", new AcceptableValueRange<float>(160f, 420f)));
-            VitalsHeight = cfg.Bind(S, "VitalsHeight", 158f,
-                new ConfigDescription("Vitals card height (px).", new AcceptableValueRange<float>(100f, 300f)));
 
             CornerRadius = cfg.Bind(S, "CornerRadius", 10f,
                 new ConfigDescription("Panel corner rounding (px).", new AcceptableValueRange<float>(0f, 28f)));
@@ -464,14 +409,6 @@ namespace StationeersUIMod.UI.Hud
                 new ConfigDescription("Multiplies every HUD font size.", new AcceptableValueRange<float>(0.6f, 1.8f)));
             LabelFontSize = cfg.Bind(S, "LabelFontSize", 11f,
                 new ConfigDescription("Small caps labels (PRESSURE, HELMET...).", new AcceptableValueRange<float>(7f, 22f)));
-            ValueFontSize = cfg.Bind(S, "ValueFontSize", 17f,
-                new ConfigDescription("The big readout values.", new AcceptableValueRange<float>(10f, 30f)));
-            CompassFontSize = cfg.Bind(S, "CompassFontSize", 12f,
-                new ConfigDescription("Compass letters/degrees.", new AcceptableValueRange<float>(8f, 22f)));
-            BareWordFontSize = cfg.Bind(S, "BareWordFontSize", 20f,
-                new ConfigDescription("The felt-sense words (WARM, HUNGRY...).", new AcceptableValueRange<float>(12f, 36f)));
-            VitalsRowFontSize = cfg.Bind(S, "VitalsRowFontSize", 13f,
-                new ConfigDescription("Vitals card rows.", new AcceptableValueRange<float>(9f, 22f)));
 
             DiegeticTiers = cfg.Bind(S, "DiegeticTiers", true,
                 "The HUD is the suit's HUD: full readout only with a powered suit; without " +
@@ -486,17 +423,6 @@ namespace StationeersUIMod.UI.Hud
                 new ConfigDescription("Suit battery % under which the HUD starts glitching.",
                     new AcceptableValueRange<float>(0f, 40f)));
 
-            GlitchEnabled = cfg.Bind(S, "GlitchEnabled", false,
-                "A momentary screen distortion when the suit powers down / off / on, using one of " +
-                "the game's own CameraFilterPack shaders. Distorts the rendered VIEW during the " +
-                "transition (the overlay HUD is composited after the camera; a true HUD-only " +
-                "version needs the RenderTexture route).");
-            GlitchDuration = cfg.Bind(S, "GlitchDuration", 1.1f,
-                new ConfigDescription("How long the glitch lasts, seconds.",
-                    new AcceptableValueRange<float>(0.1f, 4f)));
-            GlitchIntensity = cfg.Bind(S, "GlitchIntensity", 0.85f,
-                new ConfigDescription("Peak severity of the glitch (0-1).",
-                    new AcceptableValueRange<float>(0f, 1f)));
             GlitchOnPowerDown = cfg.Bind(S, "GlitchOnPowerDown", true,
                 "Play the glitch when the suit powers down / is taken off (HUD collapses).");
             GlitchOnPowerUp = cfg.Bind(S, "GlitchOnPowerUp", true,
@@ -717,10 +643,15 @@ namespace StationeersUIMod.UI.Hud
                 new ConfigDescription("Default collapse strength for elements that follow the globals.",
                     new AcceptableValueRange<float>(0f, 2f)));
             FxGlitchOn = cfg.Bind(FX, "GlitchTearOn", true,
-                "Master for the glitch tear on power transitions.");
+                "Master for the glitch tear on power transitions. Also the master for HudGlitch's " +
+                "own transform-jitter envelope (fire gate) — the two systems were unified 0.9.2.5.");
             FxGlitchAmt = cfg.Bind(FX, "GlitchTearStrength", 1f,
-                new ConfigDescription("Default glitch strength for elements that follow the globals.",
+                new ConfigDescription("Default glitch strength for elements that follow the globals; " +
+                    "also HudGlitch's peak envelope severity.",
                     new AcceptableValueRange<float>(0f, 2f)));
+            FxGlitchDuration = cfg.Bind(FX, "GlitchTearDuration", 1.1f,
+                new ConfigDescription("How long the glitch tear envelope lasts, seconds.",
+                    new AcceptableValueRange<float>(0.1f, 4f)));
             FxWarpOn = cfg.Bind(FX, "WarpParticipationOn", true,
                 "Master for whether elements take the visor warp/curve at all.");
             FxWarpAmt = cfg.Bind(FX, "WarpStrength", 1f,

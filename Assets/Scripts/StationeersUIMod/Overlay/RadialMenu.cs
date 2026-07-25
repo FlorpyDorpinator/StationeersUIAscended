@@ -1474,7 +1474,6 @@ namespace StationeersUIMod.Overlay
             }
             UI.SearchPanelView.Hide();
 
-            var dl = ImGui.GetForegroundDrawList();
             var level = Top();
             var visible = level.Visible;
             int count = visible.Count;
@@ -1589,212 +1588,20 @@ namespace StationeersUIMod.Overlay
             }
 
             // The interaction model (hover, satellites, levels, sticky/hold logic) lives in RadialMenu.
-            // Only the paint differs. Unity UGUI (procedural) is the primary renderer.
-            if (UIAConfig.UseUnityRadial.Value)
-            {
-                RadialEntry readout = _satellite != null && _satHovered >= 0 ? SatEntry(_satHovered)
-                                    : _hovered >= 0 ? MainEntry(_hovered)
-                                    : null;
-                UI.UnityRadialView.Render(
-                    center, innerR, outerR, visible,
-                    _satellite == null ? _hovered : -1, level.Title,
-                    _satellite?.Center, _satellite?.InnerR ?? 0f, _satellite?.OuterR ?? 0f,
-                    _satellite?.Visible, _satHovered, _satellite?.Title,
-                    readout, null, _sticky,
-                    _parking.Dragging?.Item, _closeHovered,
-                    pageText, satPageText);
-                UI.ParkedItemsView.Render(_parking, mouse);
-                return;
-            }
-            UI.UnityRadialView.Hide();
-            UI.ParkedItemsView.Render(_parking, mouse);
-
-            if (pageText != null)
-                DrawUtil.TextShadowCentered(dl, center - new Vector2(0f, outerR + 22f), Theme.TextDim, pageText);
-            if (satPageText != null && _satellite != null)
-                DrawUtil.TextShadowCentered(dl, _satellite.Center - new Vector2(0f, _satellite.OuterR + 18f), Theme.TextDim, satPageText);
-
-            // Legacy ImGui draw-list path (kept for A/B and as reference)
-            DrawRing(dl, center, innerR, outerR, visible,
-                _satellite == null ? _hovered : (_satellite != null ? _satellite.SourceIndex : -1),
-                _satellite != null, solidHub: true);
-            if (_satellite != null)
-                DrawRing(dl, _satellite.Center, _satellite.InnerR, _satellite.OuterR, _satellite.Visible, _satHovered, false, solidHub: false);
-
-            DrawCenterReadout(dl, center, innerR, level);
-        }
-
-        private static void DrawRing(ImDrawListPtr dl, Vector2 center, float innerR, float outerR,
-            List<RadialEntry> entries, int hovered, bool dimmed, bool solidHub)
-        {
-            int count = entries.Count;
-            float bgAlpha = dimmed ? 0.14f : 0.25f;
-            dl.AddCircleFilled(center, outerR + 6f, Theme.C(0f, 0f, 0f, bgAlpha), 64);
-            dl.AddCircle(center, outerR + 6f, Theme.PanelBorder, 64, 1.5f);
-            if (solidHub)
-                dl.AddCircleFilled(center, innerR - 6f, Theme.HubBg, 48); // readable center readout
-            dl.AddCircle(center, innerR - 6f, Theme.PanelBorder, 48, 1.5f);
-
-            if (count == 0)
-            {
-                DrawUtil.TextShadowCentered(dl, center, Theme.TextDim, "(empty)");
-                return;
-            }
-
-            float sectorSize = Mathf.PI * 2f / count;
-            float contentAlpha = dimmed ? 0.45f : 1f;
-            for (int i = 0; i < count; i++)
-            {
-                var entry = entries[i];
-                float a0 = -Mathf.PI * 0.5f - sectorSize * 0.5f + sectorSize * i;
-                float a1 = a0 + sectorSize;
-
-                uint fill = !entry.Enabled ? Theme.RingDisabled
-                          : entry.FillOverride.HasValue ? (i == hovered ? Theme.RingStowHover : entry.FillOverride.Value)
-                          : i == hovered ? Theme.RingHover
-                          : Theme.RingBg;
-
-                // Wedges touch (no angular gap); a thin radial separator divides them instead.
-                // A lone entry is drawn as a complete annulus — stroking a 2*PI arc leaves a
-                // notch where the path's ends meet (the "circle doesn't close" bug).
-                if (count == 1)
-                    DrawUtil.RingFull(dl, center, innerR, outerR, fill);
-                else
-                    DrawUtil.RingSector(dl, center, innerR, outerR, a0, a1, fill);
-
-                if (i == hovered && entry.Enabled && !dimmed)
-                {
-                    uint rim = entry.AccentOverride ?? Theme.RingHoverRim;
-                    if (count == 1) DrawUtil.CircleOutline(dl, center, outerR - 2f, rim, 3f);
-                    else DrawUtil.ArcLine(dl, center, outerR - 2f, a0, a1, rim, 3f);
-                }
-
-                // Content: icon (aspect preserved) with one centered, width-fitted label under it.
-                float aMid = (a0 + a1) * 0.5f;
-                var dir = new Vector2(Mathf.Cos(aMid), Mathf.Sin(aMid));
-                float midRadius = (innerR + outerR) * 0.5f;
-                var slotCenter = center + dir * midRadius;
-
-                float ringWidth = outerR - innerR;
-                float iconSize = Mathf.Clamp(ringWidth * 0.48f, 22f, 56f);
-
-                // Usable label width. The tangential chord at midRadius bounds wedges at the top
-                // and bottom; the ring's radial thickness bounds those at the left and right.
-                // Blend by direction. Clamping the half-angle at PI/2 matters: with one entry the
-                // sector spans 2*PI and sin(PI) == 0, which used to collapse the budget to 42px
-                // (the "B.." bug).
-                float halfAngle = Mathf.Min(sectorSize * 0.5f, Mathf.PI * 0.5f);
-                float chord = 2f * midRadius * Mathf.Sin(halfAngle);
-                float availW = Mathf.Abs(dir.x) * ringWidth + Mathf.Abs(dir.y) * chord;
-                availW = Mathf.Clamp(availW - 10f, 44f, ringWidth * 2.4f);
-
-                float iconAlpha = (entry.Enabled ? 1f : 0.35f) * contentAlpha;
-                uint labelColor = entry.Enabled ? Theme.TextPrimary : Theme.TextDisabled;
-
-                if (entry.Icon != null)
-                {
-                    DrawUtil.Icon(dl, entry.Icon, slotCenter - new Vector2(0f, ringWidth * 0.16f), iconSize, iconAlpha);
-                    float textTop = slotCenter.y - ringWidth * 0.16f + iconSize * 0.5f + 2f;
-                    float textH = Mathf.Max(16f, ringWidth * 0.42f);
-                    var textCenter = new Vector2(slotCenter.x, textTop + textH * 0.5f);
-                    DrawUtil.TextFittedCentered(dl, textCenter, availW, textH, labelColor, entry.Label);
-                }
-                else
-                {
-                    DrawUtil.TextFittedCentered(dl, slotCenter, availW, ringWidth * 0.72f, labelColor, entry.Label, 3);
-                }
-
-                // State/value line (the Unity renderer's under-icon text). Without it the
-                // ImGui fallback is blind while scroll-adjusting a device value.
-                string state = null;
-                try { state = entry.ValueText != null ? entry.ValueText() : entry.StateText; }
-                catch { }
-                if (!string.IsNullOrEmpty(state))
-                {
-                    state = Core.StateText.Strip(state);
-                    if (entry.IsScrollAdjust) state = "^ " + state + " v"; // ASCII-only font atlas
-                    DrawUtil.TextShadowCentered(dl,
-                        slotCenter + new Vector2(0f, ringWidth * 0.30f),
-                        entry.IsScrollAdjust ? Theme.Accent : Theme.TextDim, state);
-                }
-
-                // ASCII only: the game's ImGui font atlas has no glyphs for fancy arrows.
-                // Same gate as the Unity renderer: an empty slide-out shows no arrow.
-                if (entry.HasSlideOut && entry.SlideOutHasContent())
-                    DrawUtil.TextShadowCentered(dl, center + dir * (outerR - 10f), Theme.Accent, ">");
-                else if (entry.IsBranch)
-                    DrawUtil.TextShadowCentered(dl, center + dir * (outerR - 10f), Theme.TextDim, "+");
-            }
-
-            // Wedges now touch, so draw the dividers on top of them (skipped for a lone entry,
-            // which is a continuous annulus with no boundaries).
-            if (count > 1)
-            {
-                for (int i = 0; i < count; i++)
-                {
-                    float boundary = -Mathf.PI * 0.5f - sectorSize * 0.5f + sectorSize * i;
-                    DrawUtil.RingSeparator(dl, center, innerR, outerR, boundary, Theme.RingSep, 1.5f);
-                }
-            }
-        }
-
-        /// <summary>The center always says what the hovered entry will do. Every line is
-        /// fitted to the hub circle's CHORD at that line's height, so text can never cross
-        /// the circle no matter how long the strings or how small the hub.</summary>
-        private void DrawCenterReadout(ImDrawListPtr dl, Vector2 center, float innerR, Level level)
-        {
-            float hubR = innerR - 6f;
-
-            // Usable width inside the circle at vertical offset y (text is ~16px tall).
-            float ChordW(float y)
-            {
-                float edge = Mathf.Abs(y) + 9f;
-                if (edge >= hubR) return 0f;
-                return 2f * Mathf.Sqrt(hubR * hubR - edge * edge) - 8f;
-            }
-
-            void Line(float y, uint color, string text)
-            {
-                if (string.IsNullOrEmpty(text)) return;
-                float w = ChordW(y);
-                if (w < 24f) return; // no room at this height — drop the line entirely
-                // Shrink to fit rather than truncate; single line, so a long name stays whole.
-                DrawUtil.TextFittedCentered(dl, center + new Vector2(0f, y), w, 18f, color, text, maxLines: 1);
-            }
-
-            // Breadcrumb: which ring the pointer is acting in ("Toolbelt" / "Open: Spray Gun").
-            string title = _satellite != null ? _satellite.Title : level.Title;
-            if (_satellite != null)
-                Line(-58f, Theme.TextDisabled, level.Title);
-            Line(-40f, Theme.TextDim, title);
-
-            // ImGui fallback's stand-in for the hub CLOSE button (input works either way).
-            Line(62f, _closeHovered ? Theme.Accent : Theme.TextDisabled, "- CLOSE -");
-
-            RadialEntry hovered = _satellite != null && _satHovered >= 0 ? SatEntry(_satHovered)
+            // Unity UGUI (procedural) is the only renderer — the legacy ImGui draw-list painter
+            // was removed in 0.9.2.5 (FlorpyDorp: "delete the renderer, keep the settings editor").
+            RadialEntry readout = _satellite != null && _satHovered >= 0 ? SatEntry(_satHovered)
                                 : _hovered >= 0 ? MainEntry(_hovered)
                                 : null;
-            if (hovered == null)
-            {
-                string hint = _sticky
-                    ? (UIAConfig.IsB ? "MMB/LMB select | RMB back" : "LMB select | RMB back")
-                    : (UIAConfig.IsB ? "hover to dive | release to cancel" : "release to cancel");
-                Line(-12f, Theme.TextDisabled, hint);
-                return;
-            }
-
-            string verb = hovered.ActionText ?? (hovered.IsBranch ? "Open" : "Select");
-            Line(-14f, hovered.Enabled ? Theme.Accent : Theme.TextDisabled, verb);
-            // Don't print the same word twice when the wedge IS its verb ("Replace").
-            if (!string.Equals(hovered.Label, verb, StringComparison.OrdinalIgnoreCase))
-                Line(6f, hovered.Enabled ? Theme.TextPrimary : Theme.TextDisabled, hovered.Label);
-            Line(26f, Theme.TextDim, hovered.Sublabel);
-            if (!hovered.Enabled && !string.IsNullOrEmpty(hovered.DisabledReason))
-                Line(46f, Theme.Critical, hovered.DisabledReason);
-            else if (!string.IsNullOrEmpty(hovered.Warning))
-                Line(46f, Theme.Warn, hovered.Warning);
-            else if (hovered.HasSlideOut && hovered.SlideOutHasContent() && _satellite == null)
-                Line(46f, Theme.TextDim, "slide out > " + (hovered.SlideOutLabel ?? "more"));
+            UI.UnityRadialView.Render(
+                center, innerR, outerR, visible,
+                _satellite == null ? _hovered : -1, level.Title,
+                _satellite?.Center, _satellite?.InnerR ?? 0f, _satellite?.OuterR ?? 0f,
+                _satellite?.Visible, _satHovered, _satellite?.Title,
+                readout, null, _sticky,
+                _parking.Dragging?.Item, _closeHovered,
+                pageText, satPageText);
+            UI.ParkedItemsView.Render(_parking, mouse);
         }
     }
 }

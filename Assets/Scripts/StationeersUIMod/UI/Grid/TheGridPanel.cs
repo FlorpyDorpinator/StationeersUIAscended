@@ -19,8 +19,9 @@ namespace StationeersUIMod.UI.Grid
     /// <see cref="GridRegionView"/> (the flat, packed grid of bordered container regions).
     ///
     /// <para>The renderer is ALWAYS <see cref="GridRegionView"/>. The old nested-tree renderer
-    /// (<see cref="BagGridView"/>) and its <see cref="UIAConfig.GridMode"/> config entry are retained
-    /// but deprecated and unreachable: no UI builds, activates, or writes them any more.</para>
+    /// (<see cref="BagGridView"/>) is retained but deprecated and unreachable: no UI builds,
+    /// activates, or writes it any more. Its <c>UIAConfig.GridMode</c> config entry (zero readers)
+    /// was itself removed in 0.9.2.5's config-migration cleanup.</para>
     ///
     /// <para>Geometry (position + size) is user-driven and PERSISTED: dragging the title bar moves the
     /// window, dragging the bottom-right grip (drawn as three short diagonal lines, never a glyph)

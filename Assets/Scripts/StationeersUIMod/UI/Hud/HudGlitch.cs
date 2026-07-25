@@ -28,12 +28,15 @@ namespace StationeersUIMod.UI.Hud
         private static float Elapsed => Time.unscaledTime - _startTime;
         public static bool Active => _duration > 0f && Elapsed < _duration;
 
-        /// <summary>Fire on a real power transition, honoring the per-event config gates.</summary>
+        /// <summary>Fire on a real power transition, honoring the per-event config gates. The
+        /// master is the SAME fxGlitch tri-state global the per-element resolver uses
+        /// (<see cref="HudConfig.FxGlitchOn"/>) — unified 0.9.2.5, no separate "GlitchEnabled"
+        /// switch anymore (audit 04 #7).</summary>
         public static void Trigger(bool powerDown)
         {
             try
             {
-                if (HudConfig.GlitchEnabled == null || !HudConfig.GlitchEnabled.Value) return;
+                if (HudConfig.FxGlitchOn == null || !HudConfig.FxGlitchOn.Value) return;
                 if (powerDown && !HudConfig.GlitchOnPowerDown.Value) return;
                 if (!powerDown && !HudConfig.GlitchOnPowerUp.Value) return;
                 Fire();
@@ -50,8 +53,10 @@ namespace StationeersUIMod.UI.Hud
 
         private static void Fire()
         {
-            _maxIntensity = HudConfig.GlitchIntensity != null ? HudConfig.GlitchIntensity.Value : 0.85f;
-            _duration = Mathf.Max(0.1f, HudConfig.GlitchDuration != null ? HudConfig.GlitchDuration.Value : 1.1f);
+            // Severity and duration now come from the fxGlitch tri-state globals (FxGlitchAmt /
+            // FxGlitchDuration) rather than the retired GlitchIntensity/GlitchDuration pair.
+            _maxIntensity = HudConfig.FxGlitchAmt != null ? HudConfig.FxGlitchAmt.Value : 1f;
+            _duration = Mathf.Max(0.1f, HudConfig.FxGlitchDuration != null ? HudConfig.FxGlitchDuration.Value : 1.1f);
             _startTime = Time.unscaledTime;
         }
 

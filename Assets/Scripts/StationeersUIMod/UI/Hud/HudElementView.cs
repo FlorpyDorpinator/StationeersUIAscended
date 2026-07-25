@@ -1747,19 +1747,5 @@ namespace StationeersUIMod.UI.Hud
             for (int i = 0; i < tw.Length; i++) tw[i].StrengthMult = mult;
         }
 
-        /// <summary>Default editor target: the element's own rect. Views with richer
-        /// internals may add more.</summary>
-        public override void CollectEditTargets(List<HudEditTarget> into, float scale)
-        {
-            var c = CenterForLogical(scale);
-            var s = SizeFor(scale);
-            into.Add(new HudEditTarget
-            {
-                Title = Def.Type.ToString(),
-                Palette = System.Array.Empty<string>(),
-                Values = System.Array.Empty<ConfigEntryBase>(),
-                CanvasRect = new Rect(c.x - s.x * 0.5f, c.y - s.y * 0.5f, s.x, s.y),
-            });
-        }
     }
 }

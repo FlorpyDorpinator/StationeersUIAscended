@@ -4,24 +4,10 @@ using UnityEngine;
 
 namespace StationeersUIMod.UI.Hud
 {
-    /// <summary>
-    /// A clickable region of the HUD in the F9 editor: what it is called, which palette
-    /// entries paint it, and which config values shape it. The editor window renders the
-    /// values generically (bool → checkbox, ranged float → slider, font name → combo).
-    /// Rect is in CANVAS coords (centre origin, y up) so hit-testing shares the warp
-    /// inverse with everything else.
-    /// </summary>
-    public sealed class HudEditTarget
-    {
-        public string Title;
-        public string[] Palette = System.Array.Empty<string>();
-        public ConfigEntryBase[] Values = System.Array.Empty<ConfigEntryBase>();
-        public Rect CanvasRect;
-    }
-
     /// <summary>A screen region of the HUD that accepts a dragged radial chip (0.6.2):
     /// the hand boxes and the six equipment boxes. Rect in CANVAS coords (centre origin,
-    /// y up) — hit-test with the inverse-warped mouse, exactly like HudEditTarget.</summary>
+    /// y up) — hit-test with the inverse-warped mouse, exactly like the editor's own
+    /// element hit-test.</summary>
     public sealed class HudDropZone
     {
         public Rect CanvasRect;
@@ -95,9 +81,6 @@ namespace StationeersUIMod.UI.Hud
 
         /// <summary>Config toggle for this panel.</summary>
         public abstract ConfigEntry<bool> Toggle { get; }
-
-        /// <summary>Editor click targets (canvas coords).</summary>
-        public abstract void CollectEditTargets(List<HudEditTarget> into, float scale);
 
         /// <summary>Chip drop targets this panel offers (hand boxes, equipment boxes).
         /// Default: none. Called only while the panel is actually visible.</summary>

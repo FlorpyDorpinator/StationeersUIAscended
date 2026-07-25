@@ -22,22 +22,13 @@ namespace StationeersUIMod.Windows
         public static readonly HashSet<string> HotPalette = new HashSet<string>();
         public static string HotSignature { get; private set; } = "";
 
-        public static HudEditTarget Selected;
-        /// <summary>Popup anchor in ImGui coords (y down).</summary>
-        public static Vector2 PopupPos;
-        /// <summary>Bumped on every new selection so the popup MOVES to the new click
-        /// (ImGuiCond.Appearing alone pins it where it first opened).</summary>
-        public static int SelectionStamp;
-
         private static Canvas _dimCanvas;
         private static Image _dim;
         private static bool _blockedCursor;
-        private static readonly List<HudEditTarget> _targets = new List<HudEditTarget>();
 
         public static void Enter()
         {
             Active = true;
-            Selected = null;
             // The world stays live behind the editor; without this, editor clicks also
             // ran vanilla's cursor machine (same latent hole ModalScope plugs for radials).
             Core.CursorBlockArbiter.Hold("hudeditor");
@@ -50,7 +41,6 @@ namespace StationeersUIMod.Windows
             // the visible partial drag as one undoable edit before tearing down its state.
             CommitActiveDrag();
             Active = false;
-            Selected = null;
             SelectedElement = null;
             MenuSelected = false;
             GridSelected = false;
@@ -111,47 +101,9 @@ namespace StationeersUIMod.Windows
             bool imguiOwnsMouse = false;
             try { imguiOwnsMouse = ImGuiNET.ImGui.GetIO().WantCaptureMouse; } catch { }
 
-            // Document mode gets the full designer; the legacy panel set keeps the
-            // original click-to-config flow.
-            if (HudSystem.DocumentMode)
-            {
-                UpdateDesigner(m, p, imguiOwnsMouse);
-                return;
-            }
-
-            _targets.Clear();
-            HudSystem.CollectEditTargets(_targets);
-
-            // Hover: smallest containing rect wins (panels overlap the vignette strip).
-            HudEditTarget hover = null;
-            float bestArea = float.MaxValue;
-            if (!imguiOwnsMouse)
-            {
-                foreach (var t in _targets)
-                {
-                    if (!t.CanvasRect.Contains(p)) continue;
-                    float area = t.CanvasRect.width * t.CanvasRect.height;
-                    if (area < bestArea) { bestArea = area; hover = t; }
-                }
-            }
-
-            HotPalette.Clear();
-            if (hover != null)
-                foreach (var name in hover.Palette) HotPalette.Add(name);
-            else if (Selected != null)
-                foreach (var name in Selected.Palette) HotPalette.Add(name);
-            HotSignature = HotPalette.Count == 0 ? "" : string.Join("|", HotPalette);
-
-            if (!imguiOwnsMouse && Input.GetMouseButtonDown(0))
-            {
-                Selected = hover; // click empty space = close the popup
-                if (hover != null)
-                {
-                    SelectionStamp++;
-                    PopupPos = new Vector2(Mathf.Min(m.x + 18f, Screen.width - 340f),
-                        Mathf.Clamp(Screen.height - m.y - 20f, 10f, Screen.height - 320f));
-                }
-            }
+            // The document designer is the only editor flow — the legacy fixed-panel
+            // click-to-config path went with those panels in 0.9.2.5.
+            UpdateDesigner(m, p, imguiOwnsMouse);
         }
 
         // ==================================================================== designer
@@ -421,8 +373,6 @@ namespace StationeersUIMod.Windows
                     _selectedId = HoverElement.Def.Id;
                     SelectedElement = HoverElement;
                     ElementStamp++;
-                    PopupPos = new Vector2(Mathf.Min(mouseScreen.x + 18f, Screen.width - 360f),
-                        Mathf.Clamp(Screen.height - mouseScreen.y - 20f, 10f, Screen.height - 340f));
                 }
                 BeginDrag(HoverElement, p, -1);
             }

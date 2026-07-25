@@ -159,11 +159,6 @@ namespace StationeersUIMod
         /// <summary>Hold-to-peek: holding the key shows The Grid only while held (momentary peek),
         /// a quick tap toggles it open/closed. Off = tap-only toggle.</summary>
         public static ConfigEntry<bool> GridHoldPeek;
-        /// <summary>How The Grid lays out the inventory. Grid = the flat, Diablo-style pack (each
-        /// storage container is a bordered region of cells, tools stay single cells); Nested = the
-        /// classic indented tree (tools expand into sub-sections). Flippable from the panel's title
-        /// bar toggle and the F10 menu; persists once chosen.</summary>
-        public static ConfigEntry<UI.Grid.GridDisplayMode> GridMode;
         /// <summary>Remembered window geometry (top-left px from the screen's top-left) + size.
         /// X/Y default to -1 = "centre on first open, then store". W/H are clamped on apply so
         /// the window always fits on-screen. Persisted by <see cref="UI.Grid.TheGridPanel"/> on
@@ -232,26 +227,19 @@ namespace StationeersUIMod
         public static ConfigEntry<bool> GridKeyboardNav;
 
         // --- HUD ---
-        public static ConfigEntry<bool> HudEnabled;
-        public static ConfigEntry<bool> HudHandBoxes;
-        public static ConfigEntry<bool> HudStatusStrip;
-        public static ConfigEntry<bool> HudVitals;
-        public static ConfigEntry<bool> HudClock;
-        public static ConfigEntry<bool> HudContextPanel;
-        public static ConfigEntry<bool> HudVisorArcs;
-        public static ConfigEntry<float> HudScale;
+        // NOTE: the eight legacy overlay knobs that used to live here (Enabled / HandBoxes /
+        // StatusStrip / Vitals / Clock / ContextPanel / VisorArcs / Scale) went with the 0.1.0
+        // ImGui HUD in 0.9.2.5. The four HideVanilla* keys below are LIVE — HudSystem's
+        // per-frame vanilla-visibility reconciliation reads them.
         public static ConfigEntry<bool> HideVanillaHands;
         public static ConfigEntry<bool> HideVanillaClothing;
         public static ConfigEntry<bool> HideVanillaStatus;
         public static ConfigEntry<bool> HideVanillaPlayerState;
-        public static ConfigEntry<bool> HardcoreGating;
 
         // --- Radial visuals ---
         public static ConfigEntry<float> RadialOuterRadius;
         public static ConfigEntry<float> RadialInnerRadius;
         public static ConfigEntry<bool> IconFlipV;
-        public static ConfigEntry<bool> UseUnityRadial;
-        public static ConfigEntry<float> RadialIconScale;
         public static ConfigEntry<float> RadialIconRatio;
         public static ConfigEntry<bool> RadialShowWedgeLabels;
         public static ConfigEntry<float> RadialEdgeFeather;
@@ -493,11 +481,6 @@ namespace StationeersUIMod
             GridHoldPeek = cfg.Bind("9. The Grid", "HoldToPeek", true,
                 "Hold the key to peek The Grid only while held (it hides on release); a quick tap " +
                 "toggles it open so it stays. Off = tap-only toggle, no momentary peek.");
-            GridMode = cfg.Bind("9. The Grid", "DisplayMode", UI.Grid.GridDisplayMode.Grid,
-                "DEPRECATED - no longer used. The Grid always renders the flat, packed grid " +
-                "layout: each storage container (bags, suit, backpack) is a bordered region of " +
-                "one-box cells, and tools stay a single cell. The old Nested tree mode and its " +
-                "toggles were removed; this value is ignored.");
             GridWinX = cfg.Bind("9. The Grid", "WindowX", -1f,
                 "Internal: remembered window left edge in pixels from the screen's top-left. " +
                 "-1 = centre the window the first time it opens, then store the position here. " +
@@ -591,22 +574,6 @@ namespace StationeersUIMod
                 "InventorySelect (F) / SmartStow (G) binds. Off = the wheel free-pans the list as " +
                 "before and F/G act only on the vanilla inventory.");
 
-            HudEnabled = cfg.Bind("7. HUD", "Enabled", true,
-                "Draw the UI Ascended visor HUD overlay.");
-            HudHandBoxes = cfg.Bind("7. HUD", "HandBoxes", true,
-                "Bottom-center two-hand boxes (icon, name, charge, state). Never a ten-slot hotbar.");
-            HudStatusStrip = cfg.Bind("7. HUD", "StatusStrip", true,
-                "Slim top status strip: pressure, temperature, suit battery, air, waste, filters.");
-            HudVitals = cfg.Bind("7. HUD", "Vitals", true,
-                "Compact corner vitals: health, O2, hydration, nutrition.");
-            HudClock = cfg.Bind("7. HUD", "Clock", true,
-                "Day counter + time-of-day readout.");
-            HudContextPanel = cfg.Bind("7. HUD", "ContextPanel", true,
-                "Contextual panel under the reticle showing the looked-at device's name and state.");
-            HudVisorArcs = cfg.Bind("7. HUD", "VisorArcs", false,
-                "Decorative curved visor edge lines (flat approximation of the curved-visor concept).");
-            HudScale = cfg.Bind("7. HUD", "Scale", 1.0f,
-                new ConfigDescription("Overall HUD scale.", new AcceptableValueRange<float>(0.6f, 1.6f)));
             HideVanillaHands = cfg.Bind("7. HUD", "HideVanillaHands", true,
                 "Hide the vanilla hand slots panel while the UI Ascended hand boxes are shown " +
                 "(objects stay alive; restored on toggle/exit). Default ON since the HUD " +
@@ -620,8 +587,9 @@ namespace StationeersUIMod
                 "Hide vanilla's bottom-right instrument cluster (internal/external/jetpack/" +
                 "health boxes) through the game's own visibility path — the HUD's readout " +
                 "cards replace them. Restored the moment this is turned off.");
-            HardcoreGating = cfg.Bind("7. HUD", "HardcoreGating", false,
-                "Diegetic mode: status strip & vitals need a worn helmet; the context panel needs powered sensor lenses.");
+            // HardcoreGating removed in Wave B: it gated the legacy ImGui overlay's helmet/sensor
+            // visibility, which no longer exists. The LIVE diegetic system is HudConfig.DiegeticTiers.
+            // Key pruned from player cfgs by ConfigMigration step 2.
 
             RadialOuterRadius = cfg.Bind("8. Radial Visuals", "OuterRadius", 240f,
                 new ConfigDescription("Outer radius of radial menus in pixels.", new AcceptableValueRange<float>(120f, 480f)));
@@ -629,13 +597,6 @@ namespace StationeersUIMod
                 new ConfigDescription("Inner hub radius in pixels (the center readout circle; hovering here selects nothing).", new AcceptableValueRange<float>(60f, 260f)));
             IconFlipV = cfg.Bind("8. Radial Visuals", "IconFlipV", false,
                 "Flip item icons vertically (toggle if atlas-packed icons render upside down).");
-            UseUnityRadial = cfg.Bind("8. Radial Visuals", "UseUnityRadial", true,
-                "Use the procedural Unity UGUI radial renderer (runtime-generated wedges via MaskableGraphic, " +
-                "TMP auto-sized labels, preserveAspect icons, hover pop animations). This is the primary renderer. " +
-                "Turn off to fall back to the legacy ImGui draw-list painter for comparison.");
-            RadialIconScale = cfg.Bind("8. Radial Visuals", "IconScale", 1.30f,
-                new ConfigDescription("LEGACY (unused since 0.3.1 — see IconRatio).",
-                    new AcceptableValueRange<float>(0.5f, 2.5f)));
             RadialIconRatio = cfg.Bind("8. Radial Visuals", "IconRatio", 0.62f,
                 new ConfigDescription("Icon size as a fraction of the wedge's available space (the " +
                     "smaller of the ring band's thickness and the wedge's width at mid radius) — icons " +

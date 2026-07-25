@@ -679,8 +679,9 @@ namespace StationeersUIMod.UI.Hud
             s.HelmetPresent = true; s.HelmetClosed = true; s.HelmetLightOn = true;
             s.SuitAcOn = true; s.HasInternals = true; s.InternalsOn = true;
 
-            // Bare-tier felt words, so the power-off preview has something in every row (the
-            // legacy BareSensesPanel still reads these pre-baked words).
+            // Bare-tier felt words. The live BareSensesWidget evaluates the real thresholds below
+            // instead of these pre-baked strings; they are kept as the snapshot's plain-language
+            // form (their only reader, the legacy BareSensesPanel, was retired in 0.9.2.5).
             s.WordTemp = "WARM"; s.WordAir = "THIN"; s.WordHunger = "PECKISH";
             s.WordThirst = "THIRSTY"; s.WordHealth = "AILING"; s.WordPressure = "LOW";
             s.WordCognition = "DAZED"; s.WordToilet = "NEED TO GO";

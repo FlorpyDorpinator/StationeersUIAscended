@@ -599,7 +599,7 @@ namespace StationeersUIMod.UI.Grid
                 //
                 // ALL the shared-material paths (sdfglass shell, glass frost, edgefx shine) ride
                 // clock uniforms fed only by HudSystem.UpdateFxUniforms, which stops when the
-                // visor HUD stands down (VisorHudEnabled off / LegacyImGuiHud) while the Grid
+                // visor HUD stands down (VisorHudEnabled off) while the Grid
                 // keeps ticking. Gate on FxClockLive so a dead clock degrades every Grid surface
                 // to the static Tier-A mesh look instead of freezing a shine band / halo breath /
                 // edge light mid-animation — the UiaControlCenter.StyleWindowPanel contract
