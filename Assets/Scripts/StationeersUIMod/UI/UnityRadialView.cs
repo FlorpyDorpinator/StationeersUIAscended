@@ -80,10 +80,10 @@ namespace StationeersUIMod.UI
             else
                 _satellite.Hide();
 
-            // Option A: the DETAIL readout moves into the middle of the child radial while
-            // one is open, but the main hub keeps its circle, title and colours — both
-            // hubs stay dressed (visible in the editor side by side).
-            if (UIAConfig.IsA && satActive)
+            // The DETAIL readout moves into the middle of the child radial while one is open,
+            // but the main hub keeps its circle, title and colours — both hubs stay dressed
+            // (visible in the editor side by side).
+            if (satActive)
             {
                 _readout.Render(satCenter.Value, Mathf.Max(satInnerR - 2f, 46f), satTitle ?? title, null,
                     readoutEntry, readoutHint, sticky);
@@ -593,11 +593,14 @@ namespace StationeersUIMod.UI
 
                     // 1B.3: grey tool-type binding label on a stable-geometry belt slot wedge. Sits
                     // just outside the hub so an empty-but-bound reserved slot still reads as "the
-                    // <tool> goes here". Only when the entry carries one AND stable geometry is on.
+                    // <tool> goes here". Only when the entry carries one, stable geometry is on AND
+                    // the player wants the ghost labels at all (ShowBindingLabels, the post-0.9.2.5 play-test round — it
+                    // replaced the old curved/straight toggle; curved is the only rendering now).
                     // Cached WedgeText per slot (self-heals on ref change) — no per-frame alloc.
                     var bind = _binding[i];
                     bool showBinding = !entry.IsScrollAdjust && entry.BindingLabel != null
-                        && UIAConfig.ToolbeltStableGeometry != null && UIAConfig.ToolbeltStableGeometry.Value;
+                        && UIAConfig.ToolbeltStableGeometry != null && UIAConfig.ToolbeltStableGeometry.Value
+                        && (UIAConfig.RadialShowBindingLabels == null || UIAConfig.RadialShowBindingLabels.Value);
                     bind.gameObject.SetActive(showBinding);
                     if (showBinding)
                     {
@@ -637,13 +640,14 @@ namespace StationeersUIMod.UI
                         bind.alignment = TextAlignmentOptions.Center;
                         bind.enableWordWrapping = false;
                         bind.overflowMode = TextOverflowModes.Ellipsis;
-                        // Optionally bend it GLYPH BY GLYPH around the hub so it truly follows the
-                        // arc instead of being a straight line merely rotated to the tangent. The
-                        // rect placement above already put it on the ring at the right angle; this
-                        // only re-lays the glyphs inside that local space, so the two compose.
-                        // Must run AFTER the text/size/rotation are final — it reads the built mesh.
-                        if (UIAConfig.RadialBindingCurved == null || UIAConfig.RadialBindingCurved.Value)
-                            RadialArcText.Curve(bind, bR, dir.y >= 0f);
+                        // Bend it GLYPH BY GLYPH around the hub so it truly follows the arc instead
+                        // of being a straight line merely rotated to the tangent. The rect placement
+                        // above already put it on the ring at the right angle; this only re-lays the
+                        // glyphs inside that local space, so the two compose. Must run AFTER the
+                        // text/size/rotation are final — it reads the built mesh. (Unconditional
+                        // since the post-0.9.2.5 play-test round: curved was always the intended look, so the straight-line
+                        // fallback retired with the BindingLabelCurved toggle.)
+                        RadialArcText.Curve(bind, bR, dir.y >= 0f);
                     }
 
                     // Icons scale WITH the wedge: bounded by the band's thickness and by the
@@ -1079,8 +1083,8 @@ namespace StationeersUIMod.UI
                 if (hovered == null)
                 {
                     _verb.text = hint ?? (sticky
-                        ? (UIAConfig.IsB ? "MMB/LMB select | RMB back" : "LMB select | RMB back")
-                        : (UIAConfig.IsB ? "hover to dive | release to cancel" : "release to cancel"));
+                        ? "LMB select | RMB back"
+                        : "hover to dive | release to cancel");
                     _verb.color = RadialPalette.TextDim.Value;
                     _label.text = _sub.text = _warn.text = string.Empty;
                     return;

@@ -40,11 +40,13 @@ namespace StationeersUIMod.UI.Hud.Widgets
                                             // CircleGraphic on purpose: a PanelGraphic forced to a
                                             // full circle is the degenerate case its own mesh warns
                                             // about (corner centres converge -> "four corner bowties"
-                                            // the instant any glass sheen is applied), and it smears a
-                                            // thin (sub-1px) themed rim between two feather ramps into
-                                            // nothing. The clean radial fan renders the crisp rim the
-                                            // profile actually asks for; BorderColor() still tracks the
-                                            // palette + alarm pulse, so it follows the theme's colour.
+                                            // the instant any glass sheen is applied). The parity that
+                                            // used to be missing was the EDGE TREATMENT, not the mesh:
+                                            // CircleGraphic now runs the same sub-pixel policy, key
+                                            // light, border fade and halo band a panel does (see
+                                            // HudElementView.ApplyBorderOnlyEdge), so the ring reads as
+                                            // the same material without inheriting the bowtie. Colours
+                                            // still track the palette + alarm pulse via BorderColor().
 
         private bool _forcedPortraitCam;
         private bool _hidVanillaPortrait;
@@ -190,12 +192,14 @@ namespace StationeersUIMod.UI.Hud.Widgets
             _holo.color = holo ? Color.Lerp(Color.white, holoTint, holoStr) : Color.white;
             _holoScan.color = (_holo.enabled && scanlines) ? HudPalette.Scanline.Value : Color.clear;
 
-            // Rim chrome: transparent fill (alpha 0) so only the border draws as a ring.
+            // Rim chrome: transparent fill (alpha 0) so only the border draws as a ring. The rim
+            // itself resolves through the base's border-only EDGE path, so under follow-global it
+            // carries the theme's real edge treatment (edge light + border fade + halo) instead of
+            // a raw sub-pixel border line no theme ever intended to be seen on its own.
             var fill = FillColor();
             fill.a = 0f;
             _ring.color = fill;
-            _ring.BorderColor = BorderColor();
-            _ring.BorderWidth = BorderWidthFor();
+            ApplyBorderOnlyEdge(_ring);
         }
 
         /// <summary>Apply the F9 zoom knobs to the shared portrait camera. FOV is set

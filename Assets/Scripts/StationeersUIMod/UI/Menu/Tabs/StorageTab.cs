@@ -69,6 +69,21 @@ namespace StationeersUIMod.UI.Menu.Tabs
             var col = UiaUi.ScrollView(content, out scroll, UiaTheme.Gap);
             UiaUi.Fill((RectTransform)scroll.gameObject.transform);
 
+            // ---- Universal Inventory (moved here from the Radial tab in the post-0.9.2.5 play-test round — FlorpyDorp:
+            // "it has nothing to do with the radials". Verbatim controls, new home.) ----
+            UiaControls.Header(col, "Universal Inventory");
+            // Layout mode selector removed: the flat pack (Grid) renderer is now the only one.
+            UiaControls.SliderRow(col, "Cell size", 28f, 80f, UIAConfig.GridCellSize.Value,
+                // global:: because the plugin CLASS shares the root namespace's name (same reason
+                // BumpGridChrome below spells it out).
+                v => { UIAConfig.GridCellSize.Value = v; global::StationeersUIMod.UI.Grid.TheGridPanel.Relayout(); }, "0", 1f);
+            // Live toggles: badges refresh via GridProfileMode.ChromeStamp (folds the config
+            // bit), hints are re-read by GridGhostHint.Tick — no extra plumbing needed.
+            UiaControls.ToggleRow(col, "Show profile tags on bag tabs",
+                UIAConfig.GridProfileBadges.Value, v => UIAConfig.GridProfileBadges.Value = v);
+            UiaControls.ToggleRow(col, "Glow the bag Smart Stow would pick while dragging",
+                UIAConfig.GridGhostHints.Value, v => UIAConfig.GridGhostHints.Value = v);
+
             // ---- SmartStow+ (numbering mirrors the router chain order after belt tools) ----
             UiaControls.Header(col, "Smart Stow (G)");
             UiaControls.ToggleRow(col, "Enable SmartStow+", UIAConfig.SmartStowPlusEnabled.Value, v => UIAConfig.SmartStowPlusEnabled.Value = v);

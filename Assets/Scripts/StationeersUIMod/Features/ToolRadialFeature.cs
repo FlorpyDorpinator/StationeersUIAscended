@@ -29,7 +29,10 @@ namespace StationeersUIMod.Features
             }
         }
 
-        public bool Enabled => UIAConfig.ToolRadialEnabled.Value;
+        /// <summary>Always on (the post-0.9.2.5 play-test round): the per-wheel enable toggles are gone — the radial half's
+        /// master switch (<c>UIAConfig.RadialEnabled</c>) is the only gate, and the plugin checks
+        /// it before the controller is pumped at all.</summary>
+        public bool Enabled => true;
         public KeyCode Key => UIAConfig.ToolRadialKey.Value;
         public bool OpenOnTap => false;
         /// <summary>TAP R opens the in-hand item's radial LATCHED (sticky — it persists until

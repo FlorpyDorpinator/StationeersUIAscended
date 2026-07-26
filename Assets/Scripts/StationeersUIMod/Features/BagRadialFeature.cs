@@ -11,52 +11,31 @@ namespace StationeersUIMod.Features
     /// <summary>
     /// Tab: your inventory as radials. Root shows worn containers plus the nesting-killers.
     ///
-    /// Option A: "Search" flips the radial into the search panel (type, click, item lands
-    /// in a free hand or at your feet). Inside a bag: click a bag to enter it, click an
-    /// item to take it; slide out on a nested bag for STOW/TAKE, on a device for its
-    /// controls/slots. Crowded bags group by the mod's own UIA sorting classes (backpacks
-    /// are Storage, not Clothing). Items can be press-dragged out and parked on screen.
-    ///
-    /// Option D keeps the classic "Find item" list radial and vanilla SortingClass groups.
+    /// "Search" flips the radial into the search panel (type, click, item lands in a free
+    /// hand or at your feet). Inside a bag: click a bag to enter it, click an item to take
+    /// it; slide out on a nested bag for STOW/TAKE, on a device for its controls/slots.
+    /// Crowded bags group by the mod's own UIA sorting classes (backpacks are Storage, not
+    /// Clothing). Items can be press-dragged out and parked on screen.
     /// </summary>
     public sealed class BagRadialFeature : IRadialFeature
     {
         public string Title => "Inventory";
-        public bool Enabled => UIAConfig.BagRadialEnabled.Value;
+        /// <summary>Always on (the post-0.9.2.5 play-test round): the per-wheel enable toggles are gone — the radial half's
+        /// master switch (<c>UIAConfig.RadialEnabled</c>) is the only gate.</summary>
+        public bool Enabled => true;
         public KeyCode Key => UIAConfig.BagRadialKey.Value;
         public bool OpenOnTap => UIAConfig.BagRadialTapOpens.Value;
 
         public bool CanOpen() => Guards.LocalHuman != null;
         public bool OpensOnBoth => false;
 
-        public List<RadialEntry> BuildRoot()
-        {
-            // A-family (A and B) shares one root; Option B's Hub wedge branches into the
-            // SAME builder, so Tab and MMB->Hub can never drift apart.
-            if (UIAConfig.IsA) return BuildHubRoot();
+        /// <summary>Tab and the toolbelt ring's Hub wedge branch into the SAME builder, so the
+        /// two can never drift apart. (The classic-schema root — a "Find item" list radial plus
+        /// container-only wedges — went with the schema chooser in the post-0.9.2.5 play-test round.)</summary>
+        public List<RadialEntry> BuildRoot() => BuildHubRoot();
 
-            var entries = new List<RadialEntry>();
-            var human = Guards.LocalHuman;
-            if (human == null) return entries;
-            AddGrabAnother(entries);
-
-            // Option D: the classic flattened list radial + container-only root.
-            entries.Add(new RadialEntry
-            {
-                Label = "Find item",
-                Sublabel = "search all bags",
-                ActionText = "Open",
-                ChildProvider = BuildFindLevel,
-            });
-            AddContainer(entries, human.BackpackSlot, "Backpack");
-            AddContainer(entries, human.ToolbeltSlot, "Toolbelt");
-            AddContainer(entries, human.SuitSlot, "Suit");
-            AddContainer(entries, human.UniformSlot, "Uniform");
-            return entries;
-        }
-
-        /// <summary>The Option A inventory root — what Tab opens, and what Option B's Hub
-        /// wedge on the toolbelt radial branches into: search + every worn piece.</summary>
+        /// <summary>The inventory root — what Tab opens, and what the Hub wedge on the toolbelt
+        /// radial branches into: search + every worn piece.</summary>
         internal static List<RadialEntry> BuildHubRoot()
         {
             var entries = new List<RadialEntry>();
@@ -140,58 +119,10 @@ namespace StationeersUIMod.Features
             entries.Add(entry);
         }
 
-        // ---------- Find item (Option D) ----------
-
-        private static List<RadialEntry> BuildFindLevel()
-        {
-            var entries = new List<RadialEntry>();
-            var groups = InventoryScanner
-                .Scan(UIAConfig.ScanDepth.Value, UIAConfig.AllowToolSlotSources.Value)
-                .Where(s => s.Occupant != null && s.Depth > 0)
-                .GroupBy(s => s.Occupant.PrefabHash)
-                .OrderBy(g => g.First().Occupant.DisplayName)
-                .ToList();
-
-            foreach (var group in groups)
-            {
-                var instances = group.OrderBy(s => s.Depth).Select(s => s.Pin()).ToList();
-                var first = instances[0];
-                var thing = first.Occupant;
-                entries.Add(new RadialEntry
-                {
-                    Label = thing.DisplayName,
-                    ActionText = "Take nearest",
-                    Sublabel = (instances.Count > 1 ? "x" + instances.Count + " - " : "") + first.Location,
-                    StateText = StateText.For(thing),
-                    Icon = thing.GetThumbnail(),
-                    DragSource = first,
-                    OnSelect = () => TakeAndRemember(first),
-                    // Pick a specific one when there are several.
-                    SlideOutProvider = instances.Count > 1
-                        ? () => instances.Select(InstanceEntry).ToList()
-                        : (System.Func<List<RadialEntry>>)null,
-                    SlideOutLabel = "Pick one",
-                });
-            }
-            return entries;
-        }
-
-        private static RadialEntry InstanceEntry(ScannedSlot scanned)
-        {
-            var thing = scanned.Occupant;
-            if (thing == null) return new RadialEntry { Label = "(gone)", Enabled = false };
-            return new RadialEntry
-            {
-                Label = thing.DisplayName,
-                ActionText = "Take to hand",
-                Sublabel = scanned.Location,
-                Warning = InventoryScanner.ConsequenceOfRemoving(scanned),
-                StateText = StateText.For(thing),
-                Icon = thing.GetThumbnail(),
-                DragSource = scanned,
-                OnSelect = () => TakeAndRemember(scanned),
-            };
-        }
+        // ---------- retrieval ----------
+        // NOTE: BuildFindLevel/InstanceEntry (the classic schema's "Find item" flattened list
+        // radial) were deleted with the schema chooser in the post-0.9.2.5 play-test round — the search PANEL
+        // (RadialMenu.RequestSearch -> SearchPanelView) is the one search surface now.
 
         private static ScannedSlot FindByPrefab(int prefabHash)
         {
@@ -210,21 +141,8 @@ namespace StationeersUIMod.Features
         }
 
         // ---------- containers ----------
-
-        private static void AddContainer(List<RadialEntry> entries, Slot slot, string fallbackName)
-        {
-            DynamicThing container = slot?.Get();
-            if (container == null || container.Slots == null || container.Slots.Count == 0) return;
-            int used = container.Slots.Count(s => s?.Get() != null);
-            entries.Add(new RadialEntry
-            {
-                Label = container.DisplayName,
-                ActionText = "Open",
-                Sublabel = $"{fallbackName} - {used}/{container.Slots.Count}",
-                Icon = container.GetThumbnail(),
-                ChildProvider = () => BuildBagLevel(container),
-            });
-        }
+        // NOTE: AddContainer (the classic schema's container-only root wedge) was deleted with
+        // the schema chooser in the post-0.9.2.5 play-test round; AddWorn builds every root wedge now.
 
         internal static List<RadialEntry> BuildBagLevel(DynamicThing bag)
         {
@@ -240,66 +158,38 @@ namespace StationeersUIMod.Features
                 else empty.Add(s);
             }
 
-            // Category grouping for crowded bags (proposal §10). Option A groups by the
-            // mod's own UIA sorting classes — nested backpacks read "Storage", batteries
-            // read "Power Cells" — instead of the game's coarse SortingClass. The
-            // GroupBySortingClass toggle turns hierarchalising off entirely for A.
+            // Category grouping for crowded bags (proposal §10). We group by the mod's own UIA
+            // sorting classes — nested backpacks read "Storage", batteries read "Power Cells" —
+            // instead of the game's coarse SortingClass. The GroupBySortingClass toggle turns
+            // hierarchalising off entirely. (The vanilla-SortingClass grouping the classic schema
+            // used went with the schema chooser in the post-0.9.2.5 play-test round.)
             bool mayGroup = occupied.Count > UIAConfig.BagRadialGroupThreshold.Value
-                && (!UIAConfig.IsA || UIAConfig.BagGrouping.Value);
+                && UIAConfig.BagGrouping.Value;
             if (mayGroup)
             {
-                if (UIAConfig.IsA)
+                foreach (var group in occupied
+                             .GroupBy(s => UIASort.Classify(s.Get()))
+                             .OrderBy(g => (int)g.Key))
                 {
-                    foreach (var group in occupied
-                                 .GroupBy(s => UIASort.Classify(s.Get()))
-                                 .OrderBy(g => (int)g.Key))
+                    var slots = group.ToList();
+                    // A category of ONE is redundant — a "group" you'd never need to open —
+                    // so show that single item straight on the ring instead of a group wedge.
+                    if (slots.Count == 1)
                     {
-                        var slots = group.ToList();
-                        // A category of ONE is redundant — a "group" you'd never need to open —
-                        // so show that single item straight on the ring instead of a group wedge.
-                        if (slots.Count == 1)
-                        {
-                            var single = ItemEntry(bag, slots[0]);
-                            if (single != null) entries.Add(single);
-                            continue;
-                        }
-                        var first = slots[0].Get();
-                        entries.Add(new RadialEntry
-                        {
-                            Label = UIASort.DisplayName(group.Key),
-                            ActionText = "Open",
-                            Sublabel = slots.Count + " item(s)",
-                            Icon = first?.GetThumbnail(),
-                            GroupStyle = true, // category wedge: its own edge/fill palette
-                            ChildProvider = () => slots.Select(s => ItemEntry(bag, s)).Where(e => e != null).ToList(),
-                        });
+                        var single = ItemEntry(bag, slots[0]);
+                        if (single != null) entries.Add(single);
+                        continue;
                     }
-                }
-                else
-                {
-                    foreach (var group in occupied
-                                 .GroupBy(s => s.Get().SortingClass)
-                                 .OrderBy(g => (int)g.Key))
+                    var first = slots[0].Get();
+                    entries.Add(new RadialEntry
                     {
-                        var slots = group.ToList();
-                        // A category of ONE is redundant — show the single item directly.
-                        if (slots.Count == 1)
-                        {
-                            var single = ItemEntry(bag, slots[0]);
-                            if (single != null) entries.Add(single);
-                            continue;
-                        }
-                        var first = slots[0].Get();
-                        entries.Add(new RadialEntry
-                        {
-                            Label = group.Key.ToString(),
-                            ActionText = "Open",
-                            Sublabel = slots.Count + " item(s)",
-                            Icon = first?.GetThumbnail(),
-                            GroupStyle = true, // category wedge: its own edge/fill palette
-                            ChildProvider = () => slots.Select(s => ItemEntry(bag, s)).Where(e => e != null).ToList(),
-                        });
-                    }
+                        Label = UIASort.DisplayName(group.Key),
+                        ActionText = "Open",
+                        Sublabel = slots.Count + " item(s)",
+                        Icon = first?.GetThumbnail(),
+                        GroupStyle = true, // category wedge: its own edge/fill palette
+                        ChildProvider = () => slots.Select(s => ItemEntry(bag, s)).Where(e => e != null).ToList(),
+                    });
                 }
             }
             else
@@ -316,58 +206,38 @@ namespace StationeersUIMod.Features
             var sortEntry = ItemMenuBuilder.BuildSortEntry(bag);
             if (sortEntry != null) entries.Add(sortEntry);
 
-            // Free space presentation (Option A, playtest dropdown): individual empty-slot
+            // Free space presentation (the EmptySlotDisplay dropdown): individual empty-slot
             // STOW wedges, an aggregate STOW wedge, or both. The aggregate one doubles as
             // the drop target for parked chips.
             var hand = InventoryManager.ActiveHandSlot;
             var held = hand?.Get();
-            if (UIAConfig.IsA)
+            var mode = UIAConfig.BagEmptySlots.Value;
+
+            if (mode != EmptySlotMode.StowOnly)
             {
-                var mode = UIAConfig.BagEmptySlots.Value;
-
-                if (mode != EmptySlotMode.StowOnly)
+                foreach (Slot s in empty)
                 {
-                    foreach (Slot s in empty)
-                    {
-                        var slotEntry = ItemMenuBuilder.BuildStowEntry(s,
-                            string.IsNullOrEmpty(s.DisplayName) ? "Slot" : s.DisplayName, held);
-                        entries.Add(slotEntry);
-                    }
-                }
-
-                if (mode != EmptySlotMode.EmptySlots)
-                {
-                    Slot free = held != null ? empty.FirstOrDefault(s => Slot.AllowMove(held, s)) : null;
-                    Slot target = free ?? empty.FirstOrDefault();
-                    if (target != null)
-                    {
-                        var bagRef = bag;
-                        // Aggregate STOW wedge: blank slot + STOW, held item previews on hover.
-                        var e = ItemMenuBuilder.BuildStowEntry(target,
-                            string.IsNullOrEmpty(target.DisplayName) ? bag.DisplayName : target.DisplayName, held);
-                        e.Sublabel = "into " + bag.DisplayName;
-                        // Chips pick whichever free slot fits THEM, not the held item's slot.
-                        e.DropSlot = null;
-                        e.DropResolver = dragged => ItemMenuBuilder.FirstFreeSlot(bagRef, dragged);
-                        entries.Add(e);
-                    }
+                    var slotEntry = ItemMenuBuilder.BuildStowEntry(s,
+                        string.IsNullOrEmpty(s.DisplayName) ? "Slot" : s.DisplayName, held);
+                    entries.Add(slotEntry);
                 }
             }
-            else if (held != null)
+
+            if (mode != EmptySlotMode.EmptySlots)
             {
-                Slot free = empty.FirstOrDefault(s => Slot.AllowMove(held, s));
-                if (free != null)
+                Slot free = held != null ? empty.FirstOrDefault(s => Slot.AllowMove(held, s)) : null;
+                Slot target = free ?? empty.FirstOrDefault();
+                if (target != null)
                 {
-                    entries.Add(new RadialEntry
-                    {
-                        Label = held.DisplayName,
-                        ActionText = "Stow here",
-                        Sublabel = "into " + bag.DisplayName,
-                        Icon = held.GetThumbnail(),
-                        AccentOverride = Theme.Accent,
-                        FillOverride = Theme.RingStow, // orange = "held item goes here"
-                        OnSelect = () => ItemActions.StowActiveHandTo(free),
-                    });
+                    var bagRef = bag;
+                    // Aggregate STOW wedge: blank slot + STOW, held item previews on hover.
+                    var e = ItemMenuBuilder.BuildStowEntry(target,
+                        string.IsNullOrEmpty(target.DisplayName) ? bag.DisplayName : target.DisplayName, held);
+                    e.Sublabel = "into " + bag.DisplayName;
+                    // Chips pick whichever free slot fits THEM, not the held item's slot.
+                    e.DropSlot = null;
+                    e.DropResolver = dragged => ItemMenuBuilder.FirstFreeSlot(bagRef, dragged);
+                    entries.Add(e);
                 }
             }
             return entries;
@@ -389,20 +259,17 @@ namespace StationeersUIMod.Features
                 var entry = new RadialEntry
                 {
                     Label = occ.DisplayName,
-                    ActionText = UIAConfig.IsA ? "Open" : "Open bag",
+                    ActionText = "Open",
                     Sublabel = occ.Slots.Count(s => s?.Get() != null) + "/" + occ.Slots.Count,
                     Icon = occ.GetThumbnail(),
                     ChildProvider = () => BuildBagLevel(thing),
                     BindableBag = ItemMenuBuilder.IsBindableBag(occ) ? thing : null, // Ctrl+number (#3)
-                };
-                if (UIAConfig.IsA)
-                {
                     // Nested bag slide-out: STOW the held item into it / TAKE the bag itself.
-                    entry.SlideOutProvider = () => ItemMenuBuilder.BuildTakeOrStowEntries(thing, source);
-                    entry.SlideOutLabel = "More";
-                    entry.DragSource = source;
-                    entry.DropResolver = dragged => ItemMenuBuilder.FirstFreeSlot(thing, dragged);
-                }
+                    SlideOutProvider = () => ItemMenuBuilder.BuildTakeOrStowEntries(thing, source),
+                    SlideOutLabel = "More",
+                    DragSource = source,
+                    DropResolver = dragged => ItemMenuBuilder.FirstFreeSlot(thing, dragged),
+                };
                 return entry;
             }
 

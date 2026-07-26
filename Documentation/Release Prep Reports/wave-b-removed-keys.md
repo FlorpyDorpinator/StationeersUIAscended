@@ -184,3 +184,79 @@ step, reuse `RemoveOrphaned`/`TryReadOrphaned` — don't re-derive this from scr
 ## Grand total across all of Wave B + B4: 38 keys deleted, 3 of them folded into existing
 ## survivors instead of a bare delete (2) or a new bind (1) — see the counts above per task.
 7. HUD | HardcoreGating | delete — orphaned when HudOverlayFeature died (live diegetics = HudConfig.DiegeticTiers); removed by the orchestrator post-B5
+
+---
+
+# Wave G — removed config keys (0.9.2.6 radials simplification)
+
+Same contract as Wave B above: this section is AUTHORITATIVE and is CONSUMED by
+`Core/ConfigMigration.cs`'s `ApplyStep(3 -> 4)` — the step's `RemovedKeysV3ToV4` table
+implements exactly the entries below, one-for-one. `ConfigMigration.CurrentVersion` bumped
+3 -> 4.
+
+Source: FlorpyDorp's post-0.9.2.5 play-test directives for the F10 Radials tab ("delete
+Control Scheme", "if radials is on this is all critical functionality", "get rid of flick
+to commit ... same with flick window", "keep curved as default, maybe add a setting to
+hide it").
+
+One line per key: `section | key | migration action`.
+
+## G1a — the control-scheme chooser
+
+The Hub (the old Option B) is now THE control schema. The `ControlSchema` enum, the config
+entry, the F10 dropdown and the F9/ImGui `SchemaCombo()` are all gone; `UIAConfig.IsA` and
+`UIAConfig.IsB` survive as `=> true` constants so the ~12 call sites that read them keep
+compiling and keep naming which behaviour set they belong to.
+
+1. General | ControlSchema | delete
+
+## G1b — flick-to-commit (feature deleted outright)
+
+`RadialController.TryFlickCommit`, its key-down mouse-origin capture (`_pendingMouse`) and
+both config keys are gone. NO successor and NO value carried anywhere: hold-open -> point
+-> release-selects already is that gesture, and the flick path intermittently swallowed
+MMB. The normal hold/release path is untouched.
+
+1b. Radial Feel | FlickCommit | delete
+1b. Radial Feel | FlickWindowMs | delete
+
+KEPT in "1b. Radial Feel" (do NOT migrate): `DoubleTapRepeat`, `DoubleTapWindowMs`,
+`WedgeSounds`, `HintFade`.
+
+## G1c — the four per-wheel enable toggles
+
+With the radial half switched on (`1. General / RadialEnabled`) these wheels ARE the mod,
+so each feature's `Enabled` is hardcoded `true`. Note `4b. Equipment Keys` had no other
+key, so that entire config SECTION leaves the file with this one.
+
+2. Toolbelt Radial | Enabled | delete
+3. Tool Radial | Enabled | delete
+4. Bag Radial | Enabled | delete
+4b. Equipment Keys | Enabled | delete
+
+DELIBERATELY NOT migrated onto `RadialEnabled`: a player who had switched ONE wheel off
+never asked for the whole radial half to go away. The visible consequence is intentional —
+a wheel someone had disabled comes back on update.
+
+KEPT (do NOT migrate): `1. General / MasterEnable`, `1. General / RadialEnabled`,
+`1. General / MoveWhileRadialOpen`, `1. General / HoldThresholdMs`,
+`4. Bag Radial / TapOpensRadial`, `2. Toolbelt Radial / ShowStowEntries` — all explicitly
+kept by FlorpyDorp.
+
+## G1d — bound-tool label: curved/straight choice -> shown/hidden choice
+
+Curved is now the only rendering (`RadialArcText.Curve` runs unconditionally). The
+replacement key answers a DIFFERENT question, so this is a DELETE, not a rename:
+
+8. Radial Visuals | BindingLabelCurved | delete (NOT renamed - see below)
+
+NEW key bound in its place: `8. Radial Visuals / ShowBindingLabels` (bool, default true).
+Carrying a stored `false` across would have meant "you wanted it straight" silently
+becoming "hide it entirely", so the old value is dropped and everyone starts on the new
+default (shown, curved). `ShowBindingLabels` replaces `RadialBindingCurved` in
+`HudTheme.RadialThemeKeys`, so it travels with a profile's theme exactly as the old key
+did; a stale `radial:RadialBindingCurved` entry in an existing profile XML is simply never
+read (`HudTheme.Apply` ignores unknown keys) and a profile with no
+`radial:RadialShowBindingLabels` entry leaves the config default in place.
+
+**Wave G total: 7 keys deleted, 1 new key bound. No renames, no value carried across.**

@@ -17,18 +17,20 @@ namespace StationeersUIMod.Features
     public sealed class ToolbeltRadialFeature : IRadialFeature
     {
         public string Title => "Belt Wheel";
-        public bool Enabled => UIAConfig.ToolbeltRadialEnabled.Value;
+        /// <summary>Always on: the wheel IS the mod. The radial half's single master switch
+        /// (<c>UIAConfig.RadialEnabled</c>) is checked by the plugin before the controller is
+        /// pumped at all, so there is nothing left to gate here (the post-0.9.2.5 play-test round).</summary>
+        public bool Enabled => true;
         public KeyCode Key => UIAConfig.ToolbeltRadialKey.Value;
         public bool OpenOnTap => false;
-        /// <summary>Option B: TAP opens this radial sticky, HOLD opens it transient.</summary>
-        public bool OpensOnBoth => UIAConfig.IsB;
+        /// <summary>The Hub: TAP opens this radial sticky, HOLD opens it transient.</summary>
+        public bool OpensOnBoth => true;
 
         public bool CanOpen()
         {
-            var human = Guards.LocalHuman;
-            if (human == null) return false;
-            // Option B: The Hub makes the radial useful even with no toolbelt worn.
-            return UIAConfig.IsB || human.ToolbeltSlot?.Get() != null;
+            // The Hub makes the radial useful even with no toolbelt worn, so the only
+            // precondition left is having a character.
+            return Guards.LocalHuman != null;
         }
 
         public List<RadialEntry> BuildRoot()
@@ -36,21 +38,18 @@ namespace StationeersUIMod.Features
             var entries = new List<RadialEntry>();
             var human = Guards.LocalHuman;
 
-            // Option B: THE HUB — wedge 0 sits top-center; it branches into everything the
-            // Tab radial opens (search + every worn piece). Hold mode enters it by dwell
-            // or LMB; sticky mode by tap. Text-only wedge, accent rim.
-            if (UIAConfig.IsB)
+            // THE HUB — wedge 0 sits top-center; it branches into everything the Tab radial
+            // opens (search + every worn piece). Hold mode enters it by dwell or LMB; sticky
+            // mode by tap. Text-only wedge, accent rim.
+            entries.Add(new RadialEntry
             {
-                entries.Add(new RadialEntry
-                {
-                    Label = "The Hub",
-                    ActionText = "Enter",
-                    Sublabel = "inventory + search",
-                    AccentOverride = Theme.Accent,
-                    ChildProvider = BagRadialFeature.BuildHubRoot,
-                    Tag = RadialMenu.HubTag,
-                });
-            }
+                Label = "The Hub",
+                ActionText = "Enter",
+                Sublabel = "inventory + search",
+                AccentOverride = Theme.Accent,
+                ChildProvider = BagRadialFeature.BuildHubRoot,
+                Tag = RadialMenu.HubTag,
+            });
 
             DynamicThing belt = human?.ToolbeltSlot?.Get();
             if (belt == null || belt.Slots == null) return entries;
@@ -95,31 +94,13 @@ namespace StationeersUIMod.Features
                 }
                 else if (UIAConfig.ToolbeltShowStowEntries.Value)
                 {
-                    if (UIAConfig.IsA)
-                    {
-                        // Option A STOW wedge: blank slot + "STOW"; the held item previews
-                        // on hover with the orange fill.
-                        var stow = ItemMenuBuilder.BuildStowEntry(slot,
-                            string.IsNullOrEmpty(slot.DisplayName) ? "Belt" : slot.DisplayName, held);
-                        if (stow != null) stow.BindingLabel = boundLabel; // ghost the bound tool's name
-                        entries.Add(stow);
-                        continue;
-                    }
-                    Slot target = slot;
-                    bool canStow = held != null && Slot.AllowMove(held, slot);
-                    entries.Add(new RadialEntry
-                    {
-                        Label = string.IsNullOrEmpty(slot.DisplayName) ? "Empty" : slot.DisplayName,
-                        ActionText = canStow ? "Stow " + held.DisplayName : null,
-                        Sublabel = "(empty)",
-                        Icon = canStow ? held.GetThumbnail() : slot.SlotTypeIcon,
-                        Enabled = canStow,
-                        DisabledReason = held == null ? "Nothing in hand" : "Held item doesn't fit",
-                        BindingLabel = boundLabel,
-                        AccentOverride = canStow ? Theme.Accent : (uint?)null,
-                        FillOverride = canStow ? Theme.RingStow : (uint?)null, // orange = "held item goes here"
-                        OnSelect = () => ItemActions.StowActiveHandTo(target),
-                    });
+                    // STOW wedge: blank slot + "STOW"; the held item previews on hover with the
+                    // orange fill. (The classic-schema alternative — a hand-built "Stow <item>"
+                    // wedge — went with the schema chooser in the post-0.9.2.5 play-test round.)
+                    var stow = ItemMenuBuilder.BuildStowEntry(slot,
+                        string.IsNullOrEmpty(slot.DisplayName) ? "Belt" : slot.DisplayName, held);
+                    if (stow != null) stow.BindingLabel = boundLabel; // ghost the bound tool's name
+                    entries.Add(stow);
                 }
                 else if (stableGeom)
                 {

@@ -1,7 +1,6 @@
 using System.Collections.Generic;
 using StationeersUIMod.Core;
 using StationeersUIMod.Features;
-using StationeersUIMod.UI.Grid;
 using StationeersUIMod.UI.Menu.Kit;
 using UnityEngine;
 using UnityEngine.UI;
@@ -21,14 +20,10 @@ namespace StationeersUIMod.UI.Menu.Tabs
             var col = UiaUi.ScrollView(content, out scroll, UiaTheme.Gap);
             UiaUi.Fill((RectTransform)scroll.gameObject.transform);
 
+            // the post-0.9.2.5 play-test round: the "Control scheme" chooser and the four per-wheel enable toggles are gone.
+            // The Hub is THE schema, and with the radial half switched on (F10 > General) the
+            // toolbelt / tool / bag / equipment wheels ARE the mod — not options to switch off.
             UiaControls.Header(col, "Behaviour");
-            var schemas = new List<string> { "New (A)", "The Hub (B)", "Classic (D)" };
-            UiaControls.DropdownRow(col, "Control scheme", schemas, (int)UIAConfig.Schema.Value,
-                i => UIAConfig.Schema.Value = (ControlSchema)i);
-            UiaControls.ToggleRow(col, "Toolbelt wheel", UIAConfig.ToolbeltRadialEnabled.Value, v => UIAConfig.ToolbeltRadialEnabled.Value = v);
-            UiaControls.ToggleRow(col, "Tool / device wheel", UIAConfig.ToolRadialEnabled.Value, v => UIAConfig.ToolRadialEnabled.Value = v);
-            UiaControls.ToggleRow(col, "Bag / backpack wheel", UIAConfig.BagRadialEnabled.Value, v => UIAConfig.BagRadialEnabled.Value = v);
-            UiaControls.ToggleRow(col, "Equipment wheels (1-6)", UIAConfig.EquipmentKeyRadialsEnabled.Value, v => UIAConfig.EquipmentKeyRadialsEnabled.Value = v);
             UiaControls.ToggleRow(col, "Keep moving while a wheel is open", UIAConfig.RadialMovementEnabled.Value, v => UIAConfig.RadialMovementEnabled.Value = v);
             UiaControls.SliderRow(col, "Open hold time", 60f, 600f, UIAConfig.HoldThresholdMs.Value,
                 v => UIAConfig.HoldThresholdMs.Value = Mathf.RoundToInt(v), "0", 10f);
@@ -42,10 +37,10 @@ namespace StationeersUIMod.UI.Menu.Tabs
             UiaControls.ToggleRow(col, "ALL CAPS labels", UIAConfig.RadialUppercaseLabels.Value, v => { UIAConfig.RadialUppercaseLabels.Value = v; HudProfileStore.MarkThemeChanged(); });
             UiaControls.ToggleRow(col, "Live state under icons (%, kPa, counts)", UIAConfig.RadialShowStateText.Value, v => { UIAConfig.RadialShowStateText.Value = v; HudProfileStore.MarkThemeChanged(); });
 
+            // "Flick to commit" + its window died in the post-0.9.2.5 play-test round — a second, racier route into
+            // "commit a wedge" that intermittently ate MMB. Hold-open, point, release IS that
+            // gesture already, and that path is untouched.
             UiaControls.Header(col, "Radial feel");
-            UiaControls.ToggleRow(col, "Flick to commit (fast tap + flick picks a wedge)", UIAConfig.RadialFlickCommit.Value, v => UIAConfig.RadialFlickCommit.Value = v);
-            UiaControls.SliderRow(col, "Flick window", 80f, 400f, UIAConfig.RadialFlickMs.Value,
-                v => UIAConfig.RadialFlickMs.Value = Mathf.RoundToInt(v), "0", 10f);
             UiaControls.ToggleRow(col, "Double-tap repeats last pick", UIAConfig.RadialDoubleTapRepeat.Value, v => UIAConfig.RadialDoubleTapRepeat.Value = v);
             UiaControls.SliderRow(col, "Double-tap window", 120f, 500f, UIAConfig.RadialDoubleTapMs.Value,
                 v => UIAConfig.RadialDoubleTapMs.Value = Mathf.RoundToInt(v), "0", 10f);
@@ -56,23 +51,17 @@ namespace StationeersUIMod.UI.Menu.Tabs
             UiaControls.Header(col, "Toolbelt wheel");
             UiaControls.ToggleRow(col, "Remember each tool's home slot", UIAConfig.ToolbeltHomeSlots.Value, v => UIAConfig.ToolbeltHomeSlots.Value = v);
             UiaControls.ToggleRow(col, "Stable layout: reserve empty slots + show binding labels", UIAConfig.ToolbeltStableGeometry.Value, v => UIAConfig.ToolbeltStableGeometry.Value = v);
-            UiaControls.ToggleRow(col, "Curve the bound-tool label around the hub",
-                UIAConfig.RadialBindingCurved.Value, v => { UIAConfig.RadialBindingCurved.Value = v; HudProfileStore.MarkThemeChanged(); });
+            // the post-0.9.2.5 play-test round: the curved/straight choice is gone (curved is the only rendering — it was
+            // always the intended look). What replaced it is an on/off for the labels themselves.
+            UiaControls.ToggleRow(col, "Show bound-tool labels",
+                UIAConfig.RadialShowBindingLabels.Value, v => { UIAConfig.RadialShowBindingLabels.Value = v; HudProfileStore.MarkThemeChanged(); });
             UiaControls.Note(col,
-                "The bound-tool name sits at the bottom of its wedge, along the arc where the hub " +
-                "starts. Curved bends it letter by letter to follow that arc; off draws it as one " +
-                "straight line on the same spot. Its colour is \"TextBindingLabel\" in the palette.");
+                "The bound-tool name is the dim grey ghost on a reserved (empty-but-bound) belt " +
+                "slot - it sits at the bottom of its wedge, bent around the arc where the hub " +
+                "starts. Off hides it entirely. Its colour is \"TextBindingLabel\" in the palette.");
 
-            UiaControls.Header(col, "Universal Inventory");
-            // Layout mode selector removed: the flat pack (Grid) renderer is now the only one.
-            UiaControls.SliderRow(col, "Cell size", 28f, 80f, UIAConfig.GridCellSize.Value,
-                v => { UIAConfig.GridCellSize.Value = v; TheGridPanel.Relayout(); }, "0", 1f);
-            // Live toggles: badges refresh via GridProfileMode.ChromeStamp (folds the config
-            // bit), hints are re-read by GridGhostHint.Tick — no extra plumbing needed.
-            UiaControls.ToggleRow(col, "Show profile tags on bag tabs",
-                UIAConfig.GridProfileBadges.Value, v => UIAConfig.GridProfileBadges.Value = v);
-            UiaControls.ToggleRow(col, "Glow the bag Smart Stow would pick while dragging",
-                UIAConfig.GridGhostHints.Value, v => UIAConfig.GridGhostHints.Value = v);
+            // The Universal Inventory group moved to F10 > Storage in the post-0.9.2.5 play-test round (FlorpyDorp: "it has
+            // nothing to do with the radials").
 
             if (!advanced) return;
 
@@ -95,7 +84,7 @@ namespace StationeersUIMod.UI.Menu.Tabs
             UiaControls.SliderRow(col, "4 - Detail line", 8f, 24f, UIAConfig.RadialTextSub.Value, v => { UIAConfig.RadialTextSub.Value = v; HudProfileStore.MarkThemeChanged(); }, "0");
             UiaControls.SliderRow(col, "5 - Stat / warning", 8f, 24f, UIAConfig.RadialTextWarn.Value, v => { UIAConfig.RadialTextWarn.Value = v; HudProfileStore.MarkThemeChanged(); }, "0");
 
-            UiaControls.Header(col, "Bags (advanced)");
+            UiaControls.Header(col, "Bag wheels (advanced)");
             UiaControls.ToggleRow(col, "Group crowded bags by category", UIAConfig.BagGrouping.Value, v => UIAConfig.BagGrouping.Value = v);
             var empty = new List<string> { "Empty slots only", "Stow wedge + empty slots", "Stow wedge only" };
             UiaControls.DropdownRow(col, "Free space shown as", empty, (int)UIAConfig.BagEmptySlots.Value, i => UIAConfig.BagEmptySlots.Value = (EmptySlotMode)i);

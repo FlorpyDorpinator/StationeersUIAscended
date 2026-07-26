@@ -3,26 +3,7 @@ using UnityEngine;
 
 namespace StationeersUIMod
 {
-    /// <summary>
-    /// Which interaction model the radials use. Visuals are separate config entries
-    /// (tuned in the radial editor); the schema switches BEHAVIOR:
-    /// OptionA — the 2026-07 overhaul: STOW wedges, device-control satellites with
-    ///   scroll-adjustable values, take/open satellites on nested bags (no giant swap
-    ///   lists), auto-close after actions, search-all-bags panel, drag-out parking.
-    /// OptionB — everything OptionA does, plus "The Hub": the toolbelt radial grows a
-    ///   top-center wedge into the Tab inventory root. TAP middle mouse = sticky toolbelt
-    ///   (tap MMB again on a wedge to select), HOLD = transient (LMB dives into branches,
-    ///   release runs the hovered action and closes).
-    /// OptionD — the classic pre-overhaul behavior, kept for A/B testing.
-    /// </summary>
-    public enum ControlSchema
-    {
-        OptionA,
-        OptionB,
-        OptionD,
-    }
-
-    /// <summary>How a bag radial presents its free space (Option A playtest options).</summary>
+    /// <summary>How a bag radial presents its free space.</summary>
     public enum EmptySlotMode
     {
         /// <summary>Every empty slot is its own STOW wedge; no aggregate wedge.</summary>
@@ -47,7 +28,6 @@ namespace StationeersUIMod
         public static ConfigEntry<bool> RadialEnabled;
         public static ConfigEntry<KeyCode> SettingsWindowKey;
         public static ConfigEntry<int> HoldThresholdMs;
-        public static ConfigEntry<ControlSchema> Schema;
         public static ConfigEntry<KeyCode> RadialHandSwapKey;
         public static ConfigEntry<KeyCode> RadialPageKey;
         public static ConfigEntry<KeyCode> RadialFineAdjustKey;
@@ -58,13 +38,10 @@ namespace StationeersUIMod
         public static ConfigEntry<bool> CursorLatchEnabled;
         public static ConfigEntry<int> CursorLatchMs;
 
-        // --- Radial feel (interaction deltas: flick, double-tap, sounds, hints) ---
-        /// <summary>R2: enable flick-commit — a fast directional flick past the selection radius
-        /// commits the sector under the cursor without ever drawing the ring.</summary>
-        public static ConfigEntry<bool> RadialFlickCommit;
-        /// <summary>R2: the flick window in ms — a release faster than this (with enough travel)
-        /// counts as a flick.</summary>
-        public static ConfigEntry<int> RadialFlickMs;
+        // --- Radial feel (interaction deltas: double-tap, sounds, hints) ---
+        // NOTE: flick-commit (FlickCommit / FlickWindowMs) was DELETED in the post-0.9.2.5 play-test round — it was a
+        // second, racier path into "commit a wedge" that intermittently swallowed MMB, and the
+        // normal hold-open -> point -> release-selects gesture already IS that motion.
         /// <summary>R3: enable double-tap-repeat — a second tap of the same radial key within the
         /// window re-runs the last committed action for that feature.</summary>
         public static ConfigEntry<bool> RadialDoubleTapRepeat;
@@ -76,18 +53,27 @@ namespace StationeersUIMod
         /// <summary>R10: fade a contextual hint out once it has been used enough times.</summary>
         public static ConfigEntry<bool> RadialHintFade;
 
-        /// <summary>Shorthand for "the Option A behavior SET is active" — B is A plus the
-        /// Hub gestures, so every A-gated behavior (STOW wedges, satellites, search,
-        /// parking, scroll values, auto-close) applies to both. Only interaction deltas
-        /// check IsB on top.</summary>
-        public static bool IsA => Schema == null || Schema.Value != ControlSchema.OptionD;
+        // --- The control schema (the post-0.9.2.5 play-test round: there is only one) ---
+        // "The Hub" (the old Option B) is now THE radial control schema — the ControlSchema enum,
+        // its config key and the A/B/D chooser are gone (FlorpyDorp: "there is only one radial
+        // choice that makes sense"). These two shorthands survive as CONSTANTS so the ~12 call
+        // sites that read them keep compiling and keep documenting WHICH behaviour set they are
+        // part of; every one of them now takes its true branch.
+        //
+        /// <summary>Always true: the overhaul behaviour set (STOW wedges, device-control
+        /// satellites, take/open on nested bags, auto-close after actions, the search panel,
+        /// drag-out parking, scroll-adjustable values) is the only one that ships.</summary>
+        public static bool IsA => true;
 
-        /// <summary>Option B's interaction deltas: The Hub wedge, MMB tap-opens-sticky,
-        /// MMB-tap-selects in sticky radials, LMB branch-diving in hold mode.</summary>
-        public static bool IsB => Schema != null && Schema.Value == ControlSchema.OptionB;
+        /// <summary>Always true: The Hub's interaction deltas (the Hub wedge on the toolbelt ring,
+        /// TAP middle mouse opens the sticky toolbelt, HOLD stays transient with LMB diving into
+        /// branches and release running the hovered action).</summary>
+        public static bool IsB => true;
 
         // --- Toolbelt radial ---
-        public static ConfigEntry<bool> ToolbeltRadialEnabled;
+        // NOTE: the four per-wheel "Enabled" toggles (toolbelt / tool / bag / equipment-key) died
+        // in the post-0.9.2.5 play-test round — with the radial half switched on they ARE the mod, so the only master left
+        // is RadialEnabled above (FlorpyDorp: "if radials is on this is all critical functionality").
         public static ConfigEntry<KeyCode> ToolbeltRadialKey;
         public static ConfigEntry<bool> ToolbeltShowStowEntries;
         /// <summary>1B.2: remember which slot each tool type lives in on a belt (home slots) so a
@@ -98,21 +84,16 @@ namespace StationeersUIMod
         public static ConfigEntry<bool> ToolbeltStableGeometry;
 
         // --- Tool radial ---
-        public static ConfigEntry<bool> ToolRadialEnabled;
         public static ConfigEntry<KeyCode> ToolRadialKey;
         public static ConfigEntry<bool> ToolRadialTakeOverVanillaKey;
 
         // --- Bag radial ---
-        public static ConfigEntry<bool> BagRadialEnabled;
         public static ConfigEntry<KeyCode> BagRadialKey;
         public static ConfigEntry<bool> BagRadialTapOpens;
         public static ConfigEntry<int> BagRadialGroupThreshold;
         public static ConfigEntry<bool> BagGrouping;
         public static ConfigEntry<EmptySlotMode> BagEmptySlots;
         public static ConfigEntry<int> RadialMaxWedges;
-
-        // --- Equipment key radials (1-6) ---
-        public static ConfigEntry<bool> EquipmentKeyRadialsEnabled;
 
         // --- Slot finder ---
         public static ConfigEntry<int> ScanDepth;
@@ -253,7 +234,10 @@ namespace StationeersUIMod
         public static ConfigEntry<string> RadialFontName;
         public static ConfigEntry<bool> RadialUppercaseLabels;
         public static ConfigEntry<bool> RadialShowStateText;
-        public static ConfigEntry<bool> RadialBindingCurved;
+        /// <summary>Show the grey bound-tool "ghost" name on a stable-geometry belt wedge at all.
+        /// Replaces the old BindingLabelCurved toggle (curved is now the only rendering — it was
+        /// always the intended look, so the straight-line fallback went with the toggle).</summary>
+        public static ConfigEntry<bool> RadialShowBindingLabels;
 
         // --- Hint bar (the key-hint strip under an open wheel) ---
         // Everything the strip's PanelGraphic can actually consume, so its look is authored in the
@@ -309,13 +293,6 @@ namespace StationeersUIMod
             HoldThresholdMs = cfg.Bind("1. General", "HoldThresholdMs", 180,
                 new ConfigDescription("How long a radial key must be held before the radial opens (ms). Shorter taps fall through to the vanilla action.",
                     new AcceptableValueRange<int>(60, 600)));
-            Schema = cfg.Bind("1. General", "ControlSchema", ControlSchema.OptionA,
-                "Radial interaction model. OptionA: STOW wedges, device-control satellites with scroll " +
-                "values, take/open on nested bags, auto-close after actions, search panel, drag-out " +
-                "parking. OptionB: OptionA plus The Hub - a top-center wedge on the toolbelt radial " +
-                "into the Tab inventory root; TAP middle mouse opens the toolbelt sticky (tap MMB " +
-                "again to select), HOLD stays transient (LMB enters branches, release runs the " +
-                "hovered action). OptionD: the classic behavior, kept for A/B comparison.");
             RadialHandSwapKey = cfg.Bind("1. General", "RadialHandSwapKey", KeyCode.E,
                 "While a radial is open: swap the active hand (radials aim stows and equips at the " +
                 "active hand). Matches vanilla E-to-swap; drives the same vanilla swap underneath.");
@@ -343,14 +320,6 @@ namespace StationeersUIMod
                 new ConfigDescription("How close together the two taps must be to latch the cursor (ms).",
                     new AcceptableValueRange<int>(120, 500)));
 
-            RadialFlickCommit = cfg.Bind("1b. Radial Feel", "FlickCommit", false,
-                "Flick-commit: a fast directional flick of the radial key (released before the ring " +
-                "would even draw, but past the selection radius) commits the wedge under the cursor " +
-                "straight away. Off = always open the ring first.");
-            RadialFlickMs = cfg.Bind("1b. Radial Feel", "FlickWindowMs", 180,
-                new ConfigDescription("How quick a release counts as a flick (ms). A release slower than " +
-                    "this opens the ring normally.",
-                    new AcceptableValueRange<int>(80, 400)));
             RadialDoubleTapRepeat = cfg.Bind("1b. Radial Feel", "DoubleTapRepeat", false,
                 "Double-tap a radial key to repeat its last committed action without reopening the ring " +
                 "(e.g. re-equip the last tool). A single tap keeps today's open/close behaviour.");
@@ -364,8 +333,6 @@ namespace StationeersUIMod
                 "Fade a contextual key-hint out once you've used that action enough times, so the hints " +
                 "teach then get out of the way. Reset the counters from the F10 menu.");
 
-            ToolbeltRadialEnabled = cfg.Bind("2. Toolbelt Radial", "Enabled", true,
-                "Hold a key to open a radial of everything on your toolbelt; release over a tool to equip it into the active hand.");
             ToolbeltRadialKey = cfg.Bind("2. Toolbelt Radial", "Key", KeyCode.Mouse2,
                 "Radial key (default: middle mouse; the vanilla PingHighlight binding on Mouse2 is currently unused by the game).");
             ToolbeltShowStowEntries = cfg.Bind("2. Toolbelt Radial", "ShowStowEntries", true,
@@ -377,15 +344,11 @@ namespace StationeersUIMod
                 "Reserve a wedge for every belt slot (occupied or empty) so the ring layout never " +
                 "shifts, and show a dim grey label on an empty slot that has a tool type bound to it.");
 
-            ToolRadialEnabled = cfg.Bind("3. Tool Radial", "Enabled", true,
-                "Hold a key while holding a tool to open its Controls/Slots radial.");
             ToolRadialKey = cfg.Bind("3. Tool Radial", "Key", KeyCode.R,
                 "Radial key. Default R: tap keeps the vanilla open-hand-slot-window action, hold opens the radial.");
             ToolRadialTakeOverVanillaKey = cfg.Bind("3. Tool Radial", "TakeOverVanillaKey", true,
                 "When the radial key is R, suppress the vanilla handler and re-dispatch taps ourselves so hold can open the radial. Disable if you rebound the radial to a free key.");
 
-            BagRadialEnabled = cfg.Bind("4. Bag Radial", "Enabled", true,
-                "Hold a key to navigate backpack/bags/items as nested radials.");
             BagRadialKey = cfg.Bind("4. Bag Radial", "Key", KeyCode.Tab,
                 "Radial key (default Tab).");
             BagRadialTapOpens = cfg.Bind("4. Bag Radial", "TapOpensRadial", true,
@@ -395,7 +358,7 @@ namespace StationeersUIMod
                 new ConfigDescription("When a bag holds more than this many items, group them by sorting category first.",
                     new AcceptableValueRange<int>(4, 24)));
             BagGrouping = cfg.Bind("4. Bag Radial", "GroupBySortingClass", true,
-                "Option A: group crowded bags into UIA sorting-class wedges (Storage, Power Cells, ...). " +
+                "Group crowded bags into UIA sorting-class wedges (Storage, Power Cells, ...). " +
                 "Off = always show the raw items and slots, never category wedges.");
             BagEmptySlots = cfg.Bind("4. Bag Radial", "EmptySlotDisplay", EmptySlotMode.StowAndEmptySlots,
                 "How bag radials present free space. EmptySlots: every empty slot is its own STOW wedge. " +
@@ -405,10 +368,6 @@ namespace StationeersUIMod
                 new ConfigDescription("Maximum wedges a radial shows at once; overflow goes into a MORE " +
                     "wedge that opens the rest. (Biggest vanilla bag is 28 slots.)",
                     new AcceptableValueRange<int>(6, 32)));
-
-            EquipmentKeyRadialsEnabled = cfg.Bind("4b. Equipment Keys", "Enabled", true,
-                "Tap 1-6 to open a management radial for that equipment piece (on/off, slots, swaps); " +
-                "hold 1-6 to equip/unequip it to the active hand. Replaces the vanilla slot-window toggle on those keys.");
 
             ScanDepth = cfg.Bind("5. Slot Finder", "ScanDepth", 3,
                 new ConfigDescription("How many container levels deep to search for compatible items (1 = only worn slots).",
@@ -652,9 +611,10 @@ namespace StationeersUIMod
             RadialShowStateText = cfg.Bind("8. Radial Visuals", "ShowStateText", true,
                 "Show live state under wedge icons: battery %, canister kPa, stack counts, filter wear. " +
                 "Independent of the item-name labels.");
-            RadialBindingCurved = cfg.Bind("8. Radial Visuals", "BindingLabelCurved", true,
-                "Bend the bound-tool label around the hub GLYPH BY GLYPH so it truly follows the arc. " +
-                "Off = the label still sits on the arc, but is drawn as one straight tangential line.");
+            RadialShowBindingLabels = cfg.Bind("8. Radial Visuals", "ShowBindingLabels", true,
+                "Show the dim grey bound-tool name on a reserved (empty-but-bound) belt-slot wedge - the " +
+                "'the wrench goes here' ghost label, bent around the hub to follow the arc. Off = " +
+                "reserved slots stay blank. Needs the toolbelt's stable layout to be on to appear at all.");
 
             const string HB = "10. Hint Bar";
             HintBarCorner = cfg.Bind(HB, "CornerRadius", 12f,

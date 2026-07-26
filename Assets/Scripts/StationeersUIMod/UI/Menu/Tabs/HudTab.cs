@@ -1,4 +1,3 @@
-using System.Collections.Generic;
 using StationeersUIMod.Overlay;
 using StationeersUIMod.UI.Hud;
 using StationeersUIMod.UI.Menu.Kit;
@@ -7,9 +6,9 @@ using UnityEngine.UI;
 
 namespace StationeersUIMod.UI.Menu.Tabs
 {
-    /// <summary>HUD-half comfort settings. Simple = scale/font/curvature/show-hide + the
-    /// hide-vanilla group; Advanced adds low-power/glitch and shortcuts into the F9 Designer
-    /// (element authoring + the effect tiers live there).</summary>
+    /// <summary>HUD-half comfort settings. Simple = a pointer into the F9 HUD Designer (which now
+    /// owns scale/font/curvature) + show/hide toggles + the hide-vanilla group; Advanced adds
+    /// low-power/glitch and another shortcut into the F9 Designer near Maintenance.</summary>
     public sealed class HudTab : IUiaTab
     {
         public string Title => "HUD";
@@ -26,23 +25,12 @@ namespace StationeersUIMod.UI.Menu.Tabs
             UiaUi.Fill((RectTransform)scroll.gameObject.transform);
 
             UiaControls.Header(col, "Look");
-            UiaControls.SliderRow(col, "HUD scale", 0.6f, 1.6f, HudConfig.HudScale.Value, v => HudConfig.HudScale.Value = v, "0.00");
-            var fonts = new List<string> { "(game default)" };
-            fonts.AddRange(HudText.AllFontNames());
-            int fi = string.IsNullOrEmpty(HudConfig.FontName.Value) ? 0 : Mathf.Max(0, fonts.IndexOf(HudConfig.FontName.Value));
-            UiaControls.DropdownRow(col, "Global HUD font", fonts, fi, i => HudConfig.FontName.Value = i <= 0 ? "" : fonts[i]);
-            UiaControls.SliderRow(col, "Font scale", 0.6f, 1.8f, HudConfig.FontScale.Value, v => HudConfig.FontScale.Value = v, "0.00");
-
-            // The quick two-way switch. Its option text matches the F9 editor's wording so the
-            // same mode is never called two different things in two windows.
-            var curves = new List<string> { "Flat - no curvature", "Curved (visor)" };
-            int ci = HudConfig.Curvature.Value == HudCurvature.Flat ? 0 : 1;
-            UiaControls.DropdownRow(col, "Curvature", curves, ci,
-                i => HudConfig.Curvature.Value = i == 0 ? HudCurvature.Flat : HudCurvature.VertexWarp);
-            UiaControls.SliderRow(col, "Curve strength", 0f, 1f, HudConfig.CurveStrength.Value, v => HudConfig.CurveStrength.Value = v, "0.00");
+            // Layout, scale, font and curvature are all authored in the F9 HUD Designer now -
+            // this tab only points there so the same knob is never edited in two places at once.
+            UiaControls.Note(col, "Scale, font and curvature are built in the HUD Designer, where you build your layout.");
+            UiaControls.Button(col, "Open the HUD Designer (F9)", OpenDesigner, -1f, UiaTheme.RowH, UiaControls.ButtonStyle.Primary);
 
             UiaControls.Header(col, "Show");
-            UiaControls.ToggleRow(col, "Visor-edge vignette", HudConfig.ShowVignette.Value, v => HudConfig.ShowVignette.Value = v);
             UiaControls.ToggleRow(col, "Diegetic tiers (words when unpowered)", HudConfig.DiegeticTiers.Value, v => HudConfig.DiegeticTiers.Value = v);
             UiaControls.ToggleRow(col, "Flicker / boot animations", HudConfig.FlickerAnimations.Value, v => HudConfig.FlickerAnimations.Value = v);
 
@@ -58,19 +46,6 @@ namespace StationeersUIMod.UI.Menu.Tabs
             UiaControls.ToggleRow(col, "Low-power dropouts", HudConfig.LowPowerDropouts.Value, v => HudConfig.LowPowerDropouts.Value = v);
             UiaControls.SliderRow(col, "Low-power threshold (%)", 0f, 40f, HudConfig.LowPowerThreshold.Value, v => HudConfig.LowPowerThreshold.Value = v, "0");
             UiaControls.ToggleRow(col, "Power-transition glitch", HudConfig.FxGlitchOn.Value, v => HudConfig.FxGlitchOn.Value = v);
-
-            // Every curvature mode, in HudCurvature order (the index IS the enum value). No mode
-            // is labelled "experimental" any more — they are simply the modes, named the way the
-            // F9 editor names them; mode C's known swim is documented there, not in a scare word.
-            var curveAll = new List<string>
-            {
-                "Flat - no curvature",
-                "A - Vertex warp (recommended)",
-                "B - Dome projection",
-                "C - Curved world canvas",
-                "D - Curved, steady",
-            };
-            UiaControls.DropdownRow(col, "Curvature mode (all)", curveAll, (int)HudConfig.Curvature.Value, i => HudConfig.Curvature.Value = (HudCurvature)i);
 
             UiaUi.Go("sp", col).AddComponent<LayoutElement>().preferredHeight = 6f;
             UiaControls.Note(col, "Build your own layout and tune the glass effects in the HUD Designer.");

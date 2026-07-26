@@ -53,7 +53,9 @@ namespace StationeersUIMod.Features
         }
 
         public string Title => EquipSlot?.Get()?.DisplayName ?? _buttonName;
-        public bool Enabled => UIAConfig.EquipmentKeyRadialsEnabled.Value;
+        /// <summary>Always on (the post-0.9.2.5 play-test round): the per-wheel enable toggles are gone — the radial half's
+        /// master switch (<c>UIAConfig.RadialEnabled</c>) is the only gate.</summary>
+        public bool Enabled => true;
 
         /// <summary>Live-resolved so user rebinds in the vanilla Controls menu are respected.</summary>
         public KeyCode Key

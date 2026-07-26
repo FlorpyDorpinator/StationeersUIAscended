@@ -383,10 +383,10 @@ namespace StationeersUIMod.Overlay
                 Close();
                 return false;
             }
-            // Option B: releasing right after diving into a branch (Hub dwell / LMB) is
-            // gesture momentum — the cursor is parked over whatever wedge happens to sit
-            // where the branch wedge was, and that must never run as a selection.
-            if (UIAConfig.IsB && Time.unscaledTime - _branchEnteredAt < BranchGraceSec)
+            // Releasing right after diving into a branch (Hub dwell / LMB) is gesture
+            // momentum — the cursor is parked over whatever wedge happens to sit where the
+            // branch wedge was, and that must never run as a selection.
+            if (Time.unscaledTime - _branchEnteredAt < BranchGraceSec)
             {
                 Close();
                 return false;
@@ -407,17 +407,10 @@ namespace StationeersUIMod.Overlay
             }
             if (entry.IsBranch)
             {
-                // Option B: hold mode is strictly transient — "closes when you let go".
-                // Branch diving is LMB / Hub dwell WHILE held; tap MMB for the sticky mode.
-                if (UIAConfig.IsB)
-                {
-                    Close();
-                    return false;
-                }
-                if (_satellite != null && _satHovered >= 0) PromoteSatellite();
-                PushBranch(entry);
-                _sticky = true;
-                return true;
+                // Hold mode is strictly transient — "closes when you let go". Branch diving is
+                // LMB / Hub dwell WHILE held; tap MMB for the sticky mode.
+                Close();
+                return false;
             }
             Execute(entry);
             if (ConsumeSearchRequest())
@@ -612,61 +605,30 @@ namespace StationeersUIMod.Overlay
                 return;
             }
 
-            // Hub interactions (move the radial, the always-works CLOSE band) — shared by both
-            // schemas AND by hold mode, so holding the key can move the radial too.
+            // Hub interactions (move the radial, the always-works CLOSE band) — shared with
+            // hold mode too, so holding the key can move the radial.
             if (UpdateHubDrag()) return;
 
-            if (UIAConfig.IsA)
-            {
-                UpdateStickyOptionA();
-                return;
-            }
-
-            if (Input.GetMouseButtonDown(0))
-            {
-                try { if (ImGui.GetIO().WantCaptureMouse) return; } catch { }
-
-                RadialEntry entry = null;
-                bool fromSatellite = false;
-                if (_satellite != null && _satHovered >= 0)
-                {
-                    entry = SatEntry(_satHovered);
-                    fromSatellite = true;
-                }
-                else if (_hovered >= 0 && _mainDist <= UIAConfig.RadialOuterRadius.Value * 1.2f)
-                {
-                    entry = MainEntry(_hovered);
-                }
-                if (entry == null || !entry.Enabled) return; // clicks elsewhere keep the menu
-
-                if (entry.IsBranch)
-                {
-                    if (fromSatellite) PromoteSatellite();
-                    PushBranch(entry);
-                    return;
-                }
-                Execute(entry);
-                // Sticky "shopping": stay open, drop the satellite, refresh what we're looking at.
-                _satellite = null;
-                Top().Refresh();
-                _hovered = -1;
-            }
+            // (The classic schema's mouse-DOWN click model — click executes immediately, no
+            // press-drag — went with the schema chooser in the post-0.9.2.5 play-test round. UpdateStickyOptionA is the
+            // one click model: actions run on mouse-UP so a press can become a drag instead.)
+            UpdateStickyOptionA();
         }
 
         /// <summary>
-        /// Option A click model: actions run on mouse-UP so that press-and-hold (or
-        /// press-and-move) on an item wedge can become a DRAG instead. A successful
-        /// action closes the radial — unless parking is in progress, which locks it open.
+        /// The click model: actions run on mouse-UP so that press-and-hold (or press-and-move)
+        /// on an item wedge can become a DRAG instead. A successful action closes the radial —
+        /// unless parking is in progress, which locks it open.
         /// </summary>
         private void UpdateStickyOptionA()
         {
             var mouse = DrawUtil.MousePos();
 
-            // Option B: MMB is the SELECT button in sticky radials — the whole gesture is
-            // "tap to open, flick, tap to pick". Wedge = select (branches navigate, actions
-            // run + close), CLOSE band = deliberate close, empty space = dismiss (parked
-            // items stay in their slots). LMB keeps working exactly as in A.
-            if (UIAConfig.IsB && Input.GetMouseButtonDown(2)
+            // MMB in a sticky radial: the whole gesture is "tap to open, flick, tap to pick",
+            // and MMB is the dismiss half of it. CLOSE band = deliberate close (dumps parked
+            // chips), anywhere else = dismiss (parked items stay in their slots). Selection
+            // is LMB.
+            if (Input.GetMouseButtonDown(2)
                 && _parking.Dragging == null && _press == null)
             {
                 bool imguiOwnsM = false;
@@ -940,18 +902,20 @@ namespace StationeersUIMod.Overlay
             return false;
         }
 
-        /// <summary>Option A HOLD mode (holding the radial key — e.g. hold R): give the transient
-        /// radial the SAME mouse interaction as the tapped (sticky) radial — move the radial (hub
-        /// drag), drag an item off a wedge, Alt-grab items out of the physical world, drop onto
-        /// wedges / HUD boxes / the ground, and click-to-select. Wedge selection ALSO still happens
-        /// on key-release (the flick-release gesture — see <see cref="OnHoldReleased"/>). While a
-        /// chip is on the cursor or Alt is held, Draw() withholds child radials and the ring
-        /// highlight so the radial stays out of the way. Call every frame from the controller's
-        /// non-sticky branch; self-gates to Option A (B hold mode dives branches on LMB).</summary>
+        /// <summary>HOLD mode with the pre-Hub (classic Option A) mouse interaction: give the
+        /// transient radial the SAME mouse interaction as the tapped (sticky) radial — move the
+        /// radial (hub drag), drag an item off a wedge, Alt-grab items out of the physical world,
+        /// drop onto wedges / HUD boxes / the ground, and click-to-select. Wedge selection ALSO
+        /// still happens on key-release (see <see cref="OnHoldReleased"/>).
+        /// <para>DORMANT since the post-0.9.2.5 play-test round: The Hub is the only schema now, and its hold mode is
+        /// strictly transient — LMB DIVES into branches (<see cref="UpdateHoldB"/>) rather than
+        /// latching the ring sticky, so this whole body is unreachable. Kept intact (rather than
+        /// deleted) because it is a complete, working interaction surface we may want back as an
+        /// opt-in "drag while holding" mode; flip the guard below to revive it.</para></summary>
         public void UpdateHoldInteractiveA()
         {
             if (!IsOpen || _sticky || _searchOpen) return;
-            if (!UIAConfig.IsA || UIAConfig.IsB) return; // Option A only
+            if (UIAConfig.IsB) return; // always true since the post-0.9.2.5 play-test round — see the note above
             _parking.Prune();
 
             // Starting a mouse interaction while holding the key LATCHES the radial open
@@ -1415,8 +1379,9 @@ namespace StationeersUIMod.Overlay
         }
 
         /// <summary>Which wedge index a mouse delta from the ring centre points at (-1 if the
-        /// ring is empty). Exposed to <c>RadialController</c> for flick-commit (R2), which resolves
-        /// a sector without ever drawing the ring.</summary>
+        /// ring is empty). Used by the hover resolvers for the main ring and the satellite.
+        /// (It used to be <c>internal</c> for RadialController's flick-commit too; that feature
+        /// was deleted in the post-0.9.2.5 play-test round and this is now purely an in-class helper.)</summary>
         internal static int SectorFromMouse(Vector2 delta, int count)
         {
             if (count <= 0) return -1;

@@ -17,7 +17,7 @@ namespace StationeersUIMod.Features
         /// When false the radial opens on HOLD and OnTap() re-dispatches the vanilla tap.</summary>
         bool OpenOnTap { get; }
         /// <summary>When true, BOTH gestures open the radial: tap = sticky, hold = transient
-        /// (Option B's toolbelt). Takes precedence over OpenOnTap; OnTap/OnHold never run.</summary>
+        /// (the toolbelt/Hub ring). Takes precedence over OpenOnTap; OnTap/OnHold never run.</summary>
         bool OpensOnBoth { get; }
         /// <summary>Cheap pre-check before anything happens (e.g. "holding a tool").</summary>
         bool CanOpen();
@@ -45,9 +45,10 @@ namespace StationeersUIMod.Features
         // Ctrl onto Tab (see UpdateRadialShortcuts / SwapToolbeltBackpack), so no tap-timing state
         // is needed any more — a Tab press while a wheel is open is unambiguously "swap".
 
-        // R2 flick-commit: mouse position (ImGui space) captured at key-down, so a fast
-        // directional flick can resolve a wedge sector without ever drawing the ring.
-        private Vector2 _pendingMouse;
+        // NOTE (the post-0.9.2.5 play-test round): R2 flick-commit is GONE — config, key-down origin capture and the
+        // TryFlickCommit resolver. It was a second, racier route into "commit a wedge" that
+        // intermittently ate MMB, and hold-open -> point -> release-selects already IS that
+        // gesture (FlorpyDorp). Nothing replaced it; the pending resolve below is the one path.
 
         // R3 double-tap repeat: the last feature TAPPED and when, to detect a fast second tap
         // (a per-feature tap-timing pattern).
@@ -226,7 +227,6 @@ namespace StationeersUIMod.Features
 
                     _pending = feature;
                     _pendingSince = Time.unscaledTime;
-                    _pendingMouse = Overlay.DrawUtil.MousePos(); // R2 flick origin
                     return;
                 }
             }
@@ -241,13 +241,6 @@ namespace StationeersUIMod.Features
             {
                 _pending = null;
 
-                // R2 flick-commit: a fast release with the mouse flicked past the selection
-                // radius executes the wedge in that direction WITHOUT drawing the ring.
-                if (UIAConfig.RadialFlickCommit != null && UIAConfig.RadialFlickCommit.Value
-                    && UIAConfig.RadialFlickMs != null && heldMs < UIAConfig.RadialFlickMs.Value
-                    && TryFlickCommit(feature))
-                    return;
-
                 // R3: remember this tap so a fast second tap of the same feature can repeat the
                 // last commit (see the key-down scan). Recorded for every tap gesture.
                 _lastTapFeature = feature;
@@ -255,7 +248,7 @@ namespace StationeersUIMod.Features
 
                 if (feature.OpensOnBoth)
                 {
-                    // Option B toolbelt: tap opens the same radial LATCHED (tap a wedge to select).
+                    // The Hub/toolbelt ring: tap opens the same radial LATCHED (click a wedge to select).
                     OpenRadial(feature, sticky: true);
                 }
                 else if (feature.OpenOnTap)
@@ -311,8 +304,8 @@ namespace StationeersUIMod.Features
                 return;
             }
 
-            // Option A: scroll-wheel value adjust works in both hold and sticky modes.
-            if (UIAConfig.IsA) _menu.UpdateScroll();
+            // Scroll-wheel value adjust works in both hold and sticky modes.
+            _menu.UpdateScroll();
 
             // #4: hover a setting wedge + press a letter to bind that key to the setting.
             _menu.UpdateHotkeyCapture();
@@ -354,9 +347,10 @@ namespace StationeersUIMod.Features
 
             if (!_menu.IsSticky)
             {
-                // Option A hold mode: same drag behaviour as the tapped radial — move the
-                // radial (hub drag), drag items off wedges, Alt-grab from the world, drop,
-                // click-select (self-gates to Option A). A click-select/close tears down here.
+                // DORMANT since the post-0.9.2.5 play-test round (self-gating no-op): the pre-Hub hold mode, which gave a
+                // held-open ring the tapped ring's full drag behaviour. The Hub's hold mode is
+                // strictly transient (UpdateHoldB below dives on LMB), so this returns at once.
+                // Left wired up so reviving it is a one-line guard flip — see RadialMenu.
                 _menu.UpdateHoldInteractiveA();
                 if (!_menu.IsOpen) { CloseAll("holdA-menu-closed"); return; }
 
@@ -371,16 +365,13 @@ namespace StationeersUIMod.Features
                     CloseAll("escape-hold");
                     return;
                 }
-                // Option B: while the key is held, LMB dives into branches (The Hub),
-                // RMB backs out, and an executed action closes the menu right here.
-                if (UIAConfig.IsB)
+                // The Hub: while the key is held, LMB dives into branches, RMB backs out,
+                // and an executed action closes the menu right here.
+                _menu.UpdateHoldB();
+                if (!_menu.IsOpen)
                 {
-                    _menu.UpdateHoldB();
-                    if (!_menu.IsOpen)
-                    {
-                        CloseAll("holdB-menu-closed");
-                        return;
-                    }
+                    CloseAll("holdB-menu-closed");
+                    return;
                 }
             }
             else
@@ -390,24 +381,17 @@ namespace StationeersUIMod.Features
                 // and MMB dismiss gestures must not fire (the panel handles its own exits).
                 if (!_menu.IsSearchOpen)
                 {
-                    // Re-pressing the radial key closes a sticky radial — except Option B's
-                    // MMB-keyed radial, where that press IS the select gesture (the menu
-                    // handles it in UpdateSticky).
-                    bool repressSelects = UIAConfig.IsB && _active != null
-                        && _active.Key == KeyCode.Mouse2;
+                    // Re-pressing the radial key closes a sticky radial — except the MMB-keyed
+                    // radial, where that press is the menu's own gesture (it handles MMB in
+                    // UpdateSticky: CLOSE band dumps parked chips, anywhere else dismisses).
+                    bool repressSelects = _active != null && _active.Key == KeyCode.Mouse2;
                     if (_active != null && !repressSelects && Input.GetKeyDown(_active.Key))
                     {
                         CloseAll("sticky-repress");
                         return;
                     }
-                    // Option A only: tapping middle mouse dismisses any sticky radial it
-                    // doesn't own. In B the menu owns MMB (select / dismiss-on-empty).
-                    if (UIAConfig.IsA && !UIAConfig.IsB && Input.GetMouseButtonDown(2)
-                        && _active != null && _active.Key != KeyCode.Mouse2)
-                    {
-                        CloseAll("mmb-dismiss");
-                        return;
-                    }
+                    // (The classic-schema "MMB dismisses a radial it doesn't own" clause went
+                    // with the schema chooser in the post-0.9.2.5 play-test round — the menu owns MMB in every radial now.)
                 }
                 _menu.UpdateSticky();
                 if (wasOpen && !_menu.IsOpen)
@@ -449,44 +433,6 @@ namespace StationeersUIMod.Features
             {
                 UIALog.Warn("Hand switch failed: " + e.Message);
             }
-        }
-
-        // ---------- R2 flick-commit ----------
-
-        /// <summary>R2: resolve the wedge in the flick direction (mouse delta from the press
-        /// origin) and run it directly — no ring is ever drawn. The travel gate mirrors the
-        /// menu's own hub-claim radius so a stray micro-flick can't fire. Returns true when it
-        /// committed an enabled action.</summary>
-        private bool TryFlickCommit(IRadialFeature feature)
-        {
-            if (feature == null || !feature.CanOpen()) return false;
-
-            Vector2 delta = Overlay.DrawUtil.MousePos() - _pendingMouse;
-            float outerR = UIAConfig.RadialOuterRadius.Value;
-            // Same geometry the ring uses: inner radius clamped, then the hub-claim line.
-            float innerR = Mathf.Clamp(UIAConfig.RadialInnerRadius.Value, 104f, Mathf.Max(104f, outerR - 30f));
-            float selectR = innerR - 6f;
-            if (delta.magnitude < selectR) return false;
-
-            List<RadialEntry> root;
-            try { root = feature.BuildRoot(); }
-            catch (System.Exception e) { UIALog.Warn("Flick-commit build failed: " + e.Message); return false; }
-            if (root == null || root.Count == 0) return false;
-
-            int idx = RadialMenu.SectorFromMouse(delta, root.Count);
-            if (idx < 0 || idx >= root.Count) return false;
-
-            var entry = root[idx];
-            if (entry == null || entry.OnSelect == null || !entry.Enabled) return false;
-
-            try { entry.OnSelect(); }
-            catch (System.Exception e) { UIALog.Error("Flick-commit action '" + entry.Label + "' failed: " + e); return false; }
-
-            if (UIAConfig.RadialWedgeSounds != null && UIAConfig.RadialWedgeSounds.Value)
-                UIAudioManager.Play(UIAudioManager.ClickMediumHash);
-            else
-                UIAudioManager.Play(UIAudioManager.ClickLightHash);
-            return true;
         }
 
         // ---------- #4 / #9: game-key pass-through while a radial is open ----------
@@ -776,7 +722,6 @@ namespace StationeersUIMod.Features
             // E.5 hot-reload: reset the new radial-feel statics/timers (a double-F6 must strand nothing).
             _lastTapFeature = null;
             _lastTapAt = -1f;
-            _pendingMouse = Vector2.zero;
             // Drop the ad-hoc callback WITHOUT running it (it points into the surface we are tearing
             // down) and release the static handle, so nothing survives into the reloaded assembly.
             FinishAdHoc(false);

@@ -28,11 +28,10 @@ namespace StationeersUIMod.Windows
                 return;
             }
 
-            ImGui.TextDisabled("Radials, radials, radials - hold the key, flick, release.");
+            ImGui.TextDisabled("Radials, radials, radials - hold the key, point, release.");
             ImGui.Separator();
 
             Toggle(UIAConfig.MasterEnable, "Master enable");
-            SchemaCombo();
             ImGui.Spacing();
 
             if (ImGui.Button("Open radial editor"))
@@ -43,17 +42,18 @@ namespace StationeersUIMod.Windows
 
             if (ImGui.CollapsingHeader("Radials", ImGuiTreeNodeFlags.DefaultOpen))
             {
-                Toggle(UIAConfig.ToolbeltRadialEnabled, "Toolbelt radial  (hold " + UIAConfig.ToolbeltRadialKey.Value + ")");
-                Toggle(UIAConfig.ToolRadialEnabled, "Tool radial  (hold " + UIAConfig.ToolRadialKey.Value + ")");
-                Toggle(UIAConfig.BagRadialEnabled, "Bag radial  ("
-                    + (UIAConfig.BagRadialTapOpens.Value ? "tap " : "hold ") + UIAConfig.BagRadialKey.Value + ")");
+                // The per-wheel enable toggles retired in the post-0.9.2.5 play-test round — with the radial half on, the
+                // toolbelt / tool / bag / equipment wheels are core functionality, not options.
+                ImGui.TextDisabled("Toolbelt: hold " + UIAConfig.ToolbeltRadialKey.Value
+                    + "   |   Tool: hold " + UIAConfig.ToolRadialKey.Value
+                    + "   |   Bags: " + (UIAConfig.BagRadialTapOpens.Value ? "tap " : "hold ")
+                    + UIAConfig.BagRadialKey.Value + "   |   Equipment: tap 1-6");
                 Toggle(UIAConfig.BagRadialTapOpens, "Tap opens bag radial / hold shows scoreboard");
-                Toggle(UIAConfig.EquipmentKeyRadialsEnabled, "Equipment key radials  (tap 1-6)");
                 Toggle(UIAConfig.ToolbeltShowStowEntries, "Show empty belt slots in the toolbelt radial");
                 Toggle(UIAConfig.RadialMovementEnabled, "Keep moving (WASD + Space) while a radial is open");
                 IntSlider(UIAConfig.HoldThresholdMs, "Hold threshold (ms)", 60, 600);
                 ImGui.Separator();
-                ImGui.TextDisabled("Option A bag presentation (playtest options):");
+                ImGui.TextDisabled("Bag presentation:");
                 Toggle(UIAConfig.BagGrouping, "Group crowded bags by sorting class");
                 EmptySlotCombo();
                 IntSlider(UIAConfig.RadialMaxWedges, "Max wedges per radial (overflow -> MORE)", 6, 32);
@@ -241,6 +241,7 @@ namespace StationeersUIMod.Windows
             Toggle(UIAConfig.RadialUppercaseLabels, "ALL CAPS wedge labels", true);
             Toggle(UIAConfig.RadialShowStateText, "State under icons (battery %, kPa, counts)", true);
             Toggle(UIAConfig.RadialShowWedgeLabels, "Show item name under each icon", true);
+            Toggle(UIAConfig.RadialShowBindingLabels, "Show bound-tool labels on reserved belt slots", true);
             FloatSlider(UIAConfig.RadialHubTitleSize, "Readout 1: title (bold)", 9f, 32f, true);
             FloatSlider(UIAConfig.RadialTextVerb, "Readout 2: action verb", 8f, 26f, true);
             FloatSlider(UIAConfig.RadialTextLabel, "Readout 3: item name", 8f, 26f, true);
@@ -303,29 +304,10 @@ namespace StationeersUIMod.Windows
             }
         }
 
-        private static void SchemaCombo()
-        {
-            var schema = UIAConfig.Schema.Value;
-            string current = schema == ControlSchema.OptionA ? "Option A (new)"
-                : schema == ControlSchema.OptionB ? "Option B (The Hub)"
-                : "Option D (classic)";
-            if (ImGui.BeginCombo("Control schema", current))
-            {
-                if (ImGui.Selectable("Option A (new)", schema == ControlSchema.OptionA))
-                    UIAConfig.Schema.Value = ControlSchema.OptionA;
-                if (ImGui.Selectable("Option B (The Hub)", schema == ControlSchema.OptionB))
-                    UIAConfig.Schema.Value = ControlSchema.OptionB;
-                if (ImGui.Selectable("Option D (classic)", schema == ControlSchema.OptionD))
-                    UIAConfig.Schema.Value = ControlSchema.OptionD;
-                ImGui.EndCombo();
-            }
-            ImGui.TextDisabled(UIAConfig.IsB
-                ? "B: everything A does + The Hub on the toolbelt radial. Tap MMB = sticky\n" +
-                  "(tap a wedge to select), hold MMB = transient (LMB dives, release runs)."
-                : UIAConfig.IsA
-                ? "A: STOW wedges, device satellites, search panel, drag-out parking, auto-close."
-                : "D: the classic pre-overhaul behavior (swap lists, click executes immediately).");
-        }
+        // SchemaCombo() retired in the post-0.9.2.5 play-test round: The Hub is THE control schema (FlorpyDorp — "there is
+        // only one radial choice that makes sense"), so there is nothing left to choose. Tap MMB
+        // opens the toolbelt sticky; hold MMB stays transient (LMB dives into branches, release
+        // runs the hovered action).
 
         private static void EmptySlotCombo()
         {

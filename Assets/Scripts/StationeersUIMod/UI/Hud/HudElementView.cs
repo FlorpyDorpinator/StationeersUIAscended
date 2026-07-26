@@ -306,6 +306,73 @@ namespace StationeersUIMod.UI.Hud
         /// longer needs its own "!SupportsPanelAppearance" guard.</summary>
         protected virtual bool SupportsBorderOnlyChrome => false;
 
+        /// <summary>Push this element's EFFECTIVE EDGE onto a border-only ring (the portrait).
+        ///
+        /// WHY THIS EXISTS. A ring is a <see cref="CircleGraphic"/>, the one UIA surface that is
+        /// not a <see cref="PanelGraphic"/>, so it never took part in the machinery that actually
+        /// produces a visible panel edge under the shipped themes. Those themes set the global
+        /// PanelBorderWidth to a hairline (0.076 px) and get their rims from the EDGE-LIGHT
+        /// family instead: PanelGraphic.BorderAt pulls the border toward
+        /// <see cref="PanelGraphic.LightTint"/> where it faces the key light and lifts its alpha
+        /// 85% of the way to opaque (Spec), then BorderFade dissolves the unlit run, and a faint
+        /// halo trails outside. Meanwhile the ring drew a raw 0.076 px line — which the first fix
+        /// then rendered as a 1 px hairline at 7.6% alpha, i.e. still nothing. Hence FlorpyDorp's
+        /// report that the ring vanishes under follow-global and that "there is no edge glass
+        /// kind of effect and I can't even set that in the effects tab for this element".
+        ///
+        /// FOLLOW-GLOBAL resolves from exactly the knobs a panel resolves from:
+        ///   - width: the global PanelBorderWidth, rendered the PANEL way (HairlineFloor, i.e.
+        ///     authored width + full alpha carried by the feather ramps, PanelGraphic's own
+        ///     `bw > 0.05f` admit gate) instead of coverage-faded;
+        ///   - edge light: <see cref="GlassEdgeFor"/> — the same value <see cref="ApplyGlass"/>
+        ///     pushes into every panel's Spec, Tier-A edge-light boost included — tinted by the
+        ///     shared FxEdgeLightColor via PanelGraphic.LightTint() (which returns white by
+        ///     itself when the global edge light is unchecked, so unchecking reverts the ring
+        ///     exactly as it reverts a panel);
+        ///   - border fade / halo: the same Tier-A gated FxBorderFade / FxGlow / FxGlowWidth
+        ///     resolution <see cref="ApplyMeshFx"/> performs.
+        /// With the whole edge family off, every value lands inert and the ring falls back to the
+        /// classic global border — just drawn with the panel's geometry rather than a coverage fade.
+        ///
+        /// CUSTOM style is deliberately untouched (authored ring colour + width, classic
+        /// sub-pixel behaviour). The only additions there are the two opt-in halo knobs below,
+        /// both neutral until an author sets them.</summary>
+        protected void ApplyBorderOnlyEdge(CircleGraphic ring)
+        {
+            if (ring == null) return;
+            ring.BorderColor = BorderColor();
+            ring.BorderWidth = BorderWidthFor();
+
+            if (UsesCustomStyle)
+            {
+                ring.HairlineFloor = 0f;
+                ring.EdgeSpec = 0f;
+                ring.EdgeTint = Color.white;
+                ring.EdgeFade = 0f;
+                float own = Def != null ? Def.GetFFor(LayoutBare, "ringGlow", 0f) : 0f;
+                ring.GlowStrength = Mathf.Max(0f, own);
+                ring.GlowWidth = OwnOrGlobal("glowWidth", HudConfig.FxGlowWidth);
+                string cref = Def != null ? Def.GetSFor(LayoutBare, "ringGlowColor", "") : "";
+                ring.GlowColor = string.IsNullOrEmpty(cref)
+                    ? Color.clear                                   // clear = derive from the rim
+                    : HudPalette.Resolve(cref, HudPalette.PanelBorder.Value);
+                return;
+            }
+
+            // Follow-global. PanelGraphic's own admit threshold, so the ring's sub-pixel line is
+            // the panel's sub-pixel line.
+            ring.HairlineFloor = 0.05f;
+            ring.EdgeSpec = GlassEdgeFor();
+            ring.EdgeTint = PanelGraphic.LightTint();
+            bool tierA = HudConfig.FxTierA != null && HudConfig.FxTierA.Value;
+            ring.EdgeFade = tierA && StyleFeatureOn("customBorderFadeOn", HudConfig.FxBorderFadeOn)
+                ? OwnOrGlobal("bfade", HudConfig.FxBorderFade) : 0f;
+            bool glowOn = tierA && StyleFeatureOn("customGlowOn", HudConfig.FxGlowOn);
+            ring.GlowStrength = glowOn ? OwnOrGlobal("glow", HudConfig.FxGlow) : 0f;
+            ring.GlowWidth = OwnOrGlobal("glowWidth", HudConfig.FxGlowWidth);
+            ring.GlowColor = Color.clear;                            // the rim's own hue, as panels do
+        }
+
         /// <summary>Used by F9 to suppress panel-only actions on text, borrowed vanilla UI and
         /// other elements that cannot render any UIA surface.</summary>
         internal bool CanFlatten => SupportsPanelAppearance;
@@ -1111,8 +1178,27 @@ namespace StationeersUIMod.UI.Hud
                 // offering the slider in Global made it a dead control).
                 into.Add(HudProp.Color("Ring / outline colour", () => d.BorderFor(EditBare(d)), v => d.SetBorderFor(EditBare(d), v)));
                 if (!UsesGlobalStyle)
+                {
                     into.Add(HudProp.F("Ring / outline width", () => d.BorderWidthFor(EditBare(d)),
                         v => d.SetBorderWidthFor(EditBare(d), Mathf.Clamp(v, 0f, 8f)), 0f, 8f));
+                    // The ring's own halo. Custom style is otherwise byte-for-byte what it always
+                    // was, so these two default to nothing: strength 0 emits no glow band at all,
+                    // and an empty colour ref derives the halo from the ring colour (a panel's
+                    // halo is likewise its own border hue).
+                    into.Add(HudProp.F("Ring glow", () => gf("ringGlow", 0f),
+                        v => sf("ringGlow", Mathf.Clamp(v, 0f, 2f)), 0f, 2f));
+                    into.Add(HudProp.Color("Ring glow colour", () => d.GetSFor(EditBare(d), "ringGlowColor", ""),
+                        v => d.SetSFor(EditBare(d), "ringGlowColor", string.IsNullOrEmpty(v) ? null : v),
+                        () => HudPalette.PanelBorder.Value));
+                }
+                else
+                {
+                    // The ring is not a panel, so F9's Effects tab has no per-element glass row
+                    // for it. Say where its edge actually comes from instead of leaving the
+                    // author to conclude the element simply has no edge treatment.
+                    into.Add(HudProp.Header(
+                        "Ring edge follows the theme: edge light, border fade and halo, as on panels"));
+                }
             }
             if (UsesGlobalStyle)
             {

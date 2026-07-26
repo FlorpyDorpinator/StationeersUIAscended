@@ -128,8 +128,10 @@ foreach ($img in @('Preview.png','thumb.png')) {
     if (Test-Path $src) { Copy-Item $src (Join-Path $Stage 'About') -Force } else { Write-Warning "About\$img missing." }
 }
 
-# HudProfiles: ship every .xml + the README (matches the existing releases).
+# HudProfiles: ship every .xml + the README + the <name>.png preview cards (SyncShipped
+# seeds the previews into the player's config dir; the F10 Profiles tab renders them).
 Copy-Item (Join-Path $ProfSrc '*.xml') (Join-Path $Stage 'HudProfiles') -Force
+Copy-Item (Join-Path $ProfSrc '*.png') (Join-Path $Stage 'HudProfiles') -Force -ErrorAction SilentlyContinue
 $readme = Join-Path $ProfSrc 'README.md'
 if (Test-Path $readme) { Copy-Item $readme (Join-Path $Stage 'HudProfiles') -Force }
 

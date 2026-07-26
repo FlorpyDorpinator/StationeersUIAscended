@@ -901,8 +901,9 @@ namespace StationeersUIMod
 
         public bool EquipmentKeysOwnButton(string buttonName)
         {
-            if (!UIAConfig.MasterEnable.Value || !UIAConfig.RadialEnabled.Value
-                || !UIAConfig.EquipmentKeyRadialsEnabled.Value) return false;
+            // the post-0.9.2.5 play-test round: the per-wheel EquipmentKeyRadialsEnabled toggle is gone — with the radial
+            // half on, the 1-6 wheels are core functionality, so RadialEnabled is the only gate.
+            if (!UIAConfig.MasterEnable.Value || !UIAConfig.RadialEnabled.Value) return false;
             if (!Assets.Scripts.Inventory.InventoryManager.ShowUi) return false;
             if (!CanHandleSuppressedKeys) return false;
             foreach (var feature in _equipFeatures)

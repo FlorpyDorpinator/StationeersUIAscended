@@ -25,7 +25,7 @@ namespace StationeersUIMod.Core
     {
         /// <summary>Bump by ONE each time you add a migration STEP in <see cref="ApplyStep"/>.
         /// Fresh installs are stamped straight to this and run NO steps.</summary>
-        public const int CurrentVersion = 3;
+        public const int CurrentVersion = 4;
 
         private const string Section = "0. Internal";
 
@@ -124,11 +124,37 @@ namespace StationeersUIMod.Core
                         oldDefault: "FFFFFFFF", corrected: "FF8C29FF");
                     cfg.Save();
                     break;
+                case 3: // v3 -> v4 — the the post-0.9.2.5 play-test round Wave G radials simplification. Seven keys stopped
+                    // being Bind-ed and would otherwise linger forever as ORPHANED entries (see the
+                    // v1->v2 note above for why a removed Bind does NOT remove the key), still
+                    // showing up in the SLP settings panel as controls that do nothing:
+                    //   * [1. General] ControlSchema — The Hub (the old Option B) is now THE control
+                    //     schema; the A/B/D chooser and the ControlSchema enum are gone.
+                    //   * [1b. Radial Feel] FlickCommit + FlickWindowMs — flick-to-commit was deleted
+                    //     outright (it intermittently ate MMB, and hold-point-release already is that
+                    //     gesture). No value is carried anywhere: the feature has no successor.
+                    //   * [2. Toolbelt Radial] / [3. Tool Radial] / [4. Bag Radial] /
+                    //     [4b. Equipment Keys] "Enabled" — the four per-wheel enables. With the radial
+                    //     half switched on ([1. General] RadialEnabled) these wheels ARE the mod, so
+                    //     they are hardcoded on. DELIBERATELY not migrated onto RadialEnabled: someone
+                    //     who had turned ONE wheel off never asked for the whole radial half to go
+                    //     away, and the master they can still reach says exactly what it does.
+                    //     (This is the one behaviour change a player can SEE: a wheel they had
+                    //     switched off comes back. That is the intent — see the Wave G ledger.)
+                    //   * [8. Radial Visuals] BindingLabelCurved — replaced by ShowBindingLabels, which
+                    //     is NOT a rename: the old key chose curved-vs-straight rendering, the new one
+                    //     chooses shown-vs-hidden. Carrying a stored `false` (= "draw it straight")
+                    //     across would silently HIDE labels the player still wanted, so the old value
+                    //     is dropped and everyone starts on the new default (shown, curved).
+                    // See Documentation/Release Prep Reports/wave-b-removed-keys.md, "Wave G" section.
+                    foreach (string[] kv in RemovedKeysV3ToV4) RemoveOrphaned(cfg, kv[0], kv[1]);
+                    cfg.Save();
+                    break;
                 // ---------------------------------------------------------------------------------
                 // TEMPLATE — the next time you change a shipped default or rename a key, bump
                 // CurrentVersion again and fill in the next case:
                 //
-                // case 3: // v3 -> v4
+                // case 4: // v4 -> v5
                 //     // A default was WRONG: push the corrected value only to players who never
                 //     // changed it (anyone who set it on purpose keeps their choice).
                 //     ForceIfDefault(UI.Hud.HudConfig.FxGlow, oldDefault: 0.50f, corrected: 0.80f);
@@ -208,6 +234,31 @@ namespace StationeersUIMod.Core
             // "9. The Grid" — GridMode/DisplayMode: self-described "DEPRECATED - no longer used",
             // zero readers anywhere (GridModel.ActiveMode is hard-wired to Grid).
             new[] { "9. The Grid", "DisplayMode" },
+        };
+
+        /// <summary>Every key Wave G's Bind-removal orphaned (deletes only — nothing here is a
+        /// rename, see the <c>case 3</c> commentary for why BindingLabelCurved deliberately does NOT
+        /// carry its value onto ShowBindingLabels). One-time ledger for the v3-&gt;v4 step; matches
+        /// Documentation/Release Prep Reports/wave-b-removed-keys.md, "Wave G" section.</summary>
+        private static readonly string[][] RemovedKeysV3ToV4 =
+        {
+            // The control-schema chooser: The Hub is the only schema now.
+            new[] { "1. General", "ControlSchema" },
+
+            // Flick-to-commit: feature deleted, no successor.
+            new[] { "1b. Radial Feel", "FlickCommit" },
+            new[] { "1b. Radial Feel", "FlickWindowMs" },
+
+            // The four per-wheel enables (each section's own "Enabled"). "4b. Equipment Keys" had
+            // no other key, so that whole section leaves the file with this one.
+            new[] { "2. Toolbelt Radial", "Enabled" },
+            new[] { "3. Tool Radial", "Enabled" },
+            new[] { "4. Bag Radial", "Enabled" },
+            new[] { "4b. Equipment Keys", "Enabled" },
+
+            // Curved-vs-straight bound-tool label: curved is the only rendering now. Superseded by
+            // "8. Radial Visuals"/ShowBindingLabels, which answers a DIFFERENT question.
+            new[] { "8. Radial Visuals", "BindingLabelCurved" },
         };
 
         /// <summary>v1-&gt;v2 rename: legacy <c>HudGlitch</c>'s own master/severity/duration

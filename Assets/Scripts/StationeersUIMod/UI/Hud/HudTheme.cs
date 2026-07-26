@@ -77,7 +77,7 @@ namespace StationeersUIMod.UI.Hud
         // ---------------------------------------------------------------- radial: include-list
         // UIAConfig "8. Radial Visuals" (32) + "10. Hint Bar" (14) LOOK knobs — everything that
         // changes how a radial/hint-bar LOOKS. Deliberately excludes their behaviour siblings in
-        // the same sections: RadialMaxWedges, flick/double-tap windows, wedge sounds, hint-fade,
+        // the same sections: RadialMaxWedges, the double-tap window, wedge sounds, hint-fade,
         // RadialHintBar (on/off) and HintBarPreview (an editor-preview toggle, same class of thing
         // as HudEditorKey) — those change WHAT HAPPENS, not what it looks like, and must not change
         // when a player merely tries a theme. An include-list (not a denylist) because reflecting
@@ -89,7 +89,7 @@ namespace StationeersUIMod.UI.Hud
             "RadialShineIntensity", "ParkedChipRadius", "RadialShowWedgeLabels", "RadialEdgeFeather",
             "RadialBorderWidth", "RadialSideBorders", "RadialSideWidthInner", "RadialSideWidthOuter",
             "RadialWedgeGapDeg", "RadialDimShading", "RadialDimStrength", "RadialFontName",
-            "RadialUppercaseLabels", "RadialShowStateText", "RadialBindingCurved",
+            "RadialUppercaseLabels", "RadialShowStateText", "RadialShowBindingLabels",
             "RadialSatelliteScale", "RadialHubTitleSize", "RadialTextVerb", "RadialTextLabel",
             "RadialTextSub", "RadialTextWarn", "RadialRotateLongLabels", "RadialSatelliteHubRatio",
             "RadialDynamicReadoutText", "RadialFrost", "RadialFrostStrength", "RadialSheen",

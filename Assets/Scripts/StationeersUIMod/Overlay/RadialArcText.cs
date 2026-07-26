@@ -21,9 +21,10 @@ namespace StationeersUIMod.Overlay
     /// Each glyph is moved to its own point on the arc and rotated by its own subtended angle, so
     /// the glyph SHAPES stay undistorted (bending the quads directly would shear them).
     ///
-    /// Cost: one ForceMeshUpdate per curved label per frame. That is why it is opt-in
-    /// (UIAConfig.RadialBindingCurved) and only ever runs for the handful of wedges of an OPEN
-    /// radial. Fail-soft: any exception leaves the label as ordinary straight text.
+    /// Cost: one ForceMeshUpdate per curved label per frame — bounded because it only ever runs
+    /// for the handful of BOUND-TOOL labels on the wedges of an OPEN radial, and those can be
+    /// switched off entirely (UIAConfig.RadialShowBindingLabels). Fail-soft: any exception leaves
+    /// the label as ordinary straight text.
     /// </summary>
     public static class RadialArcText
     {
