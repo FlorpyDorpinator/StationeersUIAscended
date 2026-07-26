@@ -79,19 +79,20 @@ Assets/Plugins/**
 Reference/**
 ToolAndLibContext/**
 StationpediaAscendedWorkspace/**
+# Game DLLs (large, environment-provided; tracked historically, no longer picked up)
+Assets/Assemblies/**
 
 # ===== Dev / privacy (Stationeers UI Ascended) =====
 # Private session logs (contain account details) - keep out of the repo
 .specstory/
+debug.log
 # Dev-only ScriptEngine build project (Unity ignores anything outside Assets/)
 Dev/bin/
 Dev/obj/
 # ...but the dev csproj itself must be committable despite the Unity-wide *.csproj rule
 !Dev/*.csproj
-# Legacy BepInEx POC build output
-StationeersUIAscended/bin/
-StationeersUIAscended/obj/
-!StationeersUIAscended/**/*.csproj
+# Deprecated POC project, removed from tracking (history preserves it); ignore any leftover local build output
+StationeersUIAscended/
 
 # Release zips at the repo root are build artifacts (rebuilt per release, shared directly)
 /StationeersUIMod-*.zip

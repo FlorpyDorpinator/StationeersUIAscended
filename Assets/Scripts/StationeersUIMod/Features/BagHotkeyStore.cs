@@ -1,10 +1,7 @@
-using System;
 using System.Collections.Generic;
-using System.IO;
 using System.Linq;
 using System.Xml.Serialization;
 using Assets.Scripts.Objects;
-using BepInEx;
 using StationeersUIMod.Core;
 
 namespace StationeersUIMod.Features
@@ -42,7 +39,9 @@ namespace StationeersUIMod.Features
         private static readonly Dictionary<int, long> _binds = new Dictionary<int, long>();
         private static string _loadedSaveKey;
 
-        private static string HotkeysDir => Path.Combine(BagProfileStore.ConfigDir, "Hotkeys");
+        // Disk plumbing lives in SaveScopedXmlStore (same folder/filename/serializer as before).
+        private const string StoreFolder = "Hotkeys";
+        private const string StoreLabel = "Bag hotkey";
 
         // --- number-row <-> slot-index mapping ---
 
@@ -70,44 +69,20 @@ namespace StationeersUIMod.Features
             if (key == _loadedSaveKey) return;
             _loadedSaveKey = key;
             _binds.Clear();
-            try
-            {
-                var path = Path.Combine(HotkeysDir, key + ".xml");
-                if (!File.Exists(path)) return;
-                var serializer = new XmlSerializer(typeof(BagHotkeyFile));
-                using (var stream = File.OpenRead(path))
-                {
-                    var parsed = (BagHotkeyFile)serializer.Deserialize(stream);
-                    if (parsed?.Binds != null)
-                        foreach (var b in parsed.Binds)
-                            if (b.Slot >= 0 && b.Slot < SlotCount) _binds[b.Slot] = b.BagReferenceId;
-                }
-                UIALog.Info($"Loaded {_binds.Count} bag hotkey(s) for save '{key}'.");
-            }
-            catch (Exception e)
-            {
-                UIALog.Warn("Bag hotkey load failed: " + e.Message);
-            }
+            var parsed = SaveScopedXmlStore.LoadPerSave<BagHotkeyFile>(StoreFolder, key, StoreLabel);
+            if (parsed?.Binds == null) return;
+            foreach (var b in parsed.Binds)
+                if (b != null && b.Slot >= 0 && b.Slot < SlotCount) _binds[b.Slot] = b.BagReferenceId;
+            UIALog.Info($"Loaded {_binds.Count} bag hotkey(s) for save '{key}'.");
         }
 
         private static void Save()
         {
-            try
+            var file = new BagHotkeyFile
             {
-                Directory.CreateDirectory(HotkeysDir);
-                var path = Path.Combine(HotkeysDir, (_loadedSaveKey ?? BagProfileStore.CurrentSaveKey()) + ".xml");
-                var file = new BagHotkeyFile
-                {
-                    Binds = _binds.Select(kv => new BagHotkeyBind { Slot = kv.Key, BagReferenceId = kv.Value }).ToList(),
-                };
-                var serializer = new XmlSerializer(typeof(BagHotkeyFile));
-                using (var stream = File.Create(path))
-                    serializer.Serialize(stream, file);
-            }
-            catch (Exception e)
-            {
-                UIALog.Warn("Bag hotkey save failed: " + e.Message);
-            }
+                Binds = _binds.Select(kv => new BagHotkeyBind { Slot = kv.Key, BagReferenceId = kv.Value }).ToList(),
+            };
+            SaveScopedXmlStore.SavePerSave(StoreFolder, _loadedSaveKey, file, StoreLabel);
         }
 
         // --- public API ---

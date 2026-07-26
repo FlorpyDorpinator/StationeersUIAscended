@@ -1,7 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.IO;
-using System.Linq;
 using System.Xml.Serialization;
 using Assets.Scripts.Objects;
 using HarmonyLib;
@@ -62,7 +60,9 @@ namespace StationeersUIMod.Features
         private static readonly List<int> _vacateScratch = new List<int>();
         private static string _loadedSaveKey;
 
-        private static string BeltBindingsDir => Path.Combine(BagProfileStore.ConfigDir, "BeltBindings");
+        // Disk plumbing lives in SaveScopedXmlStore (same folder/filename/serializer as before).
+        private const string StoreFolder = "BeltBindings";
+        private const string StoreLabel = "Belt binding";
 
         // --- per-save load/save (keyed off the same save name BagProfileStore uses) ---
 
@@ -72,57 +72,31 @@ namespace StationeersUIMod.Features
             if (key == _loadedSaveKey) return;
             _loadedSaveKey = key;
             _belts.Clear();
-            try
+            var parsed = SaveScopedXmlStore.LoadPerSave<BeltBindingFile>(StoreFolder, key, StoreLabel);
+            if (parsed == null || parsed.Belts == null) return;
+            foreach (var belt in parsed.Belts)
             {
-                var path = Path.Combine(BeltBindingsDir, key + ".xml");
-                if (!File.Exists(path)) return;
-                var serializer = new XmlSerializer(typeof(BeltBindingFile));
-                using (var stream = File.OpenRead(path))
-                {
-                    var parsed = (BeltBindingFile)serializer.Deserialize(stream);
-                    if (parsed != null && parsed.Belts != null)
-                    {
-                        foreach (var belt in parsed.Belts)
-                        {
-                            if (belt == null) continue;
-                            var table = new BeltTable { Seeded = belt.Seeded };
-                            if (belt.Binds != null)
-                                foreach (var b in belt.Binds)
-                                    if (b != null && b.SlotIndex >= 0) table.SlotToType[b.SlotIndex] = b.TypeKey;
-                            _belts[belt.ReferenceId] = table;
-                        }
-                    }
-                }
-                UIALog.Info($"Loaded belt bindings for {_belts.Count} belt(s), save '{key}'.");
+                if (belt == null) continue;
+                var table = new BeltTable { Seeded = belt.Seeded };
+                if (belt.Binds != null)
+                    foreach (var b in belt.Binds)
+                        if (b != null && b.SlotIndex >= 0) table.SlotToType[b.SlotIndex] = b.TypeKey;
+                _belts[belt.ReferenceId] = table;
             }
-            catch (Exception e)
-            {
-                UIALog.Warn("Belt binding load failed: " + e.Message);
-            }
+            UIALog.Info($"Loaded belt bindings for {_belts.Count} belt(s), save '{key}'.");
         }
 
         private static void Save()
         {
-            try
+            var file = new BeltBindingFile();
+            foreach (var kv in _belts)
             {
-                Directory.CreateDirectory(BeltBindingsDir);
-                var path = Path.Combine(BeltBindingsDir, (_loadedSaveKey ?? BagProfileStore.CurrentSaveKey()) + ".xml");
-                var file = new BeltBindingFile();
-                foreach (var kv in _belts)
-                {
-                    var entry = new BeltBindingEntry { ReferenceId = kv.Key, Seeded = kv.Value.Seeded };
-                    foreach (var sb in kv.Value.SlotToType)
-                        entry.Binds.Add(new BeltSlotBind { SlotIndex = sb.Key, TypeKey = sb.Value });
-                    file.Belts.Add(entry);
-                }
-                var serializer = new XmlSerializer(typeof(BeltBindingFile));
-                using (var stream = File.Create(path))
-                    serializer.Serialize(stream, file);
+                var entry = new BeltBindingEntry { ReferenceId = kv.Key, Seeded = kv.Value.Seeded };
+                foreach (var sb in kv.Value.SlotToType)
+                    entry.Binds.Add(new BeltSlotBind { SlotIndex = sb.Key, TypeKey = sb.Value });
+                file.Belts.Add(entry);
             }
-            catch (Exception e)
-            {
-                UIALog.Warn("Belt binding save failed: " + e.Message);
-            }
+            SaveScopedXmlStore.SavePerSave(StoreFolder, _loadedSaveKey, file, StoreLabel);
         }
 
         // --- public API ---

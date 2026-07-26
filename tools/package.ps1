@@ -37,22 +37,54 @@ param(
 $ErrorActionPreference = 'Stop'
 
 # ---- paths ----
-$RepoRoot = Split-Path -Parent $PSScriptRoot
-$Csproj   = Join-Path $RepoRoot 'Dev\StationeersUIMod.Dev.csproj'
-$DllPath  = Join-Path $RepoRoot "Dev\bin\$Configuration\StationeersUIMod.dll"
-$Bundle   = Join-Path $RepoRoot 'Dev\UiaEffectsBundle\Build\uia_effects.bundle'
-$AboutSrc = Join-Path $RepoRoot 'Assets\About'
-$ProfSrc  = Join-Path $RepoRoot 'HudProfiles'
-$AboutXml = Join-Path $AboutSrc 'About.xml'
+$RepoRoot   = Split-Path -Parent $PSScriptRoot
+$Csproj     = Join-Path $RepoRoot 'Dev\StationeersUIMod.Dev.csproj'
+$DllPath    = Join-Path $RepoRoot "Dev\bin\$Configuration\StationeersUIMod.dll"
+$Bundle     = Join-Path $RepoRoot 'Dev\UiaEffectsBundle\Build\uia_effects.bundle'
+$AboutSrc   = Join-Path $RepoRoot 'Assets\About'
+$ProfSrc    = Join-Path $RepoRoot 'HudProfiles'
+$AboutXml   = Join-Path $AboutSrc 'About.xml'
+$ModSrcFile = Join-Path $RepoRoot 'Assets\Scripts\StationeersUIMod\StationeersUIMod.cs'
 
 $ModName  = 'StationeersUIMod'
 $Stage    = Join-Path $RepoRoot "dist\$ModName"   # steamcmd contentfolder + zip source
 
-# ---- version (single source: About.xml <Version>) ----
+# ---- clean-tree guard (warn, not abort: a dirty tree still packages, but the zip may not
+# match any single commit, which makes a shipped bug hard to bisect later). ----
+try {
+    $gitStatus = & git -C $RepoRoot status --porcelain 2>$null
+} catch { $gitStatus = $null }
+if ($gitStatus) {
+    Write-Warning "Packaging from a DIRTY tree (uncommitted changes present) - the zip may not match any commit."
+    Write-Warning "Uncommitted paths:"
+    foreach ($line in ($gitStatus -split "`r?`n" | Where-Object { $_ })) { Write-Warning "    $line" }
+}
+
+# ---- version (single source of truth: About.xml <Version> - but it MUST agree with the
+# ModVersion const compiled into the DLL, or the zip name and the mod's own self-report
+# diverge. This happened once: the zip was named 0.9.2 while the tree/DLL said 0.9.2.0. ----
 if (-not (Test-Path $AboutXml)) { throw "About.xml not found at $AboutXml" }
 [xml]$about = Get-Content -LiteralPath $AboutXml -Raw
 $Version = "$($about.ModMetadata.Version)".Trim()
 if (-not $Version) { throw "Could not read <Version> from $AboutXml" }
+
+if (-not (Test-Path $ModSrcFile)) { throw "StationeersUIMod.cs not found at $ModSrcFile (cannot verify ModVersion)." }
+$modSrcText = Get-Content -LiteralPath $ModSrcFile -Raw
+$modVerMatch = [regex]::Match($modSrcText, 'ModVersion\s*=\s*"([^"]+)"')
+if (-not $modVerMatch.Success) { throw "Could not find 'ModVersion = ""...""' const in $ModSrcFile." }
+$CodeVersion = $modVerMatch.Groups[1].Value.Trim()
+
+if ($CodeVersion -ne $Version) {
+    Write-Host ""
+    Write-Host "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!" -ForegroundColor Red
+    Write-Host "!! VERSION MISMATCH - REFUSING TO PACKAGE                              !!" -ForegroundColor Red
+    Write-Host "!!   Assets\About\About.xml <Version>                 = $Version" -ForegroundColor Red
+    Write-Host "!!   StationeersUIMod.cs ModVersion const             = $CodeVersion" -ForegroundColor Red
+    Write-Host "!!   Bump BOTH together (see CLAUDE.md 'Version' section) and re-run.  !!" -ForegroundColor Red
+    Write-Host "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!" -ForegroundColor Red
+    throw "Version mismatch: About.xml=$Version vs ModVersion const=$CodeVersion."
+}
+
 Write-Host "==> Packaging $ModName v$Version ($Configuration)" -ForegroundColor Cyan
 
 # ---- build Release ----
@@ -101,11 +133,71 @@ Copy-Item (Join-Path $ProfSrc '*.xml') (Join-Path $Stage 'HudProfiles') -Force
 $readme = Join-Path $ProfSrc 'README.md'
 if (Test-Path $readme) { Copy-Item $readme (Join-Path $Stage 'HudProfiles') -Force }
 
+# ---- content audit (post-stage) ----
+# Hard failures: things that would ship a broken or mis-versioned mod.
+# Soft warnings: things that are nice-to-have but not release blockers yet.
+Write-Host "==> Content audit" -ForegroundColor Cyan
+$auditErrors = New-Object System.Collections.Generic.List[string]
+
+# Both shipped themes must be present (CLAUDE.md: shipped set = Stationeers Blue + Pure HUD).
+foreach ($theme in @('Stationeers Blue', 'Pure HUD')) {
+    $themeFile = Join-Path $Stage "HudProfiles\$theme.xml"
+    if (-not (Test-Path $themeFile)) {
+        $auditErrors.Add("Missing shipped theme: HudProfiles\$theme.xml")
+    }
+}
+# At least one HudProfiles\*.xml must exist at all (belt-and-suspenders on the copy step above).
+$stagedProfiles = @(Get-ChildItem (Join-Path $Stage 'HudProfiles') -Filter '*.xml' -ErrorAction SilentlyContinue)
+if ($stagedProfiles.Count -eq 0) {
+    $auditErrors.Add("No HudProfiles\*.xml staged at all.")
+}
+
+# Preview PNGs: soft warn only until FlorpyDorp adds them.
+$stagedPreviews = @(Get-ChildItem (Join-Path $Stage 'HudProfiles') -Filter '*.png' -ErrorAction SilentlyContinue)
+if ($stagedPreviews.Count -eq 0) {
+    Write-Warning "No HudProfiles\*.png theme previews staged (cosmetic only - not a release blocker yet)."
+}
+
+# No loose .pdb files anywhere in the staged tree (an embedded pdb inside the dll is fine and
+# expected; a separate .pdb alongside it would leak debug symbols/paths into the ship zip).
+$loosePdbs = @(Get-ChildItem $Stage -Recurse -Filter '*.pdb' -ErrorAction SilentlyContinue)
+if ($loosePdbs.Count -gt 0) {
+    foreach ($pdb in $loosePdbs) { $auditErrors.Add("Loose .pdb in staged tree: $($pdb.FullName)") }
+}
+
+# About.xml must be present in the stage (belt-and-suspenders on the copy step above).
+if (-not (Test-Path (Join-Path $Stage 'About\About.xml'))) {
+    $auditErrors.Add("Missing About\About.xml in staged tree.")
+}
+
+if ($auditErrors.Count -gt 0) {
+    Write-Host ""
+    Write-Host "!! CONTENT AUDIT FAILED:" -ForegroundColor Red
+    foreach ($e in $auditErrors) { Write-Host "!!   $e" -ForegroundColor Red }
+    throw "Content audit failed ($($auditErrors.Count) error(s)). See above."
+}
+Write-Host "    content audit passed" -ForegroundColor Green
+
 # ---- zip (version-named, at repo root; archive wraps the StationeersUIMod\ folder) ----
+# Zip name derives from the SAME agreed version checked above (About.xml == ModVersion const) -
+# never a separately hand-typed string, so a name/tree mismatch like the 0.9.2 vs 0.9.2.0
+# incident above cannot recur.
 $ZipPath = Join-Path $RepoRoot "$ModName-$Version.zip"
 if (Test-Path $ZipPath) { Remove-Item $ZipPath -Force }
 Compress-Archive -Path $Stage -DestinationPath $ZipPath -Force
 $zipMb = '{0:N2}' -f ((Get-Item $ZipPath).Length / 1MB)
+if (-not ((Split-Path -Leaf $ZipPath) -eq "$ModName-$Version.zip")) {
+    throw "Internal error: zip name does not match the agreed version ($Version)."
+}
+
+# ---- final manifest listing ----
+Write-Host ""
+Write-Host "==> Staged manifest ($Stage):" -ForegroundColor Cyan
+Get-ChildItem $Stage -Recurse -File | Sort-Object FullName | ForEach-Object {
+    $rel = $_.FullName.Substring($Stage.Length + 1)
+    $sizeKb = '{0:N1}' -f ($_.Length / 1KB)
+    Write-Host ("    {0,10} KB  {1}" -f $sizeKb, $rel)
+}
 
 # ---- optional: install into the local mods folder for SLP testing ----
 if ($Install) {

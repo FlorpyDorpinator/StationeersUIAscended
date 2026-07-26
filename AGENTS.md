@@ -34,7 +34,7 @@ Read these before large changes:
 - `Documentation/stationeers_ui_redesign_proposal.pdf`
 - `Documentation/UI-Ascended-Viability-Assessment-and-Plan.md`
 - `Changes Reports/`
-- relevant `docs/` design and architecture reports
+- relevant `Documentation/` design and architecture reports
 - relevant `.specstory/history/` records when the current code does not explain intent
 
 ## Non-negotiable design rules

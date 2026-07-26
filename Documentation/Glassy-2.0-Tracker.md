@@ -1,6 +1,6 @@
 # Glassy 2.0 — Element Tracker
 
-Source spec: `docs/Big Prompt` (FlorpyDorp, 2026-07-12). This file tracks every element
+Source spec: `Documentation/Big Prompt` (FlorpyDorp, 2026-07-12). This file tracks every element
 until each is confirmed good in-game. Statuses: ⬜ not started · 🔨 building · ✅ built
 (awaiting play-test) · 🟢 play-test approved · ❌ blocked/issue.
 

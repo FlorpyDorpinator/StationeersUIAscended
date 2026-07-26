@@ -3,7 +3,7 @@
 **Project:** StationeersUIMod (Unity + LaunchPadBooster)  
 **Current implementation:** Procedural Unity UGUI renderer (code-built canvas + runtime annular wedges via MaskableGraphic) — the primary and loved implementation. A legacy ImGui draw-list painter is available as a toggleable fallback.  
 **Date of analysis:** 2026-07-09 (updated)  
-**Status:** Florpy built the procedural UGUI system on top of earlier prefab work and the shared interaction model. This is what we are keeping. See `docs/Procedural-UGUI-Radial-System.md` for the deep dive into the system Florpy built.
+**Status:** Florpy built the procedural UGUI system on top of earlier prefab work and the shared interaction model. This is what we are keeping. See `Documentation/Procedural-UGUI-Radial-System.md` for the deep dive into the system Florpy built.
 
 **Goal of this doc:** Explain the complete architecture, UX model, and extension points so developers understand exactly how the system behaves today. The ImGui code is the executable spec.
 

@@ -1,6 +1,4 @@
-using System;
 using System.Collections.Generic;
-using System.IO;
 using System.Linq;
 using System.Xml.Serialization;
 using StationeersUIMod.Core;
@@ -46,7 +44,9 @@ namespace StationeersUIMod.Features
         private static readonly HashSet<long> _expanded = new HashSet<long>();
         private static string _loadedSaveKey;
 
-        private static string GridDir => Path.Combine(BagProfileStore.ConfigDir, "Grid");
+        // Disk plumbing lives in SaveScopedXmlStore (same folder/filename/serializer as before).
+        private const string StoreFolder = "Grid";
+        private const string StoreLabel = "Grid collapse";
 
         // --- per-save load/save (keyed off the same save name BagProfileStore uses) ---
 
@@ -56,44 +56,20 @@ namespace StationeersUIMod.Features
             if (key == _loadedSaveKey) return;
             _loadedSaveKey = key;
             _expanded.Clear();
-            try
-            {
-                var path = Path.Combine(GridDir, key + ".xml");
-                if (!File.Exists(path)) return;
-                var serializer = new XmlSerializer(typeof(GridStateFile));
-                using (var stream = File.OpenRead(path))
-                {
-                    // A pre-inversion file only has <Collapsed> elements, which no longer map to a
-                    // member — XmlSerializer ignores them, so Expanded is empty and the save loads as
-                    // fully collapsed. That is the intended graceful migration (no crash, no carry-over).
-                    var parsed = (GridStateFile)serializer.Deserialize(stream);
-                    if (parsed?.Expanded != null)
-                        foreach (var id in parsed.Expanded)
-                            _expanded.Add(id);
-                }
-                UIALog.Info($"Loaded {_expanded.Count} Grid expand state(s) for save '{key}'.");
-            }
-            catch (Exception e)
-            {
-                UIALog.Warn("Grid collapse load failed: " + e.Message);
-            }
+            // A pre-inversion file only has <Collapsed> elements, which no longer map to a member —
+            // XmlSerializer ignores them, so Expanded is empty and the save loads as fully collapsed.
+            // That is the intended graceful migration (no crash, no carry-over).
+            var parsed = SaveScopedXmlStore.LoadPerSave<GridStateFile>(StoreFolder, key, StoreLabel);
+            if (parsed?.Expanded == null) return;
+            foreach (var id in parsed.Expanded)
+                _expanded.Add(id);
+            UIALog.Info($"Loaded {_expanded.Count} Grid expand state(s) for save '{key}'.");
         }
 
         private static void Save()
         {
-            try
-            {
-                Directory.CreateDirectory(GridDir);
-                var path = Path.Combine(GridDir, (_loadedSaveKey ?? BagProfileStore.CurrentSaveKey()) + ".xml");
-                var file = new GridStateFile { Expanded = _expanded.ToList() };
-                var serializer = new XmlSerializer(typeof(GridStateFile));
-                using (var stream = File.Create(path))
-                    serializer.Serialize(stream, file);
-            }
-            catch (Exception e)
-            {
-                UIALog.Warn("Grid collapse save failed: " + e.Message);
-            }
+            var file = new GridStateFile { Expanded = _expanded.ToList() };
+            SaveScopedXmlStore.SavePerSave(StoreFolder, _loadedSaveKey, file, StoreLabel);
         }
 
         // --- public API ---

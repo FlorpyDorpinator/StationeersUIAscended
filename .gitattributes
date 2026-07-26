@@ -35,9 +35,3 @@
 *.js     diff=javascript
 *.json   diff=json
 *.xml    diff=xml
-
-# Merge settings for specific file types
-*.cs     merge=union
-*.js     merge=union
-*.json   merge=union
-*.xml    merge=union

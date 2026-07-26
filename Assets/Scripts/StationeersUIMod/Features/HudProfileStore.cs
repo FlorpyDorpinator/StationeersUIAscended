@@ -206,6 +206,7 @@ namespace StationeersUIMod.Features
                 foreach (string path in Directory.GetFiles(Dir, "*.xml"))
                 {
                     string name = Path.GetFileNameWithoutExtension(path);
+                    if (IsBrokenBackupName(name)) continue; // quarantined corruption, not a profile
                     try
                     {
                         var serializer = new XmlSerializer(typeof(HudDocument));
@@ -337,7 +338,14 @@ namespace StationeersUIMod.Features
             {
                 if (!Directory.Exists(Dir)) return list;
                 foreach (var path in Directory.GetFiles(Dir, "*.xml"))
-                    list.Add(Path.GetFileNameWithoutExtension(path));
+                {
+                    string baseName = Path.GetFileNameWithoutExtension(path);
+                    // "<name>.broken.xml" matches the *.xml glob but is a QUARANTINED copy of a file
+                    // that would not parse (see BackupCorruptProfile), not a profile — never offer it
+                    // as loadable, or the switcher fills up with unloadable ghosts of past corruption.
+                    if (IsBrokenBackupName(baseName)) continue;
+                    list.Add(baseName);
+                }
                 list.Sort(StringComparer.OrdinalIgnoreCase);
             }
             catch (Exception e)
@@ -954,7 +962,11 @@ namespace StationeersUIMod.Features
         /// PERSISTED under the shipped name, permanently player-owned, because nothing ever recorded
         /// it as shipped. For any other name, the caller's starter factory builds whatever it
         /// considers the default and it is written back, so an empty (or damaged) HudProfiles folder
-        /// always ends up with a usable profile on disk.</summary>
+        /// always ends up with a usable profile on disk.
+        ///
+        /// A file that EXISTS but will not parse is copied aside to <c>&lt;name&gt;.broken.xml</c>
+        /// before that write lands (<see cref="BackupCorruptProfile"/>) — the mod's hide-never-destroy
+        /// rule applies to a player's damaged file too, so self-healing can never eat a layout.</summary>
         public static void LoadActive(string profileName, Func<HudDocument> starterFactory)
         {
             // One-shot v2->v3 theme-fold top-up (see ConfigMigration.PendingThemeTopUp): consumed
@@ -994,6 +1006,10 @@ namespace StationeersUIMod.Features
                 }
                 doc.Sanitize();
                 doc.Name = profileName;
+                // Load() returns null for MISSING and for CORRUPT alike. If a file is actually
+                // sitting there, it is the second case — quarantine it before this Save overwrites
+                // it (no-op when there is nothing on disk). See BackupCorruptProfile.
+                BackupCorruptProfile(profileName);
                 Save(doc, profileName);
                 if (usedShippedFactory)
                 {
@@ -1104,6 +1120,75 @@ namespace StationeersUIMod.Features
                 return File.Exists(path) ? path : null;
             }
             catch { return null; }
+        }
+
+        // ---------- corrupt-file quarantine ----------
+
+        /// <summary>Filename marker for a quarantined copy of a profile that would not parse:
+        /// <c>&lt;name&gt;.broken.xml</c>, then <c>&lt;name&gt;.broken-2.xml</c>, -3, … for repeats.</summary>
+        private const string BrokenMarker = ".broken";
+
+        /// <summary>Does this file BASENAME (no extension) name a quarantine copy — <c>x.broken</c> or
+        /// <c>x.broken-7</c>? Used to keep those out of every "*.xml means a profile" enumeration.
+        /// (A profile the player deliberately named "something.broken" would be hidden too; that is an
+        /// acceptable trade for never listing an unloadable file as loadable.)</summary>
+        private static bool IsBrokenBackupName(string fileBaseName)
+        {
+            if (string.IsNullOrEmpty(fileBaseName)) return false;
+            int i = fileBaseName.LastIndexOf(BrokenMarker, StringComparison.OrdinalIgnoreCase);
+            if (i < 0) return false;
+            string tail = fileBaseName.Substring(i + BrokenMarker.Length);
+            if (tail.Length == 0) return true;          // "<name>.broken"
+            if (tail[0] != '-' || tail.Length < 2) return false;
+            for (int k = 1; k < tail.Length; k++)
+                if (!char.IsDigit(tail[k])) return false;
+            return true;                                 // "<name>.broken-2"
+        }
+
+        /// <summary>HIDE, NEVER DESTROY — extended to corrupt files. <see cref="LoadActive"/>'s
+        /// self-heal writes a fresh document under the failing profile's name, which (when a file
+        /// really is there, just unparseable) would silently destroy whatever the player had: a
+        /// hand-edit with one bad tag, a half-copied share, a file a disk fault chewed. Copy it to
+        /// <c>&lt;name&gt;.broken.xml</c> first (numbered if that exists, so repeated boots never
+        /// overwrite the FIRST — most likely still-good — capture) and say so in the log, so a
+        /// player who lost work has something to hand back to us.
+        ///
+        /// No-ops when the file is simply ABSENT (the ordinary fresh-install seed path, nothing to
+        /// preserve) or when the name is itself a quarantine copy. Wholly fail-soft: a failure here
+        /// warns and returns, never blocking the self-heal that follows.</summary>
+        private static void BackupCorruptProfile(string name)
+        {
+            try
+            {
+                string file = SafeFileName(name);
+                if (file == null || IsBrokenBackupName(file)) return;
+
+                string path = Path.Combine(Dir, file + ".xml");
+                if (!File.Exists(path)) return;   // missing, not corrupt — nothing to keep
+
+                string dst = Path.Combine(Dir, file + BrokenMarker + ".xml");
+                if (File.Exists(dst))
+                {
+                    dst = null;
+                    for (int n = 2; n <= 20 && dst == null; n++)
+                    {
+                        string candidate = Path.Combine(Dir, file + BrokenMarker + "-" + n + ".xml");
+                        if (!File.Exists(candidate)) dst = candidate;
+                    }
+                    // Twenty quarantined copies of one profile already: fall back to a unique
+                    // timestamp rather than giving up (or clobbering one of the twenty).
+                    if (dst == null)
+                        dst = Path.Combine(Dir, file + BrokenMarker + "-" + DateTime.UtcNow.Ticks + ".xml");
+                }
+
+                File.Copy(path, dst);
+                UIALog.Warn("HUD profile '" + file + "' could not be read; the unreadable file was kept as '"
+                    + Path.GetFileName(dst) + "' before a fresh one was written in its place.");
+            }
+            catch (Exception e)
+            {
+                UIALog.Warn("HudProfileStore: could not back up the unreadable profile '" + name + "': " + e.Message);
+            }
         }
 
         // ---------- helpers ----------

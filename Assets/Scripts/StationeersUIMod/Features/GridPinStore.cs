@@ -1,6 +1,4 @@
-using System;
 using System.Collections.Generic;
-using System.IO;
 using System.Xml.Serialization;
 using StationeersUIMod.Core;
 using UnityEngine;
@@ -53,7 +51,9 @@ namespace StationeersUIMod.Features
         /// <summary>How many containers are currently pinned.</summary>
         public static int Count { get { EnsureSaveLoaded(); return _order.Count; } }
 
-        private static string PinDir { get { return Path.Combine(BagProfileStore.ConfigDir, "GridPins"); } }
+        // Disk plumbing lives in SaveScopedXmlStore (same folder/filename/serializer as before).
+        private const string StoreFolder = "GridPins";
+        private const string StoreLabel = "Grid pin";
 
         // --- per-save load/save (keyed off the same save name BagProfileStore uses) ---
 
@@ -65,55 +65,29 @@ namespace StationeersUIMod.Features
             _pins.Clear();
             _order.Clear();
             PinVersion++;
-            try
+            var parsed = SaveScopedXmlStore.LoadPerSave<GridPinsFile>(StoreFolder, key, StoreLabel);
+            if (parsed == null || parsed.Pins == null) return;
+            for (int i = 0; i < parsed.Pins.Count; i++)
             {
-                var path = Path.Combine(PinDir, key + ".xml");
-                if (!File.Exists(path)) return;
-                var serializer = new XmlSerializer(typeof(GridPinsFile));
-                using (var stream = File.OpenRead(path))
-                {
-                    var parsed = (GridPinsFile)serializer.Deserialize(stream);
-                    if (parsed != null && parsed.Pins != null)
-                    {
-                        for (int i = 0; i < parsed.Pins.Count; i++)
-                        {
-                            var e = parsed.Pins[i];
-                            if (e == null || e.RefId == 0L || _pins.ContainsKey(e.RefId)) continue;
-                            _pins[e.RefId] = Sane(new Rect(e.X, e.Y, e.W, e.H));
-                            _order.Add(e.RefId);
-                        }
-                    }
-                }
-                UIALog.Info($"Loaded {_order.Count} Grid pin(s) for save '{key}'.");
+                var e = parsed.Pins[i];
+                if (e == null || e.RefId == 0L || _pins.ContainsKey(e.RefId)) continue;
+                _pins[e.RefId] = Sane(new Rect(e.X, e.Y, e.W, e.H));
+                _order.Add(e.RefId);
             }
-            catch (Exception e)
-            {
-                UIALog.Warn("Grid pin load failed: " + e.Message);
-            }
+            UIALog.Info($"Loaded {_order.Count} Grid pin(s) for save '{key}'.");
         }
 
         private static void Save()
         {
-            try
+            var file = new GridPinsFile();
+            for (int i = 0; i < _order.Count; i++)
             {
-                Directory.CreateDirectory(PinDir);
-                var path = Path.Combine(PinDir, (_loadedSaveKey ?? BagProfileStore.CurrentSaveKey()) + ".xml");
-                var file = new GridPinsFile();
-                for (int i = 0; i < _order.Count; i++)
-                {
-                    long id = _order[i];
-                    Rect r;
-                    if (!_pins.TryGetValue(id, out r)) continue;
-                    file.Pins.Add(new GridPinEntry { RefId = id, X = r.x, Y = r.y, W = r.width, H = r.height });
-                }
-                var serializer = new XmlSerializer(typeof(GridPinsFile));
-                using (var stream = File.Create(path))
-                    serializer.Serialize(stream, file);
+                long id = _order[i];
+                Rect r;
+                if (!_pins.TryGetValue(id, out r)) continue;
+                file.Pins.Add(new GridPinEntry { RefId = id, X = r.x, Y = r.y, W = r.width, H = r.height });
             }
-            catch (Exception e)
-            {
-                UIALog.Warn("Grid pin save failed: " + e.Message);
-            }
+            SaveScopedXmlStore.SavePerSave(StoreFolder, _loadedSaveKey, file, StoreLabel);
         }
 
         /// <summary>Fail-soft repair of a geometry read off disk (or handed in by a caller): NaN /

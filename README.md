@@ -37,8 +37,8 @@ The primary, loved implementation for the core radials is the **procedural Unity
 It is enabled by default (`UseUnityRadial` in config). Toggle it off in F10 settings or the SLP panel to use the legacy ImGui painter for comparison.
 
 See:
-- `docs/Procedural-UGUI-Radial-System.md` — explains exactly how Florpy's procedural UGUI system works, how it was built on the earlier work, and why we love and are keeping it.
-- `docs/How-the-Radial-System-Works.md`
+- `Documentation/Procedural-UGUI-Radial-System.md` — explains exactly how Florpy's procedural UGUI system works, how it was built on the earlier work, and why we love and are keeping it.
+- `Documentation/How-the-Radial-System-Works.md`
 - Changes Report "2026-07-09 - Procedural Unity UGUI Radial"
 
 The older prefab planning in `Building-Radial-Prefabs-in-Unity.md` is historical.

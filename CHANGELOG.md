@@ -244,7 +244,7 @@ exactly like 0.9.0.
 Three tiers of new HUD effects — every one togglable **globally** (F9 → "Effects (global)") and
 **per element** (each element's popup) — plus a built-in profiler to prove none of it hurts the
 game. Planned and adversarially verified against the codebase, TheRealBeef's shader mods, the
-StationeersLaunchPad source, and Jackson's profiler (see `docs/UI Upgrade/Master-Plan-0.9.0.md`).
+StationeersLaunchPad source, and Jackson's profiler (see `Documentation/UI Upgrade/Master-Plan-0.9.0.md`).
 
 ### Tier A — mesh effects (on by default)
 - **Hairlines that fade**: lines below 1px render 1px wide and dim by coverage instead of
@@ -505,7 +505,7 @@ Option B is Option A plus a new middle-mouse gesture language; A and D are uncha
 ## 0.5.0 Alpha — 2026-07-10
 
 **The visor HUD** — the full-UI replacement from the feasibility report, built to the
-concept art. User guide: `docs/Visor-HUD.md`. The radials are untouched.
+concept art. User guide: `Documentation/Visor-HUD.md`. The radials are untouched.
 
 ### The interface
 - **Curved top status bar**: UTC date/clock, PRESSURE · O₂ · TEMP · POWER · WATER
@@ -552,7 +552,7 @@ concept art. User guide: `docs/Visor-HUD.md`. The radials are untouched.
 - **Preview tier** combo (BARE/SUITED/ROBOT) + **Test power-death / Test boot** buttons.
 
 ### Docs
-- `docs/Moodlets-Reference.md`: every vanilla moodlet/status with exact trigger
+- `Documentation/Moodlets-Reference.md`: every vanilla moodlet/status with exact trigger
   conditions and client-safe read paths — the menu for what the HUD surfaces next.
 - Vanilla hands/clothing/status panels hide only via the game's own path (opt-in,
   reconciled against their ACTUAL state so vanilla's own re-shows — waking from
@@ -573,7 +573,7 @@ concept art. User guide: `docs/Visor-HUD.md`. The radials are untouched.
 ## 0.4.0 Alpha — 2026-07-10
 
 Iteration 2 on the Option A schema, plus the full-UI feasibility report
-(`docs/Visor-UI-Feasibility-Report.md` — verdict: green light).
+(`Documentation/Visor-UI-Feasibility-Report.md` — verdict: green light).
 
 ### Settings, everywhere, complete
 - **Generic device settings**: radials now enumerate controls exactly like vanilla's
@@ -646,7 +646,7 @@ Iteration 2 on the Option A schema, plus the full-UI feasibility report
 ## 0.3.0 Alpha — 2026-07-10
 
 The Option A control schema — a full interaction overhaul, F10-switchable against the
-classic behavior (now "Option D"). Full write-up: `docs/Option-A-Control-Schema.md`.
+classic behavior (now "Option D"). Full write-up: `Documentation/Option-A-Control-Schema.md`.
 
 ### Option A schema (new default)
 - **STOW wedges**: empty slots show the blank slot + "STOW"; hovering previews the held

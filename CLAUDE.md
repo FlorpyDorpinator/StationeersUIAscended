@@ -35,6 +35,13 @@ Design sources (read these before large changes):
    friction; two hands, batteries, and physical logistics are good friction.
 7. **POC in the game's own Dear ImGui first**, prefab/UGUI "make it cool" phase later. The
    interaction model must be proven before it gets art.
+8. **Every new effect, setting, dial or knob added to the HUD/UI MUST** (FlorpyDorp's standing
+   directive): (1) be per-tier capable via the `HudStyleSlot` model, or be explicitly documented
+   as shared/content when it deliberately is not; (2) travel with the profile theme unless it is
+   a performance knob — performance knobs go in `HudTheme.Exclude` instead; (3) ship a
+   `ConfigMigration` step for any config-key removal or rename (see
+   `Documentation/Config-and-Theme-Migration.md` §2) — never just delete/rename the `cfg.Bind`
+   call and call it done.
 
 ## Methods & environment (how this codebase is worked on)
 
@@ -77,21 +84,47 @@ Design sources (read these before large changes):
 
 ## Architecture map (the systems that exist now — read before touching them)
 
-- **The visor HUD is document-driven UGUI**, not ImGui. The active layout is an XML
-  `HudDocument` (flat list of `HudElementDef`) at `config/StationeersUIMod/HudProfiles/
-  <name>.xml`. The shipped default is **"Glassy 4.0"**, embedded verbatim in
-  `UI/Hud/Glassy40Default.cs` and set as the default `HudActiveProfile`. An `HudElementDef`
+- **The document HUD IS the mod** — there is no legacy/document mode split any more. 0.9.2.5
+  Wave B deleted the old ImGui HUD overlay, the legacy ImGui radial painter, and every fixed-
+  panel Show*/size-slider key that predated per-element layout; the UGUI radial renderer is
+  unconditional (no `UseUnityRadial` gate). The active HUD layout is an XML `HudDocument` (flat
+  list of `HudElementDef`) at `config/StationeersUIMod/HudProfiles/<name>.xml`. The shipped
+  default profile is **"Stationeers Blue"** (plus a second curated theme, **"Pure HUD"**) —
+  both delivered onto a player's disk by `HudProfileStore.SyncShipped` reading the mod's own
+  `HudProfiles/` folder at every launch, and both also embedded verbatim as self-heal factories
+  in `UI/Hud/ShippedProfiles.cs` (`Glassy40Default.cs` is an older, narrower embed of the same
+  pattern, still referenced by `HudSystem.cs` as a legacy fallback for a handful of pre-0.9.2.5
+  profile names). **Hand-sync rule: if you edit `HudProfiles/*.xml`, re-embed the matching
+  constant in `ShippedProfiles.cs` by hand** — there is no build step that does this, and a
+  divergence makes the self-healed copy hash as "player edited" so it silently stops receiving
+  shipped updates (see `Documentation/Config-and-Theme-Migration.md` §3). An `HudElementDef`
   (Type enum, 9-anchor + X/Y/W/H + optional WPct/HPct, Z, `Tiers` Bare/Suited/Robot mask,
-  ColorRefs = palette-name-or-`#RRGGBBAA`, per-corner radii, a K/V `Params` bag) maps to one
+  ColorRefs = palette-name-or-`#RRGGBBAA`, per-corner radii, a K/V `Params` bag, plus optional
+  per-`HudStyleSlot` (Base/Bare/Robot) style forks — see the next bullet) maps to one
   `HudElementView` widget via the `HudSystem.CreateViewFor` registry; widgets live in
   `UI/Hud/Widgets/`.
 - **Profiles & migration**: `HudDocument.Sanitize()` fail-soft-repairs every loaded profile and
   hosts idempotent legacy fixes. Schema-gated auto-upgrade replaces stale SHIPPED defaults
-  ("Default", "Glassy N") when their `Schema` is below current — but **user-named/custom
-  profiles NEVER auto-upgrade** (this gap caused a recurring "speed shows in bare" bug: the
-  user's custom profile held a hand-made element with the wrong tier). When a HUD/tier bug
-  can't be reproduced from the shipped default, **read the user's actual on-disk profiles** at
+  ("Default", "Glassy N", "Stationeers Blue", "Pure HUD") when their `Schema` is below current —
+  but **user-named/custom profiles NEVER auto-upgrade** (this gap caused a recurring "speed
+  shows in bare" bug: the user's custom profile held a hand-made element with the wrong tier).
+  Per-element per-tier styling now exists precisely to make that class of bug opt-in instead of
+  silent: an element normally shares ONE look across tiers; ticking "Separate BARE/ROBOT style"
+  (the `HudStyleSlot` model, F9's per-tier STYLE block) forks a tier's own copy of every look
+  value, so a suited-only edit can no longer leak into bare. When a HUD/tier bug can't be
+  reproduced from the shipped default, **read the user's actual on-disk profiles** at
   `<game install>/BepInEx/config/StationeersUIMod/HudProfiles/*.xml`.
+- **Config-tree layout & reset**: a player's settings are NOT just the `.cfg` scalar file —
+  `BepInEx/config/StationeersUIMod/` holds `HudProfiles/` (+ `.shipped-manifest`, + preview
+  `.png`s), `Grid/`, `GridPins/`, `Assignments/`, `BeltBindings/`, `Hotkeys/`, `HintUsage/`,
+  `Loadouts/`, `Profiles/profiles.xml`, `HudIcons/`, `ProfilerSnapshots/`. A "delete the cfg and
+  you're fresh" instruction is wrong and a common tester mistake — both the `.cfg` (
+  `com.stationeersuimod.ui.cfg`, or `...scriptengine.cfg` under F6) **and** this whole folder
+  must go for a genuine fresh-install test. The console command `uiareset` (bare = prints what
+  it would delete, `uiareset confirm` in the same session = actually deletes it, restart
+  required) is the in-game affordance for this; see `Core/FinderCommands.cs` and
+  `Documentation/Config-and-Theme-Migration.md` §4 for the narrower "just the shipped themes"
+  alternative (F10 → HUD tab → Advanced → Maintenance → Restore shipped themes).
 - **Curvature/warp** (`UI/Hud/VisorWarp.cs` + `HudWarp`): a per-graphic mesh modifier bends
   vertices by absolute canvas position — small centred elements only translate, wide panels
   bow because `PanelGraphic` SUBDIVIDES long edges. Curvature is applied ONCE by the mesh warp;

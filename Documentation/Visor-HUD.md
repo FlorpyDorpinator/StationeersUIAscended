@@ -1,7 +1,7 @@
 # The Visor HUD
 
 *Stationeers UI Ascended 0.5.0 Alpha — 2026-07-10. The full-UI replacement from the
-feasibility report (`docs/Visor-UI-Feasibility-Report.md`), built to the concept art.*
+feasibility report (`Documentation/Visor-UI-Feasibility-Report.md`), built to the concept art.*
 
 The whole game HUD is redrawn as a curved, suit-projected visor interface: thin cyan
 line-work on dark glass, procedural UGUI (no assets, no shaders shipped), themed and
@@ -90,5 +90,5 @@ portrait camera's RenderTexture — re-read every frame, restored through the ga
 ## What's next (not in 0.5.0)
 
 Moodlet coverage beyond the built-ins (leak, coolant, jetpack, G-force, medical timers
-— see `docs/Moodlets-Reference.md` for the full menu), the reticle/interaction text
+— see `Documentation/Moodlets-Reference.md` for the full menu), the reticle/interaction text
 restyle, and the render-texture extras (chromatic fringe) if dome mode earns them.

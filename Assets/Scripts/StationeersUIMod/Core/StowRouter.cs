@@ -10,7 +10,7 @@ using StationeersUIMod.UI.Grid; // GridModel.IsStorageContainer — the ONE shar
 namespace StationeersUIMod.Core
 {
     /// <summary>Which rung of the SmartStow+ chain produced a candidate. Order here IS the
-    /// resolution order (spec: docs/SmartStow-Rework-Design-Options.md, O1/O2).</summary>
+    /// resolution order (spec: Documentation/SmartStow-Rework-Design-Options.md, O1/O2).</summary>
     public enum StowStage
     {
         None = 0,

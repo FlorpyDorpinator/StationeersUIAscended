@@ -104,24 +104,22 @@ namespace StationeersUIMod.Features
                 Directory.CreateDirectory(LoadoutsDir);
                 var files = Directory.GetFiles(LoadoutsDir, "*.xml");
                 Array.Sort(files, StringComparer.OrdinalIgnoreCase);
-                var serializer = new XmlSerializer(typeof(Loadout));
                 foreach (var file in files)
                 {
-                    try
+                    // TryLoad (not Load) because this store names the offending FILE in its warning
+                    // rather than using the shared "<label> load failed" line.
+                    Loadout parsed;
+                    string error;
+                    if (!SaveScopedXmlStore.TryLoad(file, out parsed, out error))
                     {
-                        using (var stream = File.OpenRead(file))
-                        {
-                            var parsed = (Loadout)serializer.Deserialize(stream);
-                            if (parsed == null || string.IsNullOrEmpty(parsed.Name)) continue;
-                            if (parsed.Entries == null) parsed.Entries = new List<LoadoutEntry>();
-                            parsed.SourceFile = file;
-                            into.Add(parsed);
-                        }
+                        if (error != null)
+                            UIALog.Warn($"Loadout file '{Path.GetFileName(file)}' failed to parse: {error}");
+                        continue;
                     }
-                    catch (Exception e)
-                    {
-                        UIALog.Warn($"Loadout file '{Path.GetFileName(file)}' failed to parse: {e.Message}");
-                    }
+                    if (string.IsNullOrEmpty(parsed.Name)) continue;
+                    if (parsed.Entries == null) parsed.Entries = new List<LoadoutEntry>();
+                    parsed.SourceFile = file;
+                    into.Add(parsed);
                 }
             }
             catch (Exception e)
@@ -197,13 +195,10 @@ namespace StationeersUIMod.Features
             if (lo == null || string.IsNullOrEmpty(lo.Name)) return false;
             try
             {
-                Directory.CreateDirectory(LoadoutsDir);
                 string safe = SafeFileToken(lo.Name);
                 if (safe.Length == 0) safe = "loadout";
                 string path = Path.Combine(LoadoutsDir, safe + ".xml");
-                var serializer = new XmlSerializer(typeof(Loadout));
-                using (var stream = File.Create(path))
-                    serializer.Serialize(stream, lo);
+                if (!SaveScopedXmlStore.Save(path, lo, "Loadout")) return false;
                 lo.SourceFile = path;
                 UIALog.Info($"Saved loadout '{lo.Name}' ({lo.Entries.Count} entries) to {path}");
                 return true;

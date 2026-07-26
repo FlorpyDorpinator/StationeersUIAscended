@@ -4,18 +4,18 @@
   <Author>FlorpyDorp + JXSN</Author>
   <Version>0.9.2.0</Version>
   <Description>
-	  [h1]Stationeers UI Mod[/h1]
-	  
-    Radial inventory and HUD overhaul for Stationeers (procedural Unity UGUI radials + ImGui HUD). Toolbelt, tool, bag radials, SmartStow+, visor HUD, equipment keys. Client-side optional mod.
-	  [h3]POC integrated as Unity mod base[/h3]
+	  [h1]Stationeers UI Ascended[/h1]
+
+    A radial inventory and HUD overhaul for Stationeers, built around a two-hand visor interface: procedural Unity UGUI radials for tools/bags/equipment, SmartStow+, a document-driven visor HUD with per-profile themes, and the Universal Inventory. Client-side optional mod.
+	  [h3]Two curated HUD themes ship in the box — Stationeers Blue and Pure HUD — fully editable in-game with the F9 HUD Designer[/h3]
 
   </Description>
-  <InGameDescription><![CDATA[<size="30"><color=#4fc3f7>Stationeers UI Mod</color></size>
+  <InGameDescription><![CDATA[<size="30"><color=#4fc3f7>Stationeers UI Ascended</color></size>
 <b>WARNING:</b> <color=#ff0000>This is a StationeersLaunchPad Plugin Mod. It requires BepInEx + StationeersLaunchPad.</color>
 <br>
-<b>Stationeers UI Mod</b> — Radials for tools/bags, SmartStow+, two-hand visor HUD. Replaces hotbar friction with modern interaction while keeping physical inventory rules.
+<b>Stationeers UI Ascended</b> — Radials for tools/bags/equipment, SmartStow+, the Universal Inventory, and a two-hand visor HUD. Replaces hotbar friction with modern interaction while keeping the game's own physical inventory rules.
 <br><br>
-Ported from BepInEx proof-of-concept into Unity mod project. Radials are now drawn with a fully procedural Unity UGUI renderer (code-built canvas + runtime mesh wedges).
+The visor HUD is a document-driven layout you can reshape live in the F9 HUD Designer: move/resize/restyle any element, fork a look per suit tier, and save it as your own profile. Radials, the Universal Inventory and the Control Center menu all retint together with whichever profile theme is active. Two curated themes ship by default: Stationeers Blue and Pure HUD.
 <br>
 ]]></InGameDescription>
   <ChangeLog>

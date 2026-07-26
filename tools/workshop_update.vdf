@@ -4,5 +4,9 @@
 	"publishedfileid"		"0"
 	"contentfolder"		"C:\\Dev\\Stationeers UI Ascended\\dist\\StationeersUIMod"
 	"previewfile"		"C:\\Dev\\Stationeers UI Ascended\\dist\\StationeersUIMod\\About\\Preview.png"
-	"changenote"		"0.9.1.0 Experimental - the Universal Inventory + the Belt Wheel"
+	// "changenote" below is a placeholder only - tools\publish-steam.ps1 OVERWRITES it at
+	// publish time with the topmost [h3] block from Assets\About\About.xml's <ChangeLog>,
+	// writing the live copy to dist\workshop_update.effective.vdf (this checked-in file is
+	// never modified by the script). Edit About.xml's changelog, not this line.
+	"changenote"		"(overwritten at publish time by tools\\publish-steam.ps1 from About.xml)"
 }

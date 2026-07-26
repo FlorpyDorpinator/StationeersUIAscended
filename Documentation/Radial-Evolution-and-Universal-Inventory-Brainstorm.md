@@ -22,7 +22,7 @@ Tool home slots **bind by tool TYPE**.
   that). Configurable threshold (~250 ms).
 - **R4 (digit-pick)** — **REJECTED, do not implement.** Digit keys stay vanilla (slots only).
 - **R5 (MP pending/drop affordance)** — deferred to an **end-of-dev bug-test pass** before
-  release (parked in docs/MP-Swap-Latency-Investigation.md). 1B.1's belt-swap leans on it.
+  release (parked in Documentation/MP-Swap-Latency-Investigation.md). 1B.1's belt-swap leans on it.
 - **R6 (aim-context device radial)** — REJECTED (world devices use physical buttons).
 - **R7 (favorites/loadout ring)** — **ON ICE** (philosophy fit unclear; hotkey budget tight).
 - **R8 (sound)** — build, using existing in-game sounds (UIAudioManager hashes): hover
@@ -104,7 +104,7 @@ We are *almost* there — hold-and-release-fire already exists. Two additions co
 - **R4 — Digit-pick everywhere.** Bag radials already show digit badges; make digits
   *select* in every radial while it's open (wedge 1–8 = keys 1–8). Keyboard-fast without
   aiming, and it bridges vanilla players' digit muscle memory into the new world.
-- **R5 — MP honesty.** Already scoped in `docs/MP-Swap-Latency-Investigation.md`: pending
+- **R5 — MP honesty.** Already scoped in `Documentation/MP-Swap-Latency-Investigation.md`: pending
   ghost state on the hand box, drop toast when a move is rejected server-side, a
   `Swap.RoundTrip` metric. A radial that *feels* laggy on MP erodes trust in the whole
   system; the fix is affordance, not speed.
@@ -161,7 +161,7 @@ decision (that's why they "felt like cheating"). What ships instead:
   building and carrying each belt is the good friction; Q only removes the un-equip /
   re-equip fumbling. You still can't use two belts' tools at once.
 - **MP:** this is a real mutation, send-only, no client prediction → **not instant** on a
-  client. Needs the pending-swap affordance from `docs/MP-Swap-Latency-Investigation.md`
+  client. Needs the pending-swap affordance from `Documentation/MP-Swap-Latency-Investigation.md`
   (ghost / loading state on the belt box) or it feels laggy. Single-player is instant.
 - Today the radial reads only the equipped belt ([ToolbeltRadialFeature.cs:55]) — the
   picker is a genuine new capability, not a reshuffle.

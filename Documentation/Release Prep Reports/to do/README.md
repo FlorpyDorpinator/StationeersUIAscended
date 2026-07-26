@@ -44,3 +44,18 @@ nothing. Handle together with item 1's ignore regime rather than churning the tr
 Download from Steam → play → push an update → redownload → verify SyncShipped refresh/prune +
 local-edit survival. The script for it is `Documentation/Release Prep Reports/
 Pre-Release-Test-Checklist.md` (written in Wave F).
+
+## 8. Re-case rename is a no-op  *(Wave E §7 — minor)*
+`HudProfileStore.Rename` refuses `OrdinalIgnoreCase`-equal names, so you cannot re-case a
+profile ("pure hud" → "Pure HUD") from either the F9 or F10 UI — F9 treats the refusal as a
+plain cancel. Deliberate for now (the alternative is a two-step move through a temp name), but
+it's a rough edge a tester will hit. Do it in the file system in the meantime.
+
+## 9. Shipped themes are still authored at Schema 7  *(Wave E §7 / Config-and-Theme-Migration §3)*
+`Stationeers Blue.xml` and `Pure HUD.xml` both carry `Schema="7"` while `HudDocument.CurrentSchema`
+has moved to 15. Harmless today — `Sanitize` migrates + re-saves them on open every time, and
+`SyncShipped` hashes the canonical (post-`Sanitize`) form on both sides, so the stale `Schema`
+attribute never causes a spurious refresh — but it does mean an extra disk write at boot for
+every player, and it's needless churn to keep carrying forward. Re-export both at the current
+schema (F9's dev-only export-to-shipped flow, §D5 of the checklist) during the next
+theme-authoring pass, not mid-release.

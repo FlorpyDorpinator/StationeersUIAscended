@@ -1,6 +1,4 @@
-using System;
 using System.Collections.Generic;
-using System.IO;
 using System.Linq;
 using System.Xml.Serialization;
 using StationeersUIMod.Core;
@@ -40,7 +38,9 @@ namespace StationeersUIMod.Features
         private static string _loadedSaveKey;
         private static bool _dirty;
 
-        private static string HintUsageDir => Path.Combine(BagProfileStore.ConfigDir, "HintUsage");
+        // Disk plumbing lives in SaveScopedXmlStore (same folder/filename/serializer as before).
+        private const string StoreFolder = "HintUsage";
+        private const string StoreLabel = "Hint usage";
 
         // --- per-save load/save (keyed off the same save name BagProfileStore uses) ---
 
@@ -51,44 +51,21 @@ namespace StationeersUIMod.Features
             _loadedSaveKey = key;
             _counts.Clear();
             _dirty = false;
-            try
-            {
-                var path = Path.Combine(HintUsageDir, key + ".xml");
-                if (!File.Exists(path)) return;
-                var serializer = new XmlSerializer(typeof(HintUsageFile));
-                using (var stream = File.OpenRead(path))
-                {
-                    var parsed = (HintUsageFile)serializer.Deserialize(stream);
-                    if (parsed?.Hints != null)
-                        foreach (var h in parsed.Hints)
-                            if (!string.IsNullOrEmpty(h.Kind) && h.Count > 0) _counts[h.Kind] = h.Count;
-                }
-            }
-            catch (Exception e)
-            {
-                UIALog.Warn("Hint usage load failed: " + e.Message);
-            }
+            var parsed = SaveScopedXmlStore.LoadPerSave<HintUsageFile>(StoreFolder, key, StoreLabel);
+            if (parsed?.Hints == null) return;
+            foreach (var h in parsed.Hints)
+                if (h != null && !string.IsNullOrEmpty(h.Kind) && h.Count > 0) _counts[h.Kind] = h.Count;
         }
 
         private static void Save()
         {
-            try
+            var file = new HintUsageFile
             {
-                Directory.CreateDirectory(HintUsageDir);
-                var path = Path.Combine(HintUsageDir, (_loadedSaveKey ?? BagProfileStore.CurrentSaveKey()) + ".xml");
-                var file = new HintUsageFile
-                {
-                    Hints = _counts.Select(kv => new HintUsageEntry { Kind = kv.Key, Count = kv.Value }).ToList(),
-                };
-                var serializer = new XmlSerializer(typeof(HintUsageFile));
-                using (var stream = File.Create(path))
-                    serializer.Serialize(stream, file);
-                _dirty = false;
-            }
-            catch (Exception e)
-            {
-                UIALog.Warn("Hint usage save failed: " + e.Message);
-            }
+                Hints = _counts.Select(kv => new HintUsageEntry { Kind = kv.Key, Count = kv.Value }).ToList(),
+            };
+            // Only a write that actually landed clears the dirty flag — a failed save keeps the
+            // pending increments so the next Flush retries them.
+            if (SaveScopedXmlStore.SavePerSave(StoreFolder, _loadedSaveKey, file, StoreLabel)) _dirty = false;
         }
 
         // --- public API ---

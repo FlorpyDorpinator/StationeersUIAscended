@@ -8,7 +8,7 @@ using StationeersUIMod.Core;
 namespace StationeersUIMod.Features
 {
     /// <summary>
-    /// SmartStow+ (proposal §8, reworked per docs/SmartStow-Rework-Design-Options.md): a
+    /// SmartStow+ (proposal §8, reworked per Documentation/SmartStow-Rework-Design-Options.md): a
     /// Harmony prefix on the vanilla G-key stow. DECIDING lives in <see cref="StowRouter"/>
     /// (worn-belt tools -> stack merge -> explicit profile -> content affinity -> bag-type
     /// default -> type memory); this class only EXECUTES the winning candidate through the
