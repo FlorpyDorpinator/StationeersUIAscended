@@ -2,6 +2,74 @@
 
 All notable changes to the mod. Detailed engineering write-ups live in `Changes Reports/`.
 
+## 0.9.2.5 Experimental — 2026-07-25 — PER-SUIT STYLES, TOTAL THEMES + THE BIG CLEANUP
+
+The release-prep build: a seven-report audit (`Documentation/Release Prep Reports/`) executed
+as six waves (A–F), each with its own Changes Report. Engineering detail in the
+`2026-07-25 - Wave *` reports; the runnable pre-push script is
+`Documentation/Release Prep Reports/Pre-Release-Test-Checklist.md`.
+
+### The headliner — per-tier styles that actually remember (Wave C)
+- **Root cause of "bare/suited colours don't stick":** the old per-tier fork was a *sparse*
+  `b_` overlay on one shared base — any un-forked key leaked between tiers, whole families
+  (icon tint, drop cue, compass ticks, readout rows) were unforkable at all, and Global-styled
+  elements forked colours only. Replaced by the opt-in **HudStyleSlot** model: per-element
+  fork bitmask (default = shared, old profiles byte-identical), **seed-on-separation** (the
+  fork gets a complete copy of the stored style — palette refs and follow-global sentinels,
+  never frozen colours), copy-on-write protection, per-slot `styleSource`
+  ("flat in bare, glassy in suit" is now expressible), Schema 14→15 with idempotent adoption
+  of legacy profiles. Robot slot reserved in the data model.
+- **Icon tint per element** (inherit global / own colour / off), per-tier capable; the
+  Universal Inventory gets its own per-tier skin setting.
+- Adversarially reviewed: 26 persistence-invariant checks passed (tier round-trip, profile
+  round-trip, relaunch, hot reload, old-profile compatibility).
+
+### Themes carry everything (Wave C)
+- Radial visuals + hint bar (46-key include-list), the **GridTheme** (Universal Inventory) and
+  the **F10 Control Center skin** now travel inside the profile theme (`radial:`/`grid:`/
+  `menu:` families). Perf knobs (frost downsample/cadence, bloom res…) excluded by design.
+- ConfigMigration **v3**: one-shot top-up stamps current globals into existing themed profiles
+  — an updating player's look does not change. `TextAccent` gains a real identity (the radial
+  accent orange, previously hardcoded) via ForceIfDefault.
+- `Overlay/Theme.cs` constants became live palette-driven properties (toasts, item menus,
+  radial accents retint with profiles).
+
+### The big cleanup (Wave B)
+- **Legacy render paths deleted** (~2,900 lines): the 0.1.0 ImGui HUD overlay, the pre-document
+  fixed-panel HUD (document mode is now unconditional — it IS the mod), and the ImGui radial
+  painter. Glitch systems unified onto the FX family (values carried over). Dead knobs pruned.
+- ConfigMigration **v2** strips all 39 removed keys from player configs (BepInEx orphan
+  handling via verified fail-soft reflection).
+
+### Profiles & shipping (Wave E + A)
+- **New / Duplicate / Rename / Delete / Restore-shipped** in F9 and the F10 Profiles tab, with
+  guards (never delete the active profile; shipped-name warnings; two-step confirms).
+- **Self-heal factories**: Stationeers Blue + Pure HUD embedded verbatim — a missing shipped
+  file regenerates pristine and manifest-managed, never as player-owned starter junk.
+- **`uiareset`** (print-then-confirm) + F10 "Restore shipped themes"; corrupt profiles are
+  quarantined to `.broken.xml` instead of overwritten (Wave F).
+- SyncShipped hardened (Wave A): zero-length SLP cfg counts as a fresh install; pristine
+  re-adoption self-heals canonical-hash drift.
+
+### The F9 designer, reorganized (Wave D + A)
+- Effects: 7 sub-tabs (Glass / Edges / Glow / Bloom / Alerts / Transitions / Advanced) instead
+  of a wall of open dropdowns; Theme: palette-first (9 semantic wheels, All colours,
+  Typography & boxes). Plain-language labels (jargon demoted to hints); "experimental"/"legacy"
+  dropped from things that aren't. Active tab + edit-tier (BARE/SUITED/ROBOT) clearly marked;
+  header combos no longer truncate. Capability flags moved to widget-declared virtuals; inert
+  universal knobs hidden per-widget. Zero binding changes (parity-audited).
+- F10 fully matches Pure HUD (and every theme): the menu kit gained a real Border source +
+  theme-derived dividers; the shipped Pure HUD palette was fixed (Wave A).
+
+### Process & packaging (Wave F)
+- `package.ps1`: version-agreement abort, staged-content audit, dirty-tree warning;
+  `publish-steam.ps1` injects the changenote from About.xml at publish time.
+- Workspace: `merge=union` trap removed, game DLLs + junk untracked, deprecated POC project
+  deleted, `docs/` merged into `Documentation/`. (The full repo reset is deferred — see
+  `Documentation/Release Prep Reports/to do/`.)
+- CLAUDE.md: new standing rule — every new knob must be per-tier capable, travel with the
+  theme (or be excluded as perf), and key changes ship a ConfigMigration step.
+
 ## 0.9.2.0 Experimental — 2026-07-24 — THEMES THAT TRAVEL + RADIAL/CURSOR POLISH
 
 A play-test → fix round plus a HUD theming pass from a parallel work stream. Engineering
