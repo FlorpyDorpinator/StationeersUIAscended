@@ -141,10 +141,10 @@ namespace StationeersUIMod.UI.Hud.Widgets
                 maskC = new Vector2(wm.x, wm.y);
             }
             _mask.anchoredPosition = maskC;
-            float span = Def.GetF("fov", 90f);
-            float tickEvery = Mathf.Max(1f, Def.GetF("tickDeg", 15f));
-            float cardinalEvery = Mathf.Max(tickEvery, Def.GetF("cardinalDeg", 45f));
-            bool showDegrees = Def.GetB("degrees", true);
+            float span = Def.GetFFor(LayoutBare, "fov", 90f);
+            float tickEvery = Mathf.Max(1f, Def.GetFFor(LayoutBare, "tickDeg", 15f));
+            float cardinalEvery = Mathf.Max(tickEvery, Def.GetFFor(LayoutBare, "cardinalDeg", 45f));
+            bool showDegrees = Def.GetBFor(LayoutBare, "degrees", true);
             float heading = s.HeadingDeg;
 
             // Boxless mode (Glassy 2.0 top bar): the strip fades straight into whatever
@@ -255,14 +255,15 @@ namespace StationeersUIMod.UI.Hud.Widgets
                 () => HudPalette.CompassCardinal.Value));
             into[into.Count - 1].Group = HudPropGroup.Appearance;
 
-            into.Add(HudProp.F("Compass FOV°", () => d.GetF("fov", 90f),
-                v => d.SetF("fov", Mathf.Clamp(v, 40f, 200f)), 40f, 200f));
-            into.Add(HudProp.Bool("Show degrees", () => d.GetB("degrees", true),
-                v => d.SetB("degrees", v)));
-            into.Add(HudProp.F("Tick spacing°", () => d.GetF("tickDeg", 15f),
-                v => d.SetF("tickDeg", Mathf.Clamp(v, 5f, 45f)), 5f, 45f));
-            into.Add(HudProp.F("Cardinal spacing°", () => d.GetF("cardinalDeg", 45f),
-                v => d.SetF("cardinalDeg", Mathf.Clamp(v, 15f, 180f)), 15f, 180f));
+            // Tier-aware (Wave C): a bare compass can read wider and sparser than the suited one.
+            into.Add(HudProp.F("Compass FOV°", () => d.GetFFor(EditBare(d), "fov", 90f),
+                v => d.SetFFor(EditBare(d), "fov", Mathf.Clamp(v, 40f, 200f)), 40f, 200f));
+            into.Add(HudProp.Bool("Show degrees", () => d.GetBFor(EditBare(d), "degrees", true),
+                v => d.SetBFor(EditBare(d), "degrees", v)));
+            into.Add(HudProp.F("Tick spacing°", () => d.GetFFor(EditBare(d), "tickDeg", 15f),
+                v => d.SetFFor(EditBare(d), "tickDeg", Mathf.Clamp(v, 5f, 45f)), 5f, 45f));
+            into.Add(HudProp.F("Cardinal spacing°", () => d.GetFFor(EditBare(d), "cardinalDeg", 45f),
+                v => d.SetFFor(EditBare(d), "cardinalDeg", Mathf.Clamp(v, 15f, 180f)), 15f, 180f));
         }
     }
 }

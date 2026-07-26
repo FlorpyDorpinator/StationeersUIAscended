@@ -572,6 +572,8 @@ namespace StationeersUIMod.Windows
                 ImGui.TextDisabled("  Colour: 'HudScanline' in the palette below. Radials / inventory grid excluded.");
                 Toggle(HudConfig.TintItemIcons, "Tint item icons green (hands / 1-6 / inventory)");
                 ImGui.TextDisabled("  Colour: 'HudItemIconTint' in the palette below (white = off).");
+                ImGui.TextDisabled("  This is the INHERITED default: hands / 1-6 can override it per");
+                ImGui.TextDisabled("  element (and per bare/suited) - see 'Item icon tint' in their popup.");
             }
 
             if (ImGui.CollapsingHeader("Curvature & projection", ImGuiTreeNodeFlags.DefaultOpen))
@@ -1044,8 +1046,12 @@ namespace StationeersUIMod.Windows
                 try { UI.Menu.Kit.UiaMenuTheme.DescribeProps(_menuPropScratch); }
                 catch { }
                 // No undo callbacks: config writes persist immediately, and the live restyle poll
-                // in UiaControlCenter.Update repaints the menu when the theme hash changes.
-                HudPropDrawer.DrawAll(_menuPropScratch, null, null, null, null);
+                // in UiaControlCenter.Update repaints the menu when the theme hash changes. The
+                // onChanged hook is NOT cosmetic: the Control Center theme travels inside a HUD
+                // profile now (Wave C), so an edit here must arm the theme restamp or the change
+                // would be lost the next time the player switches profiles.
+                HudPropDrawer.DrawAll(_menuPropScratch, null, null, null,
+                    () => Features.HudProfileStore.MarkThemeChanged());
             }
             ImGui.End();
             if (!open) HudEditorMode.MenuSelected = false;
@@ -1070,7 +1076,10 @@ namespace StationeersUIMod.Windows
                 _gridPropScratch.Clear();
                 try { UI.Grid.GridTheme.DescribeProps(_gridPropScratch); }
                 catch { }
-                HudPropDrawer.DrawAll(_gridPropScratch, null, null, null, null);
+                // Same reasoning as DrawMenuThemePopup: the Grid theme travels with a HUD profile
+                // since Wave C, so an override edit has to arm the theme restamp.
+                HudPropDrawer.DrawAll(_gridPropScratch, null, null, null,
+                    () => Features.HudProfileStore.MarkThemeChanged());
             }
             ImGui.End();
             if (!open) HudEditorMode.GridSelected = false;
@@ -1173,30 +1182,6 @@ namespace StationeersUIMod.Windows
             if (ImGui.Begin("Edit: " + el.Def.Type + "###UIAHudElementPopup",
                 ref elOpen, ImGuiWindowFlags.NoCollapse))
             {
-                // Per-mode edit selector. A "Both" element (shown in bare AND suited) can be
-                // styled differently for each mode; these two buttons pick which mode every
-                // Layout / Appearance / Effects value below reads and writes. They drive the
-                // live preview tier (HudSystem.ForceTier) so what you SEE is what you're
-                // editing, and EditBareTier — the edit target — follows it. Hidden for
-                // single-mode elements: there is nothing to fork, so all edits hit the base.
-                if (UI.Hud.HudElementView.IsBoth(el.Def.Tiers))
-                {
-                    bool editingBare = HudSystem.ForceTier.HasValue
-                        && HudSystem.ForceTier.Value == HudTier.Bare;
-                    ImGui.TextDisabled("Editing mode:");
-                    ImGui.SameLine();
-                    if (ModeTabButton("SUITED", !editingBare)) HudSystem.ForceTier = HudTier.Suited;
-                    ImGui.SameLine();
-                    if (ModeTabButton("BARE", editingBare)) HudSystem.ForceTier = HudTier.Bare;
-                    ImGui.SameLine();
-                    ImGui.TextDisabled(editingBare
-                        ? "bare — unset values inherit Suited"
-                        : "suited — the base bare inherits from");
-                    ImGui.Separator();
-                }
-                _propScratch.Clear();
-                try { el.DescribeProps(_propScratch); }
-                catch { }
                 // Undo is pushed on COMMIT, not on focus: IsItemActivated fires on a
                 // mere click into a widget, and pushing there wiped the redo stack
                 // with dead steps (review finding). The begin-stash keeps the
@@ -1222,6 +1207,12 @@ namespace StationeersUIMod.Windows
                 {
                     if (_pendingElementUndo != null) _pendingElementChanged = true;
                 };
+
+                DrawPerTierStyleBlock(el, beginElementEdit, commitElementEdit, noteElementChanged);
+
+                _propScratch.Clear();
+                try { el.DescribeProps(_propScratch); }
+                catch { }
 
                 if (ImGui.BeginTabBar("##UIAHudElementTabs"))
                 {
@@ -1284,6 +1275,76 @@ namespace StationeersUIMod.Windows
                 _activeElementPropGroup = null;
                 HudEditorMode.ClearElementSelection();
             }
+        }
+
+        /// <summary>The per-tier STYLE block at the top of the element popup (0.9.2.5, Wave C).
+        ///
+        /// Two separate things live here, in this order:
+        ///  1. the OPT-IN — "Separate BARE style". Off (the default) means every tier shares ONE
+        ///     design, which is why an untouched profile gains no key and looks identical. Ticking
+        ///     it SEEDS the fork with a complete copy of the base's stored values
+        ///     (<see cref="UI.Hud.HudElementView.SeedSlotFromBase"/>), so from that instant a later
+        ///     suited edit can no longer leak into bare — the defect this block exists to fix.
+        ///  2. the MODE TABS — which tier the Layout / Appearance / Effects values below read and
+        ///     write. They drive the live preview tier (HudSystem.ForceTier) so what you SEE is
+        ///     what you are editing, and the edit slot follows it.
+        ///
+        /// The tabs stay available with the fork OFF: they still pick the previewed tier, and the
+        /// line underneath says plainly that edits are landing on the shared base, rather than
+        /// letting the author believe a bare-only change was saved.</summary>
+        private static void DrawPerTierStyleBlock(UI.Hud.HudElementView el,
+            System.Action beginEdit, System.Action commitEdit, System.Action noteChanged)
+        {
+            var d = el != null ? el.Def : null;
+            if (d == null) return;
+            bool both = UI.Hud.HudElementView.IsBoth(d.Tiers);
+            if (!both) return;   // single-mode element: nothing to fork, every edit hits the base
+
+            bool forkBare = d.ForksSlot(UI.Hud.HudStyleSlot.Bare);
+            bool wantFork = forkBare;
+            if (ImGui.Checkbox("Separate BARE style##uiaPerTier", ref wantFork) && wantFork != forkBare)
+            {
+                HudEditorMode.CommitActiveDrag();   // never fold a live gizmo drag into this step
+                FlushPendingElementEdit();
+                beginEdit();
+                if (wantFork) UI.Hud.HudElementView.SeedSlotFromBase(el, UI.Hud.HudStyleSlot.Bare);
+                else d.SetForkSlot(UI.Hud.HudStyleSlot.Bare, false);
+                noteChanged();
+                commitEdit();
+                HudSystem.RelayoutElement(el);
+                forkBare = wantFork;
+            }
+            ImGui.TextDisabled(forkBare
+                ? "  Bare keeps its OWN copy of every look value."
+                : "  Off = one shared look for bare and suited.");
+
+            bool editingBare = HudSystem.ForceTier.HasValue
+                && HudSystem.ForceTier.Value == HudTier.Bare;
+            ImGui.TextDisabled("Editing mode:");
+            ImGui.SameLine();
+            if (ModeTabButton("SUITED", !editingBare))
+            {
+                // Flush FIRST: a value gesture must never span a slot change, or its undo bracket
+                // (keyed on ElementStamp, not the slot) would commit into the wrong tier.
+                if (editingBare) FlushPendingElementEdit();
+                HudSystem.ForceTier = HudTier.Suited;
+            }
+            ImGui.SameLine();
+            if (ModeTabButton("BARE", editingBare))
+            {
+                if (!editingBare) FlushPendingElementEdit();
+                HudSystem.ForceTier = HudTier.Bare;
+            }
+            DrawEditTargetLine();
+            if (editingBare)
+                ImGui.TextDisabled(forkBare
+                    ? "Look values write BARE's own slot; layout writes the bare positions."
+                    : "Look values write the SHARED base - tick above to give bare its own.");
+            else
+                ImGui.TextDisabled(forkBare
+                    ? "Look values write SUITED only - bare has its own copy."
+                    : "Look values write the shared base (bare inherits it).");
+            ImGui.Separator();
         }
 
         /// <summary>A segmented-style button for the per-mode edit selector: the ACTIVE mode is

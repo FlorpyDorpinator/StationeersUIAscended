@@ -125,14 +125,14 @@ namespace StationeersUIMod.UI.Hud.Widgets
                 ApplyGlass(_box);
             }
 
-            bool wholeBody = Def.GetB("wholeBody", false);
+            bool wholeBody = Def.GetBFor(LayoutBare, "wholeBody", false);
             // The damage ramp's three stops. Each is a per-element colour ref (palette name or
             // "#RRGGBBAA"); left blank it falls back to its old source — the element accent for
             // healthy, the global Warn/Critical palette for the two damage stops — so an untouched
             // doll looks exactly as before.
-            Color neutral = HudPalette.Resolve(Def.GetS("cHealthy", ""), TextColor());
-            Color warn = HudPalette.Resolve(Def.GetS("cWarn", ""), HudPalette.Warn.Value);
-            Color crit = HudPalette.Resolve(Def.GetS("cCrit", ""), HudPalette.Critical.Value);
+            Color neutral = HudPalette.Resolve(Def.GetSFor(LayoutBare, "cHealthy", ""), TextColor());
+            Color warn = HudPalette.Resolve(Def.GetSFor(LayoutBare, "cWarn", ""), HudPalette.Warn.Value);
+            Color crit = HudPalette.Resolve(Def.GetSFor(LayoutBare, "cCrit", ""), HudPalette.Critical.Value);
 
             for (int i = 0; i < _parts.Length; i++)
             {
@@ -247,7 +247,8 @@ namespace StationeersUIMod.UI.Hud.Widgets
         /// fallback, so leaving a picker untouched changes nothing.</summary>
         private string DollColorRef(string key, string defaultRef)
         {
-            string s = Def.GetS(key, "");
+            // Tier-aware (Wave C): the picker opens on the value the EDITED tier is showing.
+            string s = Def.GetSFor(EditBare(Def), key, "");
             return string.IsNullOrEmpty(s) ? defaultRef : s;
         }
 
@@ -285,7 +286,8 @@ namespace StationeersUIMod.UI.Hud.Widgets
             for (int i = layoutStart; i < into.Count; i++) into[i].Group = HudPropGroup.Layout;
 
             int appearanceStart = into.Count;
-            into.Add(HudProp.Bool("Whole-body tint", () => d.GetB("wholeBody", false), v => d.SetB("wholeBody", v)));
+            into.Add(HudProp.Bool("Whole-body tint", () => d.GetBFor(EditBare(d), "wholeBody", false),
+                v => d.SetBFor(EditBare(d), "wholeBody", v)));
             into.Add(HudProp.Bool("Background box", () => d.GetBFor(EditBare(d), "box", true), v => d.SetBFor(EditBare(d), "box", v)));
 
             // The doll's damage-ramp tints. Each part fades from the healthy colour through warning
@@ -296,9 +298,11 @@ namespace StationeersUIMod.UI.Hud.Widgets
             into.Add(HudProp.Header("Doll damage colours"));
             into.Add(HudProp.Color("Healthy tint",
                 () => DollColorRef("cHealthy", string.IsNullOrEmpty(d.TextColor) ? "HudTextValue" : d.TextColor),
-                v => d.Set("cHealthy", v)));
-            into.Add(HudProp.Color("Warning tint", () => DollColorRef("cWarn", "HudWarn"), v => d.Set("cWarn", v)));
-            into.Add(HudProp.Color("Critical tint", () => DollColorRef("cCrit", "HudCritical"), v => d.Set("cCrit", v)));
+                v => d.SetSFor(EditBare(d), "cHealthy", v)));
+            into.Add(HudProp.Color("Warning tint", () => DollColorRef("cWarn", "HudWarn"),
+                v => d.SetSFor(EditBare(d), "cWarn", v)));
+            into.Add(HudProp.Color("Critical tint", () => DollColorRef("cCrit", "HudCritical"),
+                v => d.SetSFor(EditBare(d), "cCrit", v)));
             for (int i = appearanceStart; i < into.Count; i++) into[i].Group = HudPropGroup.Appearance;
         }
     }

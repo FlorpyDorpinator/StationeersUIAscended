@@ -178,7 +178,9 @@ namespace StationeersUIMod.UI.Hud.Widgets
                 if (flash != null) icon = flash;
                 _icon[i].sprite = icon;
                 _icon[i].enabled = icon != null;
-                _icon[i].color = HudConfig.TintIcon(Color.white);   // #9: optional global item-icon tint
+                // #9 item-icon tint: per-element and per-tier since 0.9.2.5 (mode 0 inherits the
+                // global "Tint item icons" checkbox, so an untouched profile is unchanged).
+                _icon[i].color = TintItemIcon(Color.white);
                 _icon[i].rectTransform.localScale = Vector3.one * (flash != null ? 1f + 0.22f * flashP : 1f);
 
                 HudText.Sync(_state[i]);
@@ -264,6 +266,7 @@ namespace StationeersUIMod.UI.Hud.Widgets
                 () => HudPalette.TextDim.Value));
             into[into.Count - 1].Group = HudPropGroup.Appearance;
 
+            AddIconTintProps(into);      // item thumbnail wash (inherit / own colour / off)
             AddDropHighlightProps(into); // #4: drag-over drop cue mode + colour
         }
     }

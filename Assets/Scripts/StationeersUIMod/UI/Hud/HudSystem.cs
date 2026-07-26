@@ -362,6 +362,11 @@ namespace StationeersUIMod.UI.Hud
             // scanlines back to the last sibling so they draw ON TOP of every panel. ResortByZ does
             // the same, but it only runs on a Z change — this covers boot and every profile rebuild.
             if (_scanlines != null) _scanlines.transform.SetAsLastSibling();
+
+            // Every view now exists, which is the earliest point a per-tier fork can be completed
+            // from a widget's own prop list. Covers BOTH entry points (boot via EnsureBuilt and
+            // every profile swap via RebuildViews).
+            SeedPendingTierStyles();
         }
 
         private static readonly List<HudElementDef> _docSorted = new List<HudElementDef>();
@@ -480,6 +485,44 @@ namespace StationeersUIMod.UI.Hud
             }
             _hasPrev = false; // fresh views must snap to visibility, not flicker in
             RelayoutAll();
+        }
+
+        /// <summary>Finish the Schema-15 adoption HudDocument.Sanitize could only flag: an element
+        /// whose sparse legacy "b_" fork was adopted into the opt-in model gets a COMPLETE copy of
+        /// the base written into its slot, so later suited edits can no longer leak into bare. The
+        /// seed needs the widget's own prop list, which is why it runs here (first view build after
+        /// load) rather than in the document layer. Value-preserving by construction: every key it
+        /// writes holds exactly what that slot already resolved to. Fail-soft per element; the
+        /// transient flag is cleared either way so it can never loop.</summary>
+        private static void SeedPendingTierStyles()
+        {
+            int seeded = 0;
+            for (int i = 0; i < _panels.Count; i++)
+            {
+                var ev = _panels[i] as HudElementView;
+                if (ev == null || ev.Def == null) continue;
+                if (!ev.Def.GetB(HudElementDef.TierStyleSeedKey, false)) continue;
+                try
+                {
+                    if (ev.Def.ForksSlot(HudStyleSlot.Bare))
+                        HudElementView.SeedSlotFromBase(ev, HudStyleSlot.Bare);
+                    if (ev.Def.ForksSlot(HudStyleSlot.Robot))
+                        HudElementView.SeedSlotFromBase(ev, HudStyleSlot.Robot);
+                    seeded++;
+                }
+                catch (Exception e)
+                {
+                    UIALog.Warn("HudSystem: per-tier seed failed on '" + ev.Def.Id + "' ("
+                        + e.Message + ") — that element keeps inheriting the base.");
+                }
+                finally { ev.Def.Set(HudElementDef.TierStyleSeedKey, null); }
+            }
+            if (seeded > 0)
+            {
+                UIALog.Warn("HudSystem: completed the per-tier style fork on " + seeded
+                    + " adopted element(s).");
+                Features.HudProfileStore.MarkChanged();
+            }
         }
 
         private const HudTierMask SuitOnly = HudTierMask.Suited | HudTierMask.Robot;
@@ -867,6 +910,11 @@ namespace StationeersUIMod.UI.Hud
             _appliedMode = HudCurvature.Flat;
             ForceTier = null;
             _prevForceTier = null;
+            // Hot-reload rule: every new static resets here, or a reloaded assembly starts with
+            // the previous session's render/edit slot (and the Grid with a stale tier skin).
+            HudElementView.LayoutSlot = HudStyleSlot.Base;
+            HudElementView.EditTargetSlot = HudStyleSlot.Base;
+            global::StationeersUIMod.UI.Grid.GridTheme.Slot = HudStyleSlot.Base;
             _demoHoldUntil = 0f;
             LastSnapshot = null;
             HudSampler.Clear();
@@ -1008,10 +1056,17 @@ namespace StationeersUIMod.UI.Hud
             // silently fork a bare override just because the player is bare. At runtime the drawn
             // geometry follows the live tier. Folded into LayoutHash below so a preview/tier change
             // re-lays-out the document.
-            bool explicitBare = ForceTier.HasValue && ForceTier.Value == HudTier.Bare;
+            HudStyleSlot previewSlot =
+                !ForceTier.HasValue ? HudStyleSlot.Base
+                : ForceTier.Value == HudTier.Bare ? HudStyleSlot.Bare
+                : ForceTier.Value == HudTier.Robot ? HudStyleSlot.Robot
+                : HudStyleSlot.Base;
             HudElementView.LayoutTier = tier;
-            HudElementView.EditBareTier = editorActive && explicitBare;
-            HudElementView.LayoutBare = editorActive ? explicitBare : (tier == HudTier.Bare);
+            HudElementView.EditTargetSlot = editorActive ? previewSlot : HudStyleSlot.Base;
+            HudElementView.LayoutSlot = editorActive ? previewSlot
+                : tier == HudTier.Bare ? HudStyleSlot.Bare
+                : tier == HudTier.Robot ? HudStyleSlot.Robot
+                : HudStyleSlot.Base;
             // Each curvature mode remembers its own LIVE placement; feeding it here (+ into the
             // layout hash below) re-lays-out the document when you switch A/B/C/D.
             HudElementView.LayoutMode = HudConfig.Curvature != null ? HudConfig.Curvature.Value : HudCurvature.Flat;
@@ -1446,9 +1501,10 @@ namespace StationeersUIMod.UI.Hud
                 + (HudConfig.CurveInvert.Value ? 313f : 0f)
                 + HudConfig.CurveStrength.Value * 631f + (int)HudConfig.Curvature.Value * 977f
                 + (HudWarp.BareFlat ? 1289f : 0f) // bare→flat transition re-lays-out + re-meshes
-                // Per-tier layout: a bare↔suit change re-lays-out the document so elements with a
-                // bare override jump to their bare position/size.
-                + (HudElementView.LayoutBare ? 4099f : 0f)
+                // Per-tier layout AND per-tier style: a Bare/Suited/Robot change re-lays-out the
+                // document so elements with a per-tier override jump to their own position, size
+                // and (0.9.2.5) their own radii / gaps / insets — everything Layout(scale) reads.
+                + (int)HudElementView.LayoutSlot * 4099f
                 // Any element edit bumps the store version — geometry lives in the document.
                 + Features.HudProfileStore.Version * 3571f;
         }

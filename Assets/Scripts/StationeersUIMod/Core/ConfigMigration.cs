@@ -25,11 +25,20 @@ namespace StationeersUIMod.Core
     {
         /// <summary>Bump by ONE each time you add a migration STEP in <see cref="ApplyStep"/>.
         /// Fresh installs are stamped straight to this and run NO steps.</summary>
-        public const int CurrentVersion = 2;
+        public const int CurrentVersion = 3;
 
         private const string Section = "0. Internal";
 
         public static ConfigEntry<int> Version;
+
+        /// <summary>Set by the v2-&gt;v3 step; consumed exactly once by
+        /// <see cref="Features.HudProfileStore.LoadActive"/> the first time it runs after the
+        /// profile folder is available (this class runs at BIND time, before any profile is
+        /// loaded, so the top-up itself can't happen here). Never persisted — the
+        /// <see cref="Version"/> stamp is the real record; a stale <c>true</c> surviving a crash
+        /// mid-launch just means the (idempotent, TopUp-is-additive) top-up runs once more on the
+        /// next launch, which costs nothing.</summary>
+        public static bool PendingThemeTopUp;
 
         /// <summary>Run after all settings are bound. <paramref name="freshInstall"/> = the .cfg did
         /// not exist before this launch; those installs already carry current defaults, so they are
@@ -90,11 +99,36 @@ namespace StationeersUIMod.Core
                     foreach (string[] kv in RemovedKeysV1ToV2) RemoveOrphaned(cfg, kv[0], kv[1]);
                     cfg.Save();
                     break;
+                case 2: // v2 -> v3 — the 0.9.2.5 Wave C theme fold: the radial-visuals + hint-bar
+                    // LOOK knobs, the Universal Inventory (Grid) skin and the Control Center (F10
+                    // menu) skin now travel INSIDE a HUD profile's theme (see UI.Hud.HudTheme's
+                    // "radial:"/"grid:"/"menu:" families), instead of being shared globals every
+                    // profile silently read from. This step touches no .cfg key itself — it only
+                    // arms a one-shot flag, because the actual work (reading/rewriting the
+                    // HudProfiles/*.xml files) needs the profile folder, which is not available yet
+                    // at config-bind time. HudProfileStore.LoadActive consumes the flag on its very
+                    // first call and stamps the player's CURRENT globals into every profile that
+                    // already carries a theme (see HudTheme.TopUp / HudProfileStore.TopUpAllThemes),
+                    // so the fold is a no-op for their eyes: every profile starts out holding
+                    // exactly the look they already have, and only diverges from there if they
+                    // deliberately give two profiles different radial/Grid/menu looks.
+                    PendingThemeTopUp = true;
+                    // Also in v3: RadialPalette.TextAccent gained a real identity. It used to default
+                    // to plain white (indistinguishable from TextPrimary/TextDim) while the stow/equip
+                    // wedge-label highlight was a HARDCODED orange (Overlay.Theme.Accent). The re-point
+                    // of Theme.Accent onto this entry would have silently turned those accents white,
+                    // so the default is now the legacy orange — and players who never touched the old
+                    // white default are moved onto it here (a deliberate white stays put). Runs BEFORE
+                    // the theme top-up stamps globals into profiles, so profiles capture the orange.
+                    ForceIfDefault(Overlay.RadialPalette.TextAccent.Config,
+                        oldDefault: "FFFFFFFF", corrected: "FF8C29FF");
+                    cfg.Save();
+                    break;
                 // ---------------------------------------------------------------------------------
                 // TEMPLATE — the next time you change a shipped default or rename a key, bump
                 // CurrentVersion again and fill in the next case:
                 //
-                // case 2: // v2 -> v3
+                // case 3: // v3 -> v4
                 //     // A default was WRONG: push the corrected value only to players who never
                 //     // changed it (anyone who set it on purpose keeps their choice).
                 //     ForceIfDefault(UI.Hud.HudConfig.FxGlow, oldDefault: 0.50f, corrected: 0.80f);

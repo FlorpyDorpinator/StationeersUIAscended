@@ -16,23 +16,43 @@ namespace StationeersUIMod.UI.Hud
     {
         public HudElementDef Def;
 
-        /// <summary>True while the HUD is drawn with the BARE (power-off) geometry. Set by
-        /// HudSystem each frame. At runtime it follows the live tier; while the F9 editor is open
+        /// <summary>The STYLE SLOT the HUD is being drawn for this frame. Set by HudSystem: at
+        /// runtime it follows the live tier (Bare / Robot / Base), and while the F9 editor is open
         /// it follows the EXPLICIT preview instead, so what you see always matches what you edit
-        /// (a drag can't render one tier while writing another). Elements with a bare override
-        /// resolve their geometry against it.</summary>
-        internal static bool LayoutBare;
+        /// (a drag can't render one tier while writing another).
+        ///
+        /// This is the WANTED slot, not the resolved one — read <see cref="Slot"/> from a widget,
+        /// which additionally asks the element whether it actually forks this slot.</summary>
+        internal static HudStyleSlot LayoutSlot;
+
+        /// <summary>True while the HUD is drawn with the BARE (power-off) geometry — the LAYOUT
+        /// fork's discriminator, and the bool call shape every widget's style read still uses (it
+        /// maps onto <see cref="HudStyleSlot.Bare"/>, which then resolves through the element's
+        /// opt-in). Kept as a computed property so HudSystem/HudWarp/the editor read one truth.</summary>
+        internal static bool LayoutBare => LayoutSlot == HudStyleSlot.Bare;
 
         /// <summary>The effective tier the HUD is drawn for (VISIBILITY — which elements show).
         /// The F9 editor filters selection by this so you can't grab an element that isn't on
         /// screen in the current preview.</summary>
         internal static HudTier LayoutTier;
 
-        /// <summary>True only when the F9 editor is open AND the preview is EXPLICITLY bare — the
-        /// tier the editor writes to. Deliberately separate from <see cref="LayoutBare"/> so a
-        /// 'Live'/'Suited' preview always edits the base layout and never silently forks a bare
-        /// override just because the player happens to be bare (adversarial review 2026-07-12).</summary>
-        internal static bool EditBareTier;
+        /// <summary>The slot an F9 edit TARGETS: the explicitly previewed tier while the editor is
+        /// open, Base otherwise. Deliberately separate from <see cref="LayoutSlot"/> so a
+        /// 'Live' preview always edits the base and never silently forks just because the player
+        /// happens to be bare (adversarial review 2026-07-12).</summary>
+        internal static HudStyleSlot EditTargetSlot;
+
+        /// <summary>True only when the F9 editor is previewing BARE explicitly.</summary>
+        internal static bool EditBareTier => EditTargetSlot == HudStyleSlot.Bare;
+
+        /// <summary>THIS element's resolved style slot for the CURRENT frame: the render slot when
+        /// the element forks it, else Base. Widgets read this (or the equivalent bool
+        /// <see cref="LayoutBare"/>), never <see cref="LayoutSlot"/> directly.
+        ///
+        /// Named StyleSlot, not Slot: half the widgets declare locals of the GAME's
+        /// <c>Assets.Scripts.Objects.Slot</c> type, and a base member sharing that name is a
+        /// resolution hazard nobody should have to think about at a call site.</summary>
+        protected HudStyleSlot StyleSlot => Def != null ? Def.ResolveSlot(LayoutSlot) : HudStyleSlot.Base;
 
         /// <summary>The curvature mode the HUD is currently laid out for (set by HudSystem from
         /// HudConfig.Curvature). Each mode (A/B/C/D) remembers its own LIVE placement per profile;
@@ -148,19 +168,27 @@ namespace StationeersUIMod.UI.Hud
         internal const int StyleGlobal = 1;
         internal const int StyleCustom = 2;
 
-        private static int StyleSourceOf(HudElementDef d)
+        /// <summary>The style source of ONE slot. Per-slot since 0.9.2.5, so an element can be flat
+        /// in bare and glassy in suit; a slot that is not forked resolves the base value, so this is
+        /// backward-identical for every existing profile.</summary>
+        private static int StyleSourceOf(HudElementDef d, HudStyleSlot slot)
         {
             // Missing/0 reads as Global: HudStyleMigration rewrites every stored legacy element
             // during Sanitize, so this default only decides brand-new in-memory elements.
-            int v = d != null ? d.GetI("styleSource", StyleGlobal) : StyleGlobal;
+            int v = d != null ? d.GetIFor(slot, "styleSource", StyleGlobal) : StyleGlobal;
             return v == StyleCustom ? StyleCustom : StyleGlobal;
         }
+
+        private static int StyleSourceOf(HudElementDef d) => StyleSourceOf(d, HudStyleSlot.Base);
 
         private int StyleSource
         {
             get
             {
-                return StyleSourceOf(Def);
+                // StyleSlot, not LayoutSlot: an element that has not opted in reads the base. While
+                // the F9 editor is open HudSystem drives LayoutSlot and EditTargetSlot from the
+                // SAME preview, so this is also the slot DescribeProps is editing.
+                return StyleSourceOf(Def, StyleSlot);
             }
         }
 
@@ -368,23 +396,70 @@ namespace StationeersUIMod.UI.Hud
         // #4: drag-over drop highlight — the hand / 1-6 equipment boxes light up while a dragged
         // item hovers a valid target. Per-element mode (border vs whole box) + colour (a ColorRef;
         // empty = the global HudDropHighlight palette).
-        protected bool DropWholeBox() => Def != null && Def.GetB("dropWholeBox", false);
+        protected bool DropWholeBox() => Def != null && Def.GetBFor(LayoutBare, "dropWholeBox", false);
         protected Color DropHighlightColor()
         {
-            string cref = Def != null ? Def.GetS("dropHiColor", "") : "";
+            string cref = Def != null ? Def.GetSFor(LayoutBare, "dropHiColor", "") : "";
             return string.IsNullOrEmpty(cref)
                 ? HudPalette.DropHighlight.Value
                 : HudPalette.Resolve(cref, HudPalette.DropHighlight.Value);
         }
-        /// <summary>F9 props for the drop highlight — added by widgets that are drop targets.</summary>
+        /// <summary>F9 props for the drop highlight — added by widgets that are drop targets.
+        /// Tier-aware since 0.9.2.5: the cue is a LOOK, so it forks with the rest of the style.</summary>
         protected void AddDropHighlightProps(System.Collections.Generic.List<HudProp> into)
         {
             var d = Def;
             int start = into.Count;
-            into.Add(HudProp.Bool("Drop: light whole box", () => d.GetB("dropWholeBox", false), v => d.SetB("dropWholeBox", v)));
-            into.Add(HudProp.Color("Drop highlight colour", () => d.GetS("dropHiColor", ""),
-                v => d.Set("dropHiColor", v), () => HudPalette.DropHighlight.Value));
+            into.Add(HudProp.Bool("Drop: light whole box", () => d.GetBFor(EditBare(d), "dropWholeBox", false),
+                v => d.SetBFor(EditBare(d), "dropWholeBox", v)));
+            into.Add(HudProp.Color("Drop highlight colour", () => d.GetSFor(EditBare(d), "dropHiColor", ""),
+                v => d.SetSFor(EditBare(d), "dropHiColor", string.IsNullOrEmpty(v) ? null : v),
+                () => HudPalette.DropHighlight.Value));
             MarkProps(into, start, HudPropGroup.Interaction);
+        }
+
+        // ---- per-element ITEM-ICON TINT (0.9.2.5) -------------------------------------------
+        // The global "Tint item icons" checkbox (F9 -> View & Behavior) + the HudItemIconTint
+        // palette entry stay, and remain the INHERITED default. This adds a per-element, per-tier
+        // override in the same tri-state vocabulary the transition effects use, so a bare HUD can
+        // wash its thumbnails differently from (or not at all like) the powered one.
+
+        /// <summary>Combo captions for the icon-tint tri-state. Index order matches the stored int.</summary>
+        private static readonly string[] IconTintModeNames = { "Inherit global", "On (own colour)", "Off" };
+
+        /// <summary>Item-thumbnail tint for THIS element in the current slot. Mode 0 = inherit the
+        /// global "Tint item icons" checkbox (+ HudItemIconTint), 1 = force on with this element's
+        /// own colour ref (empty = the palette entry), 2 = force off. Preserves the icon's own
+        /// alpha — the same contract as <see cref="HudConfig.TintIcon"/>, so an empty-slot fade
+        /// stays invisible.</summary>
+        protected Color TintItemIcon(Color c)
+        {
+            int mode = Def != null ? Def.GetIFor(LayoutBare, "iconTintMode", 0) : 0;
+            if (mode == 2) return c;                    // explicit off
+            if (mode != 1) return HudConfig.TintIcon(c); // inherit the global checkbox
+            string cref = Def != null ? Def.GetSFor(LayoutBare, "iconTintColor", "") : "";
+            Color fallback = HudPalette.ItemIconTint != null ? HudPalette.ItemIconTint.Value : Color.white;
+            Color t = string.IsNullOrEmpty(cref) ? fallback : HudPalette.Resolve(cref, fallback);
+            return new Color(c.r * t.r, c.g * t.g, c.b * t.b, c.a);
+        }
+
+        /// <summary>The two F9 rows, appended by any widget that draws item thumbnails.</summary>
+        protected void AddIconTintProps(System.Collections.Generic.List<HudProp> into)
+        {
+            var d = Def;
+            int start = into.Count;
+            into.Add(WithId(HudProp.Enum("Item icon tint",
+                () => Mathf.Clamp(d.GetIFor(EditBare(d), "iconTintMode", 0), 0, 2),
+                v => d.SetIFor(EditBare(d), "iconTintMode", Mathf.Clamp(v, 0, 2)),
+                IconTintModeNames), "iconTintMode"));
+            if (Mathf.Clamp(d.GetIFor(EditBare(d), "iconTintMode", 0), 0, 2) == 1)
+                into.Add(WithId(HudProp.Color("  icon tint colour", () => d.GetSFor(EditBare(d), "iconTintColor", ""),
+                    v => d.SetSFor(EditBare(d), "iconTintColor", string.IsNullOrEmpty(v) ? null : v),
+                    () => HudPalette.ItemIconTint != null ? HudPalette.ItemIconTint.Value : Color.white),
+                    "iconTintColor"));
+            else
+                into.Add(HudProp.Header("  Inherit follows F9 -> View & Behavior -> Tint item icons."));
+            MarkProps(into, start, HudPropGroup.Appearance);
         }
 
         /// <summary>The element's effective glass sheen: the global while following, the seeded
@@ -898,12 +973,26 @@ namespace StationeersUIMod.UI.Hud
         internal static bool IsBoth(HudTierMask t)
             => (t & HudTierMask.Bare) != 0 && (t & (HudTierMask.Suited | HudTierMask.Robot)) != 0;
 
-        /// <summary>Whether an editor field writes the BARE override rather than the base (live)
-        /// layout: only when the preview is EXPLICITLY bare AND the element is a "Both" element.
-        /// A single-mode element has one layout, so it always edits base; and keying off the
-        /// explicit preview (not the render tier) means editing while the player is genuinely bare
-        /// in a 'Live' preview never silently forks a bare override.</summary>
+        /// <summary>The slot an F9 STYLE edit writes to: the explicitly previewed tier when this
+        /// element FORKS it, else Base. Keying off the explicit preview (not the render tier) is
+        /// unchanged from the old EditBare contract — a 'Live' preview never silently forks — and
+        /// the fork gate is what stops an edit made with per-tier OFF from writing a "b_" key no
+        /// read would ever see.</summary>
+        internal static HudStyleSlot EditSlot(HudElementDef d)
+            => d == null ? HudStyleSlot.Base : d.ResolveSlot(EditTargetSlot);
+
+        /// <summary>Whether an editor STYLE field writes the bare override rather than the shared
+        /// base. Bool shorthand for <see cref="EditSlot"/> == Bare, which is what every widget's
+        /// <c>DescribeProps</c> passes to the tier-aware accessors.</summary>
         internal static bool EditBare(HudElementDef d)
+            => EditSlot(d) == HudStyleSlot.Bare;
+
+        /// <summary>Whether an editor LAYOUT field writes the BARE layout override rather than the
+        /// base (live) layout: only when the preview is EXPLICITLY bare AND the element is a "Both"
+        /// element. The layout fork ("bLayout"/"bX"…) is INDEPENDENT of the per-tier STYLE opt-in —
+        /// it has its own explicit seeded toggle and predates Wave C — so it must NOT be gated on
+        /// <c>ForksSlot</c>. A single-mode element has one layout, so it always edits base.</summary>
+        internal static bool EditBareLayout(HudElementDef d)
             => EditBareTier && d != null && IsBoth(d.Tiers);
 
         // The per-element visibility dropdown. "Live" = the powered suit/robot HUD; "Both"
@@ -938,18 +1027,23 @@ namespace StationeersUIMod.UI.Hud
             // globals first (reads run under the old mode), so every slider below pops open at
             // exactly the value the element is already showing — no jump, no stale profile
             // values. Re-checking keeps the snapshot dormant for a later return to Custom.
-            into.Add(HudProp.Bool("Follow F9 global style (theme + effects)",
+            into.Add(WithId(HudProp.Bool("Follow F9 global style (theme + effects)",
                 () => UsesGlobalStyle,
                 v =>
                 {
+                    // Per-SLOT since 0.9.2.5: separating while the BARE tab is up must snapshot
+                    // into the bare slot, not into the shared base every tier inherits (that was
+                    // the second, silent leak the Wave C audit found).
+                    var slot = EditSlot(d);
                     if (v)
                     {
-                        d.SetI("styleSource", StyleGlobal);
+                        d.SetIFor(slot, "styleSource", StyleGlobal);
                         return;
                     }
-                    if (!d.GetB("customStyleReady", false)) SeedCustomStyleFromEffective(d);
-                    d.SetI("styleSource", StyleCustom);
-                }));
+                    if (!d.GetBFor(slot, "customStyleReady", false))
+                        SeedCustomStyleFromEffective(d, slot);
+                    d.SetIFor(slot, "styleSource", StyleCustom);
+                }), "styleSource"));
             MarkProps(into, styleStart, HudPropGroup.Appearance);
 
             AddUnifiedLayoutProps(into, d);
@@ -961,24 +1055,28 @@ namespace StationeersUIMod.UI.Hud
         {
             int start = into.Count;
             into.Add(HudProp.Header("Layout"));
-            into.Add(HudProp.Anchor("Anchor", () => (int)d.AnchorFor(EditBare(d), LayoutMode),
-                v => d.SetAnchorFor(EditBare(d), LayoutMode, (HudAnchor)v)));
-            into.Add(HudProp.F("X", () => d.XFor(EditBare(d), LayoutMode),
-                v => d.SetXFor(EditBare(d), LayoutMode, v), -2000f, 2000f));
-            into.Add(HudProp.F("Y", () => d.YFor(EditBare(d), LayoutMode),
-                v => d.SetYFor(EditBare(d), LayoutMode, v), -2000f, 2000f));
-            into.Add(HudProp.F("Width", () => d.WFor(EditBare(d), LayoutMode),
-                v => d.SetWFor(EditBare(d), LayoutMode, Mathf.Max(2f, v)), 2f, 2200f));
-            into.Add(HudProp.F("Height", () => d.HFor(EditBare(d), LayoutMode),
-                v => d.SetHFor(EditBare(d), LayoutMode, Mathf.Max(2f, v)), 2f, 1300f));
-            into.Add(HudProp.F("Width % (-1 = fixed)", () => d.WPctFor(EditBare(d), LayoutMode),
-                v => d.SetWPctFor(EditBare(d), LayoutMode, v), -1f, 1f));
-            into.Add(HudProp.F("Height % (-1 = fixed)", () => d.HPctFor(EditBare(d), LayoutMode),
-                v => d.SetHPctFor(EditBare(d), LayoutMode, v), -1f, 1f));
-            into.Add(HudProp.I("Z order", () => d.Z,
-                v => { d.Z = v; HudSystem.RequestZResort(); }, -100, 100));
-            into.Add(HudProp.Tier("Show in (Bare / Suited)", () => (int)d.Tiers,
-                v => { d.Tiers = (HudTierMask)v; if (!IsBoth(d.Tiers)) { d.SetBareLayout(false); d.ClearVisualBareOverrides(); } }));
+            // GEOMETRY forks on the LAYOUT toggle (EditBareLayout), never on the per-tier STYLE
+            // opt-in — two independent features. The StableIds also let SeedSlotFromBase skip
+            // these rows: seeding a style slot must never fork the layout as a side effect.
+            into.Add(WithId(HudProp.Anchor("Anchor", () => (int)d.AnchorFor(EditBareLayout(d), LayoutMode),
+                v => d.SetAnchorFor(EditBareLayout(d), LayoutMode, (HudAnchor)v)), "elAnchor"));
+            into.Add(WithId(HudProp.F("X", () => d.XFor(EditBareLayout(d), LayoutMode),
+                v => d.SetXFor(EditBareLayout(d), LayoutMode, v), -2000f, 2000f), "elX"));
+            into.Add(WithId(HudProp.F("Y", () => d.YFor(EditBareLayout(d), LayoutMode),
+                v => d.SetYFor(EditBareLayout(d), LayoutMode, v), -2000f, 2000f), "elY"));
+            into.Add(WithId(HudProp.F("Width", () => d.WFor(EditBareLayout(d), LayoutMode),
+                v => d.SetWFor(EditBareLayout(d), LayoutMode, Mathf.Max(2f, v)), 2f, 2200f), "elW"));
+            into.Add(WithId(HudProp.F("Height", () => d.HFor(EditBareLayout(d), LayoutMode),
+                v => d.SetHFor(EditBareLayout(d), LayoutMode, Mathf.Max(2f, v)), 2f, 1300f), "elH"));
+            into.Add(WithId(HudProp.F("Width % (-1 = fixed)", () => d.WPctFor(EditBareLayout(d), LayoutMode),
+                v => d.SetWPctFor(EditBareLayout(d), LayoutMode, v), -1f, 1f), "elWPct"));
+            into.Add(WithId(HudProp.F("Height % (-1 = fixed)", () => d.HPctFor(EditBareLayout(d), LayoutMode),
+                v => d.SetHPctFor(EditBareLayout(d), LayoutMode, v), -1f, 1f), "elHPct"));
+            into.Add(WithId(HudProp.I("Z order", () => d.Z,
+                v => { d.Z = v; HudSystem.RequestZResort(); }, -100, 100), "zOrder"));
+            into.Add(WithId(HudProp.Tier("Show in (Bare / Suited)", () => (int)d.Tiers,
+                v => { d.Tiers = (HudTierMask)v; if (!IsBoth(d.Tiers)) { d.SetBareLayout(false); d.ClearVisualBareOverrides(); } }),
+                "tiers"));
             MarkProps(into, start, HudPropGroup.Layout);
         }
 
@@ -1417,64 +1515,193 @@ namespace StationeersUIMod.UI.Hud
             return p;
         }
 
+        // ---- per-tier fork seeding ----------------------------------------------------------
+
+        /// <summary>Rows <see cref="SeedSlotFromBase"/> must NOT round-trip: setters with side
+        /// effects or identity semantics. The geometry rows fork the LAYOUT (a separate feature
+        /// with its own toggle); "tiers" would call ClearVisualBareOverrides and wipe the very fork
+        /// being seeded; "zOrder" is document order, not look; the transition rows are deliberately
+        /// shared by every tier (see AddTransitionRows) and re-writing them would churn the base.
+        /// Everything else is safe: a row that is not actually tier-aware simply writes the same
+        /// value back to the same base storage — a no-op round trip.</summary>
+        private static readonly HashSet<string> SeedSkip = BuildSeedSkip();
+
+        private static HashSet<string> BuildSeedSkip()
+        {
+            var s = new HashSet<string>(System.StringComparer.Ordinal)
+            {
+                "elAnchor", "elX", "elY", "elW", "elH", "elWPct", "elHPct", "zOrder", "tiers",
+            };
+            for (int i = 0; i < HudTransitionFx.All.Length; i++)
+            {
+                var fx = HudTransitionFx.All[i];
+                if (fx == null) continue;
+                s.Add(fx.ModeKey);
+                s.Add(fx.AmtKey);
+            }
+            return s;
+        }
+
+        /// <summary>The identity a seeded value is matched on across the two prop-list builds.</summary>
+        private static string SeedKeyOf(HudProp p)
+            => !string.IsNullOrEmpty(p.StableId) ? p.StableId : ((int)p.Group) + "|" + p.Label;
+
+        private static void CollectSeedValues(List<HudProp> props, Dictionary<string, object> into)
+        {
+            if (props == null) return;
+            for (int i = 0; i < props.Count; i++)
+            {
+                var p = props[i];
+                if (p == null) continue;
+                if (p.Kind == HudPropKind.TabGroup || p.Kind == HudPropKind.TabPage)
+                {
+                    CollectSeedValues(p.Children, into);
+                    continue;
+                }
+                if (p.Kind == HudPropKind.Header || p.Kind == HudPropKind.Points
+                    || p.Kind == HudPropKind.TierMask) continue;
+                if (p.Get == null || p.Set == null) continue;
+                string key = SeedKeyOf(p);
+                if (SeedSkip.Contains(key) || into.ContainsKey(key)) continue;
+                try { into[key] = p.Get(); } catch { }
+            }
+        }
+
+        private static void ApplySeedValues(List<HudProp> props, Dictionary<string, object> from)
+        {
+            if (props == null) return;
+            for (int i = 0; i < props.Count; i++)
+            {
+                var p = props[i];
+                if (p == null) continue;
+                if (p.Kind == HudPropKind.TabGroup || p.Kind == HudPropKind.TabPage)
+                {
+                    ApplySeedValues(p.Children, from);
+                    continue;
+                }
+                if (p.Kind == HudPropKind.Header || p.Kind == HudPropKind.Points
+                    || p.Kind == HudPropKind.TierMask) continue;
+                if (p.Set == null) continue;
+                string key = SeedKeyOf(p);
+                object v;
+                if (!from.TryGetValue(key, out v)) continue;
+                try { p.Set(v); } catch { }
+            }
+        }
+
+        /// <summary>Complete a slot fork: give <paramref name="slot"/> its own stored copy of every
+        /// forkable value it is CURRENTLY resolving, so later base edits can never leak into it.
+        ///
+        /// VALUE-PRESERVING BY CONSTRUCTION, and that is why both reads and writes run with the
+        /// target slot selected rather than reading "the base": an element that is not forked yet
+        /// resolves the base anyway (<c>ResolveSlot</c>), while an element whose legacy fork
+        /// Sanitize just ADOPTED resolves its own overrides where it has them and the base
+        /// everywhere else. Reading the base outright would have overwritten exactly the handful of
+        /// colours a pre-0.9.2.5 author had successfully forked.
+        ///
+        /// Values are copied as STORED (palette-name refs, -1 "follow the global" sentinels) —
+        /// never as resolved colours or globals — because the prop getters ARE the slot accessors.
+        /// That is what keeps the fork tracking the palette/theme exactly as the base does, instead
+        /// of freezing it (the 2026-07-17 "Custom snapshots drift" defect).
+        ///
+        /// No hand-maintained key manifest: the widget's own <see cref="DescribeProps"/> IS the
+        /// manifest, so a widget that gains a knob gains a forkable knob for free.</summary>
+        internal static void SeedSlotFromBase(HudElementView view, HudStyleSlot slot)
+        {
+            if (view == null || view.Def == null || slot == HudStyleSlot.Base) return;
+            var d = view.Def;
+            var prevEdit = EditTargetSlot;
+            var prevLayout = LayoutSlot;
+            var scratch = new List<HudProp>();
+            var values = new Dictionary<string, object>(System.StringComparer.Ordinal);
+            try
+            {
+                // 1. Read what the slot resolves TODAY (base for a fresh fork, own-or-base for an
+                //    adopted legacy one).
+                EditTargetSlot = slot;
+                LayoutSlot = slot;
+                view.DescribeProps(scratch);
+                CollectSeedValues(scratch, values);
+
+                // 2. Open the fork, then write every recorded value into it. The list must be
+                //    REBUILT: the setters resolve EditSlot at call time, and which rows are even
+                //    visible depends on the slot's own styleSource, which this step establishes.
+                d.SetForkSlot(slot, true);
+                scratch.Clear();
+                view.DescribeProps(scratch);
+                ApplySeedValues(scratch, values);
+            }
+            catch (System.Exception e)
+            {
+                Core.UIALog.Warn("HudElementView: seeding the per-tier style of '"
+                    + (d.Id ?? "?") + "' failed (" + e.Message + ") — the fork inherits the base.");
+            }
+            finally
+            {
+                EditTargetSlot = prevEdit;
+                LayoutSlot = prevLayout;
+                d.Set(HudElementDef.TierStyleSeedKey, null);
+            }
+        }
+
         /// <summary>Freeze the element's currently rendered theme/effect values into a complete
         /// custom snapshot before changing its source mode. The reads happen while the OLD mode
         /// is still active, so Global -> Custom and Legacy -> Custom are visually continuous.
         /// Dormant values are retained after switching back to Global, making comparison reversible.</summary>
-        private void SeedCustomStyleFromEffective(HudElementDef d)
+        private void SeedCustomStyleFromEffective(HudElementDef d, HudStyleSlot slot)
         {
             if (d == null) return;
 
-            // The snapshot defines the element's BASE (suit) style, so force the mode-aware
-            // resolvers below onto the base values — a snapshot taken while previewing BARE must
-            // never capture bare visual overrides into the shared base (they would then leak into
-            // suit). Restored in finally so a mid-frame flip can't strand the render tier.
-            bool _prevLayoutBare = LayoutBare;
-            LayoutBare = false;
+            // The snapshot defines the TARGET SLOT's style, so force the slot-aware resolvers below
+            // onto that slot — a snapshot taken while previewing BARE must land in the bare slot,
+            // never in the shared base every tier inherits. Restored in finally so a mid-frame flip
+            // can't strand the render slot.
+            var _prevLayoutSlot = LayoutSlot;
+            LayoutSlot = slot;
             try
             {
 
             // Colours are deliberately NOT snapshotted: refs resolve identically in both states
             // (see GlobalOr), so separation must not hex-freeze a palette-name ref that the
             // author wants tracking the F9 palette.
-            d.BorderWidth = BorderWidthFor();
-            d.RTL = Radius(d.RTL);
-            d.RTR = Radius(d.RTR);
-            d.RBR = Radius(d.RBR);
-            d.RBL = Radius(d.RBL);
-            d.SetF("feather", EffectiveFeatherFor());
-            d.SetF("sheen", GlassSheenFor());
+            d.SetBorderWidthFor(slot, BorderWidthFor());
+            d.SetRTLFor(slot, Radius(d.RTLFor(slot)));
+            d.SetRTRFor(slot, Radius(d.RTRFor(slot)));
+            d.SetRBRFor(slot, Radius(d.RBRFor(slot)));
+            d.SetRBLFor(slot, Radius(d.RBLFor(slot)));
+            d.SetFFor(slot, "feather", EffectiveFeatherFor());
+            d.SetFFor(slot, "sheen", GlassSheenFor());
 
             // Custom stores the final visible edge-light strength. This includes the current
             // global Tier-A boost when Global/Legacy was the source, then stops tracking it.
-            d.SetF("spec", GlassEdgeFor());
+            d.SetFFor(slot, "spec", GlassEdgeFor());
 
-            d.SetF("squircle", SdfSquircleFor());
-            d.SetB("gaussianHalo", SdfGaussianFor());
-            d.SetB("customBorderFadeOn", StyleFeatureOn("customBorderFadeOn", HudConfig.FxBorderFadeOn));
-            d.SetB("customSoftEdgeOn", StyleFeatureOn("customSoftEdgeOn", HudConfig.FxSoftEdgeOn));
-            d.SetB("customGlowOn", StyleFeatureOn("customGlowOn", HudConfig.FxGlowOn));
-            d.SetB("customRippleOn", StyleFeatureOn("customRippleOn", HudConfig.FxEdgeLightOn));
-            d.SetB("customGlowBreathOn", NewSdfFeatureOn("customGlowBreathOn", HudConfig.FxGlowBreathOn));
-            d.SetB("customGlowUnevenOn", NewSdfFeatureOn("customGlowUnevenOn", HudConfig.FxGlowUnevenOn));
-            d.SetB("customGlowFlowOn", NewSdfFeatureOn("customGlowFlowOn", HudConfig.FxGlowFlowAuraOn));
-            d.SetF("bfade", OwnOrGlobal("bfade", HudConfig.FxBorderFade));
-            d.SetF("softEdge", OwnOrGlobal("softEdge", HudConfig.FxSoftEdge));
-            d.SetF("glow", OwnOrGlobal("glow", HudConfig.FxGlow));
-            d.SetF("glowIn", OwnOrGlobal("glowIn", HudConfig.FxGlowInner));
-            d.SetF("glowWidth", OwnOrGlobal("glowWidth", HudConfig.FxGlowWidth));
-            d.SetF("glowDiffuse", OwnOrGlobal("glowDiffuse", HudConfig.FxGlowDiffuse));
-            d.SetF("glowExtraDiffuse", NewSdfOwnOrGlobal("glowExtraDiffuse", HudConfig.FxGlowExtraDiffuse));
-            d.SetF("glowHaze", NewSdfOwnOrGlobal("glowHaze", HudConfig.FxGlowHaze));
-            d.SetF("glowBreath", NewSdfOwnOrGlobal("glowBreath", HudConfig.FxGlowBreath, 0.35f));
-            d.SetF("glowUneven", NewSdfOwnOrGlobal("glowUneven", HudConfig.FxGlowUneven, 0.5f));
-            d.SetF("glowOrganicScale", NewSdfOwnOrGlobal("glowOrganicScale", HudConfig.FxGlowOrganicScale, 1f));
-            d.SetF("glowFlowAura", NewSdfOwnOrGlobal("glowFlowAura", HudConfig.FxGlowFlowAura, 0.6f));
-            d.SetF("ripple", OwnOrGlobal("ripple", HudConfig.FxEdgeRipple));
-            d.SetF("rippleFreq", OwnOrGlobal("rippleFreq", HudConfig.FxEdgeRippleFreq));
-            d.SetF("rippleSmooth", UsesGlobalStyle ? 0f : d.GetF("rippleSmooth", 0f));
-            d.SetF("edgeFlow", EdgeFlowFor());
-            d.SetF("frostDepth", FrostDepthFor());
+            d.SetFFor(slot, "squircle", SdfSquircleFor());
+            d.SetBFor(slot, "gaussianHalo", SdfGaussianFor());
+            d.SetBFor(slot, "customBorderFadeOn", StyleFeatureOn("customBorderFadeOn", HudConfig.FxBorderFadeOn));
+            d.SetBFor(slot, "customSoftEdgeOn", StyleFeatureOn("customSoftEdgeOn", HudConfig.FxSoftEdgeOn));
+            d.SetBFor(slot, "customGlowOn", StyleFeatureOn("customGlowOn", HudConfig.FxGlowOn));
+            d.SetBFor(slot, "customRippleOn", StyleFeatureOn("customRippleOn", HudConfig.FxEdgeLightOn));
+            d.SetBFor(slot, "customGlowBreathOn", NewSdfFeatureOn("customGlowBreathOn", HudConfig.FxGlowBreathOn));
+            d.SetBFor(slot, "customGlowUnevenOn", NewSdfFeatureOn("customGlowUnevenOn", HudConfig.FxGlowUnevenOn));
+            d.SetBFor(slot, "customGlowFlowOn", NewSdfFeatureOn("customGlowFlowOn", HudConfig.FxGlowFlowAuraOn));
+            d.SetFFor(slot, "bfade", OwnOrGlobal("bfade", HudConfig.FxBorderFade));
+            d.SetFFor(slot, "softEdge", OwnOrGlobal("softEdge", HudConfig.FxSoftEdge));
+            d.SetFFor(slot, "glow", OwnOrGlobal("glow", HudConfig.FxGlow));
+            d.SetFFor(slot, "glowIn", OwnOrGlobal("glowIn", HudConfig.FxGlowInner));
+            d.SetFFor(slot, "glowWidth", OwnOrGlobal("glowWidth", HudConfig.FxGlowWidth));
+            d.SetFFor(slot, "glowDiffuse", OwnOrGlobal("glowDiffuse", HudConfig.FxGlowDiffuse));
+            d.SetFFor(slot, "glowExtraDiffuse", NewSdfOwnOrGlobal("glowExtraDiffuse", HudConfig.FxGlowExtraDiffuse));
+            d.SetFFor(slot, "glowHaze", NewSdfOwnOrGlobal("glowHaze", HudConfig.FxGlowHaze));
+            d.SetFFor(slot, "glowBreath", NewSdfOwnOrGlobal("glowBreath", HudConfig.FxGlowBreath, 0.35f));
+            d.SetFFor(slot, "glowUneven", NewSdfOwnOrGlobal("glowUneven", HudConfig.FxGlowUneven, 0.5f));
+            d.SetFFor(slot, "glowOrganicScale", NewSdfOwnOrGlobal("glowOrganicScale", HudConfig.FxGlowOrganicScale, 1f));
+            d.SetFFor(slot, "glowFlowAura", NewSdfOwnOrGlobal("glowFlowAura", HudConfig.FxGlowFlowAura, 0.6f));
+            d.SetFFor(slot, "ripple", OwnOrGlobal("ripple", HudConfig.FxEdgeRipple));
+            d.SetFFor(slot, "rippleFreq", OwnOrGlobal("rippleFreq", HudConfig.FxEdgeRippleFreq));
+            d.SetFFor(slot, "rippleSmooth", UsesGlobalStyle ? 0f : d.GetFFor(slot, "rippleSmooth", 0f));
+            d.SetFFor(slot, "edgeFlow", EdgeFlowFor());
+            d.SetFFor(slot, "frostDepth", FrostDepthFor());
 
             bool globalShineOn = HudConfig.FxShineOn != null && HudConfig.FxShineOn.Value;
             float globalShine = HudConfig.FxShine != null ? HudConfig.FxShine.Value : 0f;
@@ -1485,18 +1712,18 @@ namespace StationeersUIMod.UI.Hud
             float globalFrost = HudConfig.FrostStrength != null ? HudConfig.FrostStrength.Value : 1f;
             bool fromCustom = UsesCustomStyle;
 
-            d.SetB("customShineOn", fromCustom ? d.GetB("customShineOn", globalShineOn) : globalShineOn);
-            d.SetF("customShine", Mathf.Clamp(fromCustom
-                ? d.GetF("customShine", globalShine) : globalShine, 0f, 2f));
-            d.SetB("customIridOn", fromCustom ? d.GetB("customIridOn", globalIridOn) : globalIridOn);
-            d.SetF("customIrid", Mathf.Clamp01(fromCustom
-                ? d.GetF("customIrid", globalIrid) : globalIrid));
-            d.SetB("customChromaOn", fromCustom ? d.GetB("customChromaOn", globalChromaOn) : globalChromaOn);
-            d.SetF("customChroma", Mathf.Clamp01(fromCustom
-                ? d.GetF("customChroma", globalChroma) : globalChroma));
-            d.SetB("customFrostOn", fromCustom ? d.GetB("customFrostOn", true) : true);
-            d.SetF("customFrost", Mathf.Clamp01(fromCustom
-                ? d.GetF("customFrost", globalFrost) : globalFrost));
+            d.SetBFor(slot, "customShineOn", fromCustom ? d.GetBFor(slot, "customShineOn", globalShineOn) : globalShineOn);
+            d.SetFFor(slot, "customShine", Mathf.Clamp(fromCustom
+                ? d.GetFFor(slot, "customShine", globalShine) : globalShine, 0f, 2f));
+            d.SetBFor(slot, "customIridOn", fromCustom ? d.GetBFor(slot, "customIridOn", globalIridOn) : globalIridOn);
+            d.SetFFor(slot, "customIrid", Mathf.Clamp01(fromCustom
+                ? d.GetFFor(slot, "customIrid", globalIrid) : globalIrid));
+            d.SetBFor(slot, "customChromaOn", fromCustom ? d.GetBFor(slot, "customChromaOn", globalChromaOn) : globalChromaOn);
+            d.SetFFor(slot, "customChroma", Mathf.Clamp01(fromCustom
+                ? d.GetFFor(slot, "customChroma", globalChroma) : globalChroma));
+            d.SetBFor(slot, "customFrostOn", fromCustom ? d.GetBFor(slot, "customFrostOn", true) : true);
+            d.SetFFor(slot, "customFrost", Mathf.Clamp01(fromCustom
+                ? d.GetFFor(slot, "customFrost", globalFrost) : globalFrost));
             // MOTION IS NOT SNAPSHOTTED. It used to be: this block wrote customDissolve plus a
             // hard 1f into every fx*Amt whenever an element was seeded into Custom. Two bugs came
             // out of that — (a) it destroyed an authored per-effect strength ("TV off = 1.8" became
@@ -1509,12 +1736,12 @@ namespace StationeersUIMod.UI.Hud
 
             // The line's edge-light strength key (panels collapse theirs into `spec`).
             if (d.Type == HudElementType.Polyline)
-                d.SetF("edgeLight", OwnOrGlobal("edgeLight", HudConfig.FxEdgeLight));
+                d.SetFFor(slot, "edgeLight", OwnOrGlobal("edgeLight", HudConfig.FxEdgeLight));
 
             d.Set("followGlobal", null); // extinct legacy flag — never re-written
-            d.SetB("customStyleReady", true);
+            d.SetBFor(slot, "customStyleReady", true);
             }
-            finally { LayoutBare = _prevLayoutBare; }
+            finally { LayoutSlot = _prevLayoutSlot; }
         }
 
         /// <summary>One-click bulk style-source operation used by F9. Customisation freezes each
@@ -1523,10 +1750,13 @@ namespace StationeersUIMod.UI.Hud
         internal void SetUnifiedStyleSource(bool followGlobal, bool forceCustomSnapshot = false)
         {
             if (Def == null) return;
+            // Targets the slot the editor is previewing, so "Make flat" on the BARE tab flattens
+            // bare and leaves the suited design alone (and, with per-tier off, still writes base).
+            var slot = EditSlot(Def);
             if (!followGlobal && (forceCustomSnapshot
-                || (StyleSource != StyleCustom && !Def.GetB("customStyleReady", false))))
-                SeedCustomStyleFromEffective(Def);
-            Def.SetI("styleSource", followGlobal ? StyleGlobal : StyleCustom);
+                || (StyleSourceOf(Def, slot) != StyleCustom && !Def.GetBFor(slot, "customStyleReady", false))))
+                SeedCustomStyleFromEffective(Def, slot);
+            Def.SetIFor(slot, "styleSource", followGlobal ? StyleGlobal : StyleCustom);
         }
 
         /// <summary>Document-level counterpart for elements whose view is unavailable (different

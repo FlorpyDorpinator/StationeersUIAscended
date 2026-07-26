@@ -101,7 +101,8 @@ namespace StationeersUIMod.UI.Hud.Widgets
             into.Add(HudProp.Bool("Internals chip", () => d.GetB("internals", false), v => d.SetB("internals", v)));
 
             int layoutStart = into.Count;
-            into.Add(HudProp.Bool("Vertical", () => d.GetB("vertical", false), v => d.SetB("vertical", v)));
+            into.Add(HudProp.Bool("Vertical", () => d.GetBFor(EditBare(d), "vertical", false),
+                v => d.SetBFor(EditBare(d), "vertical", v)));
             into.Add(HudProp.F("Gap", () => d.GetFFor(EditBare(d), "gap", 8f), v => d.SetFFor(EditBare(d), "gap", Mathf.Clamp(v, 0f, 40f)), 0f, 40f));
             for (int i = layoutStart; i < into.Count; i++) into[i].Group = HudPropGroup.Layout;
         }
@@ -113,7 +114,7 @@ namespace StationeersUIMod.UI.Hud.Widgets
             var c = CenterFor(scale);
             var sz = SizeFor(scale);
             float gap = Def.GetFFor(LayoutBare, "gap", 8f) * scale;
-            bool vertical = Def.GetB("vertical", false);
+            bool vertical = Def.GetBFor(LayoutBare, "vertical", false);
 
             int n = 0;
             if (vHelmet) _order[n++] = Helmet;

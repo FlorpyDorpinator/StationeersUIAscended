@@ -137,8 +137,12 @@ namespace StationeersUIMod.Overlay
                 "Main readout text.");
             TextDim = Add(cfg, "TextDim", "FFFFFFFF",
                 "Secondary readout text.");
-            TextAccent = Add(cfg, "TextAccent", "FFFFFFFF",
-                "The action verb in the hub.");
+            // Default changed WHITE -> the legacy accent ORANGE in 0.9.2.5 (Wave C): this entry now
+            // also backs Theme.Accent (the stow/equip wedge-label highlight that used to be a
+            // hardcoded constant), so white would have silently killed the orange accents. Existing
+            // players who never touched it are moved to the new default by ConfigMigration v2->v3.
+            TextAccent = Add(cfg, "TextAccent", "FF8C29FF",
+                "Accent colour: the action verb in the hub + highlighted wedge labels (stow/equip).");
             TextDisabled = Add(cfg, "TextDisabled", "7FA6BBAA",
                 "Labels on DISABLED wedges (was tied to the wedge fill — now its own colour).");
             // The "this tool belongs in this slot" name on a toolbelt wedge (stable geometry). It

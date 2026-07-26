@@ -518,6 +518,15 @@ namespace StationeersUIMod.UI.Grid
             }
             if (vanillaFront) return;   // skip the whole Tick body (pin pump + open check) while suppressed
 
+            // Per-tier skin (0.9.2.5): publish the tier the HUD is currently showing so GridTheme's
+            // bare overrides can resolve. Set BEFORE the style-hash polls below — the slot folds
+            // into StyleHash, so a suit-power flip repaints an already-open window (and every
+            // pinned one, which polls the same hash). Base whenever the HUD is unavailable, so a
+            // main-menu / stand-down Grid never strands on the bare skin.
+            var snap = HudSystem.LastSnapshot;
+            GridTheme.Slot = (snap != null && snap.Valid && snap.Tier == HudTier.Bare)
+                ? HudStyleSlot.Bare : HudStyleSlot.Base;
+
             // Pinned windows outlive the main window (B closes only this one), so their pump, the
             // interactivity gate AND the theme-hash poll run BEFORE the open check — a global
             // theme drag must repaint a pins-only screen too. All no-ops when nothing is live.
@@ -755,6 +764,7 @@ namespace StationeersUIMod.UI.Grid
             _haveContent = false;
             _styleHash = 0;
             _haveStyleHash = false;
+            GridTheme.Slot = HudStyleSlot.Base; // hot-reload rule: never resume on a stale tier skin
             _sizeHash = 0;
             _haveSizeHash = false;
             _geomLoaded = false;

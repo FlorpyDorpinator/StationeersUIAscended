@@ -139,8 +139,8 @@ namespace StationeersUIMod.UI.Hud.Widgets
             // Cognition (consciousness): only when impaired, like vanilla's SymbolCognition row.
             // O2Quality is the consciousness driver (low breathable O2 → you black out).
             bool vCognition = s != null && s.O2Quality < 0.999f;
-            bool vPressure = words && Def.GetB("rowPressure", false);
-            bool vTemp = words && Def.GetB("rowTemp", false);
+            bool vPressure = words && Def.GetBFor(LayoutBare, "rowPressure", false);
+            bool vTemp = words && Def.GetBFor(LayoutBare, "rowTemp", false);
 
             bool showBox = Def.GetBFor(LayoutBare, "box", true);
             bool rowLines = Def.GetBFor(LayoutBare, "rowLines", true);
@@ -579,8 +579,10 @@ namespace StationeersUIMod.UI.Hud.Widgets
             into.Add(HudProp.Bool("Words mode (bare)", () => d.GetBFor(EditBare(d), "words", false), v => d.SetBFor(EditBare(d), "words", v)));
             // #3: replace icons with the need NAME + value ("Thirst 37%", "Hunger 2/4 100%").
             into.Add(HudProp.Bool("Icons as words", () => d.GetBFor(EditBare(d), "iconWords", false), v => d.SetBFor(EditBare(d), "iconWords", v)));
-            into.Add(HudProp.Bool("Pressure row (words)", () => d.GetB("rowPressure", false), v => d.SetB("rowPressure", v)));
-            into.Add(HudProp.Bool("Temp row (words)", () => d.GetB("rowTemp", false), v => d.SetB("rowTemp", v)));
+            into.Add(HudProp.Bool("Pressure row (words)", () => d.GetBFor(EditBare(d), "rowPressure", false),
+                v => d.SetBFor(EditBare(d), "rowPressure", v)));
+            into.Add(HudProp.Bool("Temp row (words)", () => d.GetBFor(EditBare(d), "rowTemp", false),
+                v => d.SetBFor(EditBare(d), "rowTemp", v)));
 
             int layoutStart = into.Count;
             into.Add(HudProp.F("Row height", () => d.GetFFor(EditBare(d), "rowHeight", 42f),

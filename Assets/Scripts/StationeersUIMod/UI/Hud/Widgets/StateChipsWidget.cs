@@ -107,8 +107,8 @@ namespace StationeersUIMod.UI.Hud.Widgets
             // #7: optional single tint over ALL three chip icons. Vanilla art is native-colour
             // (white multiply) by default; a green ref here recolours the whole state-chip strip
             // at once. Empty ref resolves to white = no-op.
-            Color iconTint = Def.GetB("iconTintOn", false)
-                ? HudPalette.Resolve(Def.GetS("iconTint", ""), Color.white)
+            Color iconTint = Def.GetBFor(LayoutBare, "iconTintOn", false)
+                ? HudPalette.Resolve(Def.GetSFor(LayoutBare, "iconTint", ""), Color.white)
                 : Color.white;
             Color wordColor = GlobalOr(Def.GetSFor(LayoutBare, "wordColor", ""), HudPalette.TextValue.Value);
             float wordSize = HudText.Size(Def.GetFFor(LayoutBare, "wordSize", 11f) * Def.FontScaleFor(LayoutBare)) * scale;
@@ -165,10 +165,10 @@ namespace StationeersUIMod.UI.Hud.Widgets
             into.Add(HudProp.F("Icon inset (0..0.4)", () => d.GetFFor(EditBare(d), "inset", 0.14f),
                 v => d.SetFFor(EditBare(d), "inset", Mathf.Clamp(v, 0f, 0.4f)), 0f, 0.4f));
             // #7: tint every chip icon at once (off = native vanilla colours).
-            into.Add(HudProp.Bool("Tint chip icons", () => d.GetB("iconTintOn", false),
-                v => d.SetB("iconTintOn", v)));
-            into.Add(HudProp.Color("Chip icon tint", () => d.GetS("iconTint", ""),
-                v => d.Set("iconTint", string.IsNullOrEmpty(v) ? null : v), () => Color.white));
+            into.Add(HudProp.Bool("Tint chip icons", () => d.GetBFor(EditBare(d), "iconTintOn", false),
+                v => d.SetBFor(EditBare(d), "iconTintOn", v)));
+            into.Add(HudProp.Color("Chip icon tint", () => d.GetSFor(EditBare(d), "iconTint", ""),
+                v => d.SetSFor(EditBare(d), "iconTint", string.IsNullOrEmpty(v) ? null : v), () => Color.white));
             into.Add(HudProp.Color("Word colour", () => d.GetSFor(EditBare(d), "wordColor", ""),
                 v => d.SetSFor(EditBare(d), "wordColor", string.IsNullOrEmpty(v) ? null : v),
                 () => HudPalette.TextValue.Value));

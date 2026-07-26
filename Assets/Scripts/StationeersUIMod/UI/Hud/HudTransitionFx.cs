@@ -197,9 +197,20 @@ namespace StationeersUIMod.UI.Hud
         internal static void SetMode(HudElementDef d, HudTransitionFxDef fx, bool bare, HudFxMode mode)
         {
             if (d == null || fx == null) return;
-            d.SetIFor(bare, fx.ModeKey, (int)mode);
-            if (mode == HudFxMode.Inherit) d.SetSFor(bare, fx.LegacyKey, null);
-            else d.SetBFor(bare, fx.LegacyKey, mode == HudFxMode.On);
+            // RAW base writes on purpose (0.9.2.5): power transitions are deliberately SHARED by
+            // every tier, so they must not trip HudElementDef's per-tier copy-on-write and freeze a
+            // fork's copy of a motion setting. The bare path exists only for the legacy overrides
+            // the pre-tri-state migration may still be folding.
+            if (bare)
+            {
+                d.SetIFor(HudStyleSlot.Bare, fx.ModeKey, (int)mode);
+                if (mode == HudFxMode.Inherit) d.SetSFor(HudStyleSlot.Bare, fx.LegacyKey, null);
+                else d.SetBFor(HudStyleSlot.Bare, fx.LegacyKey, mode == HudFxMode.On);
+                return;
+            }
+            d.SetI(fx.ModeKey, (int)mode);
+            if (mode == HudFxMode.Inherit) d.Set(fx.LegacyKey, null);
+            else d.SetB(fx.LegacyKey, mode == HudFxMode.On);
         }
 
         internal static void SetMode(HudElementDef d, string key, bool bare, HudFxMode mode)
@@ -222,7 +233,9 @@ namespace StationeersUIMod.UI.Hud
         internal static void SetAmount(HudElementDef d, HudTransitionFxDef fx, bool bare, float v)
         {
             if (d == null || fx == null) return;
-            d.SetFFor(bare, fx.AmtKey, Mathf.Clamp(v, 0f, 2f));
+            // Raw on the base path — see SetMode: transitions stay shared across tiers.
+            if (bare) d.SetFFor(HudStyleSlot.Bare, fx.AmtKey, Mathf.Clamp(v, 0f, 2f));
+            else d.SetF(fx.AmtKey, Mathf.Clamp(v, 0f, 2f));
             if (ModeOf(d, fx, bare) == HudFxMode.Inherit) SetMode(d, fx, bare, HudFxMode.On);
         }
 
@@ -307,7 +320,8 @@ namespace StationeersUIMod.UI.Hud
 
             // Write the mode WITHOUT SetMode's legacy mirroring: the stored bool is already what
             // we just derived the mode from, and re-writing it would churn the profile on load.
-            d.SetIFor(bare, fx.ModeKey, (int)mode);
+            if (bare) d.SetIFor(HudStyleSlot.Bare, fx.ModeKey, (int)mode);
+            else d.SetI(fx.ModeKey, (int)mode);
             return true;
         }
 

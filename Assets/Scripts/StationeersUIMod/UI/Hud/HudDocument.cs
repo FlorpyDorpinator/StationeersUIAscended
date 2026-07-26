@@ -24,6 +24,15 @@ namespace StationeersUIMod.UI.Hud
     [Flags]
     public enum HudTierMask { None = 0, Bare = 1, Suited = 2, Robot = 4, All = 7 }
 
+    /// <summary>Which STYLE slot an element resolves its LOOK against. <see cref="Base"/> is the
+    /// suited/robot design every slot inherits from; <see cref="Bare"/> and <see cref="Robot"/> are
+    /// OPTIONAL forks an element opts into (see <see cref="HudElementDef.TierStyleMask"/>) — until
+    /// then every slot resolves to Base, so a profile that never opts in is byte-identical.
+    ///
+    /// The stored prefix is exactly two characters ("b_" / "r_"), which keeps the zero-alloc param
+    /// scan in <c>HudElementDef.FindSlotOverride</c> a pure length+char compare on the draw path.</summary>
+    public enum HudStyleSlot { Base = 0, Bare = 1, Robot = 2 }
+
     /// <summary>The concrete widget a <see cref="HudElementDef"/> instantiates. Primitives
     /// (Box/Label/Polyline/Icon) are author-drawn; the rest are bespoke views that bind to
     /// live game state. Order is append-only — the int is not persisted, but reordering would
@@ -76,6 +85,14 @@ namespace StationeersUIMod.UI.Hud
     [XmlRoot("HudDocument")]
     public class HudDocument
     {
+        /// <summary>The schema the CURRENT code writes. 15 = the 0.9.2.5 (Wave C) opt-in per-tier
+        /// style slots. Deliberately NOT stamped onto every loaded profile by
+        /// <see cref="Sanitize"/>: the shipped-default replacement gates in
+        /// <c>HudSystem.EnsureActiveDocument</c> read the stored value, and every Wave C repair is
+        /// self-gating (the adoption below keys on the ABSENCE of "tierStyle"), so stamping would
+        /// buy nothing and silently disable those gates.</summary>
+        public const int CurrentSchema = 15;
+
         /// <summary>Bumped when the on-disk shape changes incompatibly; lets a future load
         /// path migrate old profiles instead of silently mis-reading them.</summary>
         [XmlAttribute] public int Schema = 1;
@@ -159,6 +176,7 @@ namespace StationeersUIMod.UI.Hud
             if (Elements == null) { Elements = new List<HudElementDef>(); return; }
 
             int dropped = 0, mintedId = 0, clamped = 0, colorFixed = 0, tierFixed = 0, speedFixed = 0, bareOrphan = 0;
+            int tierAdopted = 0;
             var seenIds = new HashSet<string>(StringComparer.Ordinal);
 
             for (int i = Elements.Count - 1; i >= 0; i--)
@@ -186,17 +204,38 @@ namespace StationeersUIMod.UI.Hud
 
                 if (el.Params == null) el.Params = new List<HudParam>();
 
-                // A per-mode BARE override (layout OR the new visual overrides: colour/sizing/glass/
-                // effects, all "b_"-keyed) only means something for a "Both" element (shown in bare
-                // AND a live tier). If the element is single-mode (Bare-only or Live-only), those
-                // overrides are dead data — strip them so they can't bloat the profile or desync a
-                // drag (render vs edit tier). Idempotent, so it settles after one save.
+                // Wave C (0.9.2.5) legacy adoption: a profile authored BEFORE the per-tier style
+                // fork became opt-in carries a SPARSE set of "b_" overrides and no "tierStyle"
+                // key. Adopt it — set the Bare fork bit so those overrides keep resolving exactly
+                // as they did, and flag the element so HudSystem can COMPLETE the fork from the
+                // base on the first view build (the seed needs the widget's own prop list, which
+                // the document layer cannot see). Idempotent: adoption writes tierStyle, and the
+                // condition requires tierStyle to be absent.
+                if (el.GetS(HudElementDef.TierStyleKey, null) == null
+                    && el.HasAnySlotOverride(HudStyleSlot.Bare))
+                {
+                    el.SetI(HudElementDef.TierStyleKey, HudElementDef.ForkBare);
+                    el.SetB(HudElementDef.TierStyleSeedKey, true);
+                    tierAdopted++;
+                }
+
+                // A per-mode BARE fork (layout OR the visual slots: colour/sizing/glass/effects)
+                // only means something for a "Both" element (shown in bare AND a live tier). If the
+                // element is single-mode (Bare-only or Live-only), those overrides are dead data —
+                // strip them so they can't bloat the profile or desync a drag (render vs edit
+                // tier). Idempotent, so it settles after one save.
                 bool both = (el.Tiers & HudTierMask.Bare) != 0
                          && (el.Tiers & (HudTierMask.Suited | HudTierMask.Robot)) != 0;
                 if (!both && (el.HasBareLayout || el.HasAnyVisualBareOverride()))
                 {
                     el.SetBareLayout(false);
                     el.ClearVisualBareOverrides();
+                    bareOrphan++;
+                }
+                else if (el.ForksSlot(HudStyleSlot.Robot) && (el.Tiers & HudTierMask.Robot) == 0)
+                {
+                    // Same rule for the ROBOT slot: no robot tier, no robot style.
+                    el.SetForkSlot(HudStyleSlot.Robot, false);
                     bareOrphan++;
                 }
 
@@ -255,6 +294,11 @@ namespace StationeersUIMod.UI.Hud
             if (tierFixed > 0) UIALog.Warn($"{label}: reset {tierFixed} element(s) with no visible tier to All.");
             if (speedFixed > 0) UIALog.Warn($"{label}: made {speedFixed} Speed readout(s) suit-only (were showing in bare).");
             if (bareOrphan > 0) UIALog.Warn($"{label}: cleared {bareOrphan} orphaned bare-layout override(s) (element not shown in bare).");
+            if (tierAdopted > 0)
+            {
+                RepairedOnLoad = true;
+                UIALog.Warn($"{label}: adopted {tierAdopted} legacy bare override(s) into the per-tier fork.");
+            }
         }
 
         /// <summary>Deterministic small hash of an Id, used to seed per-element animators
@@ -670,141 +714,354 @@ namespace StationeersUIMod.UI.Hud
             if (k != null) { SetModeLayout(mode, true); SetF(k + "HPct", v); } else HPct = v;
         }
 
-        // ---- per-tier (bare) VISUAL override: colours, sizing, glass and effects ------------
+        // ---- per-tier VISUAL STYLE SLOTS: colours, sizing, glass and effects ----------------
         // The layout override above lets a "Both" element sit somewhere different in bare; this
-        // extends the SAME idea to how it LOOKS. Each visual property can be independently forked
-        // for bare — Fill, Border, corners, glass sheen, glow, frost, every effect knob — while
-        // bare INHERITS the base (suit) value for anything not forked. Overrides live in the param
-        // bag under a "b_" prefix, deliberately distinct from the layout keys ("bX"/"bLayout", no
-        // underscore), so nothing an author already built for bare is disturbed and profiles
-        // authored before this feature load unchanged (absent b_* key ⇒ bare inherits the base).
+        // extends the SAME idea to how it LOOKS. Every visual property can be forked per TIER —
+        // Fill, Border, corners, glass sheen, glow, frost, every effect knob, every widget-owned
+        // appearance param — under a two-character slot prefix ("b_" bare, "r_" robot),
+        // deliberately distinct from the layout keys ("bX"/"bLayout", no underscore).
         //
-        // Reads are ZERO-ALLOC and skip all extra work in the common (non-bare) path — the visor
-        // is only bare when powered down, so the suited HUD pays nothing. A malformed override
+        // 0.9.2.5 (Wave C) generalised the old hardcoded "b_" family into these slots AND made the
+        // fork OPT-IN. The pre-Wave-C model was a SPARSE overlay on a SINGLE SHARED BASE where
+        // "suited" WAS the base, so any key the author never happened to fork silently leaked
+        // between tiers (FlorpyDorp: "the hand / 1-6 colours don't switch back"). Now:
+        //   • an element opts in per slot via the "tierStyle" bitmask (0 = shared, the default);
+        //   • enabling a fork SEEDS it with a complete copy of the base's STORED values
+        //     (HudElementView.SeedSlotFromBase), so later base edits cannot leak into it;
+        //   • every READ resolves through <see cref="ResolveSlot"/> first, so stale "b_"/"r_"
+        //     residue on an element that is not opted in can never resurrect.
+        // A profile that never opts in writes no new key and renders identically.
+        //
+        // Reads are ZERO-ALLOC and skip all extra work in the common (Base) path — the visor is
+        // only bare when powered down, so the suited HUD pays nothing. A malformed override
         // degrades to the base value rather than throwing (rule 5).
-        private const string BarePrefix = "b_";
 
-        /// <summary>Zero-alloc lookup of the "b_"+key override WITHOUT concatenating a string on
-        /// the draw path (matches the "no per-frame alloc" discipline for the bag accessors).</summary>
-        private HudParam FindBareOverride(string key)
+        /// <summary>Param key holding the per-element opt-in bitmask (see <see cref="ForkBare"/> /
+        /// <see cref="ForkRobot"/>). Absent/0 = one shared style for every tier.</summary>
+        public const string TierStyleKey = "tierStyle";
+
+        /// <summary>TRANSIENT param written by <see cref="HudDocument.Sanitize"/> when it adopts a
+        /// LEGACY sparse bare fork into the opt-in model: the seed itself needs the widget's own
+        /// prop list, which the document layer cannot see, so HudSystem completes it on the first
+        /// view build after load and deletes the key.</summary>
+        public const string TierStyleSeedKey = "tierStyleNeedsSeed";
+
+        public const int ForkBare = 1;
+        public const int ForkRobot = 2;
+
+        /// <summary>The slot's stored prefix CHARACTER ('\0' for Base, which has no prefix).</summary>
+        internal static char SlotPrefixChar(HudStyleSlot s)
         {
-            if (Params == null || key == null) return null;
+            switch (s)
+            {
+                case HudStyleSlot.Bare: return 'b';
+                case HudStyleSlot.Robot: return 'r';
+                default: return '\0';
+            }
+        }
+
+        /// <summary>The slot's stored key prefix. Only used by WRITERS (edit time), never on the
+        /// draw path — reads match the prefix character in place instead of concatenating.</summary>
+        internal static string SlotPrefix(HudStyleSlot s)
+        {
+            switch (s)
+            {
+                case HudStyleSlot.Bare: return "b_";
+                case HudStyleSlot.Robot: return "r_";
+                default: return "";
+            }
+        }
+
+        /// <summary>Which slots this element forks. 0 (the default) = one shared style.</summary>
+        public int TierStyleMask => GetI(TierStyleKey, 0);
+
+        /// <summary>True when this element carries its OWN style for <paramref name="s"/>.
+        /// Base is never a fork — it IS what the others inherit from.</summary>
+        public bool ForksSlot(HudStyleSlot s)
+        {
+            if (s == HudStyleSlot.Base) return false;
+            int bit = s == HudStyleSlot.Bare ? ForkBare : ForkRobot;
+            return (TierStyleMask & bit) != 0;
+        }
+
+        /// <summary>The slot a read actually resolves against: the wanted slot when this element
+        /// forks it, otherwise Base. EVERY read accessor runs this first, which is what makes stale
+        /// override residue on a non-opted-in element inert instead of resurrecting.</summary>
+        public HudStyleSlot ResolveSlot(HudStyleSlot want)
+            => ForksSlot(want) ? want : HudStyleSlot.Base;
+
+        /// <summary>Turn a slot fork on or off. Turning it OFF drops that slot's stored overrides so
+        /// the profile shrinks back; turning it ON only sets the bit — the caller
+        /// (<c>HudElementView.SeedSlotFromBase</c>) fills the slot from the base, because a complete
+        /// copy needs the widget's own prop list. Idempotent.</summary>
+        public void SetForkSlot(HudStyleSlot s, bool on)
+        {
+            if (s == HudStyleSlot.Base) return;
+            int bit = s == HudStyleSlot.Bare ? ForkBare : ForkRobot;
+            int next = on ? (TierStyleMask | bit) : (TierStyleMask & ~bit);
+            if (!on) ClearSlotOverrides(s);
+            if (next == 0) { Set(TierStyleKey, null); Set(TierStyleSeedKey, null); }
+            else SetI(TierStyleKey, next);
+        }
+
+        /// <summary>Zero-alloc lookup of the "&lt;prefix&gt;_"+key override WITHOUT concatenating a
+        /// string on the draw path (matches the "no per-frame alloc" discipline of the bag
+        /// accessors). Returns null for Base, which has no prefix.</summary>
+        private HudParam FindSlotOverride(HudStyleSlot s, string key)
+        {
+            char pfx = SlotPrefixChar(s);
+            if (pfx == '\0' || Params == null || key == null) return null;
             int kl = key.Length;
             for (int i = 0; i < Params.Count; i++)
             {
                 var p = Params[i];
                 if (p == null || p.K == null) continue;
                 string k = p.K;
-                if (k.Length == kl + 2 && k[0] == 'b' && k[1] == '_'
+                if (k.Length == kl + 2 && k[0] == pfx && k[1] == '_'
                     && string.CompareOrdinal(k, 2, key, 0, kl) == 0)
                     return p;
             }
             return null;
         }
 
-        /// <summary>True when this element carries a bare override for <paramref name="key"/> — used
-        /// by the editor to mark a forked property and by Sanitize's orphan strip.</summary>
-        public bool HasBareOverride(string key) => FindBareOverride(key) != null;
+        /// <summary>RAW presence test (no <see cref="ResolveSlot"/>): does this element STORE an
+        /// override for <paramref name="key"/> in <paramref name="s"/>? Used by the editor's forked-
+        /// property marker, by Sanitize's legacy adoption and by the transition migration.</summary>
+        public bool HasSlotOverride(HudStyleSlot s, string key) => FindSlotOverride(s, key) != null;
 
-        /// <summary>True when ANY visual bare override is present (any "b_" key). Cheap gate for
-        /// the "reset bare to inherit" affordance.</summary>
-        public bool HasAnyVisualBareOverride()
+        /// <summary>RAW presence test: does this element store ANY override in <paramref name="s"/>?</summary>
+        public bool HasAnySlotOverride(HudStyleSlot s)
         {
-            if (Params == null) return false;
+            char pfx = SlotPrefixChar(s);
+            if (pfx == '\0' || Params == null) return false;
             for (int i = 0; i < Params.Count; i++)
             {
                 var p = Params[i];
-                if (p != null && p.K != null && p.K.Length >= 2 && p.K[0] == 'b' && p.K[1] == '_')
+                if (p != null && p.K != null && p.K.Length >= 2 && p.K[0] == pfx && p.K[1] == '_')
                     return true;
             }
             return false;
         }
 
-        /// <summary>Drop every visual bare override so bare reverts to fully inheriting the base
-        /// (suit) look. Leaves the layout override family ("bX"/"bLayout", "mA*"…) untouched.</summary>
-        public void ClearVisualBareOverrides()
+        /// <summary>Drop every stored override in one slot so it reverts to fully inheriting the
+        /// base look. Leaves the LAYOUT override family ("bX"/"bLayout", "mA*"…) untouched — those
+        /// carry no underscore, which is exactly the discriminator this scan uses.</summary>
+        public void ClearSlotOverrides(HudStyleSlot s)
         {
-            if (Params == null) return;
+            char pfx = SlotPrefixChar(s);
+            if (pfx == '\0' || Params == null) return;
             for (int i = Params.Count - 1; i >= 0; i--)
             {
                 var p = Params[i];
-                if (p != null && p.K != null && p.K.Length >= 2 && p.K[0] == 'b' && p.K[1] == '_')
+                if (p != null && p.K != null && p.K.Length >= 2 && p.K[0] == pfx && p.K[1] == '_')
                     Params.RemoveAt(i);
             }
         }
 
-        // Generic bag accessors, tier-aware. bare ⇒ the "b_"+key override wins when present (and
-        // valid); otherwise the base key. Every effect/appearance param a widget stores in the bag
-        // forks through these — one code path covers the whole glass/effects family.
-        public float GetFFor(bool bare, string key, float def)
+        /// <summary>Legacy shorthand for the BARE slot (kept: the transition migration and the
+        /// editor still speak in "bare").</summary>
+        public bool HasBareOverride(string key) => HasSlotOverride(HudStyleSlot.Bare, key);
+
+        /// <summary>True when ANY per-tier visual override or opt-in is present. Cheap gate for
+        /// Sanitize's orphan strip and the "reset to inherit" affordance.</summary>
+        public bool HasAnyVisualBareOverride()
+            => HasAnySlotOverride(HudStyleSlot.Bare) || HasAnySlotOverride(HudStyleSlot.Robot)
+               || TierStyleMask != 0;
+
+        /// <summary>Drop every per-tier visual fork (both slots) AND the opt-in mask, so every tier
+        /// shares the base look again.</summary>
+        public void ClearVisualBareOverrides()
         {
-            if (bare)
-            {
-                var p = FindBareOverride(key);
-                float v;
-                if (p != null && float.TryParse(p.V, NumberStyles.Float, CultureInfo.InvariantCulture, out v)) return v;
-            }
+            ClearSlotOverrides(HudStyleSlot.Bare);
+            ClearSlotOverrides(HudStyleSlot.Robot);
+            Set(TierStyleKey, null);
+            Set(TierStyleSeedKey, null);
+        }
+
+        // Generic bag accessors, slot-aware. The slot's override wins when the element FORKS that
+        // slot and the key is present (and valid); otherwise the base key. Every effect/appearance
+        // param a widget stores in the bag forks through these — one code path covers the whole
+        // glass/effects family.
+        public float GetFFor(HudStyleSlot s, string key, float def)
+        {
+            var p = FindSlotOverride(ResolveSlot(s), key);
+            float v;
+            if (p != null && float.TryParse(p.V, NumberStyles.Float, CultureInfo.InvariantCulture, out v)) return v;
             return GetF(key, def);
         }
-        public bool GetBFor(bool bare, string key, bool def)
+        public bool GetBFor(HudStyleSlot s, string key, bool def)
         {
-            if (bare)
-            {
-                var p = FindBareOverride(key);
-                bool v;
-                if (p != null && bool.TryParse(p.V, out v)) return v;
-            }
+            var p = FindSlotOverride(ResolveSlot(s), key);
+            bool v;
+            if (p != null && bool.TryParse(p.V, out v)) return v;
             return GetB(key, def);
         }
-        public int GetIFor(bool bare, string key, int def)
+        public int GetIFor(HudStyleSlot s, string key, int def)
         {
-            if (bare)
-            {
-                var p = FindBareOverride(key);
-                int v;
-                if (p != null && int.TryParse(p.V, NumberStyles.Integer, CultureInfo.InvariantCulture, out v)) return v;
-            }
+            var p = FindSlotOverride(ResolveSlot(s), key);
+            int v;
+            if (p != null && int.TryParse(p.V, NumberStyles.Integer, CultureInfo.InvariantCulture, out v)) return v;
             return GetI(key, def);
         }
-        public string GetSFor(bool bare, string key, string def)
+        public string GetSFor(HudStyleSlot s, string key, string def)
         {
-            if (bare)
-            {
-                var p = FindBareOverride(key);
-                if (p != null && p.V != null) return p.V;
-            }
+            var p = FindSlotOverride(ResolveSlot(s), key);
+            if (p != null && p.V != null) return p.V;
             return GetS(key, def);
         }
 
-        // Writers concatenate "b_"+key, but only ever run at EDIT time (an F9 drag/slide), never on
-        // the per-frame draw path, so the concat is harmless. A null value removes the override
-        // (the shared Set contract), which is exactly "reset this property to inherit the base".
-        public void SetFFor(bool bare, string key, float v) { if (bare) SetF(BarePrefix + key, v); else SetF(key, v); }
-        public void SetBFor(bool bare, string key, bool v)  { if (bare) SetB(BarePrefix + key, v); else SetB(key, v); }
-        public void SetIFor(bool bare, string key, int v)   { if (bare) SetI(BarePrefix + key, v); else SetI(key, v); }
-        public void SetSFor(bool bare, string key, string v){ if (bare) Set(BarePrefix + key, v); else Set(key, v); }
+        // COPY-ON-WRITE, the second half of "seed on separation". Seeding writes a complete copy of
+        // the base into a fork, but two holes would remain without this:
+        //   • a widget that GAINS a knob after the author forked (the fork has no twin for it);
+        //   • a base key that was ABSENT at seed time and whose row stores nothing for an empty
+        //     value (every "empty ColorRef = use the palette default" row).
+        // In both cases a later BASE edit would silently reappear in the fork — the exact defect
+        // Wave C exists to remove. So before the base value of a key changes, hand every forked
+        // slot that has no override of its own the value it is CURRENTLY resolving.
+        //
+        // Guarded on TierStyleMask == 0, so an element with no fork (the default) pays one int
+        // read; and it only ever runs at edit time, never on the draw path.
+        private void ProtectForks(string key, bool stringKey)
+        {
+            if (key == null || TierStyleMask == 0) return;
+            ProtectFork(HudStyleSlot.Bare, key, stringKey);
+            ProtectFork(HudStyleSlot.Robot, key, stringKey);
+        }
 
-        // First-class visual FIELDS (attributes, not bag params) get their own bare overrides,
-        // stored in the bag under fixed "b_" literals so no string is built on the draw path.
-        public string FillFor(bool bare)      { if (bare) { var p = Find("b_fill");   if (p != null && p.V != null) return p.V; } return Fill; }
-        public string BorderFor(bool bare)    { if (bare) { var p = Find("b_border"); if (p != null && p.V != null) return p.V; } return Border; }
-        public string TextColorFor(bool bare) { if (bare) { var p = Find("b_text");   if (p != null && p.V != null) return p.V; } return TextColor; }
-        public float BorderWidthFor(bool bare) => bare ? GetF("b_bw", BorderWidth) : BorderWidth;
-        public float RTLFor(bool bare) => bare ? GetF("b_rtl", RTL) : RTL;
-        public float RTRFor(bool bare) => bare ? GetF("b_rtr", RTR) : RTR;
-        public float RBRFor(bool bare) => bare ? GetF("b_rbr", RBR) : RBR;
-        public float RBLFor(bool bare) => bare ? GetF("b_rbl", RBL) : RBL;
-        public float FontScaleFor(bool bare) => bare ? GetF("b_fs", FontScale) : FontScale;
+        private void ProtectFork(HudStyleSlot s, string key, bool stringKey)
+        {
+            if (!ForksSlot(s) || FindSlotOverride(s, key) != null) return;
+            var p = Find(key);
+            // No stored base value: for a STRING row the absent value IS the empty ref (which every
+            // widget reads as "use the palette default"), so "" is a faithful copy. For a numeric or
+            // bool row we cannot know the widget's default here — seeding already wrote it, because
+            // SetF/SetB/SetI always store — so leave that slot inheriting rather than invent a value.
+            if (p == null) { if (stringKey) Set(SlotPrefix(s) + key, ""); return; }
+            Set(SlotPrefix(s) + key, p.V);
+        }
 
-        public void SetFillFor(bool bare, string v)       { if (bare) Set("b_fill", v);   else Fill = v; }
-        public void SetBorderFor(bool bare, string v)     { if (bare) Set("b_border", v); else Border = v; }
-        public void SetTextColorFor(bool bare, string v)  { if (bare) Set("b_text", v);   else TextColor = v; }
-        public void SetBorderWidthFor(bool bare, float v) { if (bare) SetF("b_bw", v);     else BorderWidth = v; }
-        public void SetRTLFor(bool bare, float v) { if (bare) SetF("b_rtl", v); else RTL = v; }
-        public void SetRTRFor(bool bare, float v) { if (bare) SetF("b_rtr", v); else RTR = v; }
-        public void SetRBRFor(bool bare, float v) { if (bare) SetF("b_rbr", v); else RBR = v; }
-        public void SetRBLFor(bool bare, float v) { if (bare) SetF("b_rbl", v); else RBL = v; }
-        public void SetFontScaleFor(bool bare, float v) { if (bare) SetF("b_fs", v); else FontScale = v; }
+        // Writers concatenate "<prefix>_"+key, but only ever run at EDIT time (an F9 drag/slide),
+        // never on the per-frame draw path, so the concat is harmless. Writers do NOT resolve: the
+        // caller already picked the slot (via HudElementView.EditSlot, which resolved it), and the
+        // seeding/migration paths deliberately write a slot before its reads are live. A null value
+        // removes the override (the shared Set contract) = "this slot inherits the base again".
+        //
+        // A knob that is deliberately SHARED by every tier (the power-transition registry) writes
+        // through the raw Set/SetF/SetB/SetI instead, so it never trips the copy-on-write above.
+        public void SetFFor(HudStyleSlot s, string key, float v)
+        { if (s == HudStyleSlot.Base) { ProtectForks(key, false); SetF(key, v); } else SetF(SlotPrefix(s) + key, v); }
+        public void SetBFor(HudStyleSlot s, string key, bool v)
+        { if (s == HudStyleSlot.Base) { ProtectForks(key, false); SetB(key, v); } else SetB(SlotPrefix(s) + key, v); }
+        public void SetIFor(HudStyleSlot s, string key, int v)
+        { if (s == HudStyleSlot.Base) { ProtectForks(key, false); SetI(key, v); } else SetI(SlotPrefix(s) + key, v); }
+        public void SetSFor(HudStyleSlot s, string key, string v)
+        { if (s == HudStyleSlot.Base) { ProtectForks(key, true); Set(key, v); } else Set(SlotPrefix(s) + key, v); }
+
+        // Bool call shape kept for the render/edit paths that only ever distinguish bare from the
+        // base (LayoutBare / EditBare). It maps straight onto the slot API — so those call sites
+        // gained the opt-in gate and the "stale residue stays inert" guarantee for free.
+        public float GetFFor(bool bare, string key, float def)
+            => GetFFor(bare ? HudStyleSlot.Bare : HudStyleSlot.Base, key, def);
+        public bool GetBFor(bool bare, string key, bool def)
+            => GetBFor(bare ? HudStyleSlot.Bare : HudStyleSlot.Base, key, def);
+        public int GetIFor(bool bare, string key, int def)
+            => GetIFor(bare ? HudStyleSlot.Bare : HudStyleSlot.Base, key, def);
+        public string GetSFor(bool bare, string key, string def)
+            => GetSFor(bare ? HudStyleSlot.Bare : HudStyleSlot.Base, key, def);
+        public void SetFFor(bool bare, string key, float v)
+            => SetFFor(bare ? HudStyleSlot.Bare : HudStyleSlot.Base, key, v);
+        public void SetBFor(bool bare, string key, bool v)
+            => SetBFor(bare ? HudStyleSlot.Bare : HudStyleSlot.Base, key, v);
+        public void SetIFor(bool bare, string key, int v)
+            => SetIFor(bare ? HudStyleSlot.Bare : HudStyleSlot.Base, key, v);
+        public void SetSFor(bool bare, string key, string v)
+            => SetSFor(bare ? HudStyleSlot.Bare : HudStyleSlot.Base, key, v);
+
+        // First-class visual FIELDS (attributes, not bag params) get their own slot overrides,
+        // stored in the bag under fixed literals so no string is built on the draw path.
+        private HudParam FieldOverride(HudStyleSlot s, string bareKey, string robotKey)
+        {
+            if (s == HudStyleSlot.Bare) return Find(bareKey);
+            if (s == HudStyleSlot.Robot) return Find(robotKey);
+            return null;
+        }
+
+        private float FieldFloat(HudStyleSlot s, string bareKey, string robotKey, float baseValue)
+        {
+            var p = FieldOverride(ResolveSlot(s), bareKey, robotKey);
+            float v;
+            if (p != null && float.TryParse(p.V, NumberStyles.Float, CultureInfo.InvariantCulture, out v)) return v;
+            return baseValue;
+        }
+
+        public string FillFor(HudStyleSlot s)
+        { var p = FieldOverride(ResolveSlot(s), "b_fill", "r_fill"); return p != null && p.V != null ? p.V : Fill; }
+        public string BorderFor(HudStyleSlot s)
+        { var p = FieldOverride(ResolveSlot(s), "b_border", "r_border"); return p != null && p.V != null ? p.V : Border; }
+        public string TextColorFor(HudStyleSlot s)
+        { var p = FieldOverride(ResolveSlot(s), "b_text", "r_text"); return p != null && p.V != null ? p.V : TextColor; }
+        public float BorderWidthFor(HudStyleSlot s) => FieldFloat(s, "b_bw", "r_bw", BorderWidth);
+        public float RTLFor(HudStyleSlot s) => FieldFloat(s, "b_rtl", "r_rtl", RTL);
+        public float RTRFor(HudStyleSlot s) => FieldFloat(s, "b_rtr", "r_rtr", RTR);
+        public float RBRFor(HudStyleSlot s) => FieldFloat(s, "b_rbr", "r_rbr", RBR);
+        public float RBLFor(HudStyleSlot s) => FieldFloat(s, "b_rbl", "r_rbl", RBL);
+        public float FontScaleFor(HudStyleSlot s) => FieldFloat(s, "b_fs", "r_fs", FontScale);
+
+        /// <summary>Copy-on-write for a first-class FIELD (see <see cref="ProtectForks"/>): the base
+        /// value always exists here, so a forked slot with no twin is handed it verbatim before the
+        /// field changes.</summary>
+        private void ProtectFieldForks(string bareKey, string robotKey, string current)
+        {
+            if (TierStyleMask == 0) return;
+            if (ForksSlot(HudStyleSlot.Bare) && Find(bareKey) == null) Set(bareKey, current ?? "");
+            if (ForksSlot(HudStyleSlot.Robot) && Find(robotKey) == null) Set(robotKey, current ?? "");
+        }
+
+        private void ProtectFieldForks(string bareKey, string robotKey, float current)
+        {
+            if (TierStyleMask == 0) return;
+            if (ForksSlot(HudStyleSlot.Bare) && Find(bareKey) == null) SetF(bareKey, current);
+            if (ForksSlot(HudStyleSlot.Robot) && Find(robotKey) == null) SetF(robotKey, current);
+        }
+
+        public void SetFillFor(HudStyleSlot s, string v)
+        { if (s == HudStyleSlot.Bare) Set("b_fill", v); else if (s == HudStyleSlot.Robot) Set("r_fill", v); else { ProtectFieldForks("b_fill", "r_fill", Fill); Fill = v; } }
+        public void SetBorderFor(HudStyleSlot s, string v)
+        { if (s == HudStyleSlot.Bare) Set("b_border", v); else if (s == HudStyleSlot.Robot) Set("r_border", v); else { ProtectFieldForks("b_border", "r_border", Border); Border = v; } }
+        public void SetTextColorFor(HudStyleSlot s, string v)
+        { if (s == HudStyleSlot.Bare) Set("b_text", v); else if (s == HudStyleSlot.Robot) Set("r_text", v); else { ProtectFieldForks("b_text", "r_text", TextColor); TextColor = v; } }
+        public void SetBorderWidthFor(HudStyleSlot s, float v)
+        { if (s == HudStyleSlot.Bare) SetF("b_bw", v); else if (s == HudStyleSlot.Robot) SetF("r_bw", v); else { ProtectFieldForks("b_bw", "r_bw", BorderWidth); BorderWidth = v; } }
+        public void SetRTLFor(HudStyleSlot s, float v)
+        { if (s == HudStyleSlot.Bare) SetF("b_rtl", v); else if (s == HudStyleSlot.Robot) SetF("r_rtl", v); else { ProtectFieldForks("b_rtl", "r_rtl", RTL); RTL = v; } }
+        public void SetRTRFor(HudStyleSlot s, float v)
+        { if (s == HudStyleSlot.Bare) SetF("b_rtr", v); else if (s == HudStyleSlot.Robot) SetF("r_rtr", v); else { ProtectFieldForks("b_rtr", "r_rtr", RTR); RTR = v; } }
+        public void SetRBRFor(HudStyleSlot s, float v)
+        { if (s == HudStyleSlot.Bare) SetF("b_rbr", v); else if (s == HudStyleSlot.Robot) SetF("r_rbr", v); else { ProtectFieldForks("b_rbr", "r_rbr", RBR); RBR = v; } }
+        public void SetRBLFor(HudStyleSlot s, float v)
+        { if (s == HudStyleSlot.Bare) SetF("b_rbl", v); else if (s == HudStyleSlot.Robot) SetF("r_rbl", v); else { ProtectFieldForks("b_rbl", "r_rbl", RBL); RBL = v; } }
+        public void SetFontScaleFor(HudStyleSlot s, float v)
+        { if (s == HudStyleSlot.Bare) SetF("b_fs", v); else if (s == HudStyleSlot.Robot) SetF("r_fs", v); else { ProtectFieldForks("b_fs", "r_fs", FontScale); FontScale = v; } }
+
+        // Bool call shape for the first-class fields (see the bag accessors above).
+        public string FillFor(bool bare) => FillFor(bare ? HudStyleSlot.Bare : HudStyleSlot.Base);
+        public string BorderFor(bool bare) => BorderFor(bare ? HudStyleSlot.Bare : HudStyleSlot.Base);
+        public string TextColorFor(bool bare) => TextColorFor(bare ? HudStyleSlot.Bare : HudStyleSlot.Base);
+        public float BorderWidthFor(bool bare) => BorderWidthFor(bare ? HudStyleSlot.Bare : HudStyleSlot.Base);
+        public float RTLFor(bool bare) => RTLFor(bare ? HudStyleSlot.Bare : HudStyleSlot.Base);
+        public float RTRFor(bool bare) => RTRFor(bare ? HudStyleSlot.Bare : HudStyleSlot.Base);
+        public float RBRFor(bool bare) => RBRFor(bare ? HudStyleSlot.Bare : HudStyleSlot.Base);
+        public float RBLFor(bool bare) => RBLFor(bare ? HudStyleSlot.Bare : HudStyleSlot.Base);
+        public float FontScaleFor(bool bare) => FontScaleFor(bare ? HudStyleSlot.Bare : HudStyleSlot.Base);
+        public void SetFillFor(bool bare, string v) => SetFillFor(bare ? HudStyleSlot.Bare : HudStyleSlot.Base, v);
+        public void SetBorderFor(bool bare, string v) => SetBorderFor(bare ? HudStyleSlot.Bare : HudStyleSlot.Base, v);
+        public void SetTextColorFor(bool bare, string v) => SetTextColorFor(bare ? HudStyleSlot.Bare : HudStyleSlot.Base, v);
+        public void SetBorderWidthFor(bool bare, float v) => SetBorderWidthFor(bare ? HudStyleSlot.Bare : HudStyleSlot.Base, v);
+        public void SetRTLFor(bool bare, float v) => SetRTLFor(bare ? HudStyleSlot.Bare : HudStyleSlot.Base, v);
+        public void SetRTRFor(bool bare, float v) => SetRTRFor(bare ? HudStyleSlot.Bare : HudStyleSlot.Base, v);
+        public void SetRBRFor(bool bare, float v) => SetRBRFor(bare ? HudStyleSlot.Bare : HudStyleSlot.Base, v);
+        public void SetRBLFor(bool bare, float v) => SetRBLFor(bare ? HudStyleSlot.Bare : HudStyleSlot.Base, v);
+        public void SetFontScaleFor(bool bare, float v) => SetFontScaleFor(bare ? HudStyleSlot.Bare : HudStyleSlot.Base, v);
 
         /// <summary>The point on the element's own box that its anchor pins to, in canvas space
         /// (centre origin, +y up). Half-extents are passed in so both the layout host and the

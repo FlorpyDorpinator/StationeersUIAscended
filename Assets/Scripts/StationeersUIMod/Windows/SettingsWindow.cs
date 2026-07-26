@@ -151,17 +151,17 @@ namespace StationeersUIMod.Windows
 
             ImGui.Spacing();
             ImGui.TextDisabled("Shape:");
-            FloatSlider(UIAConfig.HintBarCorner, "Corner rounding (half the height = a pill)", 0f, 24f);
-            FloatSlider(UIAConfig.HintBarHeight, "Height (px)", 16f, 56f);
-            FloatSlider(UIAConfig.HintBarPadding, "Side padding (px)", 0f, 80f);
-            FloatSlider(UIAConfig.HintBarDrop, "Drop below the wheel (px)", 0f, 200f);
-            FloatSlider(UIAConfig.HintBarBorderWidth, "Border width (0 = none)", 0f, 6f);
-            FloatSlider(UIAConfig.HintBarFeather, "Edge softness / AA (px)", 0f, 4f);
+            FloatSlider(UIAConfig.HintBarCorner, "Corner rounding (half the height = a pill)", 0f, 24f, true);
+            FloatSlider(UIAConfig.HintBarHeight, "Height (px)", 16f, 56f, true);
+            FloatSlider(UIAConfig.HintBarPadding, "Side padding (px)", 0f, 80f, true);
+            FloatSlider(UIAConfig.HintBarDrop, "Drop below the wheel (px)", 0f, 200f, true);
+            FloatSlider(UIAConfig.HintBarBorderWidth, "Border width (0 = none)", 0f, 6f, true);
+            FloatSlider(UIAConfig.HintBarFeather, "Edge softness / AA (px)", 0f, 4f, true);
 
             ImGui.Spacing();
             ImGui.TextDisabled("Glass + effects:");
-            Toggle(UIAConfig.HintBarFrost, "Frosted glass (blur the screen behind it)");
-            FloatSlider(UIAConfig.HintBarFrostStrength, "  frost strength", 0f, 1f);
+            Toggle(UIAConfig.HintBarFrost, "Frosted glass (blur the screen behind it)", true);
+            FloatSlider(UIAConfig.HintBarFrostStrength, "  frost strength", 0f, 1f, true);
             if (UIAConfig.HintBarFrost.Value)
             {
                 // Same diagnosis the radial's own frost prints, so an inactive blur is never a mystery.
@@ -176,16 +176,16 @@ namespace StationeersUIMod.Windows
                 else
                     ImGui.TextDisabled("Frost active.");
             }
-            FloatSlider(UIAConfig.HintBarSheen, "Glass sheen (surface top-light)", 0f, 1f);
-            FloatSlider(UIAConfig.HintBarSpec, "Glass edge light", 0f, 1f);
+            FloatSlider(UIAConfig.HintBarSheen, "Glass sheen (surface top-light)", 0f, 1f, true);
+            FloatSlider(UIAConfig.HintBarSpec, "Glass edge light", 0f, 1f, true);
             ImGui.TextDisabled("  edge light lights the BORDER RUN - it can read as a rim at width 0.");
-            FloatSlider(UIAConfig.HintBarGlow, "Glow (0 = off)", 0f, 2f);
-            FloatSlider(UIAConfig.HintBarGlowWidth, "  glow radius (px)", 6f, 160f);
+            FloatSlider(UIAConfig.HintBarGlow, "Glow (0 = off)", 0f, 2f, true);
+            FloatSlider(UIAConfig.HintBarGlowWidth, "  glow radius (px)", 6f, 160f, true);
 
             ImGui.Spacing();
             ImGui.TextDisabled("Text:");
-            FloatSlider(UIAConfig.HintBarFontSize, "Text size - ALSO sets the strip's length", 7f, 24f);
-            Toggle(UIAConfig.HintBarBold, "Bold");
+            FloatSlider(UIAConfig.HintBarFontSize, "Text size - ALSO sets the strip's length", 7f, 24f, true);
+            Toggle(UIAConfig.HintBarBold, "Bold", true);
             ImGui.TextDisabled("  the strip auto-sizes to its text, so there is no separate length.");
         }
 
@@ -197,8 +197,8 @@ namespace StationeersUIMod.Windows
             bool tierC = UI.Hud.HudConfig.FxTierC != null && UI.Hud.HudConfig.FxTierC.Value;
             bool bundle = Core.HudShaderStore.TierBAvailable;
 
-            Toggle(UIAConfig.RadialFrost, "Frosted glass behind wedges (blurred screen)");
-            FloatSlider(UIAConfig.RadialFrostStrength, "  frost strength", 0f, 1f);
+            Toggle(UIAConfig.RadialFrost, "Frosted glass behind wedges (blurred screen)", true);
+            FloatSlider(UIAConfig.RadialFrostStrength, "  frost strength", 0f, 1f, true);
             if (UIAConfig.RadialFrost.Value)
             {
                 var warn = new Vector4(1f, 0.72f, 0.25f, 1f);
@@ -214,39 +214,41 @@ namespace StationeersUIMod.Windows
 
             ImGui.Spacing();
             ImGui.TextDisabled("Glass look (pure vertex colour — works without frost):");
-            FloatSlider(UIAConfig.RadialSheen, "Glass sheen (whiten toward the rim)", 0f, 1f);
-            FloatSlider(UIAConfig.RadialEdgeLight, "Edge light (rim faces the key light)", 0f, 1f);
+            FloatSlider(UIAConfig.RadialSheen, "Glass sheen (whiten toward the rim)", 0f, 1f, true);
+            FloatSlider(UIAConfig.RadialEdgeLight, "Edge light (rim faces the key light)", 0f, 1f, true);
         }
 
         /// <summary>Every live-tunable visual: shared between the normal Radials section and
         /// the editor panel so the two can never drift apart.</summary>
         private static void DrawVisualControls()
         {
-            FloatSlider(UIAConfig.RadialOuterRadius, "Radial size", 120f, 480f);
-            FloatSlider(UIAConfig.RadialInnerRadius, "Hub (center circle) size", 60f, 260f);
-            FloatSlider(UIAConfig.RadialSatelliteScale, "Child radial size", 0.5f, 1.6f);
-            FloatSlider(UIAConfig.RadialIconRatio, "Icon size (fraction of wedge)", 0.15f, 1.1f);
-            FloatSlider(UIAConfig.RadialBorderWidth, "Border thickness (px)", 0f, 10f);
-            Toggle(UIAConfig.RadialSideBorders, "Borders on wedge SIDE edges (full outline)");
-            FloatSlider(UIAConfig.RadialSideWidthInner, "Side line width at hub (px)", 0.5f, 12f);
-            FloatSlider(UIAConfig.RadialSideWidthOuter, "Side line width at rim (px)", 0.5f, 12f);
-            FloatSlider(UIAConfig.RadialWedgeGapDeg, "Gap between wedges (deg)", 0f, 6f);
-            FloatSlider(UIAConfig.RadialEdgeFeather, "Edge softness / anti-aliasing (px)", 0f, 4f);
-            FloatSlider(UIAConfig.RadialShineIntensity, "Shine intensity (0 = flat)", 0f, 2f);
-            Toggle(UIAConfig.RadialDimShading, "Dim other wedges while one is highlighted");
-            FloatSlider(UIAConfig.RadialDimStrength, "Dim strength", 0f, 1f);
-            FloatSlider(UIAConfig.ParkedChipRadius, "Dragged-out item bubble size (px)", 16f, 80f);
-            Toggle(UIAConfig.RadialUppercaseLabels, "ALL CAPS wedge labels");
-            Toggle(UIAConfig.RadialShowStateText, "State under icons (battery %, kPa, counts)");
-            Toggle(UIAConfig.RadialShowWedgeLabels, "Show item name under each icon");
-            FloatSlider(UIAConfig.RadialHubTitleSize, "Readout 1: title (bold)", 9f, 32f);
-            FloatSlider(UIAConfig.RadialTextVerb, "Readout 2: action verb", 8f, 26f);
-            FloatSlider(UIAConfig.RadialTextLabel, "Readout 3: item name", 8f, 26f);
-            FloatSlider(UIAConfig.RadialTextSub, "Readout 4: detail / location", 8f, 24f);
-            FloatSlider(UIAConfig.RadialTextWarn, "Readout 5: stat / warning", 8f, 24f);
-            Toggle(UIAConfig.RadialRotateLongLabels, "Angle long wedge labels so they fit");
-            FloatSlider(UIAConfig.RadialSatelliteHubRatio, "Child radial hub ratio", 0.2f, 0.6f);
-            Toggle(UIAConfig.RadialDynamicReadoutText, "Dynamic child-hub text (no overlap)");
+            // Every knob here is in HudTheme's "radial:" include-list (design §5.2) — all LOOK,
+            // no behaviour — so every one of them marks the active profile's theme dirty.
+            FloatSlider(UIAConfig.RadialOuterRadius, "Radial size", 120f, 480f, true);
+            FloatSlider(UIAConfig.RadialInnerRadius, "Hub (center circle) size", 60f, 260f, true);
+            FloatSlider(UIAConfig.RadialSatelliteScale, "Child radial size", 0.5f, 1.6f, true);
+            FloatSlider(UIAConfig.RadialIconRatio, "Icon size (fraction of wedge)", 0.15f, 1.1f, true);
+            FloatSlider(UIAConfig.RadialBorderWidth, "Border thickness (px)", 0f, 10f, true);
+            Toggle(UIAConfig.RadialSideBorders, "Borders on wedge SIDE edges (full outline)", true);
+            FloatSlider(UIAConfig.RadialSideWidthInner, "Side line width at hub (px)", 0.5f, 12f, true);
+            FloatSlider(UIAConfig.RadialSideWidthOuter, "Side line width at rim (px)", 0.5f, 12f, true);
+            FloatSlider(UIAConfig.RadialWedgeGapDeg, "Gap between wedges (deg)", 0f, 6f, true);
+            FloatSlider(UIAConfig.RadialEdgeFeather, "Edge softness / anti-aliasing (px)", 0f, 4f, true);
+            FloatSlider(UIAConfig.RadialShineIntensity, "Shine intensity (0 = flat)", 0f, 2f, true);
+            Toggle(UIAConfig.RadialDimShading, "Dim other wedges while one is highlighted", true);
+            FloatSlider(UIAConfig.RadialDimStrength, "Dim strength", 0f, 1f, true);
+            FloatSlider(UIAConfig.ParkedChipRadius, "Dragged-out item bubble size (px)", 16f, 80f, true);
+            Toggle(UIAConfig.RadialUppercaseLabels, "ALL CAPS wedge labels", true);
+            Toggle(UIAConfig.RadialShowStateText, "State under icons (battery %, kPa, counts)", true);
+            Toggle(UIAConfig.RadialShowWedgeLabels, "Show item name under each icon", true);
+            FloatSlider(UIAConfig.RadialHubTitleSize, "Readout 1: title (bold)", 9f, 32f, true);
+            FloatSlider(UIAConfig.RadialTextVerb, "Readout 2: action verb", 8f, 26f, true);
+            FloatSlider(UIAConfig.RadialTextLabel, "Readout 3: item name", 8f, 26f, true);
+            FloatSlider(UIAConfig.RadialTextSub, "Readout 4: detail / location", 8f, 24f, true);
+            FloatSlider(UIAConfig.RadialTextWarn, "Readout 5: stat / warning", 8f, 24f, true);
+            Toggle(UIAConfig.RadialRotateLongLabels, "Angle long wedge labels so they fit", true);
+            FloatSlider(UIAConfig.RadialSatelliteHubRatio, "Child radial hub ratio", 0.2f, 0.6f, true);
+            Toggle(UIAConfig.RadialDynamicReadoutText, "Dynamic child-hub text (no overlap)", true);
             FontCombo();
         }
 
@@ -349,12 +351,20 @@ namespace StationeersUIMod.Windows
             if (string.IsNullOrEmpty(current)) current = "(auto)";
             if (ImGui.BeginCombo("Radial font", current))
             {
+                // RadialFontName is a "radial:" theme key (design §5.2) — an explicit pick marks
+                // the active profile's theme dirty, same as every slider above.
                 if (ImGui.Selectable("(auto: prefer bold)", string.IsNullOrEmpty(UIAConfig.RadialFontName.Value)))
+                {
                     UIAConfig.RadialFontName.Value = "";
+                    Features.HudProfileStore.MarkThemeChanged();
+                }
                 foreach (var name in UI.UnityRadialView.AllFontNames())
                 {
                     if (ImGui.Selectable(name, name == UIAConfig.RadialFontName.Value))
+                    {
                         UIAConfig.RadialFontName.Value = name;
+                        Features.HudProfileStore.MarkThemeChanged();
+                    }
                 }
                 ImGui.EndCombo();
             }
@@ -389,10 +399,20 @@ namespace StationeersUIMod.Windows
             }
         }
 
-        private static void Toggle(ConfigEntry<bool> entry, string label)
+        /// <summary><paramref name="marksTheme"/> = this entry belongs to the "radial:"/hint-bar
+        /// theme family (see <see cref="UI.Hud.HudTheme"/>'s include-list) — an edit restamps the
+        /// active HUD profile's theme so it travels with the profile, the same contract HUD
+        /// colours already have. False (default) for the many BEHAVIOUR toggles this same helper
+        /// draws (master enable, per-wheel enables, hint-fade, …), which must never restamp a
+        /// theme on their own.</summary>
+        private static void Toggle(ConfigEntry<bool> entry, string label, bool marksTheme = false)
         {
             bool v = entry.Value;
-            if (ImGui.Checkbox(label, ref v)) entry.Value = v;
+            if (ImGui.Checkbox(label, ref v))
+            {
+                entry.Value = v;
+                if (marksTheme) Features.HudProfileStore.MarkThemeChanged();
+            }
         }
 
         private static void IntSlider(ConfigEntry<int> entry, string label, int min, int max)
@@ -401,10 +421,15 @@ namespace StationeersUIMod.Windows
             if (ImGui.SliderInt(label, ref v, min, max)) entry.Value = v;
         }
 
-        private static void FloatSlider(ConfigEntry<float> entry, string label, float min, float max)
+        /// <summary>See <see cref="Toggle"/>'s <c>marksTheme</c> remarks — same contract.</summary>
+        private static void FloatSlider(ConfigEntry<float> entry, string label, float min, float max, bool marksTheme = false)
         {
             float v = entry.Value;
-            if (ImGui.SliderFloat(label, ref v, min, max)) entry.Value = v;
+            if (ImGui.SliderFloat(label, ref v, min, max))
+            {
+                entry.Value = v;
+                if (marksTheme) Features.HudProfileStore.MarkThemeChanged();
+            }
         }
     }
 }

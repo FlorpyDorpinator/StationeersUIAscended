@@ -63,6 +63,43 @@ namespace StationeersUIMod.UI.Menu.Kit
             new Ovr("Critical",    "Critical",              new Color(0.95f, 0.40f, 0.38f, 1.00f)),
         };
 
+        /// <summary>The "menu:" theme family (see <see cref="UI.Hud.HudTheme"/>): the follow flag
+        /// plus every override, keyed by this class's own stable <see cref="Ovr.Name"/> — not
+        /// reflection, since the overrides live in a private array, not public static fields.
+        /// Called by <c>HudTheme.Snapshot</c>; this class owns its own field list so
+        /// <c>HudTheme</c> never reflects over another class's private layout.</summary>
+        public static void SnapshotInto(List<HudDocument.ThemeEntry> into, string prefix)
+        {
+            if (into == null) return;
+            if (Follow != null) into.Add(new HudDocument.ThemeEntry { K = prefix + "Follow", V = Follow.Value ? "true" : "false" });
+            for (int i = 0; i < _ov.Length; i++)
+            {
+                var o = _ov[i];
+                if (o.Entry == null) continue;
+                into.Add(new HudDocument.ThemeEntry { K = prefix + o.Name, V = o.Entry.Value });
+            }
+        }
+
+        /// <summary>Restore the "menu:" family from an already-indexed snapshot map. Same
+        /// missing-key/unknown-key contract as <see cref="UI.Hud.HudTheme.Apply"/>: a key absent
+        /// from <paramref name="map"/> leaves that setting untouched.</summary>
+        public static void ApplyFrom(Dictionary<string, string> map, string prefix)
+        {
+            if (map == null) return;
+            string v;
+            if (Follow != null && map.TryGetValue(prefix + "Follow", out v) && v != null)
+            {
+                bool b;
+                if (bool.TryParse(v, out b)) Follow.Value = b;
+            }
+            for (int i = 0; i < _ov.Length; i++)
+            {
+                var o = _ov[i];
+                if (o.Entry == null) continue;
+                if (map.TryGetValue(prefix + o.Name, out v) && v != null) o.Entry.Value = v;
+            }
+        }
+
         public static void Bind(ConfigFile cfg)
         {
             Follow = cfg.Bind(Section, "FollowHudTheme", true,

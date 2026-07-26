@@ -35,7 +35,7 @@ namespace StationeersUIMod.UI.Hud.Widgets
             Root.anchoredPosition = Vector2.zero;
             var c = CenterFor(scale);
             var s = SizeFor(scale);
-            bool vertical = Def.GetB("vertical", false);
+            bool vertical = Def.GetBFor(LayoutBare, "vertical", false);
             float gap = 6f * scale;
             float pad = 6f * scale;
 
@@ -157,8 +157,8 @@ namespace StationeersUIMod.UI.Hud.Widgets
         {
             base.DescribeProps(into);
             var d = Def;
-            into.Add(HudProp.Bool("Vertical layout", () => d.GetB("vertical", false),
-                v => d.SetB("vertical", v)));
+            into.Add(HudProp.Bool("Vertical layout", () => d.GetBFor(EditBare(d), "vertical", false),
+                v => d.SetBFor(EditBare(d), "vertical", v)));
             into[into.Count - 1].Group = HudPropGroup.Layout;
 
             for (int i = 1; i <= N; i++)

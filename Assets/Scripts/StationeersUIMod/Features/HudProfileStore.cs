@@ -145,6 +145,47 @@ namespace StationeersUIMod.Features
             catch (Exception e) { UIALog.Warn("HudProfileStore.SyncShipped: " + e.Message); }
         }
 
+        /// <summary>One-shot (see <see cref="ConfigMigration.PendingThemeTopUp"/>): for EVERY
+        /// profile on disk that already carries a theme, append any theme key missing from its
+        /// snapshot using the CURRENT global value (<see cref="HudTheme.TopUp"/>), then save. A
+        /// THEMELESS profile is left alone — it deliberately means "use whatever globals are
+        /// current", and topping it up would silently turn it into a themed profile that stops
+        /// following live global edits. Idempotent: re-running adds nothing once every profile's
+        /// snapshot already has every key. Deliberately does NOT call <see cref="HudDocument.Sanitize"/>
+        /// — this is a narrow theme-dictionary patch, not a full profile load; schema repair still
+        /// happens exactly once, in the normal <see cref="Load"/> path, right after this runs.</summary>
+        internal static void TopUpAllThemes()
+        {
+            try
+            {
+                if (!Directory.Exists(Dir)) return;
+                int filesTouched = 0, keysAdded = 0;
+                foreach (string path in Directory.GetFiles(Dir, "*.xml"))
+                {
+                    string name = Path.GetFileNameWithoutExtension(path);
+                    try
+                    {
+                        var serializer = new XmlSerializer(typeof(HudDocument));
+                        HudDocument doc;
+                        using (var stream = File.OpenRead(path)) doc = (HudDocument)serializer.Deserialize(stream);
+                        if (doc == null || doc.Theme == null || doc.Theme.Count == 0) continue;
+                        int added = HudTheme.TopUp(doc.Theme);
+                        if (added <= 0) continue;
+                        doc.Name = name;
+                        if (Save(doc, name)) { filesTouched++; keysAdded += added; }
+                    }
+                    catch (Exception e)
+                    {
+                        UIALog.Warn("HudProfileStore theme top-up failed for '" + name + "': " + e.Message);
+                    }
+                }
+                if (filesTouched > 0)
+                    UIALog.Info("HUD theme fold (v2->v3): topped up " + filesTouched +
+                        " profile(s) with " + keysAdded + " new theme key(s) total.");
+            }
+            catch (Exception e) { UIALog.Warn("HudProfileStore.TopUpAllThemes: " + e.Message); }
+        }
+
         /// <summary>Hash of a profile's CANONICAL content — deserialize, <see cref="HudDocument.Sanitize"/>
         /// (the exact repair <see cref="Load"/> applies), then reserialize — so Load's idempotent
         /// rewrite-on-open and any cosmetic serialization difference do NOT read as a player edit.
@@ -418,6 +459,18 @@ namespace StationeersUIMod.Features
         /// empty (or damaged) HudProfiles folder always ends up with a usable profile on disk.</summary>
         public static void LoadActive(string profileName, Func<HudDocument> starterFactory)
         {
+            // One-shot v2->v3 theme-fold top-up (see ConfigMigration.PendingThemeTopUp): consumed
+            // here, on the very first LoadActive of the session, rather than at a fixed point right
+            // after SyncShipped — LoadActive is called from more than one place (HudSystem's lazy
+            // EnsureActiveDocument, the F9 profile switcher, ProfilesTab), and gating on "the first
+            // LoadActive call, whichever caller makes it" guarantees the top-up always runs before
+            // ANY profile's theme is captured/applied, without this file needing to know which
+            // caller runs first.
+            if (ConfigMigration.PendingThemeTopUp)
+            {
+                ConfigMigration.PendingThemeTopUp = false;
+                TopUpAllThemes();
+            }
             var doc = Load(profileName);
             if (doc == null)
             {
@@ -509,6 +562,13 @@ namespace StationeersUIMod.Features
             _saveAt = 0f;
             _warned.Clear();
             ActiveReplaced = null;
+            // Re-arm the one-shot v2->v3 theme top-up for the NEXT LoadActive if a reload happens
+            // to catch it mid-flight (between ConfigMigration.Run and the first LoadActive) — a
+            // reload this early in boot is a corner case, but leaving it stuck at false would skip
+            // the top-up entirely for the reloaded session. TopUp is additive/idempotent, so running
+            // it an extra time (if it had already completed before the reload) costs nothing.
+            if (ConfigMigration.Version != null && ConfigMigration.Version.Value < ConfigMigration.CurrentVersion)
+                ConfigMigration.PendingThemeTopUp = true;
         }
 
         /// <summary>Full path to a profile's preview image (<c>&lt;name&gt;.png</c> beside its xml),

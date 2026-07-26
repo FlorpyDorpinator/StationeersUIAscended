@@ -11,7 +11,7 @@ namespace StationeersUIMod.UI.Hud
         public const string Name = "Glassy 4.0";
 
         public const string Xml =
-@"<HudDocument xmlns:xsd='http://www.w3.org/2001/XMLSchema' xmlns:xsi='http://www.w3.org/2001/XMLSchema-instance' Schema='14' Name='Glassy 4.0'>
+@"<HudDocument xmlns:xsd='http://www.w3.org/2001/XMLSchema' xmlns:xsi='http://www.w3.org/2001/XMLSchema-instance' Schema='15' Name='Glassy 4.0'>
   <El Id='g2-topbar' Type='Box' Anchor='TopCenter' X='0' Y='-38' W='1860' H='62' WPct='0.99' HPct='-1' Z='0' Tiers='Suited Robot' Fill='#05080DA6' Border='#B8B9B907' TextColor='HudTextValue' BorderWidth='-1' RTL='4' RTR='4' RBR='20' RBL='20' FontScale='1' Align='Center'>
     <P K='insetBottom' V='46' />
     <P K='sheen' V='0.5' />

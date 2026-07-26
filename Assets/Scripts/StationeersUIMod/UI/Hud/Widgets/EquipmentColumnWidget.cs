@@ -71,7 +71,7 @@ namespace StationeersUIMod.UI.Hud.Widgets
             var c = CenterFor(scale);
             var s = SizeFor(scale);
             float gap = Def.GetFFor(LayoutBare, "gap", 8f) * scale;
-            bool horizontal = Def.GetB("horizontal", false);
+            bool horizontal = Def.GetBFor(LayoutBare, "horizontal", false);
             bool labels = Def.GetBFor(LayoutBare, "labels", true);
             int first, count;
             Slice(out first, out count);
@@ -139,7 +139,7 @@ namespace StationeersUIMod.UI.Hud.Widgets
             int first, count;
             Slice(out first, out count);
             var box = BoxSize(SizeFor(scale), Def.GetFFor(LayoutBare, "gap", 8f) * scale,
-                Def.GetB("horizontal", false), count);
+                Def.GetBFor(LayoutBare, "horizontal", false), count);
             bool labels = Def.GetBFor(LayoutBare, "labels", true);
 
             // Per-element text colours (the slot number + the slot label filled/empty were locked
@@ -199,8 +199,9 @@ namespace StationeersUIMod.UI.Hud.Widgets
                 if (flash != null) icon = flash;
                 b.Icon.sprite = icon;
                 b.Icon.enabled = icon != null;
-                // #9: optional global item-icon tint, keeping the filled/empty alpha cue.
-                b.Icon.color = HudConfig.TintIcon(new Color(1f, 1f, 1f, (filled || flash != null) ? 0.95f : 0f));
+                // #9 item-icon tint: per-element and per-tier since 0.9.2.5 (mode 0 inherits the
+                // global checkbox). Keeps the filled/empty alpha cue.
+                b.Icon.color = TintItemIcon(new Color(1f, 1f, 1f, (filled || flash != null) ? 0.95f : 0f));
                 b.Icon.rectTransform.localScale = Vector3.one * (flash != null ? 1f + 0.22f * flashP : 1f);
 
                 HudText.Sync(b.Label);
@@ -285,7 +286,10 @@ namespace StationeersUIMod.UI.Hud.Widgets
 
             int layoutStart = into.Count;
             into.Add(HudProp.F("Box gap", () => d.GetFFor(EditBare(d), "gap", 8f), v => d.SetFFor(EditBare(d), "gap", Mathf.Clamp(v, 0f, 40f)), 0f, 40f));
-            into.Add(HudProp.Bool("Horizontal row", () => d.GetB("horizontal", false), v => d.SetB("horizontal", v)));
+            // Tier-aware: "the column stacks when suited, rows along the bottom when bare" is a
+            // look, not an identity, so it forks with the rest of the style (Wave C).
+            into.Add(HudProp.Bool("Horizontal row", () => d.GetBFor(EditBare(d), "horizontal", false),
+                v => d.SetBFor(EditBare(d), "horizontal", v)));
             // The slot thumbnail was a hard-coded 58% of the box with no knob. Mirrors the hand
             // boxes' icon controls so the two item-carrying widgets tune the same way.
             into.Add(HudProp.F("Icon scale (× box size)", () => d.GetFFor(EditBare(d), "iconScale", 0.58f),
@@ -316,6 +320,7 @@ namespace StationeersUIMod.UI.Hud.Widgets
                 () => HudPalette.TextDim.Value));
             into[into.Count - 1].Group = HudPropGroup.Appearance;
 
+            AddIconTintProps(into);      // item thumbnail wash (inherit / own colour / off)
             AddDropHighlightProps(into); // #4: drag-over drop cue mode + colour
         }
 
@@ -330,7 +335,7 @@ namespace StationeersUIMod.UI.Hud.Widgets
             var c = CenterForLogical(scale);
             var size = SizeFor(scale);
             float gap = Def.GetFFor(LayoutBare, "gap", 8f) * scale;
-            bool horizontal = Def.GetB("horizontal", false);
+            bool horizontal = Def.GetBFor(LayoutBare, "horizontal", false);
             int first, count;
             Slice(out first, out count);
             float box = BoxSize(size, gap, horizontal, count);

@@ -33,10 +33,13 @@ namespace StationeersUIMod.UI.Menu.Tabs
                 v => UIAConfig.HoldThresholdMs.Value = Mathf.RoundToInt(v), "0", 10f);
 
             UiaControls.Header(col, "Size & readout");
-            UiaControls.SliderRow(col, "Wheel size", 120f, 480f, UIAConfig.RadialOuterRadius.Value, v => UIAConfig.RadialOuterRadius.Value = v, "0", 1f);
-            UiaControls.SliderRow(col, "Hub size", 60f, 260f, UIAConfig.RadialInnerRadius.Value, v => UIAConfig.RadialInnerRadius.Value = v, "0", 1f);
-            UiaControls.ToggleRow(col, "ALL CAPS labels", UIAConfig.RadialUppercaseLabels.Value, v => UIAConfig.RadialUppercaseLabels.Value = v);
-            UiaControls.ToggleRow(col, "Live state under icons (%, kPa, counts)", UIAConfig.RadialShowStateText.Value, v => UIAConfig.RadialShowStateText.Value = v);
+            // These are all part of the radial theme's LOOK ("radial:" family, HudTheme) — each
+            // setter marks the active profile's theme dirty so the value travels with the profile
+            // and switching profiles restores it, the same contract HUD colours already have.
+            UiaControls.SliderRow(col, "Wheel size", 120f, 480f, UIAConfig.RadialOuterRadius.Value, v => { UIAConfig.RadialOuterRadius.Value = v; HudProfileStore.MarkThemeChanged(); }, "0", 1f);
+            UiaControls.SliderRow(col, "Hub size", 60f, 260f, UIAConfig.RadialInnerRadius.Value, v => { UIAConfig.RadialInnerRadius.Value = v; HudProfileStore.MarkThemeChanged(); }, "0", 1f);
+            UiaControls.ToggleRow(col, "ALL CAPS labels", UIAConfig.RadialUppercaseLabels.Value, v => { UIAConfig.RadialUppercaseLabels.Value = v; HudProfileStore.MarkThemeChanged(); });
+            UiaControls.ToggleRow(col, "Live state under icons (%, kPa, counts)", UIAConfig.RadialShowStateText.Value, v => { UIAConfig.RadialShowStateText.Value = v; HudProfileStore.MarkThemeChanged(); });
 
             UiaControls.Header(col, "Radial feel");
             UiaControls.ToggleRow(col, "Flick to commit (fast tap + flick picks a wedge)", UIAConfig.RadialFlickCommit.Value, v => UIAConfig.RadialFlickCommit.Value = v);
@@ -53,7 +56,7 @@ namespace StationeersUIMod.UI.Menu.Tabs
             UiaControls.ToggleRow(col, "Remember each tool's home slot", UIAConfig.ToolbeltHomeSlots.Value, v => UIAConfig.ToolbeltHomeSlots.Value = v);
             UiaControls.ToggleRow(col, "Stable layout: reserve empty slots + show binding labels", UIAConfig.ToolbeltStableGeometry.Value, v => UIAConfig.ToolbeltStableGeometry.Value = v);
             UiaControls.ToggleRow(col, "Curve the bound-tool label around the hub",
-                UIAConfig.RadialBindingCurved.Value, v => UIAConfig.RadialBindingCurved.Value = v);
+                UIAConfig.RadialBindingCurved.Value, v => { UIAConfig.RadialBindingCurved.Value = v; HudProfileStore.MarkThemeChanged(); });
             UiaControls.Note(col,
                 "The bound-tool name sits at the bottom of its wedge, along the arc where the hub " +
                 "starts. Curved bends it letter by letter to follow that arc; off draws it as one " +
@@ -73,21 +76,23 @@ namespace StationeersUIMod.UI.Menu.Tabs
             if (!advanced) return;
 
             UiaControls.Header(col, "Appearance (advanced)");
-            UiaControls.SliderRow(col, "Icon size (frac of wedge)", 0.15f, 1.1f, UIAConfig.RadialIconRatio.Value, v => UIAConfig.RadialIconRatio.Value = v, "0.00");
-            UiaControls.SliderRow(col, "Border thickness", 0f, 10f, UIAConfig.RadialBorderWidth.Value, v => UIAConfig.RadialBorderWidth.Value = v, "0.0");
-            UiaControls.SliderRow(col, "Edge softness (AA)", 0f, 4f, UIAConfig.RadialEdgeFeather.Value, v => UIAConfig.RadialEdgeFeather.Value = v, "0.00");
-            UiaControls.SliderRow(col, "Shine", 0f, 2f, UIAConfig.RadialShineIntensity.Value, v => UIAConfig.RadialShineIntensity.Value = v, "0.00");
-            UiaControls.SliderRow(col, "Wedge gap (deg)", 0f, 6f, UIAConfig.RadialWedgeGapDeg.Value, v => UIAConfig.RadialWedgeGapDeg.Value = v, "0.0");
-            UiaControls.SliderRow(col, "Dim other wedges", 0f, 1f, UIAConfig.RadialDimStrength.Value, v => UIAConfig.RadialDimStrength.Value = v, "0.00");
-            UiaControls.SliderRow(col, "Child wheel size", 0.5f, 1.6f, UIAConfig.RadialSatelliteScale.Value, v => UIAConfig.RadialSatelliteScale.Value = v, "0.00");
+            UiaControls.SliderRow(col, "Icon size (frac of wedge)", 0.15f, 1.1f, UIAConfig.RadialIconRatio.Value, v => { UIAConfig.RadialIconRatio.Value = v; HudProfileStore.MarkThemeChanged(); }, "0.00");
+            UiaControls.SliderRow(col, "Border thickness", 0f, 10f, UIAConfig.RadialBorderWidth.Value, v => { UIAConfig.RadialBorderWidth.Value = v; HudProfileStore.MarkThemeChanged(); }, "0.0");
+            UiaControls.SliderRow(col, "Edge softness (AA)", 0f, 4f, UIAConfig.RadialEdgeFeather.Value, v => { UIAConfig.RadialEdgeFeather.Value = v; HudProfileStore.MarkThemeChanged(); }, "0.00");
+            UiaControls.SliderRow(col, "Shine", 0f, 2f, UIAConfig.RadialShineIntensity.Value, v => { UIAConfig.RadialShineIntensity.Value = v; HudProfileStore.MarkThemeChanged(); }, "0.00");
+            UiaControls.SliderRow(col, "Wedge gap (deg)", 0f, 6f, UIAConfig.RadialWedgeGapDeg.Value, v => { UIAConfig.RadialWedgeGapDeg.Value = v; HudProfileStore.MarkThemeChanged(); }, "0.0");
+            UiaControls.SliderRow(col, "Dim other wedges", 0f, 1f, UIAConfig.RadialDimStrength.Value, v => { UIAConfig.RadialDimStrength.Value = v; HudProfileStore.MarkThemeChanged(); }, "0.00");
+            UiaControls.SliderRow(col, "Child wheel size", 0.5f, 1.6f, UIAConfig.RadialSatelliteScale.Value, v => { UIAConfig.RadialSatelliteScale.Value = v; HudProfileStore.MarkThemeChanged(); }, "0.00");
+            // Max wedges is BEHAVIOUR (overflow -> MORE), not look — deliberately excluded from
+            // the "radial:" theme family (design §5.2), so it does NOT mark the theme dirty.
             UiaControls.SliderRow(col, "Max wedges", 6f, 32f, UIAConfig.RadialMaxWedges.Value, v => UIAConfig.RadialMaxWedges.Value = Mathf.RoundToInt(v), "0", 1f);
 
             UiaControls.Header(col, "Hub readout text sizes (advanced)");
-            UiaControls.SliderRow(col, "1 - Title (bold)", 9f, 32f, UIAConfig.RadialHubTitleSize.Value, v => UIAConfig.RadialHubTitleSize.Value = v, "0");
-            UiaControls.SliderRow(col, "2 - Action verb", 8f, 26f, UIAConfig.RadialTextVerb.Value, v => UIAConfig.RadialTextVerb.Value = v, "0");
-            UiaControls.SliderRow(col, "3 - Item name", 8f, 26f, UIAConfig.RadialTextLabel.Value, v => UIAConfig.RadialTextLabel.Value = v, "0");
-            UiaControls.SliderRow(col, "4 - Detail line", 8f, 24f, UIAConfig.RadialTextSub.Value, v => UIAConfig.RadialTextSub.Value = v, "0");
-            UiaControls.SliderRow(col, "5 - Stat / warning", 8f, 24f, UIAConfig.RadialTextWarn.Value, v => UIAConfig.RadialTextWarn.Value = v, "0");
+            UiaControls.SliderRow(col, "1 - Title (bold)", 9f, 32f, UIAConfig.RadialHubTitleSize.Value, v => { UIAConfig.RadialHubTitleSize.Value = v; HudProfileStore.MarkThemeChanged(); }, "0");
+            UiaControls.SliderRow(col, "2 - Action verb", 8f, 26f, UIAConfig.RadialTextVerb.Value, v => { UIAConfig.RadialTextVerb.Value = v; HudProfileStore.MarkThemeChanged(); }, "0");
+            UiaControls.SliderRow(col, "3 - Item name", 8f, 26f, UIAConfig.RadialTextLabel.Value, v => { UIAConfig.RadialTextLabel.Value = v; HudProfileStore.MarkThemeChanged(); }, "0");
+            UiaControls.SliderRow(col, "4 - Detail line", 8f, 24f, UIAConfig.RadialTextSub.Value, v => { UIAConfig.RadialTextSub.Value = v; HudProfileStore.MarkThemeChanged(); }, "0");
+            UiaControls.SliderRow(col, "5 - Stat / warning", 8f, 24f, UIAConfig.RadialTextWarn.Value, v => { UIAConfig.RadialTextWarn.Value = v; HudProfileStore.MarkThemeChanged(); }, "0");
 
             UiaControls.Header(col, "Bags (advanced)");
             UiaControls.ToggleRow(col, "Group crowded bags by category", UIAConfig.BagGrouping.Value, v => UIAConfig.BagGrouping.Value = v);

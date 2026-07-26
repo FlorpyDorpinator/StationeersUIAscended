@@ -74,7 +74,11 @@ namespace StationeersUIMod.UI.Hud.Widgets
             // channel keeps retrying in UpdatePanel until the sprite lands.
             // A conditional temp icon needs the sprite slot even if no Icon key was set —
             // otherwise the F9 "Conditional temp icon" toggle would silently do nothing.
-            bool tempIconWanted = Def.GetB("tempIcon", false);
+            // BUILD time has no tier context, and the sprite slot must exist for EVERY tier that
+            // could ask for it — so this asks whether ANY slot wants the conditional icon.
+            bool tempIconWanted = Def.GetB("tempIcon", false)
+                || Def.GetBFor(HudStyleSlot.Bare, "tempIcon", false)
+                || Def.GetBFor(HudStyleSlot.Robot, "tempIcon", false);
             if (!string.IsNullOrEmpty(Def.Icon) || tempIconWanted)
             {
                 var sprite = Core.HudIconStore.TryGet(Def.Icon);
@@ -126,7 +130,7 @@ namespace StationeersUIMod.UI.Hud.Widgets
         /// flinging the text outside the box.</summary>
         private float StackRow(string key, float def)
         {
-            return Mathf.Clamp01(Def.GetF(key, def));
+            return Mathf.Clamp01(Def.GetFFor(LayoutBare, key, def));
         }
 
         public override void Layout(float scale)
@@ -135,15 +139,15 @@ namespace StationeersUIMod.UI.Hud.Widgets
             var c = CenterFor(scale);
             var s = SizeFor(scale);
 
-            bool showBar = Def.GetB("bar", true);
-            bool vertical = Def.GetB("barVertical", false);
+            bool showBar = Def.GetBFor(LayoutBare, "bar", true);
+            bool vertical = Def.GetBFor(LayoutBare, "barVertical", false);
             float iconScale = Def.GetFFor(LayoutBare, "iconScale", 1f); // F9 "Icon scale" multiplier
             // Per-element "Show icon" (default on). Off collapses the icon gutter so the label/
             // value reclaim it — this is how the SPEED box drops its velocity glyph.
             bool showIcon = _iconRt != null && Def.GetBFor(LayoutBare, "icon", true);
 
             // Per-element "Wrap text": the label/target wrap to the box width or spill on one line.
-            bool wrapText = Def.GetB("wrap", true);
+            bool wrapText = Def.GetBFor(LayoutBare, "wrap", true);
             if (_label.enableWordWrapping != wrapText) _label.enableWordWrapping = wrapText;
             if (_target.enableWordWrapping != wrapText) _target.enableWordWrapping = wrapText;
 
@@ -191,7 +195,7 @@ namespace StationeersUIMod.UI.Hud.Widgets
             // Stacked box (the internal-pressure/temp instruments): title on top, a TARGET
             // line, then the big value with its conditional icon to the left, horizontal
             // bar already reserved along the bottom.
-            if (Def.GetB("stack", false))
+            if (Def.GetBFor(LayoutBare, "stack", false))
             {
                 // Row heights are fractions of the content region (0 = bottom edge, 1 = top), so
                 // they hold their proportions at any box size or HUD scale. Editable in F9 —
@@ -297,7 +301,7 @@ namespace StationeersUIMod.UI.Hud.Widgets
                 // Conditional temperature icon: vanilla shows the hot sprite above 50°C, the
                 // cold sprite below 0°C, nothing between (PlayerStateWindow thresholds). Driven
                 // from the live reading, overriding the static Def.Icon sprite each frame.
-                bool tempIcon = Def.GetB("tempIcon", false);
+                bool tempIcon = Def.GetBFor(LayoutBare, "tempIcon", false);
                 if (_iconSprite != null && tempIcon)
                 {
                     var ts = r.Valid ? Core.VanillaIcons.TempStateIcon(r.Raw) : null;
@@ -348,7 +352,7 @@ namespace StationeersUIMod.UI.Hud.Widgets
                 : r.Level == 1 ? HudPalette.Warn.Value
                 : accent;
 
-            bool showTarget = Def.GetB("target", SourceHasTarget(src));
+            bool showTarget = Def.GetBFor(LayoutBare, "target", SourceHasTarget(src));
             bool tgtOn = showTarget && r.HasTarget && !float.IsNaN(r.Target);
             float tgtShown = tgtOn ? (float)System.Math.Round(r.Target) : 0f;
             if (tgtOn != _shownTgtOn || (tgtOn && tgtShown != _shownTgt))
@@ -380,7 +384,7 @@ namespace StationeersUIMod.UI.Hud.Widgets
             HudText.Set(_target, tgtText);
 
             // --- gauge ---
-            bool showBar = Def.GetB("bar", true);
+            bool showBar = Def.GetBFor(LayoutBare, "bar", true);
             bool gameBar = showBar && UseGameBar();
             if (gameBar)
             {
@@ -395,7 +399,7 @@ namespace StationeersUIMod.UI.Hud.Widgets
             _bar.enabled = showBar && !gameBar;
             if (showBar && !gameBar)
             {
-                _bar.Vertical = Def.GetB("barVertical", false);
+                _bar.Vertical = Def.GetBFor(LayoutBare, "barVertical", false);
                 _bar.SetRange(r.Min, r.Max);
                 _bar.SetZones(r.WarnLow, r.CritLow, r.WarnHigh, r.CritHigh);
                 _bar.Value = r.Valid ? r.Raw : float.NaN;
@@ -706,27 +710,52 @@ namespace StationeersUIMod.UI.Hud.Widgets
             // Content: what this readout represents and which optional data it exposes.
             into.Add(HudProp.Enum("Source", () => (int)ParseSource(d),
                 v => d.Set("src", SourceNames[Mathf.Clamp(v, 0, SourceNames.Length - 1)]), SourceNames));
-            into.Add(HudProp.Bool("Conditional temp icon", () => d.GetB("tempIcon", false), v => d.SetB("tempIcon", v)));
-            into.Add(HudProp.Bool("Target line", () => d.GetB("target", SourceHasTarget(ParseSource(d))),
-                v => d.SetB("target", v)));
-            into.Add(HudProp.Bool("Threshold bar", () => d.GetB("bar", true), v => d.SetB("bar", v)));
+            // Tier-aware (Wave C): which optional PARTS a readout draws is presentation, so it
+            // forks; the SOURCE and the label override above are identity and stay shared.
+            // The REBUILD is guarded on a real change (BuildContent decides whether the
+            // conditional-icon slot exists, and an unguarded request would also fire on the no-op
+            // round trip SeedSlotFromBase performs when a per-tier fork is opened) — but the WRITE
+            // is not. Skipping the write on an unchanged value would leave a freshly seeded fork
+            // with no stored copy of this key, and because an absent BASE key gives
+            // HudElementDef's copy-on-write nothing to hand the fork for a BOOL, a later SUITED
+            // edit would then leak straight back into BARE (adversarial review, 2026-07-25).
+            into.Add(HudProp.Bool("Conditional temp icon", () => d.GetBFor(EditBare(d), "tempIcon", false),
+                v =>
+                {
+                    bool changed = v != d.GetBFor(EditBare(d), "tempIcon", false);
+                    d.SetBFor(EditBare(d), "tempIcon", v);
+                    if (changed) HudSystem.RequestViewRebuild();
+                }));
+            into.Add(HudProp.Bool("Target line", () => d.GetBFor(EditBare(d), "target", SourceHasTarget(ParseSource(d))),
+                v => d.SetBFor(EditBare(d), "target", v)));
+            into.Add(HudProp.Bool("Threshold bar", () => d.GetBFor(EditBare(d), "bar", true),
+                v => d.SetBFor(EditBare(d), "bar", v)));
             into.Add(HudProp.Text("Label override", () => d.GetS("label", ""), v => d.Set("label", Empty(v))));
             // The icon slot is created at build time, so an icon change rebuilds the view.
             into.Add(HudProp.Text("Icon (game key/glyph/PNG)", () => d.Icon ?? "",
-                v => { d.Icon = Empty(v); HudSystem.RequestViewRebuild(); }));
+                v =>
+                {
+                    string next = Empty(v);
+                    if (string.Equals(next, d.Icon, System.StringComparison.Ordinal)) return;
+                    d.Icon = next;
+                    HudSystem.RequestViewRebuild();
+                }));
 
             int layoutStart = into.Count;
-            into.Add(HudProp.Bool("Wrap text (label/target)", () => d.GetB("wrap", true), v => d.SetB("wrap", v)));
-            into.Add(HudProp.Bool("Stacked layout", () => d.GetB("stack", false), v => d.SetB("stack", v)));
-            into.Add(HudProp.Bool("Vertical bar", () => d.GetB("barVertical", false), v => d.SetB("barVertical", v)));
+            into.Add(HudProp.Bool("Wrap text (label/target)", () => d.GetBFor(EditBare(d), "wrap", true),
+                v => d.SetBFor(EditBare(d), "wrap", v)));
+            into.Add(HudProp.Bool("Stacked layout", () => d.GetBFor(EditBare(d), "stack", false),
+                v => d.SetBFor(EditBare(d), "stack", v)));
+            into.Add(HudProp.Bool("Vertical bar", () => d.GetBFor(EditBare(d), "barVertical", false),
+                v => d.SetBFor(EditBare(d), "barVertical", v)));
             // Stacked-only row heights (0 = bottom of the content region, 1 = top). Ignored by the
             // tall-card and compact-row layouts, which stack their rows in a different order.
-            into.Add(HudProp.F("Stacked: title row Y", () => d.GetF("rowTitleY", 0.84f),
-                v => d.SetF("rowTitleY", Mathf.Clamp01(v)), 0f, 1f));
-            into.Add(HudProp.F("Stacked: target row Y", () => d.GetF("rowTargetY", 0.54f),
-                v => d.SetF("rowTargetY", Mathf.Clamp01(v)), 0f, 1f));
-            into.Add(HudProp.F("Stacked: value row Y", () => d.GetF("rowValueY", 0.26f),
-                v => d.SetF("rowValueY", Mathf.Clamp01(v)), 0f, 1f));
+            into.Add(HudProp.F("Stacked: title row Y", () => d.GetFFor(EditBare(d), "rowTitleY", 0.84f),
+                v => d.SetFFor(EditBare(d), "rowTitleY", Mathf.Clamp01(v)), 0f, 1f));
+            into.Add(HudProp.F("Stacked: target row Y", () => d.GetFFor(EditBare(d), "rowTargetY", 0.54f),
+                v => d.SetFFor(EditBare(d), "rowTargetY", Mathf.Clamp01(v)), 0f, 1f));
+            into.Add(HudProp.F("Stacked: value row Y", () => d.GetFFor(EditBare(d), "rowValueY", 0.26f),
+                v => d.SetFFor(EditBare(d), "rowValueY", Mathf.Clamp01(v)), 0f, 1f));
             for (int i = layoutStart; i < into.Count; i++) into[i].Group = HudPropGroup.Layout;
 
             int appearanceStart = into.Count;

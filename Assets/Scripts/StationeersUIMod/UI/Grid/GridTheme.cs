@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Reflection;
 using BepInEx.Configuration;
 using StationeersUIMod.UI.Hud;
 using UnityEngine;
@@ -132,6 +133,31 @@ namespace StationeersUIMod.UI.Grid
         public static ConfigEntry<float> IridOv;
         public static ConfigEntry<float> ChromaOv;
 
+        // ---- Per-tier (suited vs bare) -------------------------------------------------------
+        // FlorpyDorp, 0.9.2.5: "The Universal Inventory F9 menu needs a suit/bare mode setting as
+        // well." Deliberately a SMALL subset rather than a bare twin for all 31 knobs: the real ask
+        // is "the inventory shouldn't look powered when my suit isn't", and doubling a 31-row popup
+        // for a modal window the player opens on purpose buys nothing. The vocabulary is the HUD
+        // element model's — ColorRef strings, -1 = inherit, 0/1/2 tri-state — so it reads as one
+        // system. Every entry is inert at its default, so an untouched install is unchanged.
+        public static ConfigEntry<bool> PerTier;
+        public static ConfigEntry<string> BareFillRef;
+        public static ConfigEntry<string> BareBorderRef;
+        public static ConfigEntry<string> BareTextRef;
+        public static ConfigEntry<float> BareOpacity;
+        public static ConfigEntry<int> BareFrostMode;
+
+        /// <summary>The tier the Grid paints for. Fed each frame by <c>TheGridPanel.Tick</c> from
+        /// <c>HudSystem.LastSnapshot.Tier</c> (Bare -> Bare, everything else -> Base); Base while
+        /// the HUD is unavailable. A plain static, reset in HudSystem.Shutdown (hot-reload rule).</summary>
+        public static HudStyleSlot Slot { get; set; }
+
+        /// <summary>Whether the bare overrides are live THIS frame.</summary>
+        private static bool BareActive
+        {
+            get { return PerTier != null && PerTier.Value && Slot == HudStyleSlot.Bare; }
+        }
+
         /// <summary>Tri-state combo captions. A readonly literal, so an F6 reload re-initialises
         /// it with the class — no Unity state, nothing to tear down.</summary>
         private static readonly string[] InheritOnOff = { "Inherit", "On", "Off" };
@@ -260,6 +286,27 @@ namespace StationeersUIMod.UI.Grid
                     "live frost). 0 = force off, -1 = follow the global toggle + strength.",
                     new AcceptableValueRange<float>(-1f, 1f)));
 
+            PerTier = cfg.Bind(Section, "GridPerTierStyle", false,
+                "Give the Universal Inventory a SEPARATE look while you are bare (suit power off / " +
+                "no helmet). Off = one skin at every tier. The five overrides below are inert " +
+                "until this is on, and each one falls back to the normal skin when left blank/-1.");
+            BareFillRef = cfg.Bind(Section, "GridBareFill", "",
+                "Window background while BARE. A palette entry name or a #RRGGBBAA literal. " +
+                "Empty = inherit the normal window fill.");
+            BareBorderRef = cfg.Bind(Section, "GridBareBorder", "",
+                "Window outline while BARE. Empty = inherit the normal window border.");
+            BareTextRef = cfg.Bind(Section, "GridBareText", "",
+                "Window text while BARE. Empty = inherit the normal window text colour.");
+            BareOpacity = cfg.Bind(Section, "GridBareOpacity", -1f,
+                new ConfigDescription("Multiplies the RESOLVED alpha of the bare fill/border/text " +
+                    "(0 = invisible, 1 = unchanged). -1 = inherit, i.e. no multiply. The cheap way " +
+                    "to say 'the same window, unpowered'.",
+                    new AcceptableValueRange<float>(-1f, 1f)));
+            BareFrostMode = cfg.Bind(Section, "GridBareFrost", 0,
+                new ConfigDescription("Frosted backdrop while BARE. 0 = inherit the normal Grid " +
+                    "frost setting, 1 = force on, 2 = force off. The Tier C master and a live " +
+                    "backdrop capture still gate.", new AcceptableValueRange<int>(0, 2)));
+
             // The cached F9 popup descriptor lists close over ConfigEntry references from THIS
             // Bind — drop them so a re-Bind can never serve closures over stale entries.
             _propsFollow = null;
@@ -291,12 +338,30 @@ namespace StationeersUIMod.UI.Grid
 
         // ---- Resolved getters (what TheGridPanel actually paints with) ----------------------
 
+        /// <summary>Apply the bare tier's alpha multiplier, if one is set. Separate from the ref
+        /// override so "the same colours, dimmer" needs one slider and no colour picking.</summary>
+        private static Color BareAlpha(Color c)
+        {
+            if (!BareActive || BareOpacity == null || BareOpacity.Value < 0f) return c;
+            return new Color(c.r, c.g, c.b, c.a * Mathf.Clamp01(BareOpacity.Value));
+        }
+
+        /// <summary>The bare override for one colour: the ref when per-tier is live AND the ref is
+        /// non-empty, else the normal resolution. Alpha multiply applies either way.</summary>
+        private static Color BareOr(ConfigEntry<string> bareRef, Color normal)
+        {
+            if (BareActive && bareRef != null && !string.IsNullOrEmpty(bareRef.Value))
+                return BareAlpha(HudPalette.Resolve(bareRef.Value, normal));
+            return BareAlpha(normal);
+        }
+
         public static Color Fill
         {
             get
             {
-                if (Following || FillRef == null) return GlobalFill;
-                return HudPalette.Resolve(FillRef.Value, GlobalFill);
+                Color normal = (Following || FillRef == null)
+                    ? GlobalFill : HudPalette.Resolve(FillRef.Value, GlobalFill);
+                return BareOr(BareFillRef, normal);
             }
         }
 
@@ -304,8 +369,9 @@ namespace StationeersUIMod.UI.Grid
         {
             get
             {
-                if (Following || BorderRef == null) return GlobalBorder;
-                return HudPalette.Resolve(BorderRef.Value, GlobalBorder);
+                Color normal = (Following || BorderRef == null)
+                    ? GlobalBorder : HudPalette.Resolve(BorderRef.Value, GlobalBorder);
+                return BareOr(BareBorderRef, normal);
             }
         }
 
@@ -313,8 +379,9 @@ namespace StationeersUIMod.UI.Grid
         {
             get
             {
-                if (Following || TextRef == null) return GlobalText;
-                return HudPalette.Resolve(TextRef.Value, GlobalText);
+                Color normal = (Following || TextRef == null)
+                    ? GlobalText : HudPalette.Resolve(TextRef.Value, GlobalText);
+                return BareOr(BareTextRef, normal);
             }
         }
 
@@ -348,7 +415,12 @@ namespace StationeersUIMod.UI.Grid
         /// out. The global Tier C master and a live backdrop capture still gate.</summary>
         public static bool FrostParticipates
         {
-            get { return Following || FrostOn == null || FrostOn.Value; }
+            get
+            {
+                if (BareActive && BareFrostMode != null && BareFrostMode.Value != 0)
+                    return BareFrostMode.Value == 1;
+                return Following || FrostOn == null || FrostOn.Value;
+            }
         }
 
         private static float Flt(ConfigEntry<float> ov, ConfigEntry<float> global, float hard)
@@ -926,6 +998,14 @@ namespace StationeersUIMod.UI.Grid
                 h = h * 31 + (FrostParticipates ? 2 : 1);
                 h = HF(h, FrostOv); h = HF(h, FrostDepthOv);
                 h = HF(h, ShineOv); h = HF(h, IridOv); h = HF(h, ChromaOv);
+                // Per-tier: the resolved Fill/Border/Text above already carry the bare refs and the
+                // alpha multiply, but the SLOT and the raw knobs must fold in too — the hash is
+                // POLLED, so forgetting them would leave an open window on a stale skin across a
+                // tier flip (a silent, hard-to-notice failure).
+                h = h * 31 + (int)Slot;
+                h = h * 31 + (PerTier != null && PerTier.Value ? 2 : 1);
+                h = HF(h, BareOpacity); h = HI(h, BareFrostMode);
+                h = HS(h, BareFillRef); h = HS(h, BareBorderRef); h = HS(h, BareTextRef);
                 return h;
             }
         }
@@ -943,6 +1023,22 @@ namespace StationeersUIMod.UI.Grid
         private static int HI(int h, ConfigEntry<int> e)
         {
             unchecked { return h * 31 + (e != null ? e.Value : 0); }
+        }
+
+        /// <summary>Fold a ColorRef string in. Deliberately NOT string.GetHashCode: that is
+        /// randomised per process on some .NET runtimes, and while this hash is only compared
+        /// against its own previous value, an F6 hot-reload would then read as a theme change on
+        /// every launch. A tiny FNV-1a keeps it deterministic and allocation-free.</summary>
+        private static int HS(int h, ConfigEntry<string> e)
+        {
+            unchecked
+            {
+                string v = e != null ? e.Value : null;
+                uint f = 2166136261u;
+                if (!string.IsNullOrEmpty(v))
+                    for (int i = 0; i < v.Length; i++) f = (f ^ v[i]) * 16777619u;
+                return h * 31 + (int)f;
+            }
         }
 
         private static int Comb(int h, Color c)
@@ -1021,6 +1117,12 @@ namespace StationeersUIMod.UI.Grid
                 "dragged wider."));
             into.Add(HudProp.TabGroup("gridsizes",
                 new List<HudProp> { HudProp.TabPage("Sizes", sizes) }));
+
+            // Per-tier lives OUTSIDE the follow early-out on purpose: "unpowered inventory" is
+            // meaningful whether or not the window follows the global box theme, and the rows read
+            // PerTier live, so both cached list shapes can carry the identical block without a
+            // third cache key.
+            AddPerTierProps(into);
 
             if (following)
             {
@@ -1118,6 +1220,84 @@ namespace StationeersUIMod.UI.Grid
             pages.Add(HudProp.TabPage("Frost & anim", frost));
             into.Add(HudProp.TabGroup("gridstyle", pages));
             return into;
+        }
+
+        /// <summary>The "Per tier (suited vs bare)" block. Appended to BOTH cached list shapes;
+        /// every row reads its ConfigEntry live, so nothing needs a third cache key.</summary>
+        private static void AddPerTierProps(List<HudProp> into)
+        {
+            List<HudProp> tier = new List<HudProp>(7);
+            tier.Add(HudProp.Header("A separate skin while your suit has no power."));
+            tier.Add(HudProp.Bool("Separate BARE style",
+                () => PerTier != null && PerTier.Value,
+                v => { if (PerTier != null) PerTier.Value = v; }));
+            tier.Add(HudProp.Color("Bare window fill (empty = inherit)",
+                () => BareFillRef != null ? BareFillRef.Value : "",
+                v => { if (BareFillRef != null) BareFillRef.Value = v ?? ""; },
+                () => Fill));
+            tier.Add(HudProp.Color("Bare window border (empty = inherit)",
+                () => BareBorderRef != null ? BareBorderRef.Value : "",
+                v => { if (BareBorderRef != null) BareBorderRef.Value = v ?? ""; },
+                () => Border));
+            tier.Add(HudProp.Color("Bare text (empty = inherit)",
+                () => BareTextRef != null ? BareTextRef.Value : "",
+                v => { if (BareTextRef != null) BareTextRef.Value = v ?? ""; },
+                () => Text));
+            tier.Add(Fo("Bare opacity (-1 = inherit)", BareOpacity, 1f,
+                "Multiplies the resolved alpha of the three colours above. The cheap way to say " +
+                "'the same window, unpowered'."));
+            tier.Add(TriState("Bare frosted backdrop", BareFrostMode,
+                "Inherit follows the Grid's own frost setting; the Tier C master still gates."));
+            into.Add(HudProp.TabGroup("gridpertier",
+                new List<HudProp> { HudProp.TabPage("Per tier", tier) }));
+        }
+
+        // ---- theme travel (called by HudTheme.Snapshot / Apply) -----------------------------
+
+        /// <summary>Capture every Grid theme setting into a profile's theme snapshot, keyed
+        /// <c>&lt;prefix&gt;&lt;field name&gt;</c>. Reflects over THIS class's own public static
+        /// ConfigEntry fields, so a knob added above travels with no second edit. Fail-soft per
+        /// entry — a value that will not serialize is skipped, never thrown.</summary>
+        public static void SnapshotInto(List<HudDocument.ThemeEntry> into, string prefix)
+        {
+            if (into == null) return;
+            string p = prefix ?? "";
+            var fields = typeof(GridTheme).GetFields(BindingFlags.Public | BindingFlags.Static);
+            for (int i = 0; i < fields.Length; i++)
+            {
+                var f = fields[i];
+                if (!typeof(ConfigEntryBase).IsAssignableFrom(f.FieldType)) continue;
+                try
+                {
+                    var e = f.GetValue(null) as ConfigEntryBase;
+                    if (e == null) continue;
+                    into.Add(new HudDocument.ThemeEntry { K = p + f.Name, V = e.GetSerializedValue() });
+                }
+                catch { }
+            }
+        }
+
+        /// <summary>Restore what <see cref="SnapshotInto"/> captured. A key ABSENT from the map
+        /// leaves that setting alone — which is what makes the fold non-breaking for profiles
+        /// saved before the Grid theme travelled.</summary>
+        public static void ApplyFrom(Dictionary<string, string> map, string prefix)
+        {
+            if (map == null) return;
+            string p = prefix ?? "";
+            var fields = typeof(GridTheme).GetFields(BindingFlags.Public | BindingFlags.Static);
+            for (int i = 0; i < fields.Length; i++)
+            {
+                var f = fields[i];
+                if (!typeof(ConfigEntryBase).IsAssignableFrom(f.FieldType)) continue;
+                string v;
+                if (!map.TryGetValue(p + f.Name, out v) || v == null) continue;
+                try
+                {
+                    var e = f.GetValue(null) as ConfigEntryBase;
+                    if (e != null) e.SetSerializedValue(v);
+                }
+                catch { }
+            }
         }
 
         /// <summary>A standard -1-sentinel override slider bound straight to its ConfigEntry

@@ -221,7 +221,7 @@ namespace StationeersUIMod.Windows
                         bool inSel = (SelectedElement != null && ReferenceEquals(v, SelectedElement))
                             || _multiIds.Contains(v.Def.Id);
                         if (!inSel) continue;
-                        bool bare = UI.Hud.HudElementView.EditBare(v.Def);
+                        bool bare = UI.Hud.HudElementView.EditBareLayout(v.Def);
                         var mode = UI.Hud.HudElementView.LayoutMode;
                         v.Def.SetXFor(bare, mode, v.Def.XFor(bare, mode) + nx * step);
                         v.Def.SetYFor(bare, mode, v.Def.YFor(bare, mode) + ny * step);
@@ -448,10 +448,11 @@ namespace StationeersUIMod.Windows
             _dragHandle = handle;
             _dragStart = p;
             _dragMoved = false;
-            // Whether this gesture writes the bare override or the base layout follows the
-            // previewed tier (see HudElementView.EditBare); captured once so it stays consistent
-            // across the drag even if a relayout re-reads the preview mid-gesture.
-            _dragBare = UI.Hud.HudElementView.EditBare(v.Def);
+            // Whether this gesture writes the bare LAYOUT override or the base layout follows the
+            // previewed tier (see HudElementView.EditBareLayout — the layout fork is independent of
+            // the per-tier STYLE opt-in); captured once so it stays consistent across the drag even
+            // if a relayout re-reads the preview mid-gesture.
+            _dragBare = UI.Hud.HudElementView.EditBareLayout(v.Def);
             _dragMode = UI.Hud.HudElementView.LayoutMode;
             _origX = v.Def.XFor(_dragBare, _dragMode); _origY = v.Def.YFor(_dragBare, _dragMode);
             _origW = v.Def.WFor(_dragBare, _dragMode); _origH = v.Def.HFor(_dragBare, _dragMode);
@@ -462,7 +463,7 @@ namespace StationeersUIMod.Windows
                 foreach (var view in _views)
                     if (_multiIds.Contains(view.Def.Id))
                     {
-                        bool b = UI.Hud.HudElementView.EditBare(view.Def);
+                        bool b = UI.Hud.HudElementView.EditBareLayout(view.Def);
                         _dragOrig[view.Def.Id] = new Vector2(view.Def.XFor(b, _dragMode), view.Def.YFor(b, _dragMode));
                     }
 
@@ -565,7 +566,7 @@ namespace StationeersUIMod.Windows
                     {
                         Vector2 orig;
                         if (!_dragOrig.TryGetValue(view.Def.Id, out orig)) continue;
-                        bool b = UI.Hud.HudElementView.EditBare(view.Def);
+                        bool b = UI.Hud.HudElementView.EditBareLayout(view.Def);
                         view.Def.SetXFor(b, _dragMode, Snap(orig.x + delta.x, snap, grid));
                         view.Def.SetYFor(b, _dragMode, Snap(orig.y + delta.y, snap, grid));
                         HudSystem.RelayoutElement(view);
@@ -1039,7 +1040,7 @@ namespace StationeersUIMod.Windows
         /// state. A real change becomes exactly one undo step; returning to the precise pre-drag
         /// document creates no dead history entry. If a profile swap already happened, save the
         /// old document directly rather than contaminating the new profile's history.</summary>
-        private static void CommitActiveDrag()
+        internal static void CommitActiveDrag()
         {
             if (!_dragging && _preDrag == null) return;
 
