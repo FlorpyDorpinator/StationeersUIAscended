@@ -678,7 +678,12 @@ namespace StationeersUIMod.UI.Grid
                 // (adversarial review 2026-07-17; Grid finding 2026-07-20). StyleHash folds
                 // FxClockLive, so the hash-gated surfaces repaint on the flip too.
                 bool fxLive = HudSystem.FxClockLive;
-                bool sdfAssigned = shell && fxLive
+                // CUT corners (the visor's global corner-style knob, which the Grid inherits along
+                // with the radius) exist only on the mesh renderer — the sdfglass fragment shader
+                // rebuilds a ROUNDED box from the packed radii. Without this gate the window shell
+                // would stay rounded while every cell inside it chamfered. Same fail-soft shape as
+                // an unavailable bundle: ResetSdf below already handles the mesh fallback.
+                bool sdfAssigned = shell && fxLive && !bg.CornersAreCut
                     && HudConfig.SdfPanels != null && HudConfig.SdfPanels.Value
                     && Core.HudShaderStore.SdfAvailable
                     && HudFxMaterials.Assign(bg, "sdfglass");
@@ -955,6 +960,10 @@ namespace StationeersUIMod.UI.Grid
                 h = Comb(h, Border);
                 h = Comb(h, Text);
                 h = h * 31 + Mathf.RoundToInt(CornerRadius * 16f);
+                // The Grid inherits the visor's corner SHAPE the same way it inherits the radius
+                // (PanelGraphic resolves the -1 sentinel inside OnPopulateMesh). Fold it in or the
+                // hash-gated surfaces keep a stale rounded mesh after an F9 rounded/cut flip.
+                h = HI(h, HudConfig.HudCornerStyle);
                 h = h * 31 + Mathf.RoundToInt(Sheen * 512f);
                 h = h * 31 + Mathf.RoundToInt(Spec * 512f);
                 h = h * 31 + Mathf.RoundToInt(BorderWidth * 64f);

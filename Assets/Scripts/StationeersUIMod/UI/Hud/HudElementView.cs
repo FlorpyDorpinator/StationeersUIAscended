@@ -212,6 +212,28 @@ namespace StationeersUIMod.UI.Hud
             return perCorner >= 0f ? perCorner : global;
         }
 
+        /// <summary>The element's corner STYLE as <see cref="PanelGraphic.CornerCut"/> expects it:
+        /// -1 = follow the global <see cref="HudConfig.HudCornerStyle"/>, 0 = rounded, 1 = cut.
+        ///
+        /// Precedence mirrors <see cref="Radius"/> exactly — an element that FOLLOWS the globals
+        /// hands the panel the -1 sentinel (so it tracks the F9 knob live, the same way the radius
+        /// does), and a Custom element reads its own slot-aware "cornerStyle" param, whose 0 /
+        /// absent value means "still follow the global". Every existing profile therefore resolves
+        /// to -1 and renders exactly as before.</summary>
+        protected int CornerCutFor()
+        {
+            if (UsesGlobalStyle) return -1;
+            int own = Def != null ? Def.GetIFor(LayoutBare, "cornerStyle", 0) : 0;
+            return own == CornerStyleRounded ? 0 : own == CornerStyleCut ? 1 : -1;
+        }
+
+        // The per-element param's own encoding (0 = follow the global, so an absent key is inert).
+        internal const int CornerStyleFollow = 0;
+        internal const int CornerStyleRounded = 1;
+        internal const int CornerStyleCut = 2;
+        private static readonly string[] CornerStyleNames =
+            { "Follow global", "Rounded", "Cut (flat 45 degree)" };
+
         protected float BorderWidthFor()
         {
             float global = HudConfig.BorderWidth != null ? HudConfig.BorderWidth.Value : 1.4f;
@@ -779,7 +801,13 @@ namespace StationeersUIMod.UI.Hud
             // fail-soft invariant: an unavailable bundle or a Mask restriction must never leave
             // an SDF parameter grid drawing as a stock rectangular UI mesh.
             var panel = g.AsGraphic as PanelGraphic;
+            // Corner style is pushed FIRST, because it decides which renderer this panel may take:
+            // the analytic path rebuilds a ROUNDED box from packed radii in the fragment shader and
+            // has no chamfer, so a cut panel keeps the mesh renderer. Contained and honest — the
+            // element loses only the analytic extras (the inspector says so), never its shape.
+            if (panel != null) panel.CornerCut = CornerCutFor();
             bool sdfWanted = panel != null
+                && !panel.CornersAreCut
                 && HudConfig.SdfPanels != null && HudConfig.SdfPanels.Value
                 && Core.HudShaderStore.SdfAvailable;
             bool sdfAssigned = sdfWanted && HudFxMaterials.Assign(g.AsGraphic, "sdfglass");
@@ -1216,6 +1244,18 @@ namespace StationeersUIMod.UI.Hud
                     into.Add(HudProp.F("Corner TR", () => d.RTRFor(EditBare(d)), v => d.SetRTRFor(EditBare(d), Mathf.Max(0f, v)), 0f, 64f));
                     into.Add(HudProp.F("Corner BR", () => d.RBRFor(EditBare(d)), v => d.SetRBRFor(EditBare(d), Mathf.Max(0f, v)), 0f, 64f));
                     into.Add(HudProp.F("Corner BL", () => d.RBLFor(EditBare(d)), v => d.SetRBLFor(EditBare(d), Mathf.Max(0f, v)), 0f, 64f));
+                    // The four sliders above set the SIZE of the corner; this sets its SHAPE.
+                    // Slot-aware through the same EditBare(d) accessors as its neighbours, so a
+                    // per-tier fork picks it up automatically (SeedSlotFromBase reads the prop
+                    // list itself — no key manifest to maintain).
+                    into.Add(HudProp.Enum("Corner style",
+                        () => Mathf.Clamp(d.GetIFor(EditBare(d), "cornerStyle", CornerStyleFollow), 0, 2),
+                        v => d.SetIFor(EditBare(d), "cornerStyle", Mathf.Clamp(v, 0, 2)),
+                        CornerStyleNames));
+                    if (Mathf.Clamp(d.GetIFor(EditBare(d), "cornerStyle", CornerStyleFollow), 0, 2)
+                        == CornerStyleCut)
+                        into.Add(HudProp.Header(
+                            "  Cut corners draw on the classic renderer (the sharp panel shader has no chamfer)"));
                 }
                 else
                 {

@@ -1497,6 +1497,9 @@ namespace StationeersUIMod.UI.Hud
                 + HudConfig.FontScale.Value * 97f
                 + HudConfig.EdgeFeather.Value * 41f   // read inside OnPopulateMesh — meshes
                                                       // must rebuild when the slider moves
+                // Same reasoning: a panel that FOLLOWS the global corner style resolves it inside
+                // OnPopulateMesh (the -1 sentinel), so flipping rounded/cut must re-mesh.
+                + (HudConfig.HudCornerStyle != null ? HudConfig.HudCornerStyle.Value * 1543f : 0f)
                 + EdgeLightStyleHash()                // colour/angle/rim/falloff are read inside the
                                                       // mesh too, so re-mesh when any of them change
                 + (HudConfig.CurveInvert.Value ? 313f : 0f)

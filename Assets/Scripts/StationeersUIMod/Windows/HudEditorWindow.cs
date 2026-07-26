@@ -286,6 +286,7 @@ namespace StationeersUIMod.Windows
             ImGui.Spacing();
             ImGui.TextColored(Accent, "BOX SHAPE");
             FloatSlider(HudConfig.CornerRadius, "Default corner rounding (px)", 0f, 28f);
+            CornerStyleCombo();
             FloatSlider(HudConfig.BorderWidth, "Default line thickness (px)", 0f, 6f);
             FloatSlider(HudConfig.EdgeFeather, "Edge softness / AA (px)", 0f, 4f);
             FloatSlider(HudConfig.GlassSheen, "Default glass sheen", 0f, 1f);
@@ -2148,6 +2149,37 @@ namespace StationeersUIMod.Windows
                 if (ImGui.Selectable("Quarter (soft haze, cheapest)", res == 2)) HudConfig.FxBloomRes.Value = 2;
                 ImGui.EndCombo();
             }
+        }
+
+        /// <summary>Default corner SHAPE for every box that follows the theme: rounded arcs, or a
+        /// flat 45-degree chamfer. The rounding slider above keeps sizing it either way, so
+        /// radius 0 is still a square corner. Marks the theme like its neighbours (the two helpers
+        /// FloatSlider/Toggle do it inline; a combo has to do it per selection).</summary>
+        private static void CornerStyleCombo()
+        {
+            if (HudConfig.HudCornerStyle == null) return;
+            const string round = "Rounded - the corner curves";
+            const string cut = "Cut - the corner is sliced flat";
+            int style = HudConfig.HudCornerStyle.Value == 1 ? 1 : 0;
+            if (ImGui.BeginCombo("Corner style", style == 1 ? cut : round))
+            {
+                if (ImGui.Selectable(round, style == 0) && style != 0)
+                {
+                    HudConfig.HudCornerStyle.Value = 0;
+                    Features.HudProfileStore.MarkThemeChanged();
+                }
+                if (ImGui.Selectable(cut, style == 1) && style != 1)
+                {
+                    HudConfig.HudCornerStyle.Value = 1;
+                    Features.HudProfileStore.MarkThemeChanged();
+                }
+                ImGui.EndCombo();
+            }
+            ImGui.TextDisabled(style == 1
+                ? "  The rounding slider now sets how DEEP the cut bites."
+                : "  Elements can override this in their own popup (Appearance).");
+            if (style == 1)
+                ImGui.TextDisabled("  Cut boxes draw on the classic renderer - the sharp panel shader has no chamfer.");
         }
 
         private static void CurvatureCombo()

@@ -68,6 +68,7 @@ namespace StationeersUIMod.UI.Hud
 
         // Panel styling
         public static ConfigEntry<float> CornerRadius;
+        public static ConfigEntry<int> HudCornerStyle;      // 0 = rounded arcs, 1 = cut (45° chamfer)
         public static ConfigEntry<float> BorderWidth;
         public static ConfigEntry<float> EdgeFeather;
         public static ConfigEntry<float> GlassSheen;
@@ -376,6 +377,13 @@ namespace StationeersUIMod.UI.Hud
 
             CornerRadius = cfg.Bind(S, "CornerRadius", 10f,
                 new ConfigDescription("Panel corner rounding (px).", new AcceptableValueRange<float>(0f, 28f)));
+            HudCornerStyle = cfg.Bind(S, "CornerStyle", 0,
+                new ConfigDescription("Panel corner SHAPE: 0 = rounded (an arc), 1 = cut (a flat 45-degree " +
+                    "chamfer straight across the corner). CornerRadius still sets the SIZE of either, and " +
+                    "0 radius is a square corner in both styles. Elements can override this in their own " +
+                    "popup. Cut corners render on the mesh renderer: the analytic sharp-panel shader " +
+                    "reconstructs a ROUNDED box in the fragment stage, so a cut panel stands down from it.",
+                    new AcceptableValueRange<int>(0, 1)));
             BorderWidth = cfg.Bind(S, "PanelBorderWidth", 1.4f,
                 new ConfigDescription("Panel outline thickness (px) — the thin cyan lines.",
                     new AcceptableValueRange<float>(0f, 6f)));

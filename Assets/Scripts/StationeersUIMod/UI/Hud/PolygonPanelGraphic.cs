@@ -354,9 +354,16 @@ namespace StationeersUIMod.UI.Hud
                 _colOf.Add(totalCols);
                 // Inward glow stops keep a nearly-flat miter (deep inward spikes cross the
                 // medial axis); halo stops fan on a capped miter so a sharp corner can't
-                // shoot a 160px-wide spike. Base stops keep the exact original behaviour.
+                // shoot a 160px-wide spike.
                 float mmIn = Mathf.Min(mm, 1.25f);
                 float mmHalo = Mathf.Min(mm, 1.5f);
+                // Base (fill + border) miter limit. The border band runs OUTWARD from the drawn
+                // contour, so at a very acute CONVEX tip the full miter (up to ~2.86) shoots the
+                // border corner well past the vertex — the "border spills outside the lines I drew"
+                // artifact on a thin wedge / star point. Cap it so a sharp tip bevels blunt instead
+                // of spiking; 90°/gentle corners (miter <= 1.41) are unaffected, so rectangles and
+                // soft blobs render exactly as before.
+                float mmBase = Mathf.Min(mm, 1.6f);
 
                 Color fillC = FillAt(pc.y, hh);
                 if (hasBorder)
@@ -441,8 +448,8 @@ namespace StationeersUIMod.UI.Hud
                     {
                         float d;
                         if (s < inStops) d = _stopD[s] * mmIn;
-                        else if (s < inStops + baseStops) d = _stopD[s] * mm;
-                        else d = outerD * mm + (_stopD[s] - outerD) * mmHalo;
+                        else if (s < inStops + baseStops) d = _stopD[s] * mmBase;
+                        else d = outerD * mmBase + (_stopD[s] - outerD) * mmHalo;
                         AddVertFx(vh, p + dir * d, _stopC[s], _stopM[s], arc, FlowWeight(s, inStops));
                     }
                     totalCols++;
@@ -462,8 +469,8 @@ namespace StationeersUIMod.UI.Hud
                         {
                             float d; Vector2 dd;
                             if (s < inStops) { d = _stopD[s] * mmIn; dd = dir; }
-                            else if (s < inStops + baseStops) { d = _stopD[s] * mm; dd = dir; }
-                            else { d = outerD * mm + (_stopD[s] - outerD); dd = dirK; }
+                            else if (s < inStops + baseStops) { d = _stopD[s] * mmBase; dd = dir; }
+                            else { d = outerD * mmBase + (_stopD[s] - outerD); dd = dirK; }
                             AddVertFx(vh, p + dd * d, _stopC[s], _stopM[s], arc, FlowWeight(s, inStops));
                         }
                         totalCols++;

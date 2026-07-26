@@ -25,6 +25,9 @@ namespace StationeersUIMod.UI.Hud
         private float _rBL = 8f, _rBR = 8f, _rTR = 8f, _rTL = 8f;
         private float _borderWidth = 1.4f;
         private Color _borderColor = Color.clear;
+        // Corner STYLE, independent of the radii: -1 = follow the global, 0 = rounded arcs,
+        // 1 = CUT (a straight chamfer across the corner). See CornerCut.
+        private int _cornerCut = -1;
 
         // Analytic SDF path. The public type deliberately remains PanelGraphic so every existing
         // widget keeps its proven construction/styling code; when the optional shader bundle is
@@ -365,6 +368,35 @@ namespace StationeersUIMod.UI.Hud
             SetVerticesDirty();
         }
 
+        /// <summary>Corner STYLE. -1 (default) = follow the global
+        /// <see cref="HudConfig.HudCornerStyle"/>; 0 = the classic rounded arcs; 1 = CUT — the
+        /// corner arc is replaced by its CHORD, so the corner reads as a flat 45° chamfer and the
+        /// box becomes trapezoidal at every corner. The four RADII keep sizing the corner: they set
+        /// how deep the cut bites, and radius 0 is still a square corner in either style.
+        ///
+        /// Deliberately NOT part of <see cref="SetShape"/>: the existing call sites (the single
+        /// radius delegate and the per-corner overload) keep their signatures, and a widget that
+        /// never touches this property renders exactly as before.
+        ///
+        /// Dirty-on-change like <see cref="BorderWidth"/> — the HUD pushes it every frame.</summary>
+        public int CornerCut
+        {
+            get => _cornerCut;
+            set
+            {
+                int v = Mathf.Clamp(value, -1, 1);
+                if (_cornerCut != v) { _cornerCut = v; SetVerticesDirty(); }
+            }
+        }
+
+        /// <summary>This panel's RESOLVED corner style (the -1 sentinel folded against the global).
+        /// Public because the style pushers must gate the ANALYTIC renderer on it: the SDF path
+        /// derives its silhouette in the fragment shader from packed radii and cannot chamfer, so a
+        /// cut panel has to stay on the mesh renderer (see <c>HudElementView.ApplyFx</c>).</summary>
+        public bool CornersAreCut => _cornerCut >= 0
+            ? _cornerCut == 1
+            : (HudConfig.HudCornerStyle != null && HudConfig.HudCornerStyle.Value == 1);
+
         public void Refresh() => SetVerticesDirty();
 
         private float _featherOverride = -1f;
@@ -486,6 +518,15 @@ namespace StationeersUIMod.UI.Hud
             float ex = hw + skirt, ey = hh + skirt;
             int nx = Mathf.Clamp(Mathf.CeilToInt(ex * 2f / 48f), 1, 64);
             int ny = Mathf.Clamp(Mathf.CeilToInt(ey * 2f / 48f), 1, 40);
+
+            // NOTE (corner style): this grid carries NO silhouette — the shader reconstructs the
+            // rounded box analytically from the packed radii below, so <see cref="CornerCut"/>
+            // cannot be expressed here without a shader/bundle change. The style pushers therefore
+            // keep a CUT panel off this path entirely (HudElementView.ApplyFx / GridTheme.ApplyCore)
+            // rather than silently drawing it rounded. Future shader-side option: the superellipse
+            // exponent packed into `tangent.y` already shapes the corner — extending its authored
+            // range below 2 toward p = 1 would give the fragment path a true diamond/chamfer, but
+            // the range is quantized as (p-2)/6 in the ABI, so it needs a coordinated bundle rebuild.
 
             // CSS-normalize radii exactly like the mesh fallback before packing them.
             float rBL = Mathf.Clamp(_rBL, 0f, Mathf.Min(hw, hh));
@@ -1011,6 +1052,35 @@ namespace StationeersUIMod.UI.Hud
             float ripAtt1 = 1f, ripAtt2 = 1f, ripAtt3 = 1f;   // F3 accumulators (min over runs)
             bool wantLw = hasGlow || hasGlowIn;               // is the soft lobe read at all?
 
+            // ── CHAMFERED ("cut") CORNERS. A corner is a disc sweep emitted as an arc of columns
+            // from the incoming edge's outward normal to the outgoing one. The chamfer is that arc
+            // replaced by its CHORD, which in this column system is exactly "emit only the two
+            // ENDPOINT columns" — the same two points the rounded corner already lands on (they sit
+            // ON the rect sides, where the straight runs start and end), with the strip
+            // triangulation drawing a straight segment between them. Hence a single segment count.
+            //
+            // Why the endpoints keep their ARC-endpoint normals rather than the chord's own: every
+            // stop offsets along its column's normal, so the two endpoints extrude along the
+            // adjacent EDGE normals. Their outer points are P0 + d*nIn and P1 + d*nOut, and for a
+            // 90° corner that line is exactly PARALLEL to the chord — i.e. a mitre join, so the
+            // border band, the soft-edge skirt and the halo all come out chamfered too, and each
+            // band meets the neighbouring straight run with no notch (a chord-normal offset would
+            // step sideways at both tangent points). The band across the cut is thinner by
+            // cos(half-sweep) (0.707 at a right angle) — the standard bevel behaviour, and the
+            // visible result is a frame whose cut face is a true parallel line.
+            //
+            // Everything else is untouched by construction: the corner-centre polygon, the CSS
+            // radius normalization, the inner-ramp bound (rMin, still the smallest radius), the
+            // per-corner mitre factors and the F5 CornerBandBase all key off the radii, not the
+            // segment count. The F5 note's bowtie risk is about stop-0 COLLAPSING onto the corner
+            // centre, which CornerBandBase still prevents; and the corner columns still carry
+            // glowFade = 0, so their inner-band stops remain the raw fill colour and stop-0 is not
+            // a colour boundary — 2 columns there change the triangulation, never a value.
+            // F4's arc-length light smoothing likewise still runs over these columns, so the
+            // light-weight kink the cut introduces at each chamfer endpoint is rounded off by the
+            // very machinery that exists for the arc's kink.
+            bool cutCorners = CornersAreCut;
+
             void AddColumn(Vector2 dir, Vector2 onShape, float innerCap, float glowFade)
             {
                 _colDir.Add(dir);
@@ -1041,7 +1111,14 @@ namespace StationeersUIMod.UI.Hud
                 // edge reaches AND how wide this corner's sweep is (trapezoid slant corners
                 // sweep well past 90°); zero-skirt panels keep the classic Ceil(rc/2) fan.
                 int segCap = skirtExtra > 0.5f ? 32 : 12;
-                int cornerSegs = Mathf.Clamp(Mathf.CeilToInt(rc * 0.5f
+                // ONE segment = the chord = the chamfer (i = 0 and i = cornerSegs are the arc's own
+                // endpoints, so the tangent points — and every straight run that starts/ends on
+                // them — are bit-identical to the rounded case). No warp subdivision is added for
+                // the chord: it spans at most ~2*rc (radii are capped at min(hw,hh), and the
+                // authored sliders top out at 28/64 px), and the interpolation sag of a straight
+                // span under the visor warp goes as curvature*L^2/8 — sub-0.1px at these lengths,
+                // where the 48px straight-edge rule exists for the 2500px top bar.
+                int cornerSegs = cutCorners ? 1 : Mathf.Clamp(Mathf.CeilToInt(rc * 0.5f
                     + skirtExtra * 0.35f * ((aOut - aIn) / (Mathf.PI * 0.5f))), 3, segCap);
                 // F5: Max(rc, rampD) placed stop-0 ON the corner centre and collapsed the whole
                 // arc onto one vertex; CornerBandBase stops a hair (<= 0.75px) short. The edge
