@@ -9,6 +9,13 @@
 // Distance honesty:
 //   * With no trapezoid inset and exponent 2, RoundedSuperBox is the exact signed distance to
 //     the selected-radius rounded rectangle.
+//   * Exponent 1 is the CUT (chamfer) corner style: the L1 norm's zero contour is exactly the
+//     45-degree chord across the corner.  The raw L1 field is NOT Euclidean (its gradient is
+//     sqrt(2) across the cut face, which would shrink every authored band there by 29% and step
+//     by 1.41x at the chamfer's end vertices), so that quadrant is evaluated as the exact signed
+//     distance to the chamfer SEGMENT instead - perpendicular bands along the cut, circular
+//     bands around its end vertices.  That is the same Minkowski disc sweep the mesh renderer
+//     performs, so a cut panel's border/feather/halo depths match a rounded one exactly.
 //   * Exponents above 2 retain the exact requested superellipse ZERO CONTOUR.  Outside starts
 //     from the analytic p-norm surrogate with a first-order gradient-metric correction for band
 //     width; deep inside, a compact C1 smooth-max removes the rounded-box medial-axis crease.
@@ -25,7 +32,11 @@ Shader "UIA/HudPanelSdf"
     {
         [PerRendererData] _MainTex ("Sprite Texture", 2D) = "white" {}
         _Color ("Tint", Color) = (1,1,1,1)
-        [HideInInspector] _UiaSdfAbiVersion ("UIA SDF ABI Version", Float) = 2
+        // ABI 3 (2026-07-26): the packed superellipse exponent lane may carry the EXTENDED
+        // p in [1,8] encoding, (p-1)/7, announced per panel by flag bit 256.  Panels that do
+        // not set that bit keep the ABI-2 lane, (p-2)/6 over p in [2,8], bit-for-bit - so an
+        // older DLL paired with this bundle still decodes its squircles exactly.
+        [HideInInspector] _UiaSdfAbiVersion ("UIA SDF ABI Version", Float) = 3
 
         _StencilComp ("Stencil Comparison", Float) = 8
         _Stencil ("Stencil ID", Float) = 0
@@ -229,6 +240,10 @@ Shader "UIA/HudPanelSdf"
                 // pow() operations for an ordinary Euclidean length.
                 if (abs(exponent - 2.0) < 0.001)
                     return sqrt(dot(q, q));
+                // Exponent 1 is the L1 norm (the chamfer contour).  Never route it through the
+                // pow() form: pow(0, exponent - 1) is pow(0,0) there, which is exp2(0 * -INF).
+                if (exponent < 1.5)
+                    return q.x + q.y;
                 return pow(pow(q.x, exponent) + pow(q.y, exponent), 1.0 / exponent);
             }
 
@@ -256,36 +271,87 @@ Shader "UIA/HudPanelSdf"
                 float2 q = abs(p) - halfSize + radius;
                 float2 outside = max(q, 0.0);
                 float inside = min(max(q.x, q.y), 0.0);
-                float superDistance = SuperNorm(outside, exponent);
-                float distance = inside + superDistance - radius;
 
                 float2 n;
+                float distance;
                 fieldMetricScale = 1.0;
-                if (outside.x > 0.0 || outside.y > 0.0)
+                if (exponent < 1.5)
                 {
-                    // Direction of the p-norm gradient; its raw magnitude is retained separately
-                    // as a first-order distance metric for authored bands.
-                    if (abs(exponent - 2.0) < 0.001 || superDistance < 1e-4)
+                    // ── CUT (chamfer) corners.  p = 1 IS the chamfer: the L1 zero contour
+                    // q.x + q.y = radius is exactly the chord across the corner, and radius
+                    // keeps sizing it (0 = a square corner, as on the mesh path).
+                    //
+                    // The raw L1 magnitude is deliberately NOT used as the field.  Its gradient
+                    // is sqrt(2) wherever both components are positive, so every authored band
+                    // (border, feather, soft edge, halo, frost rim depth) would be 1/sqrt(2) =
+                    // 71% as deep across the cut face and would STEP by 1.41x at the chamfer's
+                    // end vertices.  Instead evaluate the exact Euclidean distance to the
+                    // chamfer SEGMENT (0,radius)-(radius,0) in the folded corner quadrant, and
+                    // the exact convex-polygon interior distance elsewhere.  Both pieces agree
+                    // on the seam q.x = 0 / q.y = 0, so the field is continuous, unit-gradient,
+                    // and reproduces the mesh renderer's Minkowski disc sweep: straight bands
+                    // along the cut, circular bands wrapping its two end vertices.
+                    const float invSqrt2 = 0.70710678;
+                    float cutPlane = (q.x + q.y - radius) * invSqrt2; // signed dist to the cut LINE
+                    if (q.x > 0.0 && q.y > 0.0)
                     {
-                        n = outside;
+                        float along = (q.x - q.y) * invSqrt2;          // position along the cut
+                        // Past an end vertex the nearest boundary point is that vertex, so the
+                        // remaining offset is measured radially - this is the corner rounding
+                        // of the OUTWARD offset, not of the silhouette.
+                        float excess = max(abs(along) - radius * invSqrt2, 0.0);
+                        float segmentDistance = sqrt(cutPlane * cutPlane + excess * excess);
+                        distance = cutPlane >= 0.0 ? segmentDistance : -segmentDistance;
+                        float2 gradient = cutPlane * float2(invSqrt2, invSqrt2)
+                            + (along >= 0.0 ? excess : -excess) * float2(invSqrt2, -invSqrt2);
+                        n = cutPlane >= 0.0 ? gradient : -gradient;
                     }
                     else
                     {
-                        // Normalize q by its p-norm first.  This is algebraically identical to
-                        // dividing q^(n-1) by norm(q)^(n-1), but stays well-conditioned for
-                        // subpixel radii and saves a third general pow().
-                        float2 rawGradient = pow(outside / superDistance, exponent - 1.0);
-                        // p-norm fields are not Euclidean: their gradient is ~0.77 at an n=8
-                        // diagonal.  Preserve the documented surrogate, but expose its local
-                        // metric so authored border/glow widths do not become 30% thicker there.
-                        fieldMetricScale = length(rawGradient);
-                        n = rawGradient;
+                        // Straight-side quadrants.  The cut plane can still be the nearest
+                        // boundary just inside the corner, and max() over a convex body's
+                        // half-planes is its exact interior distance - which is also what keeps
+                        // this branch continuous with the segment branch at the seam.
+                        float straight = max(q.x, q.y) - radius;
+                        bool planeWins = cutPlane >= straight;
+                        distance = planeWins ? cutPlane : straight;
+                        n = planeWins ? float2(invSqrt2, invSqrt2)
+                            : (q.x > q.y ? float2(1.0, 0.0) : float2(0.0, 1.0));
                     }
                     n *= rsqrt(max(dot(n, n), 1e-8));
                 }
                 else
                 {
-                    n = q.x > q.y ? float2(1.0, 0.0) : float2(0.0, 1.0);
+                    // ── ROUNDED / squircle corners (exponent 2..8), unchanged from ABI 2.
+                    float superDistance = SuperNorm(outside, exponent);
+                    distance = inside + superDistance - radius;
+
+                    if (outside.x > 0.0 || outside.y > 0.0)
+                    {
+                        // Direction of the p-norm gradient; its raw magnitude is retained
+                        // separately as a first-order distance metric for authored bands.
+                        if (abs(exponent - 2.0) < 0.001 || superDistance < 1e-4)
+                        {
+                            n = outside;
+                        }
+                        else
+                        {
+                            // Normalize q by its p-norm first.  This is algebraically identical
+                            // to dividing q^(n-1) by norm(q)^(n-1), but stays well-conditioned
+                            // for subpixel radii and saves a third general pow().
+                            float2 rawGradient = pow(outside / superDistance, exponent - 1.0);
+                            // p-norm fields are not Euclidean: their gradient is ~0.77 at an n=8
+                            // diagonal.  Preserve the documented surrogate, but expose its local
+                            // metric so authored border/glow widths do not become 30% thicker.
+                            fieldMetricScale = length(rawGradient);
+                            n = rawGradient;
+                        }
+                        n *= rsqrt(max(dot(n, n), 1e-8));
+                    }
+                    else
+                    {
+                        n = q.x > q.y ? float2(1.0, 0.0) : float2(0.0, 1.0);
+                    }
                 }
 
                 // A true rounded-box SDF necessarily has a max() medial axis deep inside.  Wide
@@ -554,6 +620,10 @@ Shader "UIA/HudPanelSdf"
                     radiusTRTL.x, radiusTRTL.y);
                 float2 insets = Unpack01(IN.radiiInset.z) * 1024.0; // top, bottom
 
+                // flags is now 9 bits (bit 256 = extended exponent lane), so this lane reaches
+                // ~8192 instead of ~4096.  float32 spacing there is ~1e-3, which only costs the
+                // co-packed border width a sub-milli-pixel rounding - the same margin the
+                // 8-bit-flags version already ran with.
                 float flags = floor(IN.radiiInset.w * (1.0 / 16.0) + 1e-4);
                 float borderWidth = max(0.0, IN.radiiInset.w - flags * 16.0);
 
@@ -638,7 +708,14 @@ Shader "UIA/HudPanelSdf"
                 float frostAmount = frostStyle.x;
                 float frostDepth = frostStyle.y;
                 float chromaAmount = chromaSuper.x;
-                float exponent = 2.0 + chromaSuper.y * 6.0;
+                // Superellipse exponent lane.  ABI-3 panels announce the EXTENDED encoding with
+                // flag 256: p in [1,8] as (p-1)/7, where p = 1 IS the CUT (chamfer) corner style
+                // and 2..8 stay round..squircle.  Without that bit the lane is the ABI-2
+                // encoding, (p-2)/6 over [2,8], so a panel packed by an OLDER DLL against this
+                // bundle still decodes its authored squircle bit-for-bit.
+                float exponent = FlagBit(flags, 256.0) > 0.5
+                    ? 1.0 + chromaSuper.y * 7.0
+                    : 2.0 + chromaSuper.y * 6.0;
                 float shineAmount = shineIrid.x * 2.0;
                 float iridAmount = shineIrid.y;
 

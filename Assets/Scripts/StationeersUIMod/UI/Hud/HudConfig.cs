@@ -381,8 +381,9 @@ namespace StationeersUIMod.UI.Hud
                 new ConfigDescription("Panel corner SHAPE: 0 = rounded (an arc), 1 = cut (a flat 45-degree " +
                     "chamfer straight across the corner). CornerRadius still sets the SIZE of either, and " +
                     "0 radius is a square corner in both styles. Elements can override this in their own " +
-                    "popup. Cut corners render on the mesh renderer: the analytic sharp-panel shader " +
-                    "reconstructs a ROUNDED box in the fragment stage, so a cut panel stands down from it.",
+                    "popup. Both styles draw on the analytic sharp-panel shader (its superellipse " +
+                    "exponent drops to 1, whose L1 zero contour IS the chamfer), so a cut panel keeps " +
+                    "the full effect set; only an out-of-date effects bundle falls back to the mesh renderer.",
                     new AcceptableValueRange<int>(0, 1)));
             BorderWidth = cfg.Bind(S, "PanelBorderWidth", 1.4f,
                 new ConfigDescription("Panel outline thickness (px) — the thin cyan lines.",
@@ -403,7 +404,9 @@ namespace StationeersUIMod.UI.Hud
                 "Requires uia_effects.bundle and fails soft to the existing PanelGraphic mesh.");
             SdfSquircle = cfg.Bind(S, "SdfSquircleExponent", 2f,
                 new ConfigDescription("Global SDF corner exponent: 2 = circular rounded corners; " +
-                    "higher values produce a squircle/superellipse shoulder.",
+                    "higher values produce a squircle/superellipse shoulder. Ignored while CornerStyle " +
+                    "is Cut — the chamfer is exponent 1, a different corner geometry — and restored " +
+                    "untouched when Cut is switched off.",
                     new AcceptableValueRange<float>(2f, 8f)));
             SdfGaussianHalo = cfg.Bind(S, "SdfGaussianHalo", false,
                 "Use the shader's Gaussian distance falloff instead of the cheaper smooth distance ramp. " +

@@ -61,6 +61,21 @@ namespace StationeersUIMod.Core
         /// the matching material can actually be assigned.</summary>
         public static bool SdfAvailable { get; private set; }
 
+        /// <summary>The resident <c>UIA/HudPanelSdf</c> shader's declared <c>_UiaSdfAbiVersion</c>
+        /// (0 when no SDF shader resolved). Minimum 2 is required for <see cref="SdfAvailable"/>;
+        /// individual features that need a LATER contract gate on this value instead of forking
+        /// the whole renderer, so one stale bundle costs exactly one feature.</summary>
+        public static int SdfAbi { get; private set; }
+
+        /// <summary>True when the resident panel-SDF shader understands the EXTENDED superellipse
+        /// exponent lane — p in [1,8] packed as (p-1)/7 and announced per panel by flag bit 256
+        /// (ABI 3). Exponent 1 is the L1 norm, whose zero contour IS the 45-degree chamfer, so
+        /// this is what lets a CUT panel stay on the analytic renderer with the full frost /
+        /// chroma / halo-v2 / edge-flow / dissolve / shine / iridescence set. False (an ABI-2
+        /// bundle, or none) keeps the pre-0.9.2.6 behaviour exactly: cut panels render on the
+        /// mesh path, and every packed exponent uses the old (p-2)/6 lane.</summary>
+        public static bool SdfCutAvailable => SdfAbi >= 3;
+
         /// <summary>True when the resident mesh-FX shaders (HudEdgeFX/HudGlass) understand the
         /// uv1 flow payload (<c>_UiaFlowAbiVersion</c> >= 1). A pre-flow RESIDENT bundle after
         /// F6 still registers the edgefx/glass families (TierBAvailable stays true), but its
@@ -127,12 +142,22 @@ namespace StationeersUIMod.Core
                     && SupportsAbi(edgeFx, "_UiaFlowAbiVersion", 1f);
                 if (panelSdf != null)
                 {
-                    if (SupportsSdfAbi(panelSdf, 2f))
+                    // Read the ABI ONCE and keep the number: the renderer needs >= 2, while the
+                    // cut-corner exponent lane needs >= 3. Anything older simply loses the newer
+                    // feature (PanelGraphic then packs the legacy lane and the style pushers keep
+                    // cut panels on the mesh renderer) — never the whole analytic path.
+                    SdfAbi = Mathf.FloorToInt(ReadAbi(panelSdf, "_UiaSdfAbiVersion"));
+                    if (SdfAbi >= 2)
                         SdfAvailable = HudFxMaterials.Register("sdfglass", panelSdf) != null;
                     else
                         UIALog.Warn("HudShaderStore: resident UIA/HudPanelSdf is ABI 1 or unknown. " +
                             "Analytic panels remain on the mesh fallback until the rebuilt bundle is " +
                             "loaded by a full game restart.");
+                    if (SdfAvailable && SdfAbi < 3)
+                        UIALog.Warn("HudShaderStore: resident UIA/HudPanelSdf is ABI " + SdfAbi +
+                            " (cut corners need ABI 3). CUT panels keep the mesh renderer and lose " +
+                            "the analytic extras until the rebuilt bundle is loaded by a full game " +
+                            "restart; rounded panels are unaffected.");
                     anyRegistered |= SdfAvailable;
                 }
 
@@ -147,25 +172,29 @@ namespace StationeersUIMod.Core
             {
                 TierBAvailable = false;
                 SdfAvailable = false;
+                SdfAbi = 0;
                 UIALog.Warn("HudShaderStore: shader bundle load failed (" + e.Message +
                             "). Tier B/C disabled; Tier A fallbacks active.");
             }
         }
 
-        private static bool SupportsSdfAbi(Shader shader, float minimum)
-            => SupportsAbi(shader, "_UiaSdfAbiVersion", minimum);
-
         private static bool SupportsAbi(Shader shader, string versionProperty, float minimum)
+            => ReadAbi(shader, versionProperty) >= minimum;
+
+        /// <summary>The shader's declared ABI stamp, or 0 when the shader is missing, carries no
+        /// such property (a pre-stamp build) or the probe throws. Never throws.</summary>
+        private static float ReadAbi(Shader shader, string versionProperty)
         {
-            if (shader == null) return false;
+            if (shader == null) return 0f;
             Material probe = null;
             try
             {
                 probe = new Material(shader) { hideFlags = HideFlags.DontSave };
                 return probe.HasProperty(versionProperty)
-                    && probe.GetFloat(versionProperty) >= minimum;
+                    ? probe.GetFloat(versionProperty)
+                    : 0f;
             }
-            catch { return false; }
+            catch { return 0f; }
             finally
             {
                 if (probe != null) UnityEngine.Object.Destroy(probe);
@@ -297,6 +326,7 @@ namespace StationeersUIMod.Core
             BloomShader = null;
             TierBAvailable = false;
             SdfAvailable = false;
+            SdfAbi = 0;
             FlowAbiAvailable = false;
             _attempted = false; // let the next life re-attempt the load
         }

@@ -793,7 +793,11 @@ namespace StationeersUIMod.Windows
             if (ImGui.CollapsingHeader("Renderer status", ImGuiTreeNodeFlags.DefaultOpen))
             {
                 ImGui.Text("Effects bundle: " + (Core.HudShaderStore.TierBAvailable ? "READY" : "NOT LOADED"));
-                ImGui.Text("Analytic panel shader: " + (Core.HudShaderStore.SdfAvailable ? "READY" : "FALLBACK MESH"));
+                ImGui.Text("Analytic panel shader: " + (Core.HudShaderStore.SdfAvailable ? "READY" : "FALLBACK MESH")
+                    + "  (ABI " + Core.HudShaderStore.SdfAbi + ")");
+                if (Core.HudShaderStore.SdfAvailable && !Core.HudShaderStore.SdfCutAvailable)
+                    ImGui.TextColored(WarnCol,
+                        "  ABI 3 adds cut corners on this shader - rebuild uia_effects.bundle, then restart.");
                 ImGui.Text("Frost capture: " + (HudBackdrop.Active ? "ACTIVE" : "IDLE"));
                 ImGui.Text("Bloom: " + (HudBloomFx.Available ? "AVAILABLE" : "UNAVAILABLE"));
             }
@@ -2178,8 +2182,14 @@ namespace StationeersUIMod.Windows
             ImGui.TextDisabled(style == 1
                 ? "  The rounding slider now sets how DEEP the cut bites."
                 : "  Elements can override this in their own popup (Appearance).");
-            if (style == 1)
-                ImGui.TextDisabled("  Cut boxes draw on the classic renderer - the sharp panel shader has no chamfer.");
+            // Cut corners are native to the sharp panel shader from ABI 3 on (exponent 1 = the L1
+            // norm, whose zero contour IS the chamfer), so only say something when the OLD
+            // fallback is actually live.
+            if (style == 1 && HudConfig.SdfPanels != null && HudConfig.SdfPanels.Value
+                && Core.HudShaderStore.SdfAvailable && !Core.HudShaderStore.SdfCutAvailable)
+                ImGui.TextColored(WarnCol,
+                    "  This effects bundle cannot cut corners on the sharp panel shader - cut boxes"
+                    + " keep their shape on the classic renderer (rebuild the bundle, then restart).");
         }
 
         private static void CurvatureCombo()

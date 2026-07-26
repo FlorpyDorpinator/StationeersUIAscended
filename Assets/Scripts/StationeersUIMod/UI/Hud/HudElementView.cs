@@ -812,13 +812,16 @@ namespace StationeersUIMod.UI.Hud
             // fail-soft invariant: an unavailable bundle or a Mask restriction must never leave
             // an SDF parameter grid drawing as a stock rectangular UI mesh.
             var panel = g.AsGraphic as PanelGraphic;
-            // Corner style is pushed FIRST, because it decides which renderer this panel may take:
-            // the analytic path rebuilds a ROUNDED box from packed radii in the fragment shader and
-            // has no chamfer, so a cut panel keeps the mesh renderer. Contained and honest — the
-            // element loses only the analytic extras (the inspector says so), never its shape.
+            // Corner style is pushed FIRST, because with an OLD bundle it still decides which
+            // renderer this panel may take. Since 0.9.2.6 the analytic shader draws the chamfer
+            // natively (superellipse exponent 1 = the L1 norm, whose zero contour IS the cut), so
+            // a cut panel keeps the full analytic feature set — frost, chroma, halo v2, edge flow,
+            // dissolve, shine, iridescence — differing from a rounded one only in corner shape.
+            // An ABI-2 bundle cannot decode that exponent, so there the pre-existing fallback
+            // stands: the panel keeps its SHAPE on the mesh renderer and loses only the extras.
             if (panel != null) panel.CornerCut = CornerCutFor();
             bool sdfWanted = panel != null
-                && !panel.CornersAreCut
+                && (!panel.CornersAreCut || Core.HudShaderStore.SdfCutAvailable)
                 && HudConfig.SdfPanels != null && HudConfig.SdfPanels.Value
                 && Core.HudShaderStore.SdfAvailable;
             bool sdfAssigned = sdfWanted && HudFxMaterials.Assign(g.AsGraphic, "sdfglass");
@@ -1276,10 +1279,18 @@ namespace StationeersUIMod.UI.Hud
                         () => Mathf.Clamp(d.GetIFor(EditBare(d), "cornerStyle", CornerStyleFollow), 0, 2),
                         v => d.SetIFor(EditBare(d), "cornerStyle", Mathf.Clamp(v, 0, 2)),
                         CornerStyleNames));
+                    // The chamfer is native to the sharp panel shader from ABI 3 on, so this hint
+                    // only appears when the FALLBACK is actually active — i.e. an older effects
+                    // bundle is resident. With a current bundle a cut box is as rich as a rounded
+                    // one and there is nothing to warn about.
                     if (Mathf.Clamp(d.GetIFor(EditBare(d), "cornerStyle", CornerStyleFollow), 0, 2)
-                        == CornerStyleCut)
+                            == CornerStyleCut
+                        && HudConfig.SdfPanels != null && HudConfig.SdfPanels.Value
+                        && Core.HudShaderStore.SdfAvailable
+                        && !Core.HudShaderStore.SdfCutAvailable)
                         into.Add(HudProp.Header(
-                            "  Cut corners draw on the classic renderer (the sharp panel shader has no chamfer)"));
+                            "  This bundle is too old to cut corners on the sharp panel shader — "
+                            + "the box keeps its shape on the classic renderer"));
                 }
                 else
                 {
@@ -1298,6 +1309,14 @@ namespace StationeersUIMod.UI.Hud
                 {
                     into.Add(HudProp.F("Corner shape (2=round, 8=squircle)", () => gf("squircle", 2f),
                         v => sf("squircle", Mathf.Clamp(v, 2f, 8f)), 2f, 8f));
+                    // Cut and squircle are mutually exclusive corner GEOMETRIES (the shader packs
+                    // exponent 1 for the cut), so say so rather than let the slider look broken.
+                    // The authored value is kept and resumes the moment Cut is off.
+                    if (CornerCutFor() == 1
+                        || (CornerCutFor() < 0 && HudConfig.HudCornerStyle != null
+                            && HudConfig.HudCornerStyle.Value == 1))
+                        into.Add(HudProp.Header(
+                            "  Cut corners replace the squircle shoulder — this returns when Cut is off"));
                     into.Add(HudProp.Bool("Gaussian-distance halo", () => gb("gaussianHalo", false),
                         v => sb("gaussianHalo", v)));
                 }

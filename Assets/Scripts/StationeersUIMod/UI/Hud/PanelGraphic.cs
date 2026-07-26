@@ -59,6 +59,9 @@ namespace StationeersUIMod.UI.Hud
         {
             haloOrganicScale = float.IsNaN(haloOrganicScale)
                 ? 1f : Mathf.Clamp(haloOrganicScale, 0.25f, 4f);
+            // The AUTHORED squircle keeps its [2,8] contract. Exponent 1 (the cut corner) is not
+            // an authored value — it is resolved from CornerCut at pack time in PopulateSdfMesh,
+            // so flipping Cut off restores this authored shoulder untouched.
             squircle = float.IsNaN(squircle) ? 2f : Mathf.Clamp(squircle, 2f, 8f);
             edgeFlowSpeed = float.IsNaN(edgeFlowSpeed) ? 0f : Mathf.Clamp(edgeFlowSpeed, 0f, 4f);
             frostAmount = float.IsNaN(frostAmount) ? 0f : Mathf.Clamp01(frostAmount);
@@ -390,9 +393,11 @@ namespace StationeersUIMod.UI.Hud
         }
 
         /// <summary>This panel's RESOLVED corner style (the -1 sentinel folded against the global).
-        /// Public because the style pushers must gate the ANALYTIC renderer on it: the SDF path
-        /// derives its silhouette in the fragment shader from packed radii and cannot chamfer, so a
-        /// cut panel has to stay on the mesh renderer (see <c>HudElementView.ApplyFx</c>).</summary>
+        /// Public because it selects the analytic renderer's corner geometry: an ABI-3 bundle
+        /// draws the chamfer natively (the packed superellipse exponent drops to 1, whose L1 zero
+        /// contour IS the cut), while an ABI-2/absent bundle still cannot, so the style pushers
+        /// keep a cut panel on the mesh renderer in that case (see <c>HudElementView.ApplyFx</c>,
+        /// <c>GridTheme.ApplyCore</c> and <see cref="Core.HudShaderStore.SdfCutAvailable"/>).</summary>
         public bool CornersAreCut => _cornerCut >= 0
             ? _cornerCut == 1
             : (HudConfig.HudCornerStyle != null && HudConfig.HudCornerStyle.Value == 1);
@@ -534,14 +539,30 @@ namespace StationeersUIMod.UI.Hud
             int nx = Mathf.Clamp(Mathf.CeilToInt(ex * 2f / 48f), 1, 64);
             int ny = Mathf.Clamp(Mathf.CeilToInt(ey * 2f / 48f), 1, 40);
 
-            // NOTE (corner style): this grid carries NO silhouette — the shader reconstructs the
-            // rounded box analytically from the packed radii below, so <see cref="CornerCut"/>
-            // cannot be expressed here without a shader/bundle change. The style pushers therefore
-            // keep a CUT panel off this path entirely (HudElementView.ApplyFx / GridTheme.ApplyCore)
-            // rather than silently drawing it rounded. Future shader-side option: the superellipse
-            // exponent packed into `tangent.y` already shapes the corner — extending its authored
-            // range below 2 toward p = 1 would give the fragment path a true diamond/chamfer, but
-            // the range is quantized as (p-2)/6 in the ABI, so it needs a coordinated bundle rebuild.
+            // CORNER STYLE (0.9.2.6): this grid still carries NO silhouette — the shader rebuilds
+            // it analytically from the packed radii + the superellipse exponent below — but the
+            // exponent IS the corner shape, and p = 1 (the L1 norm) has the 45-degree chamfer as
+            // its exact zero contour. An ABI-3 bundle therefore draws CUT corners on this path:
+            // pack exponent 1 and the per-corner radii size the cut exactly as they size the arc.
+            // Cut and squircle are mutually exclusive corner geometries, so Cut OVERRIDES the
+            // authored squircle and the authored value resumes the moment Cut is off.
+            //
+            // ABI handshake, fail-soft in BOTH directions:
+            //   * new DLL + ABI-2 (or missing) bundle -> SdfCutAvailable is false, we pack the
+            //     LEGACY (p-2)/6 lane and set no flag, and the style pushers keep a cut panel on
+            //     the mesh renderer exactly as they did before this change;
+            //   * old DLL + ABI-3 bundle -> the old DLL never sets flag 256, and the new shader
+            //     decodes the legacy lane bit-for-bit.
+            bool sdfCutAbi = Core.HudShaderStore.SdfCutAvailable;
+            bool packCut = sdfCutAbi && CornersAreCut;
+            // Authored squircle stays [2,8]; the extended lane only widens the ENCODING.
+            float sdfExponent = packCut ? 1f : Mathf.Clamp(_sdfSquircle, 2f, 8f);
+            // (p-1)/7 over [1,8] when the bundle understands it, else (p-2)/6 over [2,8].
+            // 4095 = 7 x 585, so every integer exponent 1..8 now lands on an exact code point;
+            // worst-case decode error rises only from 6/8190 to 7/8190 (<= 0.001 in p).
+            float sdfExponentLane = sdfCutAbi
+                ? (sdfExponent - 1f) / 7f
+                : (sdfExponent - 2f) / 6f;
 
             // CSS-normalize radii exactly like the mesh fallback before packing them.
             float rBL = Mathf.Clamp(_rBL, 0f, Mathf.Min(hw, hh));
@@ -559,6 +580,10 @@ namespace StationeersUIMod.UI.Hud
             if (_sdfGaussianHalo) flags |= 16;
             if (_sdfDissolve) flags |= 32;
             if (fadeV2) flags |= 128;
+            // Bit 256 = "the exponent lane uses the ABI-3 (p-1)/7 encoding". In-band, exactly
+            // like bits 64/128: it is what makes an old DLL against a new bundle exact, and it
+            // costs the co-packed border width a sub-milli-pixel of float precision.
+            if (sdfCutAbi) flags |= 256;
 
             // ABI v2 is conditional. Untouched panels retain the exact original 12+12-bit
             // Pack01 streams. V2 stores each legacy value in the high eight bits of its old
@@ -612,7 +637,7 @@ namespace StationeersUIMod.UI.Hud
             float organicNibble = Mathf.Clamp(8 + organicStep, 0, 15) / 15f;
             Vector4 tangent = new Vector4(
                 Pack01(_sdfFrostAmount, _sdfFrostDepth),
-                Pack01(_sdfChromaAmount, (_sdfSquircle - 2f) / 6f),
+                Pack01(_sdfChromaAmount, sdfExponentLane),
                 Pack01(_sdfShineAmount / 2f, _sdfIridAmount),
                 fadeV2
                     ? Pack01V2(_sdfEdgeFadeX / 0.5f, _sdfEdgeFadeY / 0.5f,

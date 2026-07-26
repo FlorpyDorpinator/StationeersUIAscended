@@ -679,11 +679,14 @@ namespace StationeersUIMod.UI.Grid
                 // FxClockLive, so the hash-gated surfaces repaint on the flip too.
                 bool fxLive = HudSystem.FxClockLive;
                 // CUT corners (the visor's global corner-style knob, which the Grid inherits along
-                // with the radius) exist only on the mesh renderer — the sdfglass fragment shader
-                // rebuilds a ROUNDED box from the packed radii. Without this gate the window shell
-                // would stay rounded while every cell inside it chamfered. Same fail-soft shape as
-                // an unavailable bundle: ResetSdf below already handles the mesh fallback.
-                bool sdfAssigned = shell && fxLive && !bg.CornersAreCut
+                // with the radius) are drawn natively by an ABI-3 sdfglass shader — the packed
+                // superellipse exponent drops to 1, whose L1 zero contour IS the chamfer. Only an
+                // OLDER bundle still rebuilds a strictly ROUNDED box, and there this gate stands:
+                // without it the window shell would stay rounded while every cell inside it
+                // chamfered. Same fail-soft shape as an unavailable bundle — ResetSdf below
+                // already handles the mesh fallback.
+                bool sdfAssigned = shell && fxLive
+                    && (!bg.CornersAreCut || Core.HudShaderStore.SdfCutAvailable)
                     && HudConfig.SdfPanels != null && HudConfig.SdfPanels.Value
                     && Core.HudShaderStore.SdfAvailable
                     && HudFxMaterials.Assign(bg, "sdfglass");
