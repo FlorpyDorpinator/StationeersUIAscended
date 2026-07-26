@@ -193,14 +193,31 @@ namespace StationeersUIMod.UI.Hud
                 if (t != null && !string.IsNullOrEmpty(t.K)) map[t.K] = t.V;
             }
 
+            // Does this theme carry the cfg family at all? A theme with ZERO cfg entries is a
+            // palette-only / pre-fold snapshot and keeps the documented absent-key contract
+            // (change nothing). But a theme WITH cfg entries took a FULL snapshot when it was
+            // stamped — so a missing cfg key there means the KNOB DIDN'T EXIST YET. Render the
+            // profile as it looked when authored: the knob's DEFAULT. Without this, a knob
+            // added in an update bleeds the CURRENT value through every older profile
+            // (FlorpyDorp's repro: corner Cut set under Zirillian Red survived a switch back
+            // to Stationeers Blue, whose stored theme predates the corner-style knob).
+            bool themedCfg = false;
+            foreach (var k in map.Keys)
+                if (k.StartsWith("cfg:", StringComparison.Ordinal)) { themedCfg = true; break; }
+
             foreach (var f in CfgFields)
             {
                 if (!typeof(ConfigEntryBase).IsAssignableFrom(f.FieldType)) continue;
                 if (Exclude.Contains(f.Name)) continue;
-                string v;
-                if (!map.TryGetValue("cfg:" + f.Name, out v) || v == null) continue;
                 var e = f.GetValue(null) as ConfigEntryBase;
                 if (e == null) continue;
+                string v;
+                if (!map.TryGetValue("cfg:" + f.Name, out v) || v == null)
+                {
+                    if (themedCfg)
+                        try { e.BoxedValue = e.DefaultValue; } catch { }
+                    continue;
+                }
                 try { e.SetSerializedValue(v); } catch { }
             }
             foreach (var e in HudPalette.All)
