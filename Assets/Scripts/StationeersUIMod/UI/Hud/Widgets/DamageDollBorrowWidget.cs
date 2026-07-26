@@ -54,6 +54,18 @@ namespace StationeersUIMod.UI.Hud.Widgets
         // The borrowed doll's background box takes the trapezoid insets (base supplies the sliders).
         protected override bool SupportsTrapezoid => true;
 
+        // The optional frame IS a real PanelGraphic (fill/border/glass all apply to it).
+        protected override bool SupportsPanelAppearance => true;
+
+        // The borrowed doll is vanilla's own body silhouette — no accent-tinted surface or
+        // scalable text of ours anywhere in this widget.
+        protected override bool UsesAccentColor => false;
+        protected override bool UsesFontScale => false;
+
+        // The frame is optional, "box" key, default ON — its inspector row is named "Box frame".
+        protected override bool OptionalPanelBackgroundIsOff => !Def.GetBFor(EditBare(Def), "box", true);
+        protected override string OptionalPanelBackgroundToggleName => "Box frame";
+
         protected override void BuildContent(RectTransform root)
         {
             _box = MakePanel(root, "DamageDollBox");

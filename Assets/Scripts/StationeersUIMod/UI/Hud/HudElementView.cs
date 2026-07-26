@@ -233,10 +233,29 @@ namespace StationeersUIMod.UI.Hud
         /// it false so no dead slider is offered.</summary>
         protected virtual bool SupportsTrapezoid => false;
 
+        /// <summary>Whether this element's "Text / accent" colour row does anything. Default true
+        /// (the common case: most widgets tint at least one text/icon/line from it). Widgets that
+        /// resolve their own dedicated colour ref instead (BareSenses/StateChips/MoodletBorrow's
+        /// "wordColor", EquipmentColumn's numColor/labelColor) or draw no accent-tinted surface at
+        /// all (Compass, Portrait, BodyDoll, DamageDoll) override to false so F9 stops offering a
+        /// row that can never change a pixel.</summary>
+        protected virtual bool UsesAccentColor => true;
+
+        /// <summary>Whether this element's "Font scale" row does anything. Default true; widgets
+        /// that draw no scalable text at all (Portrait, BodyDoll, SuitChips, DamageDoll, PngDoll,
+        /// and PrimitiveView's Box/Polyline/Icon/Shape primitives) override to false.</summary>
+        protected virtual bool UsesFontScale => true;
+
         /// <summary>Whether this element owns at least one UIA PanelGraphic/PolygonPanelGraphic
         /// whose surface can actually consume panel styling. Keeps the inspector from offering
         /// frost, corners, and glow on text-only or borrowed-vanilla widgets where those controls
-        /// could never affect a pixel.</summary>
+        /// could never affect a pixel.
+        ///
+        /// DEF-ONLY (no live view) callers — bulk ops / flatten checks over a raw
+        /// <see cref="HudElementDef"/> — cannot ask a live view's virtual, so this switch is kept
+        /// as a static map for THOSE call sites (see <see cref="CanFlattenDefinition"/>). Live
+        /// rendering/inspector code must go through the virtual <see cref="SupportsPanelAppearance"/>
+        /// below instead, which each widget declares on itself.</summary>
         private static bool SupportsPanelAppearanceFor(HudElementDef d)
         {
             if (d == null) return false;
@@ -270,16 +289,22 @@ namespace StationeersUIMod.UI.Hud
             }
         }
 
-        private bool SupportsPanelAppearance => SupportsPanelAppearanceFor(Def);
+        /// <summary>Per-widget capability declaration, same truth table as
+        /// <see cref="SupportsPanelAppearanceFor"/> above but as a virtual so each widget states it
+        /// on itself. Base default is TRUE (the most common case among the switch's entries);
+        /// widgets whose Def.Type resolved false there override to false (or, for PrimitiveView/
+        /// DynamicTextWidget which each cover several Def.Types, switch on Def.Type themselves).</summary>
+        protected virtual bool SupportsPanelAppearance => true;
 
         /// <summary>Elements that own no full panel surface but DO draw a UIA border/ring from the
         /// element's own Border ref + BorderWidth. They are off the panel allow-list (correctly —
         /// they have no fill, glow or frost), which left those two authored values with no control
         /// at all: the shipped Glassy 4.0 profile sets a portrait ring colour and width that F9
-        /// could not show or edit. Offer exactly the two knobs the widget actually reads.</summary>
-        private bool SupportsBorderOnlyChrome => !SupportsPanelAppearance
-            && Def != null
-            && (Def.Type == HudElementType.Portrait || Def.Type == HudElementType.BodyDoll);
+        /// could not show or edit. Offer exactly the two knobs the widget actually reads.
+        /// Base default false; only Portrait/BodyDoll override true. The call site (else-if after
+        /// checking SupportsPanelAppearance) already keeps the two mutually exclusive, so this no
+        /// longer needs its own "!SupportsPanelAppearance" guard.</summary>
+        protected virtual bool SupportsBorderOnlyChrome => false;
 
         /// <summary>Used by F9 to suppress panel-only actions on text, borrowed vanilla UI and
         /// other elements that cannot render any UIA surface.</summary>
@@ -302,47 +327,22 @@ namespace StationeersUIMod.UI.Hud
 
         /// <summary>Several widgets retain their panel styling while their optional background
         /// is hidden. Keep those values editable, but tell the author why they currently cannot
-        /// see a response instead of presenting apparently broken controls.</summary>
-        private bool OptionalPanelBackgroundIsOff
-        {
-            get
-            {
-                if (Def == null) return false;
-                switch (Def.Type)
-                {
-                    case HudElementType.Readout:
-                    case HudElementType.Compass:
-                    case HudElementType.VitalsPanel:
-                    case HudElementType.DamageDoll:
-                    case HudElementType.JetpackBox:
-                    case HudElementType.PngDoll:
-                        return !Def.GetBFor(EditBare(Def), "box", true);
-                    // BareSenses defaults its whole-element background OFF (it's usually just words).
-                    case HudElementType.BareSenses:
-                        return !Def.GetBFor(EditBare(Def), "box", false);
-                    default:
-                        return false;
-                }
-            }
-        }
+        /// see a response instead of presenting apparently broken controls.
+        /// Base default false (no optional-background knob); the widgets that own one — Readout,
+        /// Compass, VitalsPanel, DamageDoll, JetpackBox, PngDoll (their "box" key defaults true) and
+        /// BareSenses (whole-element background, "box" key defaults OFF since it's usually just
+        /// words) — override this to read their own key.</summary>
+        protected virtual bool OptionalPanelBackgroundIsOff => false;
 
-        /// <summary>The hint shown while <see cref="OptionalPanelBackgroundIsOff"/>. It names the
-        /// author's ACTUAL toggle — each widget labels its own differently, and sending someone to
-        /// hunt for a "Background box" that its inspector calls "Box frame" is worse than silence.</summary>
+        /// <summary>The toggle NAME named by <see cref="OptionalPanelBackgroundHint"/> — each widget
+        /// labels its own differently, and sending someone to hunt for a "Background box" that its
+        /// inspector calls "Box frame" is worse than silence. Default matches the common label;
+        /// Compass and DamageDoll override it to their own inspector row's name.</summary>
+        protected virtual string OptionalPanelBackgroundToggleName => "Background box";
+
+        /// <summary>The hint shown while <see cref="OptionalPanelBackgroundIsOff"/>.</summary>
         private string OptionalPanelBackgroundHint
-        {
-            get
-            {
-                string toggle;
-                switch (Def != null ? Def.Type : HudElementType.Box)
-                {
-                    case HudElementType.Compass: toggle = "Backdrop box"; break;
-                    case HudElementType.DamageDoll: toggle = "Box frame"; break;
-                    default: toggle = "Background box"; break;
-                }
-                return toggle + " is OFF (Appearance) — panel effects are saved but currently invisible";
-            }
-        }
+            => OptionalPanelBackgroundToggleName + " is OFF (Appearance) — panel effects are saved but currently invisible";
 
         // Suit-chip radii are deliberately derived from their size, and arbitrary pen Shapes use
         // PolygonPanelGraphic. Neither consumes the four authored radii.
@@ -1095,7 +1095,8 @@ namespace StationeersUIMod.UI.Hud
             into.Add(HudProp.Header("Appearance"));
             // Colours are per-element in BOTH style states (see GlobalOr) and per-MODE too: a
             // palette-name ref tracks the F9 palette live, a hex literal stands alone.
-            into.Add(HudProp.Color("Text / accent", () => d.TextColorFor(EditBare(d)), v => d.SetTextColorFor(EditBare(d), v)));
+            if (UsesAccentColor)
+                into.Add(HudProp.Color("Text / accent", () => d.TextColorFor(EditBare(d)), v => d.SetTextColorFor(EditBare(d), v)));
             if (SupportsPanelAppearance)
             {
                 into.Add(HudProp.Color("Fill", () => d.FillFor(EditBare(d)), v => d.SetFillFor(EditBare(d), v)));
@@ -1158,8 +1159,9 @@ namespace StationeersUIMod.UI.Hud
                 into.Add(HudProp.F("Bottom inset (trapezoid)", () => gf("insetBottom", 0f),
                     v => sf("insetBottom", Mathf.Max(0f, v)), 0f, 400f));
             }
-            into.Add(HudProp.F("Font scale", () => d.FontScaleFor(EditBare(d)),
-                v => d.SetFontScaleFor(EditBare(d), Mathf.Clamp(v, 0.4f, 3f)), 0.4f, 3f));
+            if (UsesFontScale)
+                into.Add(HudProp.F("Font scale", () => d.FontScaleFor(EditBare(d)),
+                    v => d.SetFontScaleFor(EditBare(d), Mathf.Clamp(v, 0.4f, 3f)), 0.4f, 3f));
             MarkProps(into, start, HudPropGroup.Appearance);
         }
 

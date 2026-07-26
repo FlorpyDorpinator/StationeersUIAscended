@@ -16,6 +16,9 @@ namespace StationeersUIMod.UI.Hud.Widgets
     /// </summary>
     internal sealed class HandBoxesWidget : HudElementView
     {
+        // The tray + both hand boxes are real PanelGraphics (fill/border/glass all apply).
+        protected override bool SupportsPanelAppearance => true;
+
         private PanelGraphic _tray;
         private readonly PanelGraphic[] _box = new PanelGraphic[2];
         private readonly PanelGraphic[] _accent = new PanelGraphic[2];

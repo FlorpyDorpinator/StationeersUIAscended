@@ -26,12 +26,17 @@ namespace StationeersUIMod.Windows
             FlushPendingElementEdit();
             FlushPendingPaletteEdit();
             _activeEditorTab = null;
+            _activeEditorSubTab = null;
         }
 
         private static string _lastHotSig = "";
         private static Dictionary<string, string> _frameSnapshot;
         private static Dictionary<string, string> _pendingUndo;
         private static string _activeEditorTab;
+        private static string _activeEditorSubTab;
+        /// <summary>The two in-window text colours: a cyan section heading and an amber warning.</summary>
+        private static readonly Vector4 Accent = new Vector4(0.25f, 0.85f, 0.93f, 1f);
+        private static readonly Vector4 WarnCol = new Vector4(1f, 0.72f, 0.25f, 1f);
         // Bloom-tint swatch cache: config stores a #RRGGBB string, the wheel wants a vector.
         private static string _bloomTintStr;
         private static Vector3 _bloomTintVec = Vector3.one;
@@ -69,11 +74,11 @@ namespace StationeersUIMod.Windows
 
             // Push the active tab noticeably brighter than an idle/hovered one — the five tabs
             // (Build/Theme/Effects/View & Behavior/Diagnostics) otherwise read as near-identical
-            // grey, which made the current tab hard to spot at a glance (FlorpyDorp).
-            ImGui.PushStyleColor(ImGuiCol.Tab, new Vector4(0.10f, 0.11f, 0.14f, 1f));
-            ImGui.PushStyleColor(ImGuiCol.TabHovered, new Vector4(0.20f, 0.48f, 0.66f, 1f));
-            ImGui.PushStyleColor(ImGuiCol.TabActive, new Vector4(0.16f, 0.60f, 0.84f, 1f));
-            if (!ImGui.BeginTabBar("##UIAHudEditorTabs")) { ImGui.PopStyleColor(3); return; }
+            // grey, which made the current tab hard to spot at a glance (FlorpyDorp). The SAME
+            // colours are reused by every nested sub-tab bar (Theme / Effects) through
+            // PushTabStyle, so a sub-tab is as easy to read as a top-level one.
+            PushTabStyle();
+            if (!ImGui.BeginTabBar("##UIAHudEditorTabs")) { PopTabStyle(); return; }
             if (ImGui.BeginTabItem("Build"))
             {
                 ActivateEditorTab("Build");
@@ -115,7 +120,7 @@ namespace StationeersUIMod.Windows
                 ImGui.EndTabItem();
             }
             ImGui.EndTabBar();
-            ImGui.PopStyleColor(3);
+            PopTabStyle();
         }
 
         /// <summary>A colour picker can disappear without an ImGui deactivation event when its
@@ -127,6 +132,49 @@ namespace StationeersUIMod.Windows
             FlushPendingPaletteEdit();
             _activeEditorTab = tab;
         }
+
+        /// <summary>Same contract as <see cref="ActivateEditorTab"/> for the NESTED sub-tab bars.
+        /// It deliberately keeps its OWN field: sharing the top-level one would make the two bars
+        /// disagree every frame (top-level writes "Theme", the sub-tab writes "Theme/Palette"),
+        /// and the resulting flush-per-frame would split one colour drag into an undo step per
+        /// frame instead of one step per gesture.</summary>
+        private static void ActivateEditorSubTab(string tab)
+        {
+            if (string.Equals(_activeEditorSubTab, tab, System.StringComparison.Ordinal)) return;
+            FlushPendingPaletteEdit();
+            _activeEditorSubTab = tab;
+        }
+
+        /// <summary>The tab colours shared by the top-level bar and every nested sub-tab bar.</summary>
+        private static void PushTabStyle()
+        {
+            ImGui.PushStyleColor(ImGuiCol.Tab, new Vector4(0.10f, 0.11f, 0.14f, 1f));
+            ImGui.PushStyleColor(ImGuiCol.TabHovered, new Vector4(0.20f, 0.48f, 0.66f, 1f));
+            ImGui.PushStyleColor(ImGuiCol.TabActive, new Vector4(0.16f, 0.60f, 0.84f, 1f));
+        }
+
+        private static void PopTabStyle() { ImGui.PopStyleColor(3); }
+
+        /// <summary>Open a nested sub-tab and its own scrolling child, so a long group scrolls
+        /// INSIDE the sub-tab instead of pushing the sub-tab bar off the top of the window.
+        /// Returns false when the sub-tab is not the active one (nothing to draw, nothing to end).</summary>
+        private static bool BeginSubTab(string title, string id)
+        {
+            if (!ImGui.BeginTabItem(title)) return false;
+            ActivateEditorSubTab(id);
+            ImGui.BeginChild(id + "Scroll", new Vector2(0f, 0f), false, ImGuiWindowFlags.None);
+            return true;
+        }
+
+        private static void EndSubTab()
+        {
+            ImGui.EndChild();
+            ImGui.EndTabItem();
+        }
+
+        /// <summary>Null-safe read for the masters a sub-tab has to consult from OUTSIDE the block
+        /// that owns them (the core-effects gate is now checked on three sub-tabs).</summary>
+        private static bool On(ConfigEntry<bool> entry) { return entry != null && entry.Value; }
 
         private void DrawEditorToolbar()
         {
@@ -175,389 +223,515 @@ namespace StationeersUIMod.Windows
             DrawDesignerSection();
         }
 
+        /// <summary>The Theme tab: profile-theme chrome up top (it covers colours AND effects, so it
+        /// stays above the bar), then palette-first sub-tabs. The old three DefaultOpen headers put
+        /// the ~30 colour wheels between the author and the type/box controls; the sub-tabs mean the
+        /// handful of colours anyone actually retunes is the FIRST thing on the tab (FlorpyDorp:
+        /// "tabs mean less scrolling").</summary>
         private void DrawThemeTab()
         {
             ImGui.TextDisabled("GLOBAL — these defaults and palette colours apply across HUD profiles.");
+            DrawProfileThemeBlock();
 
-            if (ImGui.CollapsingHeader("Panel surface", ImGuiTreeNodeFlags.DefaultOpen))
-            {
-                FloatSlider(HudConfig.HudScale, "Overall HUD scale", 0.6f, 1.6f);
-                Toggle(HudConfig.HudScaleWithRes, "Scale HUD with resolution (keep the layout proportional)");
-                if (HudConfig.HudScaleWithRes != null && HudConfig.HudScaleWithRes.Value)
-                {
-                    float user = Mathf.Max(0.0001f, HudConfig.HudScale != null ? HudConfig.HudScale.Value : 1f);
-                    float resFactor = HudConfig.EffectiveHudScale() / user;
-                    float rw, rh;
-                    HudConfig.ReferenceResolution(out rw, out rh);
-                    var doc = Features.HudProfileStore.Active;
-                    bool stamped = doc != null && doc.RefW >= 320f && doc.RefH >= 240f;
-                    ImGui.TextDisabled(string.Format("  designed at {0}x{1} ({2})  ->  screen {3}x{4}  =  x{5:0.000}",
-                        (int)rw, (int)rh, stamped ? "from this profile" : "global default",
-                        Screen.width, Screen.height, resFactor));
-                    // Stamps THIS profile only. Deliberately does NOT touch the global fallback: the
-                    // shipped profiles (Glassy 4.0 etc.) declare no reference and were authored at
-                    // 1920x1080, so moving the global would make THEM scale wrong.
-                    if (ImGui.Button("Stamp THIS profile as designed at my resolution") && doc != null)
-                    {
-                        doc.RefW = Screen.width;
-                        doc.RefH = Screen.height;
-                        Features.HudProfileStore.MarkChanged();
-                    }
-                    ImGui.TextDisabled("  ^ saves your screen size INTO the profile, so when you share it");
-                    ImGui.TextDisabled("    everyone gets your proportions (1080p players render it smaller).");
-                    FloatSlider(HudConfig.HudScaleMatch, "  match: 0 = width, 1 = height", 0f, 1f);
-                }
-                FloatSlider(HudConfig.CornerRadius, "Default corner rounding (px)", 0f, 28f);
-                FloatSlider(HudConfig.BorderWidth, "Default line thickness (px)", 0f, 6f);
-                FloatSlider(HudConfig.EdgeFeather, "Edge softness / AA (px)", 0f, 4f);
-                FloatSlider(HudConfig.GlassSheen, "Default glass sheen", 0f, 1f);
-                FloatSlider(HudConfig.GlassEdge, "Default glass edge light", 0f, 1f);
-                ImGui.Spacing();
-                ImGui.TextColored(new Vector4(0.25f, 0.85f, 0.93f, 1f), "ANALYTIC SDF PANELS");
-                Toggle(HudConfig.SdfPanels, "Use analytic SDF glass panels");
-                if (HudConfig.SdfPanels != null && HudConfig.SdfPanels.Value)
-                {
-                    FloatSlider(HudConfig.SdfSquircle, "  corner shape (2 round - 8 squircle)", 2f, 8f);
-                    Toggle(HudConfig.SdfGaussianHalo, "  Gaussian distance falloff (not a blur convolution)");
-                    if (!Core.HudShaderStore.SdfAvailable)
-                        ImGui.TextColored(new Vector4(1f, 0.72f, 0.25f, 1f),
-                            "  Shader bundle unavailable — panels fail soft to the mesh renderer.");
-                }
-                ImGui.Spacing();
-                ImGui.TextDisabled("Apply one coherent source mode to every element:");
-                if (ImGui.Button("ALL follow Theme + Effects globals"))
-                    HudEditorMode.SetAllFollowGlobal(true);
-                ImGui.SameLine();
-                if (ImGui.Button("Snapshot ALL as Custom"))
-                    HudEditorMode.SetAllFollowGlobal(false);
-                if (ImGui.Button("Flatten ALL boxes")) HudEditorMode.MakeAllFlat();
-            }
-
-            if (ImGui.CollapsingHeader("Typography", ImGuiTreeNodeFlags.DefaultOpen))
-            {
-                FontCombo();
-                FloatSlider(HudConfig.FontScale, "Font scale (all HUD text)", 0.6f, 1.8f);
-                FloatSlider(HudConfig.LabelFontSize, "Label size (PRESSURE, HELMET...)", 7f, 22f);
-            }
-
-            if (ImGui.CollapsingHeader("Palette", ImGuiTreeNodeFlags.DefaultOpen))
-                DrawColourControls();
+            PushTabStyle();
+            if (!ImGui.BeginTabBar("##UIAThemeSubTabs")) { PopTabStyle(); return; }
+            if (BeginSubTab("Palette", "##UIAThemePalette")) { DrawCorePaletteSection(); EndSubTab(); }
+            if (BeginSubTab("All colours", "##UIAThemeAllColours")) { DrawAllColoursSection(); EndSubTab(); }
+            if (BeginSubTab("Typography & boxes", "##UIAThemeBoxes")) { DrawTypographyBoxesSection(); EndSubTab(); }
+            ImGui.EndTabBar();
+            PopTabStyle();
         }
 
+        /// <summary>Theme &gt; Typography &amp; boxes: everything about the SHAPE of a HUD box and
+        /// the text inside it (the old "Panel surface" + "Typography" headers, one flow).</summary>
+        private void DrawTypographyBoxesSection()
+        {
+            ImGui.TextColored(Accent, "TEXT");
+            FontCombo();
+            FloatSlider(HudConfig.FontScale, "Font scale (all HUD text)", 0.6f, 1.8f);
+            FloatSlider(HudConfig.LabelFontSize, "Label size (PRESSURE, HELMET...)", 7f, 22f);
+
+            ImGui.Spacing();
+            ImGui.TextColored(Accent, "SIZE");
+            FloatSlider(HudConfig.HudScale, "Overall HUD scale", 0.6f, 1.6f);
+            Toggle(HudConfig.HudScaleWithRes, "Scale HUD with resolution (keep the layout proportional)");
+            if (HudConfig.HudScaleWithRes != null && HudConfig.HudScaleWithRes.Value)
+            {
+                float user = Mathf.Max(0.0001f, HudConfig.HudScale != null ? HudConfig.HudScale.Value : 1f);
+                float resFactor = HudConfig.EffectiveHudScale() / user;
+                float rw, rh;
+                HudConfig.ReferenceResolution(out rw, out rh);
+                var doc = Features.HudProfileStore.Active;
+                bool stamped = doc != null && doc.RefW >= 320f && doc.RefH >= 240f;
+                ImGui.TextDisabled(string.Format("  designed at {0}x{1} ({2})  ->  screen {3}x{4}  =  x{5:0.000}",
+                    (int)rw, (int)rh, stamped ? "from this profile" : "global default",
+                    Screen.width, Screen.height, resFactor));
+                // Stamps THIS profile only. Deliberately does NOT touch the global fallback: the
+                // shipped profiles (Glassy 4.0 etc.) declare no reference and were authored at
+                // 1920x1080, so moving the global would make THEM scale wrong.
+                if (ImGui.Button("Stamp THIS profile as designed at my resolution") && doc != null)
+                {
+                    doc.RefW = Screen.width;
+                    doc.RefH = Screen.height;
+                    Features.HudProfileStore.MarkChanged();
+                }
+                ImGui.TextDisabled("  ^ saves your screen size INTO the profile, so when you share it");
+                ImGui.TextDisabled("    everyone gets your proportions (1080p players render it smaller).");
+                FloatSlider(HudConfig.HudScaleMatch, "  match: 0 = width, 1 = height", 0f, 1f);
+            }
+
+            ImGui.Spacing();
+            ImGui.TextColored(Accent, "BOX SHAPE");
+            FloatSlider(HudConfig.CornerRadius, "Default corner rounding (px)", 0f, 28f);
+            FloatSlider(HudConfig.BorderWidth, "Default line thickness (px)", 0f, 6f);
+            FloatSlider(HudConfig.EdgeFeather, "Edge softness / AA (px)", 0f, 4f);
+            FloatSlider(HudConfig.GlassSheen, "Default glass sheen", 0f, 1f);
+            FloatSlider(HudConfig.GlassEdge, "Default glass edge light", 0f, 1f);
+
+            ImGui.Spacing();
+            ImGui.TextColored(Accent, "SHARP GLASS PANELS");
+            Toggle(HudConfig.SdfPanels, "Draw boxes with the sharp panel shader");
+            ImGui.TextDisabled("  Crisper corners, rounder halos, and the advanced glow motion.");
+            ImGui.TextDisabled("  (the analytic SDF panel renderer)");
+            if (HudConfig.SdfPanels != null && HudConfig.SdfPanels.Value)
+            {
+                FloatSlider(HudConfig.SdfSquircle, "  corner shape (2 round - 8 squircle)", 2f, 8f);
+                Toggle(HudConfig.SdfGaussianHalo, "  smooth distance falloff on halos");
+                ImGui.TextDisabled("    (Gaussian falloff, not a blur convolution)");
+                if (!Core.HudShaderStore.SdfAvailable)
+                    ImGui.TextColored(WarnCol,
+                        "  Shader bundle unavailable — panels fail soft to the mesh renderer.");
+            }
+
+            ImGui.Spacing();
+            ImGui.TextColored(Accent, "APPLY TO EVERY ELEMENT");
+            ImGui.TextDisabled("Apply one coherent source mode to every element:");
+            if (ImGui.Button("ALL follow Theme + Effects globals"))
+                HudEditorMode.SetAllFollowGlobal(true);
+            ImGui.SameLine();
+            if (ImGui.Button("Snapshot ALL as Custom"))
+                HudEditorMode.SetAllFollowGlobal(false);
+            if (ImGui.Button("Flatten ALL boxes")) HudEditorMode.MakeAllFlat();
+        }
+
+        /// <summary>The Effects tab. ~90 controls used to live in six DefaultOpen CollapsingHeaders
+        /// — one continuous column you scrolled through for a minute to reach bloom. They are now
+        /// nested sub-tabs, one per visual family, and every control has exactly ONE home
+        /// (FlorpyDorp: "tabs mean less scrolling"). The three old "Tier A/B/C" masters keep their
+        /// config keys unchanged and are simply labelled by what they buy.</summary>
         private void DrawEffectsTab()
         {
             ImGui.TextDisabled("GLOBAL — element popups can follow these defaults or override supported effects.");
-
-            if (ImGui.CollapsingHeader("Edges, glow & pulse", ImGuiTreeNodeFlags.DefaultOpen))
-            {
-                Toggle(HudConfig.FxTierA, "Enable surface and edge effects");
-                if (HudConfig.FxTierA != null && HudConfig.FxTierA.Value)
-                {
-                    Toggle(HudConfig.FxHairlinesOn, "Hairlines (sub-1px lines fade, not vanish)");
-                    if (HudConfig.FxHairlinesOn.Value)
-                        FloatSlider(HudConfig.FxHairlineMin, "  thinnest line (px)", 0.05f, 1f);
-
-                    Toggle(HudConfig.FxEdgeLightOn, "Edge energy (borders + lines)");
-                    if (HudConfig.FxEdgeLightOn.Value)
-                    {
-                        FloatSlider(HudConfig.FxEdgeLight, "  Strength##edgeEnergyStrength", 0f, 2f);
-                        DrawEdgeLightColour();
-                        FloatSlider(HudConfig.FxEdgeLightAngle, "  light angle (0=R,90=top,180=L)", 0f, 360f);
-                        FloatSlider(HudConfig.FxEdgeLightRim, "  opposing-rim catch", 0f, 2f);
-                        FloatSlider(HudConfig.FxEdgeLightSharp, "  falloff (high=tight, low=broad)", 1f, 8f);
-                        FloatSlider(HudConfig.FxEdgeRipple, "  irregular energy", 0f, 2.5f);
-                        FloatSlider(HudConfig.FxEdgeRippleFreq, "  energy frequency", 0.05f, 8f);
-                        FloatSlider(HudConfig.FxEdgeFlowSpeed, "  flow speed (0 = frozen)", 0f, 4f);
-                        Toggle(HudConfig.FxRippleDesync, "  Desync per element (break lockstep)");
-                        if (HudConfig.FxRippleDesync.Value)
-                            FloatSlider(HudConfig.FxRippleDesyncAmount, "    desync amount", 0f, 1f);
-                        Toggle(HudConfig.FxGlowFlowAuraOn, "  Flowing edge aura (SDF)");
-                        if (HudConfig.FxGlowFlowAuraOn.Value)
-                        {
-                            FloatSlider(HudConfig.FxGlowFlowAura, "    aura strength", 0f, 2f);
-                            ImGui.TextDisabled("    Moving edge crests emit through the shared halo radius/spread.");
-                        }
-                    }
-
-                    Toggle(HudConfig.FxBorderFadeOn, "Border fade (unlit sections dissolve)");
-                    if (HudConfig.FxBorderFadeOn.Value)
-                        FloatSlider(HudConfig.FxBorderFade, "  fade amount", 0f, 1f);
-                    Toggle(HudConfig.FxSoftEdgeOn, "Soft edge (boxes melt together)");
-                    if (HudConfig.FxSoftEdgeOn.Value)
-                        FloatSlider(HudConfig.FxSoftEdge, "  Width (px)##softEdgeWidth", 0f, 48f);
-
-                    // Shape of the per-element "Fade box ends L/R" / "top/bottom" ramps. The
-                    // amounts stay per-element; the shape is shared so a HUD full of faded bars
-                    // ends the same way. Both default to an exact no-op.
-                    ImGui.TextColored(new Vector4(0.25f, 0.85f, 0.93f, 1f), "BOX END FADE (shape)");
-                    ImGui.TextDisabled("  Per-element sliders set WHERE a box fades; these set HOW.");
-                    FloatSlider(HudConfig.FxEdgeFadeCurve,
-                        "  Fade curve (low = hard edge, high = long tail)##edgeFadeCurve", 0.25f, 4f);
-                    FloatSlider(HudConfig.FxEdgeFadeBorder,
-                        "  Border joins the fade (1 = with the box)##edgeFadeBorder", 0f, 2f);
-                    if (HudConfig.FxEdgeFadeBorder != null
-                        && Mathf.Abs(HudConfig.FxEdgeFadeBorder.Value - 1f) > 0.01f)
-                    {
-                        bool sdfOn = HudConfig.SdfPanels != null && HudConfig.SdfPanels.Value
-                            && Core.HudShaderStore.SdfAvailable;
-                        ImGui.TextDisabled(HudConfig.FxEdgeFadeBorder.Value < 1f
-                            ? "    Below 1: the outline keeps its colour while the fill melts away."
-                            : "    Above 1: the border surrenders before the plate does.");
-                        if (!sdfOn)
-                            ImGui.TextColored(new Vector4(1f, 0.72f, 0.25f, 1f),
-                                "    Border influence needs analytic SDF panels — the mesh fallback fades all vertices alike.");
-                    }
-                    Toggle(HudConfig.FxGlowOn, "Glow halo");
-                    if (HudConfig.FxGlowOn.Value)
-                    {
-                        FloatSlider(HudConfig.FxGlow, "  outward strength", 0f, 2f);
-                        FloatSlider(HudConfig.FxGlowInner, "  inward strength", 0f, 2f);
-                        FloatSlider(HudConfig.FxGlowHaze, "  extended atmospheric haze (SDF)", 0f, 1f);
-                    }
-                    bool haloEnvelopeOn = HudConfig.FxGlowOn.Value
-                        || (HudConfig.FxEdgeLightOn.Value && HudConfig.FxGlowFlowAuraOn.Value);
-                    if (haloEnvelopeOn)
-                    {
-                        ImGui.TextColored(new Vector4(0.25f, 0.85f, 0.93f, 1f),
-                            "SHARED HALO / FLOWING-AURA ENVELOPE");
-                        FloatSlider(HudConfig.FxGlowWidth, "  Halo / aura radius (px)##glowWidth", 6f, 320f);
-                        FloatSlider(HudConfig.FxGlowDiffuse, "  spread (tight rim -> diffuse)", 0f, 1f);
-                        FloatSlider(HudConfig.FxGlowExtraDiffuse, "  extra diffuse (beyond max spread)", 0f, 1f);
-                        Toggle(HudConfig.FxGlowUnevenOn, "  Uneven / organic reach (SDF)");
-                        if (HudConfig.FxGlowUnevenOn.Value)
-                        {
-                            FloatSlider(HudConfig.FxGlowUneven, "    unevenness amount", 0f, 1f);
-                            FloatSlider(HudConfig.FxGlowOrganicScale, "    organic scale (1 = classic)", 0.25f, 4f);
-                        }
-                        Toggle(HudConfig.FxGlowBreathOn, "  Halo / aura breathing (SDF)");
-                        if (HudConfig.FxGlowBreathOn.Value)
-                            FloatSlider(HudConfig.FxGlowBreath, "    breath depth", 0f, 1f);
-                        ImGui.TextDisabled("  Extreme radius increases transparent GPU overdraw.");
-                    }
-                    FloatSlider(HudConfig.FxGlowBreathSpeed,
-                        "Shared Global + Custom breath speed (Hz)", 0.03f, 2f);
-                    ImGui.TextDisabled("  Shared timing stays editable even when only Custom elements breathe.");
-                    bool sdfEnabled = HudConfig.SdfPanels != null && HudConfig.SdfPanels.Value;
-                    bool sdfReady = Core.HudShaderStore.SdfAvailable;
-                    bool advancedHaloRequested = (HudConfig.FxGlowOn.Value && HudConfig.FxGlowHaze.Value > 0.001f)
-                        || (haloEnvelopeOn && (HudConfig.FxGlowBreathOn.Value || HudConfig.FxGlowUnevenOn.Value))
-                        || (HudConfig.FxEdgeLightOn.Value && HudConfig.FxGlowFlowAuraOn.Value);
-                    if (advancedHaloRequested && (!sdfEnabled || !sdfReady))
-                    {
-                        ImGui.TextColored(new Vector4(1f, 0.72f, 0.25f, 1f),
-                            !sdfEnabled
-                                ? "  Advanced halo motion is inactive: enable analytic SDF glass panels in Theme."
-                                : "  Advanced halo motion requires the ABI-2 SDF bundle and a full restart.");
-                    }
-                    if (haloEnvelopeOn && HudConfig.FxGlowWidth.Value > 160f && (!sdfEnabled || !sdfReady))
-                        ImGui.TextColored(new Vector4(1f, 0.72f, 0.25f, 1f),
-                            "  Mesh fallback caps the visible halo radius at 160 px.");
-                    // The pulse MASTER moved to "Suit power & transitions" with the rest of the
-                    // registry effects (one switch, one place — two live checkboxes on the same
-                    // ConfigEntry read as two settings). Its shape knobs stay here, where the
-                    // per-element inspector still points for them.
-                    ImGui.TextDisabled("Breathing pulse master: see \"Suit power & transitions\".");
-                    if (HudConfig.FxPulseOn.Value)
-                    {
-                        FloatSlider(HudConfig.FxPulseSpeed, "  pulse speed (Hz)", 0.05f, 3f);
-                        FloatSlider(HudConfig.FxPulseDepth, "  pulse depth", 0f, 1f);
-                    }
-                }
-            }
-
-            // Top-level, NOT nested under the Tier A block: with Tier A off the alarm still
-            // recolours border lines, so the control must stay reachable.
-            if (ImGui.CollapsingHeader("Alert pulse (suit warnings)", ImGuiTreeNodeFlags.DefaultOpen))
-            {
-                Toggle(HudConfig.FxAlertPulseOn, "Warnings tint and breathe the HUD");
-                ImGui.TextDisabled("  Suited / robot only - never in bare mode.");
-                if (HudConfig.FxAlertPulseOn.Value)
-                {
-                    // The ##id suffixes are load-bearing: ImGui keys widgets by label, and a bare
-                    // "  breath speed (Hz)" would collide with the shared halo-breath slider above.
-                    FloatSlider(HudConfig.FxAlertBreathSeconds, "  breath length (sec)##alertBreathSecs", 0.35f, 5f);
-                    IntSliderCfg(HudConfig.FxAlertCautionBreaths, "  caution flashes##alertBreathCount", 1, 10);
-                    FloatSlider(HudConfig.FxAlertPulseStrength, "  breath strength##alertPulseStrength", 0f, 1f);
-                    ImGui.TextDisabled("  A caution flash lasts "
-                        + (HudConfig.FxAlertBreathSeconds.Value * HudConfig.FxAlertCautionBreaths.Value)
-                            .ToString("0.0") + "s in total.");
-
-                    // The two alert hues, editable right here rather than only from the Palette tab —
-                    // tuning an alarm means watching it breathe while you drag. These are the same
-                    // HudPalette entries the Palette tab lists, so edits, undo and profile save all
-                    // behave identically; PushID keeps the shared entry.Name labels from colliding
-                    // with that tab's copies. Refresh the undo baseline first: _frameSnapshot is
-                    // otherwise only set while the Palette tab draws, so a picker here would push a
-                    // STALE undo step that reverts to whenever that tab was last open.
-                    _frameSnapshot = HudPalette.Snapshot();
-                    ImGui.PushID("alertfx");
-
-                    ImGui.TextDisabled("  Caution (yellow) - flashes, then clears for good:");
-                    if (HudPalette.AlertCaution != null) ColorWheel(HudPalette.AlertCaution);
-                    FloatSlider(HudConfig.FxAlertCautionBright, "  caution brightness##alertCautionBright", 0.25f, 3f);
-
-                    ImGui.TextDisabled("  Critical (red) - breathes until the warning clears:");
-                    if (HudPalette.AlertCritical != null) ColorWheel(HudPalette.AlertCritical);
-                    FloatSlider(HudConfig.FxAlertCriticalBright, "  critical brightness##alertCriticalBright", 0.25f, 3f);
-
-                    ImGui.PopID();
-
-                    ImGui.TextDisabled("  Brightness is a gain on the picked colour: above 1 blows it");
-                    ImGui.TextDisabled("  out toward white, below 1 gives a subdued tint.");
-                    ImGui.TextDisabled("  Strength scales the caution flash's peak, and the critical");
-                    ImGui.TextDisabled("  breath's swing (0 = steady red, no motion).");
-
-                    // The alert is normally suppressed while this designer is open, which would make
-                    // the colour pickers above impossible to judge. Preview forces a level so the HUD
-                    // breathes live while you drag. It breathes continuously rather than running the
-                    // caution burst and stopping, and only works while F9 is open.
-                    ImGui.Separator();
-                    ImGui.TextDisabled("  Live preview (designer only):");
-                    int pv = UI.Hud.HudAlertPulse.PreviewMode;
-                    if (ImGui.RadioButton("off##alertPv", pv == 0)) UI.Hud.HudAlertPulse.PreviewMode = 0;
-                    ImGui.SameLine();
-                    if (ImGui.RadioButton("caution##alertPv", pv == 1)) UI.Hud.HudAlertPulse.PreviewMode = 1;
-                    ImGui.SameLine();
-                    if (ImGui.RadioButton("critical##alertPv", pv == 2)) UI.Hud.HudAlertPulse.PreviewMode = 2;
-                    if (pv != 0)
-                    {
-                        ImGui.TextColored(new Vector4(1f, 0.72f, 0.25f, 1f),
-                            "  Previewing - breathing continuously, real warnings ignored.");
-                        ImGui.TextDisabled("  Clears itself the moment this designer closes.");
-                    }
-                    else
-                    {
-                        ImGui.TextDisabled("  Alerts are suppressed while this designer is open -");
-                        ImGui.TextDisabled("  use the preview above to judge these colours.");
-                    }
-                    if (HudConfig.FxTierA == null || !HudConfig.FxTierA.Value)
-                        ImGui.TextColored(new Vector4(1f, 0.72f, 0.25f, 1f),
-                            "  Tier A is off: alerts recolour the border line only, with no halo.");
-                }
-            }
-
-            if (ImGui.CollapsingHeader("Glass animation", ImGuiTreeNodeFlags.DefaultOpen))
-            {
-                ImGui.TextColored(new Vector4(0.25f, 0.85f, 0.93f, 1f),
-                    Core.HudShaderStore.TierBAvailable
-                        ? "SHADER BUNDLE READY"
-                        : "SHADER BUNDLE NOT LOADED — THESE EFFECTS ARE INACTIVE");
-                Toggle(HudConfig.FxTierB, "Enable glass animation effects");
-                if (HudConfig.FxTierB.Value)
-                {
-                    Toggle(HudConfig.FxShineOn, "Shine sweep");
-                    if (HudConfig.FxShineOn.Value)
-                    {
-                        FloatSlider(HudConfig.FxShine, "  Strength##shineStrength", 0f, 2f);
-                        FloatSlider(HudConfig.FxShinePeriod, "  period (seconds)", 2f, 60f);
-                    }
-                    Toggle(HudConfig.FxIridOn, "Iridescent rim");
-                    if (HudConfig.FxIridOn.Value)
-                        FloatSlider(HudConfig.FxIridescence, "  Strength##iridescenceStrength", 0f, 1f);
-                    Toggle(HudConfig.FxChromaOn, "Chromatic fringe (uses frosted backdrop)");
-                    if (HudConfig.FxChromaOn.Value)
-                        FloatSlider(HudConfig.FxChroma, "  Strength##chromaStrength", 0f, 1f);
-                    // Dissolve's master is a TRANSITION and now lives (with its strength, and its
-                    // per-element Inherit/On/Off) in "Suit power & transitions" below.
-                    ImGui.TextDisabled("Dissolve reveal: see \"Suit power & transitions\" below.");
-                }
-            }
-
-            // ---- Suit power & transitions --------------------------------------------------
-            // These used to have NO global switch at all: EffectAmt returned a hard 1f for any
-            // element following the globals, so a transition could not be turned off from the
-            // element OR from here. Each one now has a real master + a default strength, and the
-            // per-element toggles are honoured in both style states.
-            if (ImGui.CollapsingHeader("Suit power & transitions", ImGuiTreeNodeFlags.DefaultOpen))
-            {
-                // Merged in from View & Behavior (2026-07-25): the section was duplicated across
-                // two tabs (audit 03), so everything suit-power-and-transition-related now lives
-                // here in one place; View & Behavior leaves a one-line pointer instead.
-                Toggle(HudConfig.DiegeticTiers, "Diegetic tiers (no suit power = words only)");
-                Toggle(HudConfig.FxPowerDownMirrorsBoot, "Power DOWN mirrors power UP (staggered flicker)");
-                ImGui.TextDisabled("  On: the HUD leaves the same way it arrives, element by element.");
-                ImGui.TextDisabled("  Off: the old all-at-once power-death.");
-                Toggle(HudConfig.FxDissolveOnPowerDown, "Dissolve frontier also runs on power DOWN");
-                ImGui.TextDisabled("  Off: the dissolve reveals on boot only; power-down just fades.");
-
-                Toggle(HudConfig.LowPowerDropouts, "Low-power dropout glitches");
-                if (HudConfig.LowPowerDropouts.Value)
-                    FloatSlider(HudConfig.LowPowerThreshold, "  low-power threshold (%)", 0f, 40f);
-
-                ImGui.Spacing();
-                if (ImGui.Button("Test power-death flicker")) HudSystem.TestPowerDeath();
-                ImGui.SameLine();
-                if (ImGui.Button("Test boot sequence")) HudSystem.TestBoot();
-
-                ImGui.Spacing();
-                ImGui.TextColored(new Vector4(0.25f, 0.85f, 0.93f, 1f), "TRANSITION EFFECTS");
-
-                // ONE row per registry effect rather than a hand-written list: the labels, the
-                // masters and the strength entries all come from HudTransitionFx.All, which is the
-                // same table the per-element inspector reads — so the two menus cannot drift, and a
-                // new effect appears in both the moment it is added to the registry.
-                for (int i = 0; i < HudTransitionFx.All.Length; i++)
-                {
-                    HudTransitionFxDef fx = HudTransitionFx.All[i];
-                    if (fx == null) continue;
-                    // Unbound entry (config bind failed / very early frame): skip the row rather
-                    // than NRE inside Toggle and take the whole tab down with it.
-                    ConfigEntry<bool> master = fx.MasterEntry;
-                    if (master == null) continue;
-                    ImGui.PushID(fx.Key);          // every effect's "  Strength" shares a caption
-                    Toggle(master, fx.Label);
-                    if (master.Value)
-                    {
-                        ConfigEntry<float> amt = fx.AmountEntry;
-                        if (amt != null) FloatSlider(amt, "  Strength", 0f, 2f);
-                        TipLines(fx.Tip);
-
-                        // The glitch tear is also HudGlitch's transform-jitter envelope (the tear/
-                        // shake on power transitions, not just the per-panel participation weight)
-                        // — unified onto this ONE row 0.9.2.5 (audit 04 #7: two live glitch systems
-                        // exposed twice). Duration and the per-event gates have no tri-state
-                        // analogue, so they hang off this row rather than living on their own.
-                        if (string.Equals(fx.Key, "fxGlitch", System.StringComparison.Ordinal))
-                        {
-                            if (HudConfig.FxGlitchDuration != null)
-                                FloatSlider(HudConfig.FxGlitchDuration, "  duration (seconds)", 0.1f, 4f);
-                            Toggle(HudConfig.GlitchOnPowerDown, "  fire on power DOWN / suit removed");
-                            Toggle(HudConfig.GlitchOnPowerUp, "  fire on power UP / boot");
-                            if (ImGui.Button("Test glitch now")) HudGlitch.TriggerTest();
-                        }
-                    }
-                    ImGui.PopID();
-                }
-
-                ImGui.Spacing();
-                ImGui.TextDisabled("A master OFF here wins over every element's own setting:");
-                ImGui.TextDisabled("an element set to On still stays still while its master is off.");
-                ImGui.TextDisabled("Per element: click it, Effects tab > Motion & power transitions,");
-                ImGui.TextDisabled("then pick Inherit (follow these) / On / Off for each effect.");
-            }
-
-            if (ImGui.CollapsingHeader("Frosted glass", ImGuiTreeNodeFlags.DefaultOpen))
-            {
-                Toggle(HudConfig.FxTierC, "Enable frosted-glass backdrop (Flat/Warp curvature only)");
-                if (HudConfig.FxTierC.Value)
-                {
-                    FloatSlider(HudConfig.FrostStrength, "Frost strength (all elements)", 0f, 1f);
-                    FloatSlider(HudConfig.FrostDepth, "Blur depth (shallow - deep)", 0f, 1f);
-                    FloatSlider(HudConfig.FrostDarken, "Backdrop darkening", 0f, 1f);
-                    FrostDownsampleCombo();
-                    IntSliderCfg(HudConfig.FrostUpdateEveryN, "Re-blur every N frames", 1, 8);
-                    RgbConfig(HudConfig.FrostTint, "Frost tint", ref _frostTintStr, ref _frostTintVec);
-                    ImGui.TextDisabled(HudBackdrop.Active ? "Backdrop capture active." : "Backdrop capture is idle or unavailable in this view mode.");
-                }
-            }
-
-            if (ImGui.CollapsingHeader("HUD bloom", ImGuiTreeNodeFlags.DefaultOpen))
-                DrawBloomControls();
-
-            ImGui.Separator();
+            // Kept ABOVE the sub-tab bar: it acts on the whole document, not on one family, and a
+            // sub-tab child fills the remaining height (a footer under the bar would be unreachable).
             if (ImGui.Button("Reset active per-element effects to current globals"))
                 HudEditorMode.ResetAllElementEffects();
             ImGui.TextDisabled("Custom appearance stays custom; effect values receive a coherent global snapshot.");
+
+            PushTabStyle();
+            if (!ImGui.BeginTabBar("##UIAEffectsSubTabs")) { PopTabStyle(); return; }
+            if (BeginSubTab("Glass", "##UIAFxGlass")) { DrawFxGlassSection(); EndSubTab(); }
+            if (BeginSubTab("Edges", "##UIAFxEdges")) { DrawFxEdgesSection(); EndSubTab(); }
+            if (BeginSubTab("Glow", "##UIAFxGlow")) { DrawFxGlowSection(); EndSubTab(); }
+            if (BeginSubTab("Bloom", "##UIAFxBloom")) { DrawBloomControls(); EndSubTab(); }
+            if (BeginSubTab("Alerts", "##UIAFxAlerts")) { DrawFxAlertsSection(); EndSubTab(); }
+            if (BeginSubTab("Transitions", "##UIAFxTransitions")) { DrawFxTransitionsSection(); EndSubTab(); }
+            if (BeginSubTab("Advanced", "##UIAFxAdvanced")) { DrawFxAdvancedSection(); EndSubTab(); }
+            ImGui.EndTabBar();
+            PopTabStyle();
+        }
+
+        /// <summary>Effects &gt; Glass: the plate itself. All three effect MASTERS live here — the
+        /// core mesh effects (cfg TierA), the animated glass shaders (cfg TierB) and the frosted
+        /// backdrop (cfg TierC) — plus the surface treatments that are neither edge light nor
+        /// glow. The masters share one sub-tab on purpose: they are the "how much can the HUD
+        /// afford" decision, and reading them side by side is the point.</summary>
+        private void DrawFxGlassSection()
+        {
+            ImGui.TextColored(Accent, "CORE EFFECTS");
+            Toggle(HudConfig.FxTierA, "Core effects - surfaces, edges and glow");
+            ImGui.TextDisabled("  Always available (needs no shader bundle). Off = flat plates.");
+            ImGui.TextDisabled("  Also gates the Edges and Glow sub-tabs.");
+            if (On(HudConfig.FxTierA))
+            {
+                Toggle(HudConfig.FxHairlinesOn, "Hairlines (sub-1px lines fade, not vanish)");
+                if (HudConfig.FxHairlinesOn.Value)
+                    FloatSlider(HudConfig.FxHairlineMin, "  thinnest line (px)", 0.05f, 1f);
+
+                Toggle(HudConfig.FxBorderFadeOn, "Border fade (unlit sections dissolve)");
+                if (HudConfig.FxBorderFadeOn.Value)
+                    FloatSlider(HudConfig.FxBorderFade, "  fade amount", 0f, 1f);
+                Toggle(HudConfig.FxSoftEdgeOn, "Soft edge (boxes melt together)");
+                if (HudConfig.FxSoftEdgeOn.Value)
+                    FloatSlider(HudConfig.FxSoftEdge, "  Width (px)##softEdgeWidth", 0f, 48f);
+
+                // Shape of the per-element "Fade box ends L/R" / "top/bottom" ramps. The
+                // amounts stay per-element; the shape is shared so a HUD full of faded bars
+                // ends the same way. Both default to an exact no-op.
+                ImGui.Spacing();
+                ImGui.TextColored(Accent, "BOX END FADE (shape)");
+                ImGui.TextDisabled("  Per-element sliders set WHERE a box fades; these set HOW.");
+                FloatSlider(HudConfig.FxEdgeFadeCurve,
+                    "  Fade curve (low = hard edge, high = long tail)##edgeFadeCurve", 0.25f, 4f);
+                FloatSlider(HudConfig.FxEdgeFadeBorder,
+                    "  Border joins the fade (1 = with the box)##edgeFadeBorder", 0f, 2f);
+                if (HudConfig.FxEdgeFadeBorder != null
+                    && Mathf.Abs(HudConfig.FxEdgeFadeBorder.Value - 1f) > 0.01f)
+                {
+                    bool sdfOn = HudConfig.SdfPanels != null && HudConfig.SdfPanels.Value
+                        && Core.HudShaderStore.SdfAvailable;
+                    ImGui.TextDisabled(HudConfig.FxEdgeFadeBorder.Value < 1f
+                        ? "    Below 1: the outline keeps its colour while the fill melts away."
+                        : "    Above 1: the border surrenders before the plate does.");
+                    if (!sdfOn)
+                        ImGui.TextColored(WarnCol,
+                            "    Border influence needs the sharp panel shader — the mesh fallback fades all vertices alike.");
+                }
+            }
+            else ImGui.TextDisabled("  (the surface, edge and glow controls stay hidden while this is off)");
+
+            ImGui.Spacing();
+            ImGui.TextColored(Accent, "ANIMATED GLASS");
+            ImGui.TextColored(Core.HudShaderStore.TierBAvailable ? Accent : WarnCol,
+                Core.HudShaderStore.TierBAvailable
+                    ? "  Shader bundle ready."
+                    : "  SHADER BUNDLE NOT LOADED — THESE EFFECTS ARE INACTIVE");
+            Toggle(HudConfig.FxTierB, "Animated glass - shine, iridescence, colour fringe");
+            if (HudConfig.FxTierB.Value)
+            {
+                Toggle(HudConfig.FxShineOn, "Shine sweep");
+                if (HudConfig.FxShineOn.Value)
+                {
+                    FloatSlider(HudConfig.FxShine, "  Strength##shineStrength", 0f, 2f);
+                    FloatSlider(HudConfig.FxShinePeriod, "  period (seconds)", 2f, 60f);
+                }
+                Toggle(HudConfig.FxIridOn, "Iridescent rim");
+                if (HudConfig.FxIridOn.Value)
+                    FloatSlider(HudConfig.FxIridescence, "  Strength##iridescenceStrength", 0f, 1f);
+                Toggle(HudConfig.FxChromaOn, "Chromatic fringe (uses frosted backdrop)");
+                if (HudConfig.FxChromaOn.Value)
+                    FloatSlider(HudConfig.FxChroma, "  Strength##chromaStrength", 0f, 1f);
+                // Dissolve's master is a TRANSITION and lives (with its strength, and its
+                // per-element Inherit/On/Off) on the Transitions sub-tab.
+                ImGui.TextDisabled("Dissolve reveal: see the Transitions sub-tab.");
+            }
+
+            ImGui.Spacing();
+            ImGui.TextColored(Accent, "FROSTED BACKDROP");
+            Toggle(HudConfig.FxTierC, "Frosted backdrop - blur the world behind the HUD");
+            ImGui.TextDisabled("  Flat and Vertex-warp curvature only; the priciest effect here.");
+            if (HudConfig.FxTierC.Value)
+            {
+                FloatSlider(HudConfig.FrostStrength, "Frost strength (all elements)", 0f, 1f);
+                FloatSlider(HudConfig.FrostDepth, "Blur depth (shallow - deep)", 0f, 1f);
+                FloatSlider(HudConfig.FrostDarken, "Backdrop darkening", 0f, 1f);
+                RgbConfig(HudConfig.FrostTint, "Frost tint", ref _frostTintStr, ref _frostTintVec);
+                ImGui.TextDisabled(HudBackdrop.Active ? "Backdrop capture active." : "Backdrop capture is idle or unavailable in this view mode.");
+                ImGui.TextDisabled("Blur resolution and re-blur rate: Advanced sub-tab.");
+            }
+        }
+
+        /// <summary>Effects &gt; Edges: the edge-energy family — the lit border, its ripple, its
+        /// flow and the flowing aura that rides the shared halo envelope.</summary>
+        private void DrawFxEdgesSection()
+        {
+            if (!On(HudConfig.FxTierA)) { CoreEffectsOffNotice("edge energy"); return; }
+
+            Toggle(HudConfig.FxEdgeLightOn, "Edge energy (borders + lines)");
+            if (HudConfig.FxEdgeLightOn.Value)
+            {
+                FloatSlider(HudConfig.FxEdgeLight, "  Strength##edgeEnergyStrength", 0f, 2f);
+                DrawEdgeLightColour();
+                FloatSlider(HudConfig.FxEdgeLightAngle, "  light angle (0=R,90=top,180=L)", 0f, 360f);
+                FloatSlider(HudConfig.FxEdgeLightRim, "  opposing-rim catch", 0f, 2f);
+                FloatSlider(HudConfig.FxEdgeLightSharp, "  falloff (high=tight, low=broad)", 1f, 8f);
+                FloatSlider(HudConfig.FxEdgeRipple, "  irregular energy", 0f, 2.5f);
+                FloatSlider(HudConfig.FxEdgeRippleFreq, "  energy frequency", 0.05f, 8f);
+                FloatSlider(HudConfig.FxEdgeFlowSpeed, "  flow speed (0 = frozen)", 0f, 4f);
+                Toggle(HudConfig.FxRippleDesync, "  Desync per element (break lockstep)");
+                if (HudConfig.FxRippleDesync.Value)
+                    FloatSlider(HudConfig.FxRippleDesyncAmount, "    desync amount", 0f, 1f);
+                Toggle(HudConfig.FxGlowFlowAuraOn, "  Flowing edge aura");
+                if (HudConfig.FxGlowFlowAuraOn.Value)
+                {
+                    FloatSlider(HudConfig.FxGlowFlowAura, "    aura strength", 0f, 2f);
+                    ImGui.TextDisabled("    Moving edge crests emit through the shared halo radius/spread");
+                    ImGui.TextDisabled("    on the Glow sub-tab. Needs the sharp panel shader.");
+                }
+            }
+        }
+
+        /// <summary>Effects &gt; Glow: the halo, the envelope that halo and flowing aura share, and
+        /// the breathing-pulse SHAPE (its master is a transition, so it lives one tab over).</summary>
+        private void DrawFxGlowSection()
+        {
+            if (!On(HudConfig.FxTierA)) { CoreEffectsOffNotice("the glow halo"); return; }
+
+            Toggle(HudConfig.FxGlowOn, "Glow halo");
+            if (HudConfig.FxGlowOn.Value)
+            {
+                FloatSlider(HudConfig.FxGlow, "  outward strength", 0f, 2f);
+                FloatSlider(HudConfig.FxGlowInner, "  inward strength", 0f, 2f);
+                FloatSlider(HudConfig.FxGlowHaze, "  extended atmospheric haze", 0f, 1f);
+            }
+            bool haloEnvelopeOn = HudConfig.FxGlowOn.Value
+                || (HudConfig.FxEdgeLightOn.Value && HudConfig.FxGlowFlowAuraOn.Value);
+            if (haloEnvelopeOn)
+            {
+                ImGui.Spacing();
+                ImGui.TextColored(Accent, "SHARED HALO / FLOWING-AURA ENVELOPE");
+                FloatSlider(HudConfig.FxGlowWidth, "  Halo / aura radius (px)##glowWidth", 6f, 320f);
+                FloatSlider(HudConfig.FxGlowDiffuse, "  spread (tight rim -> diffuse)", 0f, 1f);
+                FloatSlider(HudConfig.FxGlowExtraDiffuse, "  extra diffuse (beyond max spread)", 0f, 1f);
+                Toggle(HudConfig.FxGlowBreathOn, "  Halo / aura breathing");
+                if (HudConfig.FxGlowBreathOn.Value)
+                    FloatSlider(HudConfig.FxGlowBreath, "    breath depth", 0f, 1f);
+                ImGui.TextDisabled("  Uneven / organic reach: Advanced sub-tab.");
+                ImGui.TextDisabled("  Extreme radius increases transparent GPU overdraw.");
+            }
+            FloatSlider(HudConfig.FxGlowBreathSpeed,
+                "Shared Global + Custom breath speed (Hz)", 0.03f, 2f);
+            ImGui.TextDisabled("  Shared timing stays editable even when only Custom elements breathe.");
+            DrawAdvancedHaloWarnings(haloEnvelopeOn);
+
+            // The pulse MASTER lives on the Transitions sub-tab with the rest of the registry
+            // effects (one switch, one place — two live checkboxes on the same ConfigEntry read
+            // as two settings). Its shape knobs stay here, where the per-element inspector still
+            // points for them.
+            ImGui.Spacing();
+            ImGui.TextColored(Accent, "BREATHING PULSE (shape)");
+            ImGui.TextDisabled("Breathing pulse master: see the Transitions sub-tab.");
+            if (HudConfig.FxPulseOn.Value)
+            {
+                FloatSlider(HudConfig.FxPulseSpeed, "  pulse speed (Hz)", 0.05f, 3f);
+                FloatSlider(HudConfig.FxPulseDepth, "  pulse depth", 0f, 1f);
+            }
+        }
+
+        /// <summary>The one line every core-effects-gated sub-tab prints when the master is off —
+        /// the master itself is a tab away, so say where it is instead of showing dead controls.</summary>
+        private static void CoreEffectsOffNotice(string what)
+        {
+            ImGui.TextColored(WarnCol, "Core effects are off — " + what + " is inactive.");
+            ImGui.TextDisabled("Switch \"Core effects\" back on in the Glass sub-tab.");
+        }
+
+        /// <summary>The "your advanced halo motion is not actually running" diagnostics, shared by
+        /// the Glow sub-tab and by Advanced (which owns the uneven / organic reach knobs).</summary>
+        private static void DrawAdvancedHaloWarnings(bool haloEnvelopeOn)
+        {
+            bool sdfEnabled = HudConfig.SdfPanels != null && HudConfig.SdfPanels.Value;
+            bool sdfReady = Core.HudShaderStore.SdfAvailable;
+            bool advancedHaloRequested = (HudConfig.FxGlowOn.Value && HudConfig.FxGlowHaze.Value > 0.001f)
+                || (haloEnvelopeOn && (HudConfig.FxGlowBreathOn.Value || HudConfig.FxGlowUnevenOn.Value))
+                || (HudConfig.FxEdgeLightOn.Value && HudConfig.FxGlowFlowAuraOn.Value);
+            if (advancedHaloRequested && (!sdfEnabled || !sdfReady))
+            {
+                ImGui.TextColored(WarnCol,
+                    !sdfEnabled
+                        ? "  Advanced halo motion is inactive: switch on the sharp panel shader"
+                        : "  Advanced halo motion needs a newer effects bundle, then a full restart.");
+                if (!sdfEnabled) ImGui.TextColored(WarnCol, "  (Theme > Typography & boxes).");
+                else ImGui.TextDisabled("  (the bundle's ABI-2 shader set)");
+            }
+            if (haloEnvelopeOn && HudConfig.FxGlowWidth.Value > 160f && (!sdfEnabled || !sdfReady))
+                ImGui.TextColored(WarnCol,
+                    "  Mesh fallback caps the visible halo radius at 160 px.");
+        }
+
+        /// <summary>Effects &gt; Alerts: the suit-warning pulse. Deliberately NOT gated by the core
+        /// master — with core effects off the alarm still recolours border lines, so the controls
+        /// must stay reachable.</summary>
+        private void DrawFxAlertsSection()
+        {
+            Toggle(HudConfig.FxAlertPulseOn, "Warnings tint and breathe the HUD");
+            ImGui.TextDisabled("  Suited / robot only - never in bare mode.");
+            if (HudConfig.FxAlertPulseOn.Value)
+            {
+                // The ##id suffixes are load-bearing: ImGui keys widgets by label, and a bare
+                // "  breath speed (Hz)" would collide with the shared halo-breath slider.
+                FloatSlider(HudConfig.FxAlertBreathSeconds, "  breath length (sec)##alertBreathSecs", 0.35f, 5f);
+                IntSliderCfg(HudConfig.FxAlertCautionBreaths, "  caution flashes##alertBreathCount", 1, 10);
+                FloatSlider(HudConfig.FxAlertPulseStrength, "  breath strength##alertPulseStrength", 0f, 1f);
+                ImGui.TextDisabled("  A caution flash lasts "
+                    + (HudConfig.FxAlertBreathSeconds.Value * HudConfig.FxAlertCautionBreaths.Value)
+                        .ToString("0.0") + "s in total.");
+
+                // The two alert hues, editable right here rather than only from the Palette tab —
+                // tuning an alarm means watching it breathe while you drag. These are the same
+                // HudPalette entries the Palette tab lists, so edits, undo and profile save all
+                // behave identically; PushID keeps the shared entry.Name labels from colliding
+                // with that tab's copies. Refresh the undo baseline first: _frameSnapshot is
+                // otherwise only set while a palette sub-tab draws, so a picker here would push a
+                // STALE undo step that reverts to whenever that sub-tab was last open.
+                _frameSnapshot = HudPalette.Snapshot();
+                ImGui.PushID("alertfx");
+
+                ImGui.TextDisabled("  Caution (yellow) - flashes, then clears for good:");
+                if (HudPalette.AlertCaution != null) ColorWheel(HudPalette.AlertCaution);
+                FloatSlider(HudConfig.FxAlertCautionBright, "  caution brightness##alertCautionBright", 0.25f, 3f);
+
+                ImGui.TextDisabled("  Critical (red) - breathes until the warning clears:");
+                if (HudPalette.AlertCritical != null) ColorWheel(HudPalette.AlertCritical);
+                FloatSlider(HudConfig.FxAlertCriticalBright, "  critical brightness##alertCriticalBright", 0.25f, 3f);
+
+                ImGui.PopID();
+
+                ImGui.TextDisabled("  Brightness is a gain on the picked colour: above 1 blows it");
+                ImGui.TextDisabled("  out toward white, below 1 gives a subdued tint.");
+                ImGui.TextDisabled("  Strength scales the caution flash's peak, and the critical");
+                ImGui.TextDisabled("  breath's swing (0 = steady red, no motion).");
+
+                // The alert is normally suppressed while this designer is open, which would make
+                // the colour pickers above impossible to judge. Preview forces a level so the HUD
+                // breathes live while you drag. It breathes continuously rather than running the
+                // caution burst and stopping, and only works while F9 is open.
+                ImGui.Separator();
+                ImGui.TextDisabled("  Live preview (designer only):");
+                int pv = UI.Hud.HudAlertPulse.PreviewMode;
+                if (ImGui.RadioButton("off##alertPv", pv == 0)) UI.Hud.HudAlertPulse.PreviewMode = 0;
+                ImGui.SameLine();
+                if (ImGui.RadioButton("caution##alertPv", pv == 1)) UI.Hud.HudAlertPulse.PreviewMode = 1;
+                ImGui.SameLine();
+                if (ImGui.RadioButton("critical##alertPv", pv == 2)) UI.Hud.HudAlertPulse.PreviewMode = 2;
+                if (pv != 0)
+                {
+                    ImGui.TextColored(WarnCol,
+                        "  Previewing - breathing continuously, real warnings ignored.");
+                    ImGui.TextDisabled("  Clears itself the moment this designer closes.");
+                }
+                else
+                {
+                    ImGui.TextDisabled("  Alerts are suppressed while this designer is open -");
+                    ImGui.TextDisabled("  use the preview above to judge these colours.");
+                }
+                if (!On(HudConfig.FxTierA))
+                    ImGui.TextColored(WarnCol,
+                        "  Core effects are off: alerts recolour the border line only, with no halo.");
+            }
+        }
+
+        /// <summary>Effects &gt; Transitions: suit power, the boot/death sequences and the whole
+        /// HudTransitionFx registry (dissolve, glitch, dropouts, the breathing-pulse master).
+        ///
+        /// These used to have NO global switch at all: EffectAmt returned a hard 1f for any
+        /// element following the globals, so a transition could not be turned off from the
+        /// element OR from here. Each one now has a real master + a default strength, and the
+        /// per-element toggles are honoured in both style states.</summary>
+        private void DrawFxTransitionsSection()
+        {
+            // Merged in from View & Behavior (2026-07-25): the section was duplicated across
+            // two tabs (audit 03), so everything suit-power-and-transition-related now lives
+            // here in one place; View & Behavior leaves a one-line pointer instead.
+            Toggle(HudConfig.DiegeticTiers, "Diegetic tiers (no suit power = words only)");
+            Toggle(HudConfig.FxPowerDownMirrorsBoot, "Power DOWN mirrors power UP (staggered flicker)");
+            ImGui.TextDisabled("  On: the HUD leaves the same way it arrives, element by element.");
+            ImGui.TextDisabled("  Off: the old all-at-once power-death.");
+            Toggle(HudConfig.FxDissolveOnPowerDown, "Dissolve frontier also runs on power DOWN");
+            ImGui.TextDisabled("  Off: the dissolve reveals on boot only; power-down just fades.");
+
+            Toggle(HudConfig.LowPowerDropouts, "Low-power dropout glitches");
+            if (HudConfig.LowPowerDropouts.Value)
+                FloatSlider(HudConfig.LowPowerThreshold, "  low-power threshold (%)", 0f, 40f);
+
+            ImGui.Spacing();
+            if (ImGui.Button("Test power-death flicker")) HudSystem.TestPowerDeath();
+            ImGui.SameLine();
+            if (ImGui.Button("Test boot sequence")) HudSystem.TestBoot();
+
+            ImGui.Spacing();
+            ImGui.TextColored(Accent, "TRANSITION EFFECTS");
+
+            // ONE row per registry effect rather than a hand-written list: the labels, the
+            // masters and the strength entries all come from HudTransitionFx.All, which is the
+            // same table the per-element inspector reads — so the two menus cannot drift, and a
+            // new effect appears in both the moment it is added to the registry.
+            for (int i = 0; i < HudTransitionFx.All.Length; i++)
+            {
+                HudTransitionFxDef fx = HudTransitionFx.All[i];
+                if (fx == null) continue;
+                // Unbound entry (config bind failed / very early frame): skip the row rather
+                // than NRE inside Toggle and take the whole tab down with it.
+                ConfigEntry<bool> master = fx.MasterEntry;
+                if (master == null) continue;
+                ImGui.PushID(fx.Key);          // every effect's "  Strength" shares a caption
+                Toggle(master, fx.Label);
+                if (master.Value)
+                {
+                    ConfigEntry<float> amt = fx.AmountEntry;
+                    if (amt != null) FloatSlider(amt, "  Strength", 0f, 2f);
+                    TipLines(fx.Tip);
+
+                    // The glitch tear is also HudGlitch's transform-jitter envelope (the tear/
+                    // shake on power transitions, not just the per-panel participation weight)
+                    // — unified onto this ONE row 0.9.2.5 (audit 04 #7: two live glitch systems
+                    // exposed twice). Duration and the per-event gates have no tri-state
+                    // analogue, so they hang off this row rather than living on their own.
+                    if (string.Equals(fx.Key, "fxGlitch", System.StringComparison.Ordinal))
+                    {
+                        if (HudConfig.FxGlitchDuration != null)
+                            FloatSlider(HudConfig.FxGlitchDuration, "  duration (seconds)", 0.1f, 4f);
+                        Toggle(HudConfig.GlitchOnPowerDown, "  fire on power DOWN / suit removed");
+                        Toggle(HudConfig.GlitchOnPowerUp, "  fire on power UP / boot");
+                        if (ImGui.Button("Test glitch now")) HudGlitch.TriggerTest();
+                    }
+                }
+                ImGui.PopID();
+            }
+
+            ImGui.Spacing();
+            ImGui.TextDisabled("A master OFF here wins over every element's own setting:");
+            ImGui.TextDisabled("an element set to On still stays still while its master is off.");
+            ImGui.TextDisabled("Per element: click it, then its own Effects tab > Motion & power");
+            ImGui.TextDisabled("transitions, then pick Inherit (follow these) / On / Off per effect.");
+        }
+
+        /// <summary>Effects &gt; Advanced: the knobs almost nobody touches — renderer performance
+        /// and the fine-detail panel-shader esoterica — lifted OUT of the family sub-tabs so those
+        /// stay short. Every row still obeys the master that owns it and says where that master
+        /// lives, so nothing here can be edited into a state the author cannot see.</summary>
+        private void DrawFxAdvancedSection()
+        {
+            ImGui.TextColored(Accent, "PERFORMANCE");
+            if (On(HudConfig.FxTierC))
+            {
+                FrostDownsampleCombo();
+                IntSliderCfg(HudConfig.FrostUpdateEveryN, "Re-blur every N frames", 1, 8);
+            }
+            else ImGui.TextDisabled("Frosted backdrop is off (Glass sub-tab) - its blur knobs are hidden.");
+            if (On(HudConfig.FxBloomOn)) BloomResCombo();
+            else ImGui.TextDisabled("HUD bloom is off (Bloom sub-tab) - its resolution knob is hidden.");
+
+            ImGui.Spacing();
+            ImGui.TextColored(Accent, "HALO FINE DETAIL");
+            ImGui.TextDisabled("Needs the sharp panel shader (Theme > Typography & boxes).");
+            bool haloEnvelopeOn = On(HudConfig.FxTierA)
+                && (On(HudConfig.FxGlowOn)
+                    || (On(HudConfig.FxEdgeLightOn) && On(HudConfig.FxGlowFlowAuraOn)));
+            if (haloEnvelopeOn)
+            {
+                Toggle(HudConfig.FxGlowUnevenOn, "Uneven / organic reach");
+                if (HudConfig.FxGlowUnevenOn.Value)
+                {
+                    FloatSlider(HudConfig.FxGlowUneven, "  unevenness amount", 0f, 1f);
+                    FloatSlider(HudConfig.FxGlowOrganicScale, "  organic scale (1 = classic)", 0.25f, 4f);
+                }
+                DrawAdvancedHaloWarnings(true);
+            }
+            else ImGui.TextDisabled("No halo or flowing aura is on (Glow sub-tab) - reach knobs hidden.");
+
+            ImGui.Spacing();
+            ImGui.TextColored(Accent, "BLOOM COLOUR BIAS");
+            if (On(HudConfig.FxBloomOn))
+            {
+                FloatSlider(HudConfig.FxBloomSatBias,
+                    "  Colour bias (+ favours coloured pixels)##bloomBaseBias", -1f, 1f);
+                if (On(HudConfig.FxBloom2On))
+                    FloatSlider(HudConfig.FxBloom2SatBias,
+                        "  Colour bias (+ favours borders)##bloomHighlightBias", -1f, 1f);
+                else ImGui.TextDisabled("  Border / highlight bloom is off (Bloom sub-tab).");
+            }
+            else ImGui.TextDisabled("HUD bloom is off (Bloom sub-tab).");
         }
 
         private void DrawViewBehaviorTab()
@@ -569,9 +743,9 @@ namespace StationeersUIMod.Windows
                 Toggle(HudConfig.VisorHudEnabled, "Visor HUD enabled");
                 Toggle(HudConfig.ShowVignette, "Visor-edge vignette");
                 Toggle(HudConfig.ShowScanlines, "Projector scan-lines (whole HUD canvas)");
-                ImGui.TextDisabled("  Colour: 'HudScanline' in the palette below. Radials / inventory grid excluded.");
+                ImGui.TextDisabled("  Colour: 'HudScanline' in Theme > All colours. Radials / inventory grid excluded.");
                 Toggle(HudConfig.TintItemIcons, "Tint item icons green (hands / 1-6 / inventory)");
-                ImGui.TextDisabled("  Colour: 'HudItemIconTint' in the palette below (white = off).");
+                ImGui.TextDisabled("  Colour: 'HudItemIconTint' in Theme > All colours (white = off).");
                 ImGui.TextDisabled("  This is the INHERITED default: hands / 1-6 can override it per");
                 ImGui.TextDisabled("  element (and per bare/suited) - see 'Item icon tint' in their popup.");
             }
@@ -588,8 +762,9 @@ namespace StationeersUIMod.Windows
             }
 
             // Merged into the Effects tab (2026-07-25, audit 03 P0): this section was duplicated
-            // across both tabs with the same config bindings living in two places at once.
-            ImGui.TextDisabled("Suit power, transitions & dropouts: Effects tab.");
+            // across both tabs with the same config bindings living in two places at once. The
+            // pointer names the SUB-TAB it landed on (0.9.2.5 Wave D restructure).
+            ImGui.TextDisabled("Suit power, transitions & dropouts: Effects tab > Transitions.");
 
             if (ImGui.CollapsingHeader("Vanilla panels", ImGuiTreeNodeFlags.DefaultOpen))
             {
@@ -1214,6 +1389,7 @@ namespace StationeersUIMod.Windows
                 try { el.DescribeProps(_propScratch); }
                 catch { }
 
+                PushTabStyle();   // same active-tab contrast as the F9 window's own bars
                 if (ImGui.BeginTabBar("##UIAHudElementTabs"))
                 {
                     DrawElementPropTab("Content", UI.Hud.HudPropGroup.Content,
@@ -1228,6 +1404,7 @@ namespace StationeersUIMod.Windows
                         beginElementEdit, commitElementEdit, cancelElementEdit, noteElementChanged);
                     ImGui.EndTabBar();
                 }
+                PopTabStyle();
                 // Live feedback only while a widget is actually being edited — an
                 // idle popup must not rebuild the element's meshes every frame.
                 bool editing = false;
@@ -1452,15 +1629,15 @@ namespace StationeersUIMod.Windows
             FloatSlider(HudConfig.FxBloomKnee, "  Soft knee##bloomBaseKnee", 0f, 1f);
             IntSliderCfg(HudConfig.FxBloomBlurSteps, "  Reach / blur steps##bloomBaseSteps", 1, 5);
             FloatSlider(HudConfig.FxBloomSpread, "  Width fine-adjust##bloomBaseSpread", 0.5f, 3f);
-            BloomResCombo();
             FloatSlider(HudConfig.FxBloomAnamorph,
                 "  Streak shape (-1 vertical, +1 horizontal)##bloomBaseAnamorph", -1f, 1f);
             FloatSlider(HudConfig.FxBloomSaturation,
                 "  Saturation (0 white-hot, 1 source hues)##bloomBaseSaturation", 0f, 2f);
-            FloatSlider(HudConfig.FxBloomSatBias,
-                "  Colour bias (+ favours coloured pixels)##bloomBaseBias", -1f, 1f);
             RgbConfig(HudConfig.FxBloomTint, "  Glow tint##bloomBaseTint",
                 ref _bloomTintStr, ref _bloomTintVec);
+            // Glow resolution and the colour-bias pair moved to the Advanced sub-tab (perf +
+            // esoterica), so this tab stays the shape-and-strength one.
+            ImGui.TextDisabled("  Glow resolution and colour bias: Advanced sub-tab.");
 
             ImGui.Spacing();
             Toggle(HudConfig.FxBloomPulseOn, "Breathing bloom");
@@ -1484,8 +1661,6 @@ namespace StationeersUIMod.Windows
             {
                 FloatSlider(HudConfig.FxBloom2Threshold,
                     "  Highlight threshold##bloomHighlightThreshold", 0f, 1.5f);
-                FloatSlider(HudConfig.FxBloom2SatBias,
-                    "  Colour bias (+ favours borders)##bloomHighlightBias", -1f, 1f);
                 FloatSlider(HudConfig.FxBloom2Strength,
                     "  Strength##bloomHighlightStrength", 0f, 3f);
                 IntSliderCfg(HudConfig.FxBloom2Steps,
@@ -1595,21 +1770,23 @@ namespace StationeersUIMod.Windows
 
         private static void CurvatureCombo()
         {
+            // "Experimental" is gone from every option (0.9.2.5): these are just the modes now.
+            // Mode C keeps its plain-language KNOWN-issue line below instead of a scare word.
             var mode = HudConfig.Curvature.Value;
-            string current = mode == HudCurvature.Flat ? "Flat (no curve)"
+            string current = mode == HudCurvature.Flat ? "Flat - no curvature"
                 : mode == HudCurvature.VertexWarp ? "A - Vertex warp (recommended)"
                 : mode == HudCurvature.DomeProjection ? "B - Dome projection (RenderTexture)"
-                : mode == HudCurvature.CurvedWorldCanvas ? "C - Curved world canvas (experimental)"
+                : mode == HudCurvature.CurvedWorldCanvas ? "C - Curved world canvas"
                 : "D - Curved, steady (RenderTexture)";
             if (ImGui.BeginCombo("Curvature mode", current))
             {
-                if (ImGui.Selectable("Flat (no curve)", mode == HudCurvature.Flat))
+                if (ImGui.Selectable("Flat - no curvature", mode == HudCurvature.Flat))
                     HudConfig.Curvature.Value = HudCurvature.Flat;
                 if (ImGui.Selectable("A - Vertex warp (recommended)", mode == HudCurvature.VertexWarp))
                     HudConfig.Curvature.Value = HudCurvature.VertexWarp;
                 if (ImGui.Selectable("B - Dome projection (RenderTexture)", mode == HudCurvature.DomeProjection))
                     HudConfig.Curvature.Value = HudCurvature.DomeProjection;
-                if (ImGui.Selectable("C - Curved world canvas (experimental)", mode == HudCurvature.CurvedWorldCanvas))
+                if (ImGui.Selectable("C - Curved world canvas", mode == HudCurvature.CurvedWorldCanvas))
                     HudConfig.Curvature.Value = HudCurvature.CurvedWorldCanvas;
                 if (ImGui.Selectable("D - Curved, steady (RenderTexture)", mode == HudCurvature.CurvedRt))
                     HudConfig.Curvature.Value = HudCurvature.CurvedRt;
@@ -1625,16 +1802,6 @@ namespace StationeersUIMod.Windows
                 ? "Every element mesh bends toward the screen axis. Crisp text, zero cost."
                 : "The baseline. Pick A, B, C or D to compare the visor projections.");
         }
-
-        // The shared colours that box elements draw when "Follow global colours" is ticked. Shown in
-        // their own section at the top so changing all boxes at once is one edit; skipped in the full
-        // list below so a swatch never appears (and fights for its ImGui id) twice.
-        private static readonly System.Collections.Generic.HashSet<string> _boxColourNames =
-            new System.Collections.Generic.HashSet<string>
-            {
-                "HudPanelFill", "HudPanelBorder", "HudTextValue", "HudTextLabel", "HudTextDim",
-                "HudGood", "HudWarn", "HudCritical",
-            };
 
         /// <summary>Commit an interrupted palette gesture only when its final config values differ
         /// from the activation snapshot. This preserves redo after a click-without-edit (or a drag
@@ -1661,12 +1828,14 @@ namespace StationeersUIMod.Windows
             return false;
         }
 
-        private static void DrawColourControls()
+        /// <summary>The per-profile THEME chrome, drawn ABOVE the Theme sub-tab bar: the whole
+        /// global look (HUD colours + effects + curvature + radial palette) belongs to the active
+        /// profile, so switching profiles restores it — that is true of every sub-tab, not just
+        /// the colour ones, which is why it does not live inside one of them.</summary>
+        private static void DrawProfileThemeBlock()
         {
-            // --- per-profile THEME: the whole global look (HUD colours + effects + curvature +
-            // radial palette) belongs to the active profile, so switching profiles restores it. ---
             bool hasTheme = Features.HudProfileStore.ActiveHasTheme;
-            ImGui.TextColored(new Vector4(0.25f, 0.85f, 0.93f, 1f), "PROFILE THEME");
+            ImGui.TextColored(Accent, "PROFILE THEME");
             ImGui.TextDisabled(hasTheme
                 ? "This profile stores its own theme (colours + effects + radial); switching restores it."
                 : "No saved theme yet - this profile follows the live globals until you save one.");
@@ -1677,16 +1846,21 @@ namespace StationeersUIMod.Windows
                 if (ImGui.Button("Clear saved theme")) Features.HudProfileStore.ClearActiveTheme();
             }
             ImGui.Separator();
+        }
 
-            ImGui.TextDisabled("Click a swatch for a colour wheel. The A slider is transparency.");
-            if (ImGui.Button("Undo"))
+        /// <summary>The colour Undo/Redo pair. Shown on BOTH colour sub-tabs on purpose: it is a
+        /// history action over one shared stack, not a per-tab setting, and a swatch dragged on
+        /// either tab must be revertible without hunting for the other one.</summary>
+        private static void DrawPaletteHistoryRow()
+        {
+            if (ImGui.Button("Undo##palette"))
             {
                 FlushPendingPaletteEdit();
                 HudPalette.History.Undo();
                 Features.HudProfileStore.MarkThemeChanged();
             }
             ImGui.SameLine();
-            if (ImGui.Button("Redo"))
+            if (ImGui.Button("Redo##palette"))
             {
                 FlushPendingPaletteEdit();
                 HudPalette.History.Redo();
@@ -1695,31 +1869,58 @@ namespace StationeersUIMod.Windows
             ImGui.SameLine();
             ImGui.TextDisabled(HudPalette.History.CanUndo ? "" : "(nothing to undo)");
             ImGui.Spacing();
+        }
 
+        /// <summary>Per-frame palette bookkeeping shared by both colour sub-tabs: refresh the undo
+        /// baseline, and report whether the hovered element's colour set CHANGED this frame (so a
+        /// newly hot swatch scrolls itself into view exactly once). Only one sub-tab draws per
+        /// frame, so the single _lastHotSig slot still sees one call per frame.</summary>
+        private static bool BeginPaletteFrame()
+        {
             _frameSnapshot = HudPalette.Snapshot();
             string hotSig = HudEditorMode.Active ? HudEditorMode.HotSignature : "";
             bool scrollTo = hotSig != _lastHotSig && hotSig.Length > 0;
             _lastHotSig = hotSig;
+            return scrollTo;
+        }
 
-            // --- Global box colours: change these to re-tint every box that follows global. ---
-            ImGui.TextColored(new Vector4(0.25f, 0.85f, 0.93f, 1f), "GLOBAL BOX COLOURS");
+        /// <summary>Theme &gt; Palette: the semantic colours a HUD is actually designed in. Every
+        /// box set to "Follow global colours" draws from these, so one edit re-tints the whole
+        /// visor — which is why they come FIRST instead of being buried in the ~25-entry list.</summary>
+        private static void DrawCorePaletteSection()
+        {
             ImGui.TextDisabled("Every box set to \"Follow global colours\" uses these — one edit re-tints them all.");
+            ImGui.TextDisabled("Click a swatch for a colour wheel. The A slider is transparency.");
+            DrawPaletteHistoryRow();
+
+            bool scrollTo = BeginPaletteFrame();
             ColorWheelHot(HudPalette.PanelFill, ref scrollTo);
             ColorWheelHot(HudPalette.PanelBorder, ref scrollTo);
-            ColorWheelHot(HudPalette.TextValue, ref scrollTo);
+            ColorWheelHot(HudPalette.LineAccent, ref scrollTo);
             ColorWheelHot(HudPalette.TextLabel, ref scrollTo);
+            ColorWheelHot(HudPalette.TextValue, ref scrollTo);
             ColorWheelHot(HudPalette.TextDim, ref scrollTo);
             ColorWheelHot(HudPalette.Good, ref scrollTo);
             ColorWheelHot(HudPalette.Warn, ref scrollTo);
             ColorWheelHot(HudPalette.Critical, ref scrollTo);
-            ImGui.Separator();
-            ImGui.TextDisabled("Other HUD colours (compass, hologram, edges, scanline...):");
 
+            ImGui.Spacing();
+            ImGui.TextDisabled("Hovering a HUD element turns the colours it uses orange. If nothing");
+            ImGui.TextDisabled("lights up here, it draws from the All colours sub-tab.");
+        }
+
+        /// <summary>Theme &gt; All colours: the complete palette, in registration order. The core
+        /// ones from the Palette sub-tab are included (it is the FULL list, and the two sub-tabs
+        /// never draw in the same frame, so no swatch can fight another for its ImGui id).</summary>
+        private static void DrawAllColoursSection()
+        {
+            ImGui.TextDisabled("Every HUD colour: compass, hologram, edges, scanline, alerts...");
+            ImGui.TextDisabled("The nine you retune most also sit on the Palette sub-tab.");
+            DrawPaletteHistoryRow();
+
+            bool scrollTo = BeginPaletteFrame();
             foreach (var entry in HudPalette.All)
-            {
-                if (_boxColourNames.Contains(entry.Name)) continue; // shown in the box section above
                 ColorWheelHot(entry, ref scrollTo);
-            }
 
             ImGui.Spacing();
             if (ImGui.Button("Reset all HUD colours to defaults"))
@@ -1734,6 +1935,9 @@ namespace StationeersUIMod.Windows
         /// hovered in the editor — the shared draw for both the box section and the full list.</summary>
         private static void ColorWheelHot(HudPalette.Entry entry, ref bool scrollTo)
         {
+            // The core list names its entries explicitly; a bind that failed must skip its row
+            // rather than take the whole sub-tab down with an NRE.
+            if (entry == null) return;
             bool hot = HudEditorMode.Active && HudEditorMode.HotPalette.Contains(entry.Name);
             if (hot)
             {

@@ -9,7 +9,8 @@ using UnityEngine.UI;
 namespace StationeersUIMod.UI.Menu.Tabs
 {
     /// <summary>Radial-half comfort settings. Simple = the handful that matter; Advanced adds the
-    /// full appearance/tuning set and a shortcut into the legacy ImGui firehose (colours live there).</summary>
+    /// full appearance/tuning set and a shortcut into the radial editor (the ImGui window that
+    /// owns wheel colours and the rest of the wedge look).</summary>
     public sealed class RadialTab : IUiaTab
     {
         public string Title => "Radial";
@@ -100,11 +101,13 @@ namespace StationeersUIMod.UI.Menu.Tabs
             UiaControls.DropdownRow(col, "Free space shown as", empty, (int)UIAConfig.BagEmptySlots.Value, i => UIAConfig.BagEmptySlots.Value = (EmptySlotMode)i);
 
             UiaUi.Go("sp", col).AddComponent<LayoutElement>().preferredHeight = 6f;
-            UiaControls.Note(col, "Wheel colours, glass effects and the full palette live in the legacy panel below.");
-            UiaControls.Button(col, "Open all radial settings (legacy F10 panel)", OpenLegacy, -1f, UiaTheme.RowH);
+            // "Legacy" was a lie: this IS the radial editor — the only place wheel colours, the
+            // wedge glass and the radial palette are edited (0.9.2.5 Wave D wording pass).
+            UiaControls.Note(col, "Wheel colours, glass effects and the full palette live in the radial editor.");
+            UiaControls.Button(col, "Open the radial editor", OpenRadialEditor, -1f, UiaTheme.RowH);
         }
 
-        private static void OpenLegacy()
+        private static void OpenRadialEditor()
         {
             try
             {

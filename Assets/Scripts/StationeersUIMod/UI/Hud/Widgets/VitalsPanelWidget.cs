@@ -73,6 +73,12 @@ namespace StationeersUIMod.UI.Hud.Widgets
         // row separators stay rectangular.
         protected override bool SupportsTrapezoid => true;
 
+        // The frame is a real PanelGraphic (fill/border/glass all apply).
+        protected override bool SupportsPanelAppearance => true;
+
+        // The frame is optional, "box" key, default ON.
+        protected override bool OptionalPanelBackgroundIsOff => !Def.GetBFor(EditBare(Def), "box", true);
+
         protected override void BuildContent(RectTransform root)
         {
             _box = MakePanel(root, "Box");

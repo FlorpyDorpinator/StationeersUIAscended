@@ -45,6 +45,19 @@ namespace StationeersUIMod.UI.Hud.Widgets
         // The backing strip takes the trapezoid insets (base supplies the sliders).
         protected override bool SupportsTrapezoid => true;
 
+        // The backing strip is a real PanelGraphic (fill/border/glass all apply).
+        protected override bool SupportsPanelAppearance => true;
+
+        // Compass never reads TextColor()/TextColorFor — cardinal labels, ticks, caret and the
+        // degree readout all resolve through their own dedicated colour refs (see UpdatePanel /
+        // DescribeProps below), so the universal "Text / accent" row can never touch a pixel here.
+        protected override bool UsesAccentColor => false;
+
+        // The backdrop box is optional ("box" key, default ON) — surface the same "effects are
+        // saved but invisible" hint the base offers, under Compass's own inspector name for it.
+        protected override bool OptionalPanelBackgroundIsOff => !Def.GetBFor(EditBare(Def), "box", true);
+        protected override string OptionalPanelBackgroundToggleName => "Backdrop box";
+
         /// <summary>Place a ribbon child at the given LOCAL offset from the element centre,
         /// bent onto the visor curve. The ribbon moves every frame, so its mesh is never
         /// re-warped by VisorWarp — instead we warp its POSITION here: the barrel modes bend

@@ -120,6 +120,16 @@ namespace StationeersUIMod.UI.Hud.Widgets
 
         protected override bool SupportsTrapezoid => true; // the whole-element background can be a trapezoid
 
+        // The optional whole-element background + per-sense boxes are real PanelGraphics.
+        protected override bool SupportsPanelAppearance => true;
+
+        // Sense words and the day-part word resolve their own "wordColor" ref (HudPalette.BareWord
+        // fallback) — the universal accent never reaches a pixel here.
+        protected override bool UsesAccentColor => false;
+
+        // Whole-element background is optional, "box" key, default OFF (usually just words).
+        protected override bool OptionalPanelBackgroundIsOff => !Def.GetBFor(EditBare(Def), "box", false);
+
         protected override void BuildContent(RectTransform root)
         {
             // Draw order = child order: background first (behind), then per-item boxes, then words.

@@ -20,6 +20,16 @@ namespace StationeersUIMod.UI.Hud.Widgets
     /// </summary>
     internal sealed class PortraitWidget : HudElementView
     {
+        // No UIA panel surface (a masked hologram + a ring), so no fill/glow/frost controls —
+        // but the ring DOES draw a real border/colour the base's border-only chrome exposes.
+        protected override bool SupportsPanelAppearance => false;
+        protected override bool SupportsBorderOnlyChrome => true;
+
+        // No text, no accent-tinted surface, no scalable text anywhere in this widget.
+        protected override bool UsesAccentColor => false;
+        protected override bool UsesFontScale => false;
+
+
         // Fully qualified: `using Assets.Scripts` pulls in the game's own Mask type,
         // which would otherwise win the lookup and has no stencil semantics.
         private UnityEngine.UI.Mask _mask;

@@ -21,6 +21,16 @@ namespace StationeersUIMod.UI.Hud.Widgets
     /// </summary>
     internal sealed class BodyDollWidget : HudElementView
     {
+        // The seven body-part graphics are tinted entirely from vanilla's damage gradient / the
+        // dim->warn->crit fallback ramp — no fill/glow/frost knobs apply, and the parts' own
+        // border is set directly in code (ghost outline), not from the element's Border ref.
+        protected override bool SupportsPanelAppearance => false;
+        protected override bool SupportsBorderOnlyChrome => false;
+
+        // No text, no accent-tinted surface, no scalable text anywhere in this widget.
+        protected override bool UsesAccentColor => false;
+        protected override bool UsesFontScale => false;
+
         // Region -> which snapshot ratio drives a part's colour.
         private const int RegionHead = 0, RegionChest = 1, RegionBody = 2;
 

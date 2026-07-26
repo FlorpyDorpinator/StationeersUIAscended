@@ -17,6 +17,14 @@ namespace StationeersUIMod.UI.Hud.Widgets
     /// </summary>
     internal sealed class SuitChipsWidget : HudElementView
     {
+        // Each chip is a real PanelGraphic (fill/border/glass all apply); its radii are
+        // deliberately derived from chip size instead (see SupportsAuthoredCorners), which is a
+        // separate axis from this one.
+        protected override bool SupportsPanelAppearance => true;
+
+        // Chip glyph/dot are fixed-size icon art — no scalable text anywhere in this widget.
+        protected override bool UsesFontScale => false;
+
         private const int Helmet = 0, SuitAc = 1, Light = 2, Internals = 3;
 
         private static readonly HudIconKind[] Kinds =

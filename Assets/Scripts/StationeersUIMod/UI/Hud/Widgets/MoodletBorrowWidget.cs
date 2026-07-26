@@ -29,6 +29,14 @@ namespace StationeersUIMod.UI.Hud.Widgets
     /// </summary>
     internal sealed class MoodletBorrowWidget : HudElementView
     {
+        // BuildContent makes a holder + CanvasGroup, nothing else — no UIA panel surface exists
+        // here to style (see the MoodletDashboard exclusion note on the base's def-only switch).
+        protected override bool SupportsPanelAppearance => false;
+
+        // Words-mode text resolves its own "wordColor" ref (HudPalette.BareWord fallback) — the
+        // universal accent row can never touch a pixel here.
+        protected override bool UsesAccentColor => false;
+
         private RectTransform _holder;
         private CanvasGroup _holderGroup; // drives the F9 "Moodlet transparency" fade
 

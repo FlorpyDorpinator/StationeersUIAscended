@@ -32,6 +32,29 @@ namespace StationeersUIMod.UI.Hud
         // Polyline/Icon have no background box); the base supplies the two sliders for it.
         protected override bool SupportsTrapezoid => Def.Type == HudElementType.Box;
 
+        // Only Box and Shape own a UIA panel/polygon surface — Label/Polyline/Icon (and the
+        // unknown-type placeholder) render through TMP/PolylineGraphic/HudIconGraphic/Image,
+        // none of which consume fill/border/glow/frost. Same truth table as the old
+        // SupportsPanelAppearanceFor(Def) switch for these five Def.Types.
+        protected override bool SupportsPanelAppearance
+            => Def.Type == HudElementType.Box || Def.Type == HudElementType.Shape;
+
+        // Only Label's TMP text is tinted from TextColor(); Polyline/Icon read it too (line
+        // stroke, glyph/sprite tint) but Box/Shape never touch it (they resolve Fill/Border
+        // instead) — so accent is live for every primitive EXCEPT Box and Shape.
+        protected override bool UsesAccentColor
+            => Def.Type != HudElementType.Box && Def.Type != HudElementType.Shape;
+
+        // Only Label multiplies its size by Def.FontScaleFor — Box/Polyline/Icon/Shape have no
+        // scalable text at all (line width, stroke scale and shape geometry are unrelated knobs).
+        // Anything outside these five known Def.Types (the "unregistered widget" placeholder path)
+        // is left at the base's true default — an unverified future type keeps the knob visible
+        // rather than silently guessing it inert.
+        protected override bool UsesFontScale
+            => Def.Type == HudElementType.Label
+            || (Def.Type != HudElementType.Box && Def.Type != HudElementType.Polyline
+                && Def.Type != HudElementType.Icon && Def.Type != HudElementType.Shape);
+
         protected override void BuildContent(RectTransform root)
         {
             switch (Def.Type)

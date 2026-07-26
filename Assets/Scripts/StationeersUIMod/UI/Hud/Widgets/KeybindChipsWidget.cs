@@ -14,6 +14,9 @@ namespace StationeersUIMod.UI.Hud.Widgets
     /// </summary>
     internal sealed class KeybindChipsWidget : HudElementView
     {
+        // Each chip is a real PanelGraphic (fill/border/glass all apply).
+        protected override bool SupportsPanelAppearance => true;
+
         private const int N = 3;
         private readonly PanelGraphic[] _chip = new PanelGraphic[N];
         private readonly TextMeshProUGUI[] _key = new TextMeshProUGUI[N];

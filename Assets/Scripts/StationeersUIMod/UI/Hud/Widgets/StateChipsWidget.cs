@@ -24,6 +24,13 @@ namespace StationeersUIMod.UI.Hud.Widgets
     /// </summary>
     internal sealed class StateChipsWidget : HudElementView
     {
+        // Each chip is a real PanelGraphic (fill/border/glass all apply).
+        protected override bool SupportsPanelAppearance => true;
+
+        // Words-mode text resolves its own "wordColor" ref (HudPalette.TextValue fallback via
+        // GlobalOr) — the universal accent row can never touch a pixel here.
+        protected override bool UsesAccentColor => false;
+
         private const int Helmet = 0, Light = 1, Jetpack = 2, N = 3;
 
         private readonly PanelGraphic[] _panel = new PanelGraphic[N];

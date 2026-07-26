@@ -27,7 +27,9 @@ namespace StationeersUIMod.UI.Menu.Tabs
             UiaControls.DropdownRow(col, "Global HUD font", fonts, fi, i => HudConfig.FontName.Value = i <= 0 ? "" : fonts[i]);
             UiaControls.SliderRow(col, "Font scale", 0.6f, 1.8f, HudConfig.FontScale.Value, v => HudConfig.FontScale.Value = v, "0.00");
 
-            var curves = new List<string> { "Flat", "Curved (visor)" };
+            // The quick two-way switch. Its option text matches the F9 editor's wording so the
+            // same mode is never called two different things in two windows.
+            var curves = new List<string> { "Flat - no curvature", "Curved (visor)" };
             int ci = HudConfig.Curvature.Value == HudCurvature.Flat ? 0 : 1;
             UiaControls.DropdownRow(col, "Curvature", curves, ci,
                 i => HudConfig.Curvature.Value = i == 0 ? HudCurvature.Flat : HudCurvature.VertexWarp);
@@ -51,8 +53,18 @@ namespace StationeersUIMod.UI.Menu.Tabs
             UiaControls.SliderRow(col, "Low-power threshold (%)", 0f, 40f, HudConfig.LowPowerThreshold.Value, v => HudConfig.LowPowerThreshold.Value = v, "0");
             UiaControls.ToggleRow(col, "Power-transition glitch", HudConfig.FxGlitchOn.Value, v => HudConfig.FxGlitchOn.Value = v);
 
-            var curveAll = new List<string> { "Flat", "Vertex warp (A)", "Dome (B)", "World canvas (C)", "Curved RT (D)" };
-            UiaControls.DropdownRow(col, "Curvature mode (full)", curveAll, (int)HudConfig.Curvature.Value, i => HudConfig.Curvature.Value = (HudCurvature)i);
+            // Every curvature mode, in HudCurvature order (the index IS the enum value). No mode
+            // is labelled "experimental" any more — they are simply the modes, named the way the
+            // F9 editor names them; mode C's known swim is documented there, not in a scare word.
+            var curveAll = new List<string>
+            {
+                "Flat - no curvature",
+                "A - Vertex warp (recommended)",
+                "B - Dome projection",
+                "C - Curved world canvas",
+                "D - Curved, steady",
+            };
+            UiaControls.DropdownRow(col, "Curvature mode (all)", curveAll, (int)HudConfig.Curvature.Value, i => HudConfig.Curvature.Value = (HudCurvature)i);
 
             UiaUi.Go("sp", col).AddComponent<LayoutElement>().preferredHeight = 6f;
             UiaControls.Note(col, "Build your own layout and tune the glass effects in the HUD Designer.");

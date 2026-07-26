@@ -22,6 +22,13 @@ namespace StationeersUIMod.UI.Hud.Widgets
     /// </summary>
     internal sealed class EquipmentColumnWidget : HudElementView
     {
+        // Each of the six equipment boxes is a real PanelGraphic (fill/border/glass all apply).
+        protected override bool SupportsPanelAppearance => true;
+
+        // The universal accent never reaches a pixel here — slot numbers and labels resolve
+        // through their own dedicated refs ("numColor"/"labelColor"/"labelEmptyColor").
+        protected override bool UsesAccentColor => false;
+
         private static readonly string[] Labels = { "HELMET", "GLASSES", "SUIT", "BACK", "UNIFORM", "BELT" };
         // The 1-6 slot digits are constant; hold them so the per-frame text set never allocates.
         private static readonly string[] SlotNums = { "1", "2", "3", "4", "5", "6" };

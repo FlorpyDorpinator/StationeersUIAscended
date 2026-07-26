@@ -36,6 +36,12 @@ namespace StationeersUIMod.UI.Hud.Widgets
         // The jetpack box takes the trapezoid insets (base supplies the sliders).
         protected override bool SupportsTrapezoid => true;
 
+        // The box is a real PanelGraphic (fill/border/glass all apply).
+        protected override bool SupportsPanelAppearance => true;
+
+        // The box is optional, "box" key, default ON.
+        protected override bool OptionalPanelBackgroundIsOff => !Def.GetBFor(EditBare(Def), "box", true);
+
         protected override void BuildContent(RectTransform root)
         {
             _box = MakePanel(root, "Box");

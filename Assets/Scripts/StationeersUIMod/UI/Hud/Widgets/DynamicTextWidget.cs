@@ -30,6 +30,9 @@ namespace StationeersUIMod.UI.Hud.Widgets
         // day) have none, so the trapezoid sliders appear for the badge alone.
         protected override bool SupportsTrapezoid => Def.Type == HudElementType.ActiveHandBadge;
 
+        // Same reasoning, same condition: only the badge owns a PanelGraphic to style.
+        protected override bool SupportsPanelAppearance => Def.Type == HudElementType.ActiveHandBadge;
+
         protected override void BuildContent(RectTransform root)
         {
             // Box first so the glyph renders on top of it (sibling order = draw order).
