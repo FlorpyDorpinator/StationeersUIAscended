@@ -1281,7 +1281,13 @@ namespace StationeersUIMod.UI.Hud
             {
                 _animator.Update(animDt, now);
                 HudGlitch.ApplyToPanels(_panels); // HUD-only tear/jitter on power transitions
-                _rootGroup.alpha = _animator.DropoutMultiplier(snap.LowPower && tier != HudTier.Bare, now);
+                // While the F9 designer is open the HUD is an authoring surface: the low-power
+                // dropout flicker (root alpha strobing to 0.06) made "my halos keep turning off
+                // while editing" — the author's real battery state must not blink the canvas
+                // they are styling. The Test buttons remain the deliberate way to preview
+                // power transitions in the editor.
+                _rootGroup.alpha = _animator.DropoutMultiplier(
+                    !editorActive && snap.LowPower && tier != HudTier.Bare, now);
             }
 
             // --- dome / curved-RT render (modes B and D both drive the off-screen camera; a

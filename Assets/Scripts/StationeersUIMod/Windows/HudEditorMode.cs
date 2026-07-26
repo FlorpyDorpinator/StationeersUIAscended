@@ -33,6 +33,22 @@ namespace StationeersUIMod.Windows
             // ran vanilla's cursor machine (same latent hole ModalScope plugs for radials).
             Core.CursorBlockArbiter.Hold("hudeditor");
             _blockedCursor = true;
+            // AUTHORING PREVIEW (play-test 2026-07-26): the default preview is LIVE, so opening
+            // the designer without a POWERED suit showed the diegetic BARE HUD — minimal style,
+            // no halos — and "my effects turned off while editing". Authors almost always mean
+            // to edit the full suited look, so when the LIVE tier resolves to Bare only because
+            // the suit is unpowered/absent (diegetics), default the preview to SUITED. An
+            // explicit preview choice (the combo, incl. picking Bare or Live) is never
+            // overridden — this fires only when no preview is forced at entry.
+            try
+            {
+                var snap = UI.Hud.HudSystem.LastSnapshot;
+                if (snap != null && snap.Valid && !snap.IsRobot
+                    && !UI.Hud.HudSystem.ForceTier.HasValue
+                    && snap.Tier == UI.Hud.HudTier.Bare)
+                    UI.Hud.HudSystem.ForceTier = UI.Hud.HudTier.Suited;
+            }
+            catch { }
         }
 
         public static void Exit()
