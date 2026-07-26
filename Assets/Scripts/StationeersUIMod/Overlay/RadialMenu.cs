@@ -72,14 +72,44 @@ namespace StationeersUIMod.Overlay
         public bool CanDrag => DragSource != null;
         public bool AcceptsDrop => DropSlot != null || DropResolver != null;
 
-        /// <summary>Resolve where a dragged thing would land on this wedge (null = doesn't fit).</summary>
+        /// <summary>Resolve where a dragged thing would land on this wedge (null = doesn't fit).
+        /// An OCCUPIED DropSlot is a valid target when vanilla's own drop ladder says so —
+        /// swap/merge/insert, exactly what dropping the item on the physical slot would do
+        /// (the play-test repro: a ground canister dragged onto the suit's canister wedge must
+        /// SWAP, not dead-end). The executor re-gates everything at execute time
+        /// (ItemActions.WorldDragTo / SwapIntoSlot), so this only answers "could it land".</summary>
         public Slot ResolveDrop(DynamicThing dragged)
         {
             if (dragged == null) return null;
             try
             {
                 if (DropSlot != null)
-                    return DropSlot.Get() == null && Slot.AllowMove(dragged, DropSlot) ? DropSlot : null;
+                {
+                    var occ = DropSlot.Get();
+                    if (occ == null)
+                        return Slot.AllowMove(dragged, DropSlot) ? DropSlot : null;
+                    if (ReferenceEquals(occ, dragged))
+                        return DropSlot; // "changed my mind" — the executors no-op this cleanly
+                    if (dragged.ParentSlot == null)
+                    {
+                        // World-sourced: ask vanilla's ladder directly (same call the world-slot
+                        // placement cue uses, so the highlight and the executor always agree).
+                        switch (Assets.Scripts.UI.InputMouse.IsValid(dragged, DropSlot))
+                        {
+                            case Assets.Scripts.UI.DragResult.Swap:
+                            case Assets.Scripts.UI.DragResult.Valid:
+                            case Assets.Scripts.UI.DragResult.Merge:
+                            case Assets.Scripts.UI.DragResult.Insert:
+                                return DropSlot;
+                            default:
+                                return null;
+                        }
+                    }
+                    // Slot-sourced: SwapIntoSlot's occupied rung is AllowSwap; merge is handled
+                    // upstream by TryStackMerge, but CanMerge here keeps the highlight honest.
+                    return Slot.AllowSwap(dragged.ParentSlot, DropSlot)
+                        || Slot.CanMerge(dragged, DropSlot) ? DropSlot : null;
+                }
                 return DropResolver?.Invoke(dragged);
             }
             catch { return null; }
@@ -990,8 +1020,11 @@ namespace StationeersUIMod.Overlay
             if (target != null && target.AcceptsDrop)
             {
                 Slot dest = target.ResolveDrop(item);
+                // World chips run vanilla's FULL drop ladder (insert -> merge -> swap-the-
+                // occupant-out -> move) via WorldDragTo — MoveWorldItemToSlot is empty-slot-only
+                // by contract and dead-ended the "swap a ground canister into the suit" drop.
                 bool moved = dest != null && (chip.IsWorld
-                    ? ItemActions.MoveWorldItemToSlot(chip.WorldSource, dest)
+                    ? ItemActions.WorldDragTo(chip.WorldSource, dest)
                     : ItemActions.SwapIntoSlot(chip.Source, dest));
                 if (moved)
                 {
@@ -1044,8 +1077,10 @@ namespace StationeersUIMod.Overlay
             {
                 var zone = UI.Hud.HudSystem.ZoneAt();
                 if (zone?.Slot == null) return false;
+                // WorldDragTo, not MoveWorldItemToSlot: an occupied HUD hand/equipment box must
+                // swap/merge exactly like vanilla, matching the wedge drop path.
                 bool moved = chip.IsWorld
-                    ? ItemActions.MoveWorldItemToSlot(chip.WorldSource, zone.Slot)
+                    ? ItemActions.WorldDragTo(chip.WorldSource, zone.Slot)
                     : ItemActions.SwapIntoSlot(chip.Source, zone.Slot);
                 if (moved)
                 {
@@ -1074,8 +1109,10 @@ namespace StationeersUIMod.Overlay
             {
                 var worldSlot = WorldSlotUnderCursor();
                 if (worldSlot == null) return false;
+                // WorldDragTo, not MoveWorldItemToSlot: WorldSlotCue already shows vanilla's
+                // GREEN swap cue over an occupied world slot — the executor must deliver it.
                 bool moved = chip.IsWorld
-                    ? ItemActions.MoveWorldItemToSlot(chip.WorldSource, worldSlot)
+                    ? ItemActions.WorldDragTo(chip.WorldSource, worldSlot)
                     : ItemActions.SwapIntoSlot(chip.Source, worldSlot);
                 if (moved)
                 {

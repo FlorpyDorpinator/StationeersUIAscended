@@ -51,13 +51,23 @@ namespace StationeersUIMod.Core
             {
                 if (Kind == DropCueKind.RadialChip)
                 {
-                    // UNCHANGED shipped behaviour, and correct for BOTH radial funnels: a world chip
-                    // has no ParentSlot, so an occupied box stays dark — which is exactly what
-                    // MoveWorldItemToSlot does (it hard-fails on an occupied destination).
+                    // Post-0.9.2.5 play-test round: world chips now execute via WorldDragTo (the
+                    // full insert/merge/swap-to-world/move ladder — the "swap a ground canister
+                    // into the suit" fix), so a world-sourced chip lights every rung of that
+                    // ladder. Slot-sourced chips still execute via SwapIntoSlot (move or
+                    // AllowSwap only — no insert rung), so their cue stays narrower.
                     var occ0 = slot.Get();
-                    if (occ0 == null) return Slot.AllowMove(item, slot);
                     var from0 = item.ParentSlot;
-                    return from0 != null && Slot.AllowSwap(from0, slot);
+                    if (from0 == null)
+                    {
+                        // World chip -> WorldDragTo's rungs.
+                        if (Slot.CanInsert(item, slot)) return true;
+                        if (occ0 == null) return Slot.AllowMove(item, slot);
+                        if (Slot.CanMerge(item, slot)) return true;
+                        return Slot.AllowSwap(slot, item);            // swap-occupant-to-world rung
+                    }
+                    if (occ0 == null) return Slot.AllowMove(item, slot);
+                    return Slot.AllowSwap(from0, slot);
                 }
 
                 // DragTo / WorldDragTo ladders, rung for rung.
