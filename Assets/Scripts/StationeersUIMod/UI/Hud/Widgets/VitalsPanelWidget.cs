@@ -12,7 +12,8 @@ namespace StationeersUIMod.UI.Hud.Widgets
     /// bars — icons carry the meaning and the value is a bare percentage (or, in words mode,
     /// a coloured level word). Membership is dynamic per frame, mirroring vanilla:
     ///   HUNGER + WATER always; TOILET only when sanitation is valid and above 25%; HEALTH
-    ///   only when damaged. The hunger row also shows 1..4 food-quality stars.
+    ///   only when damaged; COGNITION only when stunned (Stun > 0.5, showing the stun %). The
+    ///   hunger row also shows 1..4 food-quality stars.
     ///
     /// The panel resizes to only the rows that are live: the optional background box takes the
     /// height of the visible rows, and rows flow top-to-bottom from the element rect's top
@@ -142,9 +143,10 @@ namespace StationeersUIMod.UI.Hud.Widgets
             // (Entity.cs:1753). HealthRatio is body-only, so also check the organ regions.
             bool vHealth = s != null && (s.HealthRatio < 1.0f
                 || s.DamageHead01 > 0.001f || s.DamageChest01 > 0.001f || s.DamageBody01 > 0.001f);
-            // Cognition (consciousness): only when impaired, like vanilla's SymbolCognition row.
-            // O2Quality is the consciousness driver (low breathable O2 → you black out).
-            bool vCognition = s != null && s.O2Quality < 0.999f;
+            // Cognition (consciousness): vanilla shows this row ONLY when DamageState.Stun > 0.5,
+            // displaying the stun value itself — NOT whenever oxygen dips (PlayerStateWindow.cs
+            // :308-317). Stun01 = DamageState.Stun / 100, so Stun01*100 == the vanilla Stun scale.
+            bool vCognition = s != null && s.Stun01 * 100f > 0.5f;
             bool vPressure = words && Def.GetBFor(LayoutBare, "rowPressure", false);
             bool vTemp = words && Def.GetBFor(LayoutBare, "rowTemp", false);
 
@@ -206,9 +208,11 @@ namespace StationeersUIMod.UI.Hud.Widgets
                 "RELIEVED", "UNEASY", "DESPERATE", "Toilet", 0);
             PushNeedRow(Health, vHealth, s != null ? s.HealthRatio : 0f, words, iconWords, accent, dim,
                 "OK", "HURT", "CRITICAL", "Health", 0);
-            // Cognition/consciousness (icon-cognition): high O2Quality = ALERT, low = blacking out.
-            PushNeedRow(Cognition, vCognition, s != null ? s.O2Quality : 1f, words, iconWords, accent, dim,
-                "ALERT", "DAZED", "FADING", "Cognition", 0);
+            // Cognition/consciousness: vanilla's readout is the STUN percentage (rising = blacking
+            // out), shown only while stunned. Bands read on (1 - stun) so a low stun is ALERT/green
+            // and a rising stun fades to DAZED/FADING, but the NUMBER shown is the stun % itself.
+            PushNeedRow(Cognition, vCognition, s != null ? (1f - s.Stun01) : 1f, words, iconWords, accent, dim,
+                "ALERT", "DAZED", "FADING", "Cognition", 0, displayRatio01: s != null ? s.Stun01 : 0f);
 
             PushPressureRow(vPressure, s, dim);
             PushTempRow(vTemp, s, dim);
@@ -246,7 +250,8 @@ namespace StationeersUIMod.UI.Hud.Widgets
         /// <summary>A need row: icon + either a coloured level word (words mode) or a NN%
         /// value coloured by the same good/warn/crit band.</summary>
         private void PushNeedRow(int i, bool visible, float ratio01, bool words, bool iconWords,
-            Color accent, Color dim, string good, string warn, string crit, string wordName, int level)
+            Color accent, Color dim, string good, string warn, string crit, string wordName, int level,
+            float? displayRatio01 = null)
         {
             var row = _rows[i];
             ResolveIcon(row, i, accent);
@@ -257,6 +262,9 @@ namespace StationeersUIMod.UI.Hud.Widgets
 
             SyncValueFont(row, _lastScale);
 
+            // Bands/words select on ratio01 (high = good). A row whose displayed NUMBER differs from
+            // its banding value (Cognition bands on 1-stun but shows the stun %) passes displayRatio01.
+            float shown = displayRatio01 ?? ratio01;
             int band = ratio01 > 0.66f ? 0 : ratio01 > 0.33f ? 1 : 2;
             Color col = band == 0 ? HudPalette.Good.Value
                 : band == 1 ? HudPalette.Warn.Value : HudPalette.Critical.Value;
@@ -267,12 +275,12 @@ namespace StationeersUIMod.UI.Hud.Widgets
                 // Two columns: the NAME (+ the hunger N/4) hugs the LEFT, and the percentage stays
                 // in row.Value RIGHT-aligned, so every "%" lines up in a neat vertical column.
                 if (row.Name != null) { row.Name.color = col; HudText.Set(row.Name, ComposeName(row, wordName, level)); }
-                HudText.Set(row.Value, NumberText(row, ratio01));
+                HudText.Set(row.Value, NumberText(row, shown));
             }
             else if (words)
                 HudText.Set(row.Value, band == 0 ? good : band == 1 ? warn : crit);
             else
-                HudText.Set(row.Value, NumberText(row, ratio01));
+                HudText.Set(row.Value, NumberText(row, shown));
         }
 
         /// <summary>A numeric-only row (toilet): icon + NN%, neutral accent colour.</summary>

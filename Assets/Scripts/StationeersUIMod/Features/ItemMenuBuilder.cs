@@ -318,17 +318,33 @@ namespace StationeersUIMod.Features
                 // Accept a DROP that SWAPS. An occupied component slot (a suit's battery, a tank's
                 // canister…) used to be a drag SOURCE only, so dragging a replacement from the hand
                 // ONTO it did nothing — while the reverse (slot -> hand) worked, because the hand box
-                // is a drop zone. Return this slot when the dragged item's live source slot may swap
-                // in; the radial's drop handler then calls SwapIntoSlot, whose occupied branch runs
-                // OnServer.SwapSlots (this exact AllowSwap re-checked at execute time — MP-safe). A
-                // matching stack merges first (TryStackMerge), and an incompatible item resolves to
-                // null here, so the wedge only lights green for a real swap. Not on the container
-                // branch above: a bag takes drops by NESTING them (FirstFreeSlot), not swapping.
+                // is a drop zone. Return this slot when the dragged item may land here; the radial's
+                // drop handler then calls SwapIntoSlot (slot-sourced; occupied branch = OnServer.
+                // SwapSlots) or WorldDragTo (world-sourced; vanilla's insert/merge/swap-to-world
+                // ladder) — every gate re-checked at execute time, MP-safe. A matching stack merges
+                // first (TryStackMerge), and an incompatible item resolves to null here, so the wedge
+                // only lights green for a real landing. Not on the container branch above: a bag
+                // takes drops by NESTING them (FirstFreeSlot), not swapping.
+                // PLAY-TEST FIX (2026-07-26 round 2): a WORLD item has ParentSlot == null, so the
+                // old slot-sourced-only resolver refused the "ground canister onto the suit's
+                // canister wedge" swap even after the executors learned WorldDragTo — ask vanilla's
+                // own ladder for the world case, exactly like RadialEntry.ResolveDrop's DropSlot rung.
                 entry.DropResolver = dragged =>
                 {
                     if (dragged == null || slot == null) return null;
                     Slot from = dragged.ParentSlot;
-                    return from != null && Slot.AllowSwap(from, slot) ? slot : null;
+                    if (from != null)
+                        return Slot.AllowSwap(from, slot) ? slot : null;
+                    switch (Assets.Scripts.UI.InputMouse.IsValid(dragged, slot))
+                    {
+                        case Assets.Scripts.UI.DragResult.Swap:
+                        case Assets.Scripts.UI.DragResult.Valid:
+                        case Assets.Scripts.UI.DragResult.Merge:
+                        case Assets.Scripts.UI.DragResult.Insert:
+                            return slot;
+                        default:
+                            return null;
+                    }
                 };
             }
             return entry;
