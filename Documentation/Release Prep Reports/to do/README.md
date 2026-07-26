@@ -59,3 +59,13 @@ attribute never causes a spurious refresh — but it does mean an extra disk wri
 every player, and it's needless churn to keep carrying forward. Re-export both at the current
 schema (F9's dev-only export-to-shipped flow, §D5 of the checklist) during the next
 theme-authoring pass, not mid-release.
+
+## 10. SDF chamfer support — superellipse p=1  *(corner-style follow-up, 2026-07-26)*
+Cut panels currently drop off the analytic `sdfglass` renderer (its silhouette is computed
+in the fragment shader), losing the SDF-only glass extras (frost depth, chroma, edge-flow,
+gaussian halo family, SDF iridescence). The shader's superellipse exponent at **p = 1 is
+exactly a chamfer**, but the ABI quantizes it as `(p-2)/6` — lifting the range below 2 needs
+a coordinated `uia_effects.bundle` rebuild (Dev/UiaEffectsBundle) + ABI bump. Do this when
+the bundle is next touched; it restores full glass parity for Cut corners. (Bite risk went
+up 2026-07-26: FlorpyDorp is authoring themes — Zirillian Red — that use frost/chroma/flow
+on panels he may want cut.)

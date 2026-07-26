@@ -33,9 +33,13 @@ namespace StationeersUIMod.UI.Hud.Widgets
         // Fully qualified: `using Assets.Scripts` pulls in the game's own Mask type,
         // which would otherwise win the lookup and has no stencil semantics.
         private UnityEngine.UI.Mask _mask;
-        private CircleGraphic _maskShape;   // stencil-only disc that clips the portrait
-        private RawImage _holo;             // the portrait RenderTexture, masked to the circle
+        private PortraitMaskGraphic _maskShape;  // stencil-only silhouette that clips the portrait
+                                                 // (circle OR one of the angular shapes). Invisible.
+        private RawImage _holo;             // the portrait RenderTexture, masked to the silhouette
         private ScanlineGraphic _holoScan;  // CRT dressing, clipped with the portrait
+        private PolygonPanelGraphic _ringPoly;   // angular rim: a border-only glass polygon that
+                                                 // replaces the circle ring for non-round shapes,
+                                                 // carrying the SAME glass edge a panel does.
         private CircleGraphic _ring;        // rim border, drawn on top and NOT clipped. Kept a
                                             // CircleGraphic on purpose: a PanelGraphic forced to a
                                             // full circle is the degenerate case its own mesh warns
@@ -68,7 +72,7 @@ namespace StationeersUIMod.UI.Hud.Widgets
             // and scanlines parented under it are clipped to it.
             var maskGo = new GameObject("PortraitMask", typeof(RectTransform));
             maskGo.transform.SetParent(root, false);
-            _maskShape = maskGo.AddComponent<CircleGraphic>();
+            _maskShape = maskGo.AddComponent<PortraitMaskGraphic>();
             _maskShape.raycastTarget = false;
             _maskShape.color = Color.white; // opaque so the stencil is written
             _mask = maskGo.AddComponent<UnityEngine.UI.Mask>();
@@ -102,7 +106,26 @@ namespace StationeersUIMod.UI.Hud.Widgets
             ringGo.AddComponent<VisorWarp>();
             var rrt = (RectTransform)ringGo.transform;
             rrt.anchorMin = rrt.anchorMax = new Vector2(0.5f, 0.5f);
+
+            // The angular rim: a border-only PolygonPanelGraphic (same rig the pen-tool Shape uses),
+            // enabled only for non-round shapes. Starts inactive so the default round portrait never
+            // pays for it. Its glass edge is pushed by ApplyGlass() — identical to a following panel.
+            var ringPolyGo = new GameObject("RingPoly", typeof(RectTransform));
+            ringPolyGo.transform.SetParent(root, false);
+            _ringPoly = ringPolyGo.AddComponent<PolygonPanelGraphic>();
+            _ringPoly.raycastTarget = false;
+            ringPolyGo.AddComponent<VisorWarp>();
+            var prt = (RectTransform)ringPolyGo.transform;
+            prt.anchorMin = prt.anchorMax = new Vector2(0.5f, 0.5f);
+            ringPolyGo.SetActive(false);
         }
+
+        // Scratch for the angular contour (single-threaded UGUI — one list, no per-frame alloc).
+        private readonly System.Collections.Generic.List<UnityEngine.Vector2> _polyPts
+            = new System.Collections.Generic.List<UnityEngine.Vector2>(8);
+
+        private PortraitShape CurrentShape()
+            => (PortraitShape)Mathf.Clamp(Def != null ? Def.GetIFor(LayoutBare, "shape", 0) : 0, 0, 4);
 
         public override void Layout(float scale)
         {
@@ -110,33 +133,59 @@ namespace StationeersUIMod.UI.Hud.Widgets
             var s = SizeFor(scale);
             Root.anchoredPosition = Vector2.zero;
 
-            // The circle fills the rect's short side and centres in it.
-            float d = Mathf.Min(s.x, s.y);
+            float w = s.x, h = s.y;
+            float d = Mathf.Min(w, h);
             float r = d * 0.5f;
 
-            var mrt = (RectTransform)_mask.transform;
-            mrt.anchoredPosition = c;
-            mrt.sizeDelta = new Vector2(d, d);
-            _maskShape.SetRadius(r);
+            var shape = CurrentShape();
+            bool round = shape == PortraitShape.Round;
+            float top = Def != null ? Mathf.Clamp01(Def.GetFFor(LayoutBare, "shapeTop", 0.6f)) : 0.6f;
+            float bot = Def != null ? Mathf.Clamp01(Def.GetFFor(LayoutBare, "shapeBot", 1f)) : 1f;
 
             // The UI stencil survives everywhere EXCEPT the dome RT camera (mode B), now
             // that ApplyWorldMaterials exempts mask-clipped graphics from the material
-            // swap — so mode C keeps a true circle. Mode B still falls back to the
-            // inscribed square (no bleed past the ring).
+            // swap — so mode C keeps a true silhouette. Mode B still falls back to the
+            // inscribed square (no bleed past the ring), for every shape.
             var mode = HudConfig.Curvature != null ? HudConfig.Curvature.Value : HudCurvature.Flat;
             bool stencilOk = mode != HudCurvature.DomeProjection;
+
+            // Hologram footprint: the shape's bounding box while masked (so the portrait fills the
+            // silhouette), else the inscribed square when the stencil is unavailable.
+            Vector2 holoSize;
+            if (!stencilOk) holoSize = new Vector2(d * 0.7071f, d * 0.7071f);
+            else if (round || shape == PortraitShape.Square) holoSize = new Vector2(d, d);
+            else holoSize = new Vector2(w, h);
+
+            var mrt = (RectTransform)_mask.transform;
+            mrt.anchoredPosition = c;
+            mrt.sizeDelta = holoSize;
             _mask.enabled = stencilOk;
             _maskShape.color = stencilOk ? Color.white : Color.clear;
-            float side = stencilOk ? d : d * 0.7071f;
+            if (round) _maskShape.SetRound(stencilOk ? r : 0f);
+            else _maskShape.SetPolygon(shape, w, h, top, bot);
 
-            var sq = new Vector2(side, side);
             _holo.rectTransform.anchoredPosition = Vector2.zero;
-            _holo.rectTransform.sizeDelta = sq;
+            _holo.rectTransform.sizeDelta = holoSize;
             ((RectTransform)_holoScan.transform).anchoredPosition = Vector2.zero;
-            ((RectTransform)_holoScan.transform).sizeDelta = sq;
+            ((RectTransform)_holoScan.transform).sizeDelta = holoSize;
 
-            ((RectTransform)_ring.transform).anchoredPosition = c;
-            _ring.SetRadius(r);
+            // Exactly one rim is live: the circle for round, the polygon for the angular shapes.
+            if (_ring.gameObject.activeSelf != round) _ring.gameObject.SetActive(round);
+            if (_ringPoly.gameObject.activeSelf == round) _ringPoly.gameObject.SetActive(!round);
+
+            if (round)
+            {
+                ((RectTransform)_ring.transform).anchoredPosition = c;
+                _ring.SetRadius(r);
+            }
+            else
+            {
+                var prt = (RectTransform)_ringPoly.transform;
+                prt.anchoredPosition = c;
+                prt.sizeDelta = new Vector2(w, h);
+                PortraitShapes.BuildPolygon(shape, w, h, top, bot, _polyPts);
+                _ringPoly.SetPoints(_polyPts, null, null, 0, 2);
+            }
         }
 
         public override void UpdatePanel(HudSnapshot s, float scale)
@@ -198,8 +247,22 @@ namespace StationeersUIMod.UI.Hud.Widgets
             // a raw sub-pixel border line no theme ever intended to be seen on its own.
             var fill = FillColor();
             fill.a = 0f;
-            _ring.color = fill;
-            ApplyBorderOnlyEdge(_ring);
+            if (CurrentShape() == PortraitShape.Round)
+            {
+                _ring.color = fill;
+                ApplyBorderOnlyEdge(_ring);
+            }
+            else
+            {
+                // The angular rim is a real glass polygon, so it takes the FULL panel edge
+                // treatment (edge light / border fade / halo / energy) exactly as a following
+                // Box would — border-only because its fill alpha is 0.
+                _ringPoly.color = fill;
+                _ringPoly.BorderColor = BorderColor();
+                _ringPoly.BorderWidth = BorderWidthFor();
+                _ringPoly.BorderSides = 15;
+                ApplyGlass(_ringPoly);
+            }
         }
 
         /// <summary>Apply the F9 zoom knobs to the shared portrait camera. FOV is set
@@ -312,6 +375,19 @@ namespace StationeersUIMod.UI.Hud.Widgets
             into[into.Count - 1].Group = HudPropGroup.Effects;
 
             int layoutStart = into.Count;
+            // Frame silhouette. Round is the shipped default; the four angular shapes reuse the
+            // pen-tool glass renderer so they carry the same edge as the round ring.
+            into.Add(HudProp.Enum("Shape", () => Mathf.Clamp(d.GetIFor(EditBare(d), "shape", 0), 0, 4),
+                v => d.SetIFor(EditBare(d), "shape", Mathf.Clamp(v, 0, 4)),
+                new[] { "Round", "Triangle", "Trapezoid", "Square", "Rectangle" }));
+            if (Mathf.Clamp(d.GetIFor(EditBare(d), "shape", 0), 0, 4) == (int)PortraitShape.Trapezoid)
+            {
+                // Width of each parallel edge as a fraction of the element width (1 = full width).
+                into.Add(HudProp.F("  Top width", () => d.GetFFor(EditBare(d), "shapeTop", 0.6f),
+                    v => d.SetFFor(EditBare(d), "shapeTop", Mathf.Clamp01(v)), 0f, 1f));
+                into.Add(HudProp.F("  Bottom width", () => d.GetFFor(EditBare(d), "shapeBot", 1f),
+                    v => d.SetFFor(EditBare(d), "shapeBot", Mathf.Clamp01(v)), 0f, 1f));
+            }
             into.Add(HudProp.F("Camera FOV (0 = vanilla)", () => d.GetFFor(EditBare(d), "camFov", 0f), v => d.SetFFor(EditBare(d), "camFov", Mathf.Clamp(v, 0f, 60f)), 0f, 60f));
             into.Add(HudProp.F("Camera zoom-out", () => d.GetFFor(EditBare(d), "camDistance", 0f), v => d.SetFFor(EditBare(d), "camDistance", v), -1f, 3f));
             for (int i = layoutStart; i < into.Count; i++) into[i].Group = HudPropGroup.Layout;

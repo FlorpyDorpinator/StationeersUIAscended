@@ -442,7 +442,15 @@ namespace StationeersUIMod.UI.Hud
         // cannot be smoothed against its neighbours while it is being written straight out. Static
         // + Clear()ed exactly like _icontour/_istop0, so the mesh path still allocates nothing per
         // rebuild. Column POSITIONS live in _icontour — the gather fills it, the emit no longer does.
-        private static readonly List<Vector2> _colDir = new List<Vector2>(1200);  // outward normal
+        // GEOMETRY vs LIGHTING are two distinct roles of the old single "dir". On every arc and
+        // straight run they are the same unit vector; across a CHAMFER they are not (see the
+        // chord block in PopulateMeshCore): the offset is the UNNORMALIZED lerp of the two
+        // endpoint normals — the only vector field whose offset locus is exactly the straight
+        // mitred chord — while the light/side terms need the DIRECTION alone. Keeping both lets
+        // the cut face offset correctly AND be lit correctly, and leaves every legacy column
+        // bit-identical (it pushes the same vector into both lists).
+        private static readonly List<Vector2> _colDir = new List<Vector2>(1200);  // outward OFFSET vector
+        private static readonly List<Vector2> _colNrm = new List<Vector2>(1200);  // unit outward DIRECTION
         private static readonly List<float> _colCap = new List<float>(1200);      // inward depth cap
         private static readonly List<float> _colFade = new List<float>(1200);     // inner-glow alpha fade
         private static readonly List<float> _colLw = new List<float>(1200);       // soft key-light weight
@@ -667,6 +675,7 @@ namespace StationeersUIMod.UI.Hud
             _icontour.Clear();
             _istop0.Clear();
             _colDir.Clear();
+            _colNrm.Clear();
             _colCap.Clear();
             _colFade.Clear();
             _colLw.Clear();
@@ -830,10 +839,15 @@ namespace StationeersUIMod.UI.Hud
             // (bitwise the old output); with glass on, fill follows the sheen gradient
             // and the border follows the specular run. Vertex colours interpolate
             // linearly across a quad, so linear-in-position light reads exactly.
-            void ColumnColors(Vector2 dir, Vector2 onShape, float glowFade, float bandD, float lwSoft)
+            // `off` = the GEOMETRIC offset vector (what every stop is extruded along; unit on arcs
+            // and straight runs, the mitred lerp across a chamfer). `nrm` = the UNIT direction, for
+            // every term that assumes a direction cosine: the key-light dot, the specular whitening
+            // it drives, the border fade and the BorderSides weights. On all legacy columns the two
+            // are the same value, so this split is bit-identical outside a cut corner.
+            void ColumnColors(Vector2 off, Vector2 nrm, Vector2 onShape, float glowFade, float bandD, float lwSoft)
             {
                 Color fillC = FillAt(onShape.y, hh);
-                Color bc = hasBorder ? BorderAt(dir, onShape, hw) : fillC;
+                Color bc = hasBorder ? BorderAt(nrm, onShape, hw) : fillC;
                 if (hasBorder)
                 {
                     _stopC[inStops + 0] = fillC; _stopC[inStops + 1] = bc;
@@ -940,11 +954,14 @@ namespace StationeersUIMod.UI.Hud
                         for (int gs = 0; gs < inStops; gs++)
                         {
                             float bd = Mathf.Lerp(-bandD, -rampD, gs / (float)inStops); // == EmitColumn's stop depth
-                            Color fillHere = FillAt(onShape.y + dir.y * bd, hh);
+                            // POSITION-true, so it must ride the GEOMETRIC offset (`off`), not the
+                            // unit direction — on a chamfer these differ and the sheen would
+                            // otherwise be sampled off the vertex it colours.
+                            Color fillHere = FillAt(onShape.y + off.y * bd, hh);
                             _stopC[gs] = GlowOver(halo, aGi * _inW[gs], fillHere);
                         }
                         // The fill-ramp stop sits at -rampD with a border, ON the contour without.
-                        Color fillRamp = hasBorder ? FillAt(onShape.y - dir.y * rampD, hh) : fillC;
+                        Color fillRamp = hasBorder ? FillAt(onShape.y - off.y * rampD, hh) : fillC;
                         _stopC[inStops] = GlowOver(halo, aGi, fillRamp);
                     }
                 }
@@ -1003,18 +1020,18 @@ namespace StationeersUIMod.UI.Hud
             // corners; it is killed purely by fading the inner-glow ALPHA to zero toward corners
             // (glowFade, computed per column below) — a colour-only change, so the geometry and the
             // border are untouched. glowFade 1 = full glow (mid-edge), 0 = none (corners/ends).
-            void EmitColumn(Vector2 dir, Vector2 onShape, float innerCap, float glowFade, float lwSoft)
+            void EmitColumn(Vector2 off, Vector2 nrm, Vector2 onShape, float innerCap, float glowFade, float lwSoft)
             {
                 float bandD = inStops > 0 ? Mathf.Max(rampD, Mathf.Min(glowInD, innerCap)) : 0f;
-                ColumnColors(dir, onShape, glowFade, bandD, lwSoft);
+                ColumnColors(off, nrm, onShape, glowFade, bandD, lwSoft);
                 // (the contour point is recorded by AddColumn in the gather pass, not here)
-                _istop0.Add(onShape + dir * (inStops > 0 ? -bandD : _stopD[0])); // stop-0 position (the fill boundary)
+                _istop0.Add(onShape + off * (inStops > 0 ? -bandD : _stopD[0])); // stop-0 position (the fill boundary)
                 for (int s = 0; s < stops; s++)
                 {
                     float d = s < inStops
                         ? Mathf.Lerp(-bandD, -rampD, s / (float)inStops)
                         : _stopD[s];
-                    AddVertFx(vh, onShape + dir * d, _stopC[s], _stopM[s]);
+                    AddVertFx(vh, onShape + off * d, _stopC[s], _stopM[s]);
                 }
             }
 
@@ -1054,42 +1071,73 @@ namespace StationeersUIMod.UI.Hud
 
             // ── CHAMFERED ("cut") CORNERS. A corner is a disc sweep emitted as an arc of columns
             // from the incoming edge's outward normal to the outgoing one. The chamfer is that arc
-            // replaced by its CHORD, which in this column system is exactly "emit only the two
-            // ENDPOINT columns" — the same two points the rounded corner already lands on (they sit
-            // ON the rect sides, where the straight runs start and end), with the strip
-            // triangulation drawing a straight segment between them. Hence a single segment count.
+            // replaced by its CHORD: the SHAPE loses the round, the COLUMN STREAM must not.
             //
-            // Why the endpoints keep their ARC-endpoint normals rather than the chord's own: every
-            // stop offsets along its column's normal, so the two endpoints extrude along the
-            // adjacent EDGE normals. Their outer points are P0 + d*nIn and P1 + d*nOut, and for a
-            // 90° corner that line is exactly PARALLEL to the chord — i.e. a mitre join, so the
-            // border band, the soft-edge skirt and the halo all come out chamfered too, and each
-            // band meets the neighbouring straight run with no notch (a chord-normal offset would
-            // step sideways at both tangent points). The band across the cut is thinner by
-            // cos(half-sweep) (0.707 at a right angle) — the standard bevel behaviour, and the
-            // visible result is a frame whose cut face is a true parallel line.
+            // The first implementation (2026-07-26) expressed the chord as `cornerSegs = 1`, i.e.
+            // just the two arc ENDPOINT columns. That reproduced the silhouette but regressed the
+            // bowtie/X the F1-F6 passes exist to prevent, because EVERY per-column field is then
+            // sampled twice per corner and linearly interpolated across a strip that spans the
+            // whole corner:
+            //   * the two endpoints carry OPPOSITE arc-endpoint normals, so the key-light weight
+            //     runs its full lit -> unlit range across one quad, and the quad's triangulation
+            //     diagonal turns that into a hard diagonal crease — four corners, an X. On a wide
+            //     bar whose radii approach half its height the corner sweep is ~174 deg (the live
+            //     "Zirillian Red" top bar: RBL/RTL clamp to 30.5 on a 62px bar, TL sweeps 173.7 deg
+            //     over a 92px arc), so ONE strip covered the entire end of the panel.
+            //   * F4's light smoothing is an ARC-LENGTH convolution with radius ~half the skirt
+            //     (15.7px on that profile). Two columns 61.7px apart fall outside the kernel
+            //     entirely, so the corner kink F4 exists to round off was left raw — the earlier
+            //     note claiming F4 still covered it was wrong for exactly this reason.
+            //   * F3 band-limits the ripple to the coarsest STRAIGHT run on the assumption that
+            //     corners always oversample (1.088px pitch). A 61.7px corner pitch is coarser than
+            //     any run and is never measured, so the ripple aliased hardest at the chamfer.
+            //   * the dense-interior rings and the bridge band are scaled copies of _icontour, so
+            //     a 2-point corner reopened the very fan structure they replace.
+            //
+            // The fix keeps the shape and restores the density: a cut corner emits the SAME column
+            // count as the rounded one, LERPED ALONG THE CHORD. Topology then matches rounded
+            // exactly, so every guard above operates on the structure it was designed for.
+            //
+            // OFFSET vs DIRECTION. Each column extrudes its stops along an offset vector. Taking
+            // offset(t) = lerp(n0, n1, t) UNNORMALIZED is not an approximation, it is exact:
+            //     lerp(P0 + d*n0, P1 + d*n1, t) = lerp(P0,P1,t) + d*lerp(n0,n1,t)
+            // so every stop level traces precisely the straight offset chord through the two
+            // mitred endpoints — no mid-chord bulge in the border band, the soft edge or the halo,
+            // and no notch where each band meets the neighbouring straight run. The endpoints keep
+            // their arc-endpoint (adjacent EDGE) normals, which is what makes that offset chord
+            // parallel to the cut face; the band across the cut is thinner by cos(half-sweep)
+            // (0.707 at a right angle) — standard bevel behaviour, and the reason a very deep cut
+            // on a shallow bar reads as a near-flat end with a hairline frame.
+            // The offset is therefore NOT a unit vector (|lerp| = cos(half-sweep)), so every term
+            // that assumes a direction cosine — KeyLightWeightSoft / KeyLightWeight, the specular
+            // whitening and border fade they drive, the BorderSides weights — takes the NORMALIZED
+            // direction instead (_colNrm). Its angle sweeps continuously from n0 to n1 across the
+            // face, exactly as it did along the arc, so F4 sees a smooth field again and the
+            // remaining kink at the chamfer ends is rounded off by the machinery built for the
+            // arc's kink. The degenerate case (sweep -> 180 deg, |lerp| -> 0) falls back to the
+            // chord's own outward normal, which is that limit.
             //
             // Everything else is untouched by construction: the corner-centre polygon, the CSS
-            // radius normalization, the inner-ramp bound (rMin, still the smallest radius), the
-            // per-corner mitre factors and the F5 CornerBandBase all key off the radii, not the
-            // segment count. The F5 note's bowtie risk is about stop-0 COLLAPSING onto the corner
-            // centre, which CornerBandBase still prevents; and the corner columns still carry
-            // glowFade = 0, so their inner-band stops remain the raw fill colour and stop-0 is not
-            // a colour boundary — 2 columns there change the triangulation, never a value.
-            // F4's arc-length light smoothing likewise still runs over these columns, so the
-            // light-weight kink the cut introduces at each chamfer endpoint is rounded off by the
-            // very machinery that exists for the arc's kink.
+            // radius normalization, the inner-ramp bound (rMin), the per-corner mitre factors and
+            // the F5 CornerBandBase all key off the radii, not the segment count; chord columns
+            // carry the SAME cornerCap and glowFade = 0 as arc columns, so stop-0 is still not a
+            // colour boundary there, and (bandD being equal along the chord) the stop-0 ring is
+            // itself the straight inner offset chord. Arc-length bookkeeping needs no special
+            // case: _colS integrates |_icontour[i] - _icontour[i-1]|, and chord columns are
+            // uniformly spaced along the chord, so _colS/_colMass are true and uniform for free.
             bool cutCorners = CornersAreCut;
 
-            void AddColumn(Vector2 dir, Vector2 onShape, float innerCap, float glowFade)
+            void AddColumn(Vector2 off, Vector2 nrm, Vector2 onShape, float innerCap, float glowFade)
             {
-                _colDir.Add(dir);
+                _colDir.Add(off);
+                _colNrm.Add(nrm);
                 _icontour.Add(onShape);   // contour point, for the dense-interior rings AND F4
                 _colCap.Add(innerCap);
                 _colFade.Add(glowFade);
-                // Exactly the expression ColumnColors used to evaluate inline.
+                // Exactly the expression ColumnColors used to evaluate inline (on every non-chamfer
+                // column nrm IS the old dir, so this stays bit-identical).
                 _colLw.Add(wantLw
-                    ? KeyLightWeightSoft(dir, Mathf.Clamp01((onShape.x + hw) / (2f * hw)))
+                    ? KeyLightWeightSoft(nrm, Mathf.Clamp01((onShape.x + hw) / (2f * hw)))
                     : 0f);
             }
 
@@ -1111,25 +1159,57 @@ namespace StationeersUIMod.UI.Hud
                 // edge reaches AND how wide this corner's sweep is (trapezoid slant corners
                 // sweep well past 90°); zero-skirt panels keep the classic Ceil(rc/2) fan.
                 int segCap = skirtExtra > 0.5f ? 32 : 12;
-                // ONE segment = the chord = the chamfer (i = 0 and i = cornerSegs are the arc's own
-                // endpoints, so the tangent points — and every straight run that starts/ends on
-                // them — are bit-identical to the rounded case). No warp subdivision is added for
-                // the chord: it spans at most ~2*rc (radii are capped at min(hw,hh), and the
-                // authored sliders top out at 28/64 px), and the interpolation sag of a straight
-                // span under the visor warp goes as curvature*L^2/8 — sub-0.1px at these lengths,
-                // where the 48px straight-edge rule exists for the 2500px top bar.
-                int cornerSegs = cutCorners ? 1 : Mathf.Clamp(Mathf.CeilToInt(rc * 0.5f
+                // The CUT corner takes this SAME count (see the chamfer block above): the chord is
+                // subdivided into as many columns as the arc it replaces, so the column topology —
+                // and therefore every F1-F6 guard, the dense-interior rings and the warp
+                // subdivision — is identical in both styles. i = 0 and i = cornerSegs are the
+                // arc's own endpoints in either style, so the tangent points, and every straight
+                // run that starts or ends on them, are bit-identical to the rounded case.
+                int cornerSegs = Mathf.Clamp(Mathf.CeilToInt(rc * 0.5f
                     + skirtExtra * 0.35f * ((aOut - aIn) / (Mathf.PI * 0.5f))), 3, segCap);
                 // F5: Max(rc, rampD) placed stop-0 ON the corner centre and collapsed the whole
                 // arc onto one vertex; CornerBandBase stops a hair (<= 0.75px) short. The edge
                 // run below ramps from the SAME base value, so the tangent point stays exact.
                 float cornerCap = CornerBandBase(rc);
-                for (int i = 0; i <= cornerSegs; i++)
+                if (!cutCorners)
                 {
-                    float a = Mathf.Lerp(aIn, aOut, i / (float)cornerSegs);
-                    var dir = new Vector2(Mathf.Cos(a), Mathf.Sin(a));
-                    AddColumn(dir, cur + dir * rc, cornerCap, 0f); // corner arc: no inner glow (overlap zone)
-                    columns++;
+                    for (int i = 0; i <= cornerSegs; i++)
+                    {
+                        float a = Mathf.Lerp(aIn, aOut, i / (float)cornerSegs);
+                        var dir = new Vector2(Mathf.Cos(a), Mathf.Sin(a));
+                        AddColumn(dir, dir, cur + dir * rc, cornerCap, 0f); // corner arc: no inner glow (overlap zone)
+                        columns++;
+                    }
+                }
+                else
+                {
+                    // The chamfer: the same endpoints, joined by a straight run of columns. The
+                    // OFFSET is the unnormalized lerp of the endpoint normals (its locus is exactly
+                    // the mitred offset chord at every stop depth); the LIGHT direction is that
+                    // vector normalized. Both endpoints are taken verbatim so the tangent points
+                    // are exact rather than one-ulp Lerp results.
+                    var n0 = new Vector2(Mathf.Cos(aIn), Mathf.Sin(aIn));
+                    var n1 = new Vector2(Mathf.Cos(aOut), Mathf.Sin(aOut));
+                    Vector2 p0 = cur + n0 * rc, p1 = cur + n1 * rc;
+                    // Outward normal of the chord itself (same convention as NormalAngle: the CCW
+                    // edge direction rotated -90). Only used where the mitre degenerates.
+                    Vector2 cd = (p1 - p0).normalized;
+                    var chordN = new Vector2(cd.y, -cd.x);
+                    for (int i = 0; i <= cornerSegs; i++)
+                    {
+                        float t = i / (float)cornerSegs;
+                        Vector2 off, nrm, p;
+                        if (i == 0) { off = n0; nrm = n0; p = p0; }
+                        else if (i == cornerSegs) { off = n1; nrm = n1; p = p1; }
+                        else
+                        {
+                            off = Vector2.Lerp(n0, n1, t);
+                            nrm = off.sqrMagnitude > 1e-8f ? off.normalized : chordN;
+                            p = Vector2.Lerp(p0, p1, t);
+                        }
+                        AddColumn(off, nrm, p, cornerCap, 0f); // chamfer face: no inner glow (overlap zone)
+                        columns++;
+                    }
                 }
 
                 // EDGE SUBDIVISION: the straight run to the NEXT corner's arc start gets
@@ -1274,7 +1354,7 @@ namespace StationeersUIMod.UI.Hud
                             if (glowInD > 0.01f)
                                 glowFade = Mathf.SmoothStep(0f, 1f, eNear / fadeD);
                         }
-                        AddColumn(edgeDir, p, innerCap, glowFade);
+                        AddColumn(edgeDir, edgeDir, p, innerCap, glowFade); // straight run: offset == direction
                         columns++;
                     }
 
@@ -1360,7 +1440,9 @@ namespace StationeersUIMod.UI.Hud
                 Vector2 cur = _centers[0];
                 float aIn = NormalAngle(prev, cur);
                 var dir = new Vector2(Mathf.Cos(aIn), Mathf.Sin(aIn));
-                AddColumn(dir, cur + dir * _radii[0], CornerBandBase(_radii[0]), 0f); // corner: no inner glow
+                // The seam duplicate of column 0. In BOTH corner styles column 0 is the arc's aIn
+                // endpoint (offset == direction == the incoming edge normal), so this is exact.
+                AddColumn(dir, dir, cur + dir * _radii[0], CornerBandBase(_radii[0]), 0f); // corner: no inner glow
                 columns++;
             }
 
@@ -1485,7 +1567,7 @@ namespace StationeersUIMod.UI.Hud
             // ── EMIT. Replays the gathered columns in the identical order, so vertex indices
             // and every triangle loop below are untouched by the two-pass restructure.
             for (int i = 0; i < columns; i++)
-                EmitColumn(_colDir[i], _icontour[i], _colCap[i], _colFade[i], _colLw[i]);
+                EmitColumn(_colDir[i], _colNrm[i], _icontour[i], _colCap[i], _colFade[i], _colLw[i]);
 
             // DENSE INTERIOR: when the fill carries a per-vertex gradient (quadratic sheen, or an
             // edge-fade alpha ramp via DenseFill), a single fan from ONE centre vertex interpolates

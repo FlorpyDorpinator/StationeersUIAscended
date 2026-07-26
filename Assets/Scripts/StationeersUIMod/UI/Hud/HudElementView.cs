@@ -367,10 +367,21 @@ namespace StationeersUIMod.UI.Hud
 
             if (UsesCustomStyle)
             {
+                // Edge light + border fade were HARD-ZEROED here, so a custom-styled ring (the
+                // portrait under a per-suit theme, styleSource=Custom) could never show the edge
+                // glass a panel shows, and F9 offered no knob for it — FlorpyDorp: "I still don't
+                // get the edge lighting effects on the portrait border" with bfade already set.
+                // Resolve them the SAME way a custom PANEL does: GlassEdgeFor reads the element's
+                // own "spec", and border fade rides its own "customBorderFadeOn"/"bfade" under the
+                // Tier-A master (identical gating to ApplyMeshFx). The portrait-specific halo knobs
+                // (ringGlow/ringGlowColor) are kept verbatim, so no profile key is renamed/removed
+                // (no ConfigMigration needed). Sub-pixel stroke behaviour stays classic (0 floor).
+                bool edgeTierA = HudConfig.FxTierA != null && HudConfig.FxTierA.Value;
                 ring.HairlineFloor = 0f;
-                ring.EdgeSpec = 0f;
-                ring.EdgeTint = Color.white;
-                ring.EdgeFade = 0f;
+                ring.EdgeSpec = GlassEdgeFor();
+                ring.EdgeTint = PanelGraphic.LightTint();
+                ring.EdgeFade = edgeTierA && StyleFeatureOn("customBorderFadeOn", HudConfig.FxBorderFadeOn)
+                    ? OwnOrGlobal("bfade", HudConfig.FxBorderFade) : 0f;
                 float own = Def != null ? Def.GetFFor(LayoutBare, "ringGlow", 0f) : 0f;
                 ring.GlowStrength = Mathf.Max(0f, own);
                 ring.GlowWidth = OwnOrGlobal("glowWidth", HudConfig.FxGlowWidth);
@@ -1209,6 +1220,19 @@ namespace StationeersUIMod.UI.Hud
                 {
                     into.Add(HudProp.F("Ring / outline width", () => d.BorderWidthFor(EditBare(d)),
                         v => d.SetBorderWidthFor(EditBare(d), Mathf.Clamp(v, 0f, 8f)), 0f, 8f));
+                    // Edge glass on the ring, matching a panel: an edge-light strength (drawn where
+                    // the rim faces the key light) and a border fade (the unlit arc dissolves).
+                    // These read the same "spec"/"bfade"/"customBorderFadeOn" keys a custom panel
+                    // uses, and ApplyBorderOnlyEdge now honours them (previously hard-zeroed).
+                    if (HudConfig.FxTierA == null || !HudConfig.FxTierA.Value)
+                        into.Add(HudProp.Header("  (Surface/edge master is OFF globally — edge light/fade are inactive)"));
+                    into.Add(HudProp.F("Ring edge light", () => gf("spec", 0f),
+                        v => sf("spec", Mathf.Clamp01(v)), 0f, 1f));
+                    into.Add(HudProp.Bool("Ring edge fade", () => gb("customBorderFadeOn", true),
+                        v => sb("customBorderFadeOn", v)));
+                    if (gb("customBorderFadeOn", true))
+                        into.Add(HudProp.F("  edge fade amount", () => gf("bfade", 0f),
+                            v => sf("bfade", Mathf.Clamp01(v)), 0f, 1f));
                     // The ring's own halo. Custom style is otherwise byte-for-byte what it always
                     // was, so these two default to nothing: strength 0 emits no glow band at all,
                     // and an empty colour ref derives the halo from the ring colour (a panel's
