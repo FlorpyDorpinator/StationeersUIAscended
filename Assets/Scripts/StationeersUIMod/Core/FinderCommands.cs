@@ -206,6 +206,77 @@ namespace StationeersUIMod.Core
             }
         }
 
+        // "uiareset" — see Patch_CommandLine_Process. A full nuke of every UIA on-disk file: the
+        // whole config/StationeersUIMod tree (every HUD profile, bag profile, HUD icon, profiler
+        // snapshot — everything under it) plus BOTH possible .cfg names (the live SLP one and the
+        // legacy dev-shim one — see StationeersUIMod.OnLoaded's freshInstall detection for why two
+        // names exist). This is the playtester-incident escape hatch: "my HUD/config is broken
+        // beyond what any in-game reset button fixes, give me a clean slate". Read-only diagnostics
+        // everywhere else in this file — this is the one deliberate exception, gated by a two-step
+        // confirm: bare `uiareset` only PRINTS what it would delete; `uiareset confirm` actually
+        // deletes it, and only within the SAME session that saw the bare command first (armed by
+        // _resetArmed, cleared by ResetSessionState on world/hot-reload teardown — see HudSystem.
+        // Shutdown — so a confirm primed in one dev session can never fire in the next).
+        private static bool _resetArmed;
+
+        /// <summary>Hot-reload / world-teardown reset for the two-step confirm arm above. Not
+        /// destructive to reset (worst case: a primed confirm silently un-arms and the player has to
+        /// type the bare command again) — every new static still gets a reset path, per project
+        /// convention.</summary>
+        internal static void ResetSessionState() { _resetArmed = false; }
+
+        public static void UiaReset(string input)
+        {
+            try
+            {
+                bool confirm = input != null && input.IndexOf("confirm", StringComparison.OrdinalIgnoreCase) >= 0;
+                string configTree = System.IO.Path.Combine(BepInEx.Paths.ConfigPath, "StationeersUIMod");
+                string cfgMain = System.IO.Path.Combine(BepInEx.Paths.ConfigPath, "com.stationeersuimod.ui.cfg");
+                string cfgLegacy = System.IO.Path.Combine(BepInEx.Paths.ConfigPath, "com.stationeersuimod.ui.scriptengine.cfg");
+
+                if (!confirm)
+                {
+                    _resetArmed = true;
+                    ConsoleWindow.Print("uiareset: THIS WILL DELETE:", ConsoleColor.Yellow);
+                    ConsoleWindow.Print("  " + configTree + "  (every HUD/bag profile, icon, snapshot - everything under it)", ConsoleColor.White);
+                    ConsoleWindow.Print("  " + cfgMain, ConsoleColor.White);
+                    ConsoleWindow.Print("  " + cfgLegacy + "  (if present)", ConsoleColor.White);
+                    ConsoleWindow.Print("Nothing has been touched yet. Run `uiareset confirm` (this session) to actually do it.", ConsoleColor.Yellow);
+                    return;
+                }
+
+                if (!_resetArmed)
+                {
+                    ConsoleWindow.Print("uiareset: run `uiareset` (no argument) first to see what will be deleted.", ConsoleColor.Yellow);
+                    return;
+                }
+                _resetArmed = false;
+
+                int removed = 0;
+                try
+                {
+                    if (System.IO.Directory.Exists(configTree)) { System.IO.Directory.Delete(configTree, true); removed++; }
+                }
+                catch (Exception e) { ConsoleWindow.Print("  config tree delete failed: " + e.Message, ConsoleColor.Red); }
+                try
+                {
+                    if (System.IO.File.Exists(cfgMain)) { System.IO.File.Delete(cfgMain); removed++; }
+                }
+                catch (Exception e) { ConsoleWindow.Print("  main cfg delete failed: " + e.Message, ConsoleColor.Red); }
+                try
+                {
+                    if (System.IO.File.Exists(cfgLegacy)) { System.IO.File.Delete(cfgLegacy); removed++; }
+                }
+                catch (Exception e) { ConsoleWindow.Print("  legacy cfg delete failed: " + e.Message, ConsoleColor.Red); }
+
+                ConsoleWindow.Print("uiareset: done (" + removed + " target(s) removed). RESTART THE GAME for a clean slate.", ConsoleColor.Green);
+            }
+            catch (Exception e)
+            {
+                ConsoleWindow.Print("uiareset failed: " + e.Message, ConsoleColor.Red);
+            }
+        }
+
         private static string SafeName(Thing t)
         {
             if (t == null) return "?";
@@ -260,6 +331,7 @@ namespace StationeersUIMod.Core
                 if (Matches(cmd, "uiaprof")) { UiaProfCommand(cmd); return false; }
                 if (Matches(cmd, "uiaflash")) { FinderCommands.FlashTest(cmd); return false; }
                 if (Matches(cmd, "stowtrace")) { FinderCommands.StowTrace(cmd); return false; }
+                if (Matches(cmd, "uiareset")) { FinderCommands.UiaReset(cmd); return false; }
                 if (Matches(cmd, "uiadiag"))
                 {
                     // `uiadiag cursor` = focused pointer-flicker trace (cursor lock/visibility + every

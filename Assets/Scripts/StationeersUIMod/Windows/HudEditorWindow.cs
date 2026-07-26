@@ -25,6 +25,9 @@ namespace StationeersUIMod.Windows
         {
             FlushPendingElementEdit();
             FlushPendingPaletteEdit();
+            CancelProfileAction();   // never re-open with a stale "are you sure" armed
+            _profileCacheScanned = false;  // re-scan the folder once on the next open
+            _shippedNameCache.Clear();     // and re-ask "is this one of ours" once on the next open
             _activeEditorTab = null;
             _activeEditorSubTab = null;
         }
@@ -810,12 +813,37 @@ namespace StationeersUIMod.Windows
         // ------------------------------------------------------------------ designer
 
         private static int _addTypeIndex;
-        private static string _saveAsName = "";
+
+        // ---- profile CRUD state (New / Duplicate / Rename / Delete / Restore shipped) ----
+        // Exactly ONE flow is armed at a time so the section stays a single compact button row
+        // plus (at most) one inline strip. Null = nothing armed. All of these are cleared by
+        // CancelProfileAction, which OnClose calls — a reopened window never shows a stale
+        // confirm, and a hot reload starts from a blank slate.
+        private const string ProfActNew = "new";
+        private const string ProfActDup = "dup";
+        private const string ProfActRename = "rename";
+        private const string ProfActDelete = "delete";
+        private const string ProfActRestore = "restore";
+        private static string _profileAction;
+        private static string _profileNameField = "";
+        private static string _deleteTarget;     // the chosen victim; never the active profile
+        private static string _profileNotice;    // inline failure text for the armed flow
 
         // Profile-list cache: Directory.GetFiles is disk IO + allocation, and the header runs
         // it every frame. Re-scan only when the dropdown opens (edge-triggered) or after a save.
         private static List<string> _profileNamesCache = new List<string>();
         private static bool _profileComboOpen;
+        private static bool _profileCacheScanned;   // see EnsureProfileCache (one latched first scan)
+
+        /// <summary>Memo for <see cref="Features.HudProfileStore.IsShippedName"/>, which touches the
+        /// DISK on every call (a mod-folder probe, or a full manifest read under the F6 dev flow) —
+        /// and the CRUD row asks it every frame the Profiles section is drawn, for the active profile
+        /// and again for the delete victim. Same reason <see cref="_profileNamesCache"/> exists.
+        /// Cleared at the same points that refresh that cache (arm an action, switch profile, close
+        /// the window), so the only thing a stale entry can miss is a name that self-heals into the
+        /// manifest mid-session — reopening F9 picks it up.</summary>
+        private static readonly Dictionary<string, bool> _shippedNameCache =
+            new Dictionary<string, bool>(System.StringComparer.OrdinalIgnoreCase);
         private static readonly string[] AddableTypes =
         {
             "Box", "Label", "Polyline", "Icon", "Readout", "Clock", "WorldName",
@@ -941,13 +969,10 @@ namespace StationeersUIMod.Windows
                     if (ImGui.Selectable(n, string.Equals(n, active, System.StringComparison.OrdinalIgnoreCase))
                         && !string.Equals(n, active, System.StringComparison.OrdinalIgnoreCase))
                     {
-                        FlushPendingElementEdit();
-                        if (HudConfig.HudActiveProfile != null) HudConfig.HudActiveProfile.Value = n;
-                        // Fallback factory guards a corrupt file: keep what we have.
-                        var keep = Features.HudProfileStore.Active;
-                        Features.HudProfileStore.LoadActive(n,
-                            () => keep != null ? keep.Clone() : new UI.Hud.HudDocument { Name = n });
-                        UI.Hud.HudDocumentHistory.Clear();
+                        // One switch path for the combo and every CRUD flow (it still guards a
+                        // corrupt file by keeping the document we already have).
+                        SwitchToProfile(n);
+                        CancelProfileAction();   // an armed flow named the profile we just left
                     }
                 }
                 ImGui.EndCombo();
@@ -960,38 +985,395 @@ namespace StationeersUIMod.Windows
                 catch { }
             }
 
-            ImGui.TextDisabled("New copy:");
-            ImGui.SameLine();
-            // Widen modestly beyond the old fixed 145f when the row has room, but never shrink
-            // below it.
-            float dupW = ButtonWidth("Duplicate as");
-            float newCopyAvail = ImGui.GetContentRegionAvail().x - dupW - spacing;
-            ImGui.SetNextItemWidth(Mathf.Clamp(newCopyAvail, 145f, 220f));
-            ImGui.InputText("##saveas", ref _saveAsName, 48);
-            ImGui.SameLine();
-            if (ImGui.Button("Duplicate as") && !string.IsNullOrEmpty(_saveAsName))
+            DrawProfileCrudRow(active);
+        }
+
+        /// <summary>New / Duplicate / Rename / Delete (plus "Restore shipped version" when the
+        /// active profile carries one of OUR names), as one compact row under the profile combo.
+        /// A button ARMS its flow; the name field or the confirm step then appears inline beneath
+        /// the row, and only one flow can be armed at a time (FlorpyDorp: a New Theme button that
+        /// opens a blank slate AS WELL AS a duplicate button).
+        ///
+        /// Two rules every flow obeys. (1) Commit the in-flight element gesture first, exactly like
+        /// the profile combo does — a property drag that never got its ImGui deactivation callback
+        /// would otherwise be flushed into the WRONG document. (2) Any flow that moves a FILE
+        /// (rename, restore) forces the debounced autosave out under the OLD name BEFORE the file
+        /// moves, so a pending write can neither resurrect the renamed-away file nor land on top of
+        /// a freshly restored one.</summary>
+        private static void DrawProfileCrudRow(string active)
+        {
+            EnsureProfileCache();
+            bool canDelete = HasOtherProfile(active);
+
+            float spacing = ImGui.GetStyle().ItemSpacing.x;
+            float rowW = ButtonWidth("New") + ButtonWidth("Duplicate") + ButtonWidth("Rename")
+                + ButtonWidth("Delete") + spacing * 3f;
+            // Wave A width fitting: keep the four on one line only while they actually FIT;
+            // otherwise let them stack rather than run off the edge of a narrowed window.
+            bool oneRow = ImGui.GetContentRegionAvail().x >= rowW;
+
+            if (ImGui.Button("New")) ArmProfileAction(ProfActNew, UniqueProfileName("New profile"));
+            if (oneRow) ImGui.SameLine();
+            if (ImGui.Button("Duplicate")) ArmProfileAction(ProfActDup, UniqueProfileName(active + " copy"));
+            if (oneRow) ImGui.SameLine();
+            if (ImGui.Button("Rename")) ArmProfileAction(ProfActRename, active);
+            if (oneRow) ImGui.SameLine();
+            if (canDelete)
             {
-                FlushPendingElementEdit();
-                // Sanitize BEFORE remembering the name: the store strips illegal chars
-                // for the file, and a config name that kept them would miss the file on
-                // the next launch and silently regenerate the default.
-                string clean = _saveAsName;
-                foreach (var bad in System.IO.Path.GetInvalidFileNameChars())
-                    clean = clean.Replace(bad.ToString(), "");
-                clean = clean.Trim();
-                var doc = Features.HudProfileStore.Active;
-                var copy = doc != null ? doc.Clone() : null;
-                if (copy != null) copy.Name = clean;
-                if (!string.IsNullOrEmpty(clean) && copy != null
-                    && Features.HudProfileStore.Save(copy, clean))
+                if (ImGui.Button("Delete")) ArmProfileAction(ProfActDelete, "");
+            }
+            else
+            {
+                // Dimmed in place rather than hidden: the button has to stay where the eye expects
+                // it, and "it's the one you're using" is the useful half of the message. (Drawn as
+                // a real button with its result ignored — ImGui.NET's BeginDisabled is not
+                // guaranteed present in the game's binding, PushStyleColor is used all over this
+                // file.)
+                ImGui.PushStyleColor(ImGuiCol.Button, new Vector4(0.16f, 0.17f, 0.19f, 1f));
+                ImGui.PushStyleColor(ImGuiCol.ButtonHovered, new Vector4(0.16f, 0.17f, 0.19f, 1f));
+                ImGui.PushStyleColor(ImGuiCol.ButtonActive, new Vector4(0.16f, 0.17f, 0.19f, 1f));
+                ImGui.PushStyleColor(ImGuiCol.Text, new Vector4(0.55f, 0.56f, 0.58f, 1f));
+                ImGui.Button("Delete");
+                ImGui.PopStyleColor(4);
+                if (ImGui.IsItemHovered())
+                    ImGui.SetTooltip("The profile you are editing can't be deleted - switch to another one first.");
+            }
+
+            // Restore is only meaningful for a name WE ship, so it only exists then.
+            if (IsShippedCached(active) && _profileAction != ProfActRestore)
+            {
+                if (ImGui.Button("Restore shipped version")) ArmProfileAction(ProfActRestore, "");
+                ImGui.TextDisabled("  Re-copies our pristine '" + active + "' over your edited copy.");
+            }
+
+            switch (_profileAction)
+            {
+                case ProfActNew: DrawNewProfileStrip(); break;
+                case ProfActDup: DrawDuplicateStrip(); break;
+                case ProfActRename: DrawRenameStrip(active); break;
+                case ProfActDelete: DrawDeleteStrip(active); break;
+                case ProfActRestore: DrawRestoreStrip(active); break;
+            }
+            if (!string.IsNullOrEmpty(_profileNotice)) ImGui.TextColored(WarnCol, _profileNotice);
+        }
+
+        /// <summary>The shared "[name field] [commit] [Cancel]" strip. Returns true on the frame the
+        /// commit button is pressed. Only one strip draws per frame, so the widget ids can be shared.</summary>
+        private static bool NameFieldRow(string commitLabel)
+        {
+            float spacing = ImGui.GetStyle().ItemSpacing.x;
+            float btnW = ButtonWidth(commitLabel) + ButtonWidth("Cancel") + spacing * 2f;
+            ImGui.SetNextItemWidth(Mathf.Clamp(ImGui.GetContentRegionAvail().x - btnW, 145f, 260f));
+            ImGui.InputText("##profilename", ref _profileNameField, 48);
+            ImGui.SameLine();
+            bool go = ImGui.Button(commitLabel);
+            ImGui.SameLine();
+            if (ImGui.Button("Cancel")) { CancelProfileAction(); return false; }
+            return go;
+        }
+
+        /// <summary>NEW: a blank slate. The document itself is built by the store (current screen
+        /// RefW/RefH, ONE follow-global HandBoxes element = the minimum playable HUD, and NO theme
+        /// snapshot) — a themeless profile deliberately keeps whatever global look is current until
+        /// the author changes a global, and THAT edit stamps the theme through MarkThemeChanged
+        /// exactly as it does for any other profile.</summary>
+        private static void DrawNewProfileStrip()
+        {
+            ImGui.TextDisabled("New profile - a blank slate to build on:");
+            if (NameFieldRow("Create"))
+            {
+                string clean = CleanProfileName(_profileNameField);
+                if (string.IsNullOrEmpty(clean)) { _profileNotice = "Type a name first."; }
+                else if (ProfileExists(clean))
+                    _profileNotice = "'" + clean + "' already exists - pick another name.";
+                else
                 {
-                    if (HudConfig.HudActiveProfile != null) HudConfig.HudActiveProfile.Value = clean;
-                    Features.HudProfileStore.SetActive(copy, clean);
-                    UI.Hud.HudDocumentHistory.Clear();
-                    _saveAsName = "";
-                    _profileNamesCache = Features.HudProfileStore.ListProfiles(); // new file: refresh the cache
+                    FlushPendingElementEdit();
+                    if (Features.HudProfileStore.CreateBlank(clean))
+                    {
+                        SwitchToProfile(clean);
+                        CancelProfileAction();
+                        return;
+                    }
+                    _profileNotice = "Could not create '" + clean + "'.";
                 }
             }
+            ImGui.TextDisabled("  Starts at your screen size with ONE hand-boxes element (the minimum");
+            ImGui.TextDisabled("  playable HUD) and no saved theme, so it keeps the look you have now");
+            ImGui.TextDisabled("  until you change a global - that first change stamps its own theme.");
+        }
+
+        /// <summary>DUPLICATE: unchanged behaviour from the old "New copy / Duplicate as" row —
+        /// the LIVE document is cloned (so unsaved edits travel), written under the new name, and
+        /// made active from memory rather than re-read from disk.</summary>
+        private static void DrawDuplicateStrip()
+        {
+            ImGui.TextDisabled("Copy the active profile (layout + its saved theme) under a new name:");
+            if (!NameFieldRow("Duplicate as")) return;
+            string clean = CleanProfileName(_profileNameField);
+            if (string.IsNullOrEmpty(clean)) { _profileNotice = "Type a name first."; return; }
+            if (ProfileExists(clean)) { _profileNotice = "'" + clean + "' already exists - pick another name."; return; }
+            FlushPendingElementEdit();
+            var doc = Features.HudProfileStore.Active;
+            var copy = doc != null ? doc.Clone() : null;
+            if (copy == null) { _profileNotice = "No active profile to copy."; return; }
+            copy.Name = clean;
+            if (!Features.HudProfileStore.Save(copy, clean))
+            {
+                _profileNotice = "Could not save '" + clean + "'.";
+                return;
+            }
+            if (HudConfig.HudActiveProfile != null) HudConfig.HudActiveProfile.Value = clean;
+            Features.HudProfileStore.SetActive(copy, clean);
+            UI.Hud.HudDocumentHistory.Clear();
+            HudEditorMode.ClearElementSelection();
+            _profileNamesCache = Features.HudProfileStore.ListProfiles(); // new file: refresh the cache
+            CancelProfileAction();
+        }
+
+        /// <summary>RENAME the ACTIVE profile. Renaming one of OUR names is allowed but detaches the
+        /// file from shipped management: SyncShipped keys the manifest by FILE NAME, so the renamed
+        /// copy is simply an unknown (player-owned) profile from then on and a pristine original is
+        /// re-seeded on the next launch. Say so before the click, not after.</summary>
+        private static void DrawRenameStrip(string active)
+        {
+            ImGui.TextDisabled("Rename '" + active + "':");
+            if (IsShippedCached(active))
+            {
+                ImGui.TextColored(WarnCol, "  This is a profile WE ship. Renaming detaches your copy from");
+                ImGui.TextColored(WarnCol, "  shipped updates (it becomes yours forever), and a fresh");
+                ImGui.TextColored(WarnCol, "  pristine '" + active + "' appears again on the next launch.");
+            }
+            if (!NameFieldRow("Rename")) return;
+            string clean = CleanProfileName(_profileNameField);
+            if (string.IsNullOrEmpty(clean)) { _profileNotice = "Type a name first."; return; }
+            if (string.Equals(clean, active, System.StringComparison.OrdinalIgnoreCase)) { CancelProfileAction(); return; }
+            if (ProfileExists(clean)) { _profileNotice = "'" + clean + "' already exists - pick another name."; return; }
+            FlushPendingElementEdit();
+            // Persist under the OLD name BEFORE the file moves: a debounced autosave landing after
+            // the rename would write the old file straight back and leave a duplicate behind.
+            Features.HudProfileStore.FlushNow();
+            if (!Features.HudProfileStore.Rename(active, clean))
+            {
+                _profileNotice = "Could not rename '" + active + "' - that name may be taken.";
+                return;
+            }
+            // The store re-points the ACTIVE profile itself (config value, _activeName and the live
+            // document's Name), so the HUD needs no reload and the undo history survives the rename.
+            // Re-asserting the config value costs nothing and guarantees the editor cannot be left
+            // showing the old name. Only the name cache has to catch up.
+            if (HudConfig.HudActiveProfile != null) HudConfig.HudActiveProfile.Value = clean;
+            _profileNamesCache = Features.HudProfileStore.ListProfiles();
+            CancelProfileAction();
+        }
+
+        /// <summary>DELETE, two-step: the row button arms this strip, and only "Delete permanently"
+        /// touches the disk. The victim is picked from every profile EXCEPT the active one — the
+        /// editor must never be left pointing at a file that no longer exists.</summary>
+        private static void DrawDeleteStrip(string active)
+        {
+            EnsureProfileCache();
+            if (string.IsNullOrEmpty(_deleteTarget) || !ProfileExists(_deleteTarget)
+                || string.Equals(_deleteTarget, active, System.StringComparison.OrdinalIgnoreCase))
+                _deleteTarget = FirstOtherProfile(active);
+            if (string.IsNullOrEmpty(_deleteTarget))
+            {
+                ImGui.TextColored(WarnCol, "Nothing to delete - '" + active + "' is the only profile.");
+                if (ImGui.Button("Cancel")) CancelProfileAction();
+                return;
+            }
+
+            ImGui.TextDisabled("Delete which profile? (not the one you are editing)");
+            float spacing = ImGui.GetStyle().ItemSpacing.x;
+            ImGui.SetNextItemWidth(Mathf.Max(220f,
+                ImGui.GetContentRegionAvail().x - ButtonWidth("Delete permanently") - spacing));
+            if (ImGui.BeginCombo("##delvictim", _deleteTarget))
+            {
+                for (int i = 0; i < _profileNamesCache.Count; i++)
+                {
+                    string n = _profileNamesCache[i];
+                    if (string.Equals(n, active, System.StringComparison.OrdinalIgnoreCase)) continue;
+                    if (ImGui.Selectable(n, string.Equals(n, _deleteTarget, System.StringComparison.OrdinalIgnoreCase)))
+                        _deleteTarget = n;
+                }
+                ImGui.EndCombo();
+            }
+            if (IsShippedCached(_deleteTarget))
+            {
+                ImGui.TextDisabled("  '" + _deleteTarget + "' is one of ours, so deleting it IS the restore");
+                ImGui.TextDisabled("  path: a pristine copy is re-seeded on the next launch.");
+            }
+            ImGui.TextColored(WarnCol, "Delete '" + _deleteTarget + "' from disk? This cannot be undone.");
+            if (ImGui.Button("Delete permanently"))
+            {
+                FlushPendingElementEdit();
+                string victim = _deleteTarget;
+                if (Features.HudProfileStore.Delete(victim))
+                {
+                    _profileNamesCache = Features.HudProfileStore.ListProfiles();
+                    CancelProfileAction();
+                    return;
+                }
+                _profileNotice = "Could not delete '" + victim + "'.";
+            }
+            ImGui.SameLine();
+            if (ImGui.Button("Cancel")) CancelProfileAction();
+        }
+
+        /// <summary>RESTORE SHIPPED, two-step: re-copy our pristine file over the player's edited
+        /// copy of a shipped NAME, then reload it (it is always the active profile here, so the live
+        /// HUD has to follow). Offered for the active profile only — a shipped profile that is not
+        /// active is restored by deleting it and relaunching, which the delete strip says.</summary>
+        private static void DrawRestoreStrip(string active)
+        {
+            // The restore copies FROM the mod's installed folder. Under the F6 ScriptEngine dev flow
+            // there is no such folder, so the commit button is not drawn at all rather than armed
+            // and guaranteed to fail — a two-step confirm that cannot succeed is worse than no
+            // button. (The row-level button still exists so the affordance stays discoverable and
+            // this strip can explain itself.)
+            if (!Features.HudProfileStore.ShippedFolderAvailable)
+            {
+                ImGui.TextColored(WarnCol, "The mod's installed folder isn't available right now, so there is");
+                ImGui.TextColored(WarnCol, "no shipped copy to restore from (the F6 dev flow has none).");
+                ImGui.TextDisabled("  Delete this profile instead and relaunch - a pristine copy comes back.");
+                if (ImGui.Button("Cancel")) CancelProfileAction();
+                return;
+            }
+
+            ImGui.TextColored(WarnCol, "Replace '" + active + "' with the version we ship?");
+            ImGui.TextDisabled("  Your changes to THIS profile are overwritten. No other profile is touched.");
+            if (ImGui.Button("Restore permanently"))
+            {
+                FlushPendingElementEdit();
+                // Clear the pending autosave BEFORE the file is replaced, or the debounced write
+                // would land on top of the freshly restored copy and undo the restore.
+                Features.HudProfileStore.FlushNow();
+                if (Features.HudProfileStore.RestoreShipped(active))
+                {
+                    SwitchToProfile(active);
+                    CancelProfileAction();
+                    return;
+                }
+                _profileNotice = "Could not restore '" + active + "' - no shipped copy is available.";
+            }
+            ImGui.SameLine();
+            if (ImGui.Button("Cancel")) CancelProfileAction();
+        }
+
+        /// <summary>Make <paramref name="name"/> the live profile from an editor action — the same
+        /// sequence the profile combo runs (config, load with a keep-what-we-have fallback so a
+        /// corrupt file cannot blank the HUD, clear history), plus a selection reset because element
+        /// ids do not survive a document swap.</summary>
+        private static void SwitchToProfile(string name)
+        {
+            FlushPendingElementEdit();
+            if (HudConfig.HudActiveProfile != null) HudConfig.HudActiveProfile.Value = name;
+            var keep = Features.HudProfileStore.Active;
+            Features.HudProfileStore.LoadActive(name,
+                () => keep != null ? keep.Clone() : new UI.Hud.HudDocument { Name = name });
+            UI.Hud.HudDocumentHistory.Clear();
+            HudEditorMode.ClearElementSelection();
+            _profileNamesCache = Features.HudProfileStore.ListProfiles();
+            _shippedNameCache.Clear();   // a switch can self-heal a shipped name into the manifest
+        }
+
+        private static void ArmProfileAction(string action, string seedName)
+        {
+            FlushPendingElementEdit();
+            _profileAction = action;
+            _profileNameField = seedName ?? "";
+            _profileNotice = null;
+            _deleteTarget = null;
+            // Arm against FRESH names: the "already exists" guards and the delete picker both read
+            // the cache, which is otherwise only refreshed when the profile combo opens.
+            _profileNamesCache = Features.HudProfileStore.ListProfiles();
+            _shippedNameCache.Clear();
+        }
+
+        private static void CancelProfileAction()
+        {
+            _profileAction = null;
+            _profileNameField = "";
+            _profileNotice = null;
+            _deleteTarget = null;
+        }
+
+        /// <summary>Fill the profile-name cache the FIRST time the CRUD row draws (the combo only
+        /// re-scans on its opening edge, and the row needs names before anyone opens it). Latched,
+        /// not count-based: an empty HudProfiles folder must not re-stat the disk every frame. The
+        /// row's other callers keep replacing the list outright, which stays fresher than this.</summary>
+        private static void EnsureProfileCache()
+        {
+            if (_profileNamesCache == null) _profileNamesCache = new List<string>();
+            if (_profileCacheScanned) return;
+            _profileNamesCache = Features.HudProfileStore.ListProfiles();
+            _profileCacheScanned = true;
+        }
+
+        /// <summary>Is this one of OUR profile names? Memoised — see <see cref="_shippedNameCache"/>.</summary>
+        private static bool IsShippedCached(string name)
+        {
+            if (string.IsNullOrEmpty(name)) return false;
+            bool v;
+            if (_shippedNameCache.TryGetValue(name, out v)) return v;
+            v = Features.HudProfileStore.IsShippedName(name);
+            _shippedNameCache[name] = v;
+            return v;
+        }
+
+        private static bool ProfileExists(string name)
+        {
+            if (string.IsNullOrEmpty(name)) return false;
+            EnsureProfileCache();
+            for (int i = 0; i < _profileNamesCache.Count; i++)
+                if (string.Equals(_profileNamesCache[i], name, System.StringComparison.OrdinalIgnoreCase))
+                    return true;
+            return false;
+        }
+
+        private static bool HasOtherProfile(string active)
+        {
+            return !string.IsNullOrEmpty(FirstOtherProfile(active));
+        }
+
+        private static string FirstOtherProfile(string active)
+        {
+            EnsureProfileCache();
+            for (int i = 0; i < _profileNamesCache.Count; i++)
+            {
+                string n = _profileNamesCache[i];
+                if (!string.IsNullOrEmpty(n)
+                    && !string.Equals(n, active, System.StringComparison.OrdinalIgnoreCase))
+                    return n;
+            }
+            return null;
+        }
+
+        /// <summary>"New profile", then "New profile 2"... — a seed the author can accept as typed
+        /// instead of having to invent a free name.</summary>
+        private static string UniqueProfileName(string baseName)
+        {
+            string clean = CleanProfileName(baseName);
+            if (string.IsNullOrEmpty(clean)) clean = "New profile";
+            if (!ProfileExists(clean)) return clean;
+            for (int n = 2; n < 500; n++)
+            {
+                string candidate = clean + " " + n;
+                if (!ProfileExists(candidate)) return candidate;
+            }
+            return clean;
+        }
+
+        /// <summary>Strip exactly what the store strips for the FILE name, so the name written into
+        /// HudActiveProfile is the one that will actually be found on the next launch (a config name
+        /// that kept an illegal character would miss its file and silently regenerate the default).</summary>
+        private static string CleanProfileName(string name)
+        {
+            if (string.IsNullOrEmpty(name)) return null;
+            string clean = name;
+            foreach (var bad in System.IO.Path.GetInvalidFileNameChars())
+                clean = clean.Replace(bad.ToString(), string.Empty);
+            return clean.Trim();
         }
 
         // ------------------------------------------------------------------ gizmos

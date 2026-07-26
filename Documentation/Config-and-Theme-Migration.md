@@ -172,19 +172,62 @@ no record), so it's **left alone**. Fail-soft; inert under F6 (mod folder unknow
 - **The manifest is provenance, not a lock.** Delete `.shipped-manifest` and the next sync rebuilds
   it conservatively (adopts pristine current themes, leaves everything else).
 
+### How profile CRUD interacts with the manifest (0.9.2.5 Wave E)
+
+The F9 designer and the F10 Profiles tab can now create, rename, delete and restore profiles. Each
+action is keyed to the manifest as follows — the rule behind all of them is **never overwrite a file
+unless it is provably pristine or the player explicitly confirmed it in the UI**.
+
+| Action | File effect | Manifest effect | Next launch |
+|---|---|---|---|
+| **New (blank)** | creates `<new>.xml`; **refuses** if the name already exists (case-insensitively — Windows file names) | none | unmanaged, player-owned |
+| **Duplicate** | writes the LIVE document (unsaved edits travel) to `<new>.xml`; UI refuses an existing name | none | unmanaged, player-owned |
+| **Rename** | moves `<old>.xml` (+ `.png`); **refuses** if the target exists; re-points `HudActiveProfile` when the renamed one was active | deliberately untouched | if `<old>` was a shipped name, the SEED branch re-creates a pristine `<old>.xml`; the renamed copy is now unambiguously the player's |
+| **Delete** | deletes `<name>.xml` (+ `.png`); **refuses the active profile** at store level (checked against both the live name and the config value) | entry drops on the next sync | a deleted shipped name is re-seeded — deleting *is* the restore path |
+| **Restore shipped** (per profile) | re-copies our file over the player's edited copy — one of only two paths allowed to overwrite an edited profile, both two-step confirmed | re-stamped to the current shipped hash → pristine-managed again | refreshed like any pristine theme |
+| **Restore shipped themes** (F10 nuke) | deletes every manifest-tracked file, then re-syncs immediately | manifest deleted, then rebuilt by the sync | as shipped |
+| **Self-heal** (missing/corrupt *shipped* name) | rebuilds from the embedded factory in `UI/Hud/ShippedProfiles.cs` and writes it | stamped directly (`AdoptShippedIntoManifest`) so the same-session write is pristine-managed, not player-owned | managed |
+
+Two consequences worth remembering:
+
+- **The embedded factories must stay canonically identical to the repo `HudProfiles/` files.** The
+  self-heal writes the embed and records its `CanonHash`; the next launch's sync hashes the *mod
+  folder* file. If the two ever diverge in content, the self-healed copy reads as "player edited"
+  and silently stops receiving shipped updates. Quote style and line endings are free (both sides
+  round-trip through `XmlSerializer`); element **Ids must be present and unique**, or `Sanitize`
+  mints fresh GUIDs per call and the hash is no longer deterministic.
+- **Nothing is deleted that cannot be put back.** `ResetShippedProfiles` refuses to run at all when
+  the mod's `HudProfiles/` folder is unreachable (its reseed would be a no-op, leaving the player
+  with no shipped themes); the F9/F10 restore affordances dim or explain themselves in that case.
+
 ---
 
 ## 4. Player-facing troubleshooting
 
-If a tester's HUD/themes are "screwy" and you want a clean slate, have them **quit the game** and
-delete either:
+Two in-game affordances now cover most of this (0.9.2.5 Wave E) — reach for the manual file-delete
+instructions below only when neither applies (e.g. the mod won't even load).
+
+- **`uiareset` console command** (F3 console): bare `uiareset` PRINTS exactly what it would delete
+  (the whole `config/StationeersUIMod/` tree + both `.cfg` names) without touching anything;
+  `uiareset confirm`, typed in the **same session**, actually deletes it. Logs "restart required"
+  when done. This is the blunt instrument — everything, including Grid/belt/keybind setups, not
+  just themes.
+- **"Restore shipped themes" button** (F10 → HUD tab → Advanced → Maintenance): scoped to just
+  Stationeers Blue + Pure HUD. Two clicks to confirm; deletes the shipped-manifest and the shipped-
+  name files, then immediately re-syncs from the mod folder — themes only, everything else (Grid,
+  belt bindings, custom profiles) is untouched. Disabled in effect (shows a hint toast instead of
+  running) when the mod folder isn't reachable, e.g. the F6 dev flow.
+
+If neither is reachable (mod won't load at all), have the tester **quit the game** and delete
+either:
 
 - **Everything:** `BepInEx/config/com.stationeersuimod.ui*.cfg` **and**
   `BepInEx/config/StationeersUIMod/` → relaunch reseeds fresh defaults + the two shipped themes.
 - **Just themes:** `BepInEx/config/StationeersUIMod/HudProfiles/` (keeps their Grid/belt/keybind
   setups).
 
-This is the blunt instrument. The two systems above are what make it so you *rarely* need it.
+This is the blunt instrument. The three affordances above are what make it so you *rarely* need it
+by hand.
 
 ---
 

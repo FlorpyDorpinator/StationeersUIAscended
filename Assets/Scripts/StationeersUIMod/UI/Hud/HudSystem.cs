@@ -901,6 +901,7 @@ namespace StationeersUIMod.UI.Hud
             HudGlitch.Shutdown(); // kill any camera image-effect + material before the reload
             HudAlertPulse.Shutdown();   // alert latch + the StatusUpdates delegate binds
             HudText.Shutdown();
+            Core.FinderCommands.ResetSessionState(); // un-arm the `uiareset` two-step confirm
             HudWarp.Active = HudWarp.Kind.None;
             HudWarp.BareFlat = false; // reset alongside Active so a reload starts un-flattened
             HudSampler.DebugShowAll = false;

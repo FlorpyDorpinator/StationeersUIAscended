@@ -22,6 +22,15 @@ namespace StationeersUIMod.UI.Menu.Tabs
         private static readonly string[] Featured =
             { "Stationeers Blue", "Pure HUD" };
 
+        // Manage-a-profile state. INSTANCE fields on purpose: the tab object lives exactly as long
+        // as the Control Center's built UI (UiaControlCenter.Shutdown drops the tab list and
+        // EnsureBuilt makes fresh tabs), so a menu teardown or a hot reload resets these for free —
+        // there is no static to unwind. Each destructive action is a two-step: the first click sets
+        // a confirm flag and rebuilds the tab, the second click does the work.
+        private string _manageName;
+        private bool _confirmDelete;
+        private bool _confirmRestore;
+
         public void Build(RectTransform content, bool advanced)
         {
             ScrollRect scroll;
@@ -79,11 +88,181 @@ namespace StationeersUIMod.UI.Menu.Tabs
                 var rowGo = UiaUi.Go("adv-row", col);
                 UiaUi.Size(rowGo, UiaTheme.RowH);
                 UiaUi.HLayout((RectTransform)rowGo.transform, UiaTheme.Gap);
+                UiaControls.Button(rowGo.transform, "New blank profile", NewBlank, 170f, UiaTheme.RowH);
                 UiaControls.Button(rowGo.transform, "Duplicate active", DuplicateActive, 160f, UiaTheme.RowH);
-                UiaControls.Button(rowGo.transform, "Open HUD Designer (F9)", OpenDesigner, 200f, UiaTheme.RowH, UiaControls.ButtonStyle.Primary);
-                UiaControls.Button(rowGo.transform, "Open profiles folder", OpenFolder, 180f, UiaTheme.RowH);
-                UiaControls.Note(col, "The HUD Designer (F9) is where you build your own layout - add, move, resize and restyle every element. Save it there and it appears here as a profile.");
+                var rowGo2 = UiaUi.Go("adv-row2", col);
+                UiaUi.Size(rowGo2, UiaTheme.RowH);
+                UiaUi.HLayout((RectTransform)rowGo2.transform, UiaTheme.Gap);
+                UiaControls.Button(rowGo2.transform, "Open HUD Designer (F9)", OpenDesigner, 200f, UiaTheme.RowH, UiaControls.ButtonStyle.Primary);
+                UiaControls.Button(rowGo2.transform, "Open profiles folder", OpenFolder, 180f, UiaTheme.RowH);
+                UiaControls.Note(col, "New blank profile starts an empty slate (your screen size, one hand-boxes element, no saved theme) and switches to it. The HUD Designer (F9) is where you build it out - add, move, resize and restyle every element, and rename it there.");
+                BuildManageBlock(col, all, active);
             }
+        }
+
+        /// <summary>The destructive half of profile CRUD, advanced-only: pick a profile, then delete
+        /// it or put our shipped version back. Deliberately simpler than the F9 designer's row — the
+        /// card layout has no text input, so RENAME and the naming of a new profile stay in F9 and
+        /// this side auto-names. Every call goes through the same <see cref="HudProfileStore"/> API
+        /// F9 uses, so the shipped-theme rules hold identically here.</summary>
+        private void BuildManageBlock(RectTransform col, List<string> all, string active)
+        {
+            UiaUi.Go("spacer3", col).AddComponent<LayoutElement>().preferredHeight = 6f;
+            UiaControls.Header(col, "Manage a profile");
+            if (all == null || all.Count == 0)
+            {
+                UiaControls.Note(col, "No profiles on disk yet.");
+                return;
+            }
+
+            // Case-insensitive throughout: profile names are FILE names, and the active one comes
+            // from config, which the player may have typed with different casing.
+            if (IndexOfName(all, _manageName) < 0)
+            {
+                int a = IndexOfName(all, active);
+                _manageName = a >= 0 ? all[a] : all[0];
+            }
+            int idx = IndexOfName(all, _manageName);
+            UiaControls.DropdownRow(col, "Profile", all, idx < 0 ? 0 : idx, i =>
+            {
+                if (i < 0 || i >= all.Count) return;
+                _manageName = all[i];
+                _confirmDelete = false;      // a new target invalidates any armed confirm
+                _confirmRestore = false;
+                UiaControlCenter.Refresh();
+            });
+
+            string target = _manageName;
+            bool isActive = string.Equals(target, active, System.StringComparison.OrdinalIgnoreCase);
+            bool shipped = HudProfileStore.IsShippedName(target);
+
+            var row = UiaUi.Go("manage-row", col);
+            UiaUi.Size(row, UiaTheme.RowH);
+            UiaUi.HLayout((RectTransform)row.transform, UiaTheme.Gap);
+
+            if (_confirmDelete)
+            {
+                UiaControls.Button(row.transform, "Yes, delete it", () => DoDelete(target), 170f,
+                    UiaTheme.RowH, UiaControls.ButtonStyle.Danger);
+                UiaControls.Button(row.transform, "Cancel", CancelConfirm, 120f, UiaTheme.RowH);
+                UiaControls.Note(col, "Delete '" + target + "' from disk? This cannot be undone."
+                    + (shipped ? " It is one of ours, so a pristine copy is re-seeded on the next launch - that is the restore path." : ""));
+                return;
+            }
+            if (_confirmRestore)
+            {
+                UiaControls.Button(row.transform, "Yes, restore it", () => DoRestore(target), 170f,
+                    UiaTheme.RowH, UiaControls.ButtonStyle.Danger);
+                UiaControls.Button(row.transform, "Cancel", CancelConfirm, 120f, UiaTheme.RowH);
+                UiaControls.Note(col, "Replace '" + target + "' with the version we ship? Your changes to that profile are overwritten. No other profile is touched.");
+                return;
+            }
+
+            var del = UiaControls.Button(row.transform, "Delete profile",
+                () => { _confirmDelete = true; _confirmRestore = false; UiaControlCenter.Refresh(); },
+                170f, UiaTheme.RowH, UiaControls.ButtonStyle.Danger);
+            if (isActive) del.SetEnabled(false);   // never delete the profile the HUD is drawing
+            // Restore copies FROM the mod's installed folder, which the F6 ScriptEngine dev flow
+            // does not have — offer the button dimmed rather than armed-and-doomed, and say why in
+            // the note below. Asking the store (not StationeersUIMod.ModDirectory) keeps one source
+            // of truth for "is the shipped set reachable".
+            bool canRestore = HudProfileStore.ShippedFolderAvailable;
+            if (shipped)
+            {
+                var res = UiaControls.Button(row.transform, "Restore shipped",
+                    () => { _confirmRestore = true; _confirmDelete = false; UiaControlCenter.Refresh(); },
+                    170f, UiaTheme.RowH);
+                if (!canRestore) res.SetEnabled(false);
+            }
+
+            if (isActive)
+                UiaControls.Note(col, "'" + target + "' is the profile you are using - pick another one above (or switch profiles) before deleting it.");
+            else if (shipped && !canRestore)
+                UiaControls.Note(col, "'" + target + "' is a profile we ship, but the mod's installed folder isn't available right now (the F6 dev flow has none), so there is nothing to restore from. Deleting it still works: a pristine copy comes back on the next launch.");
+            else if (shipped)
+                UiaControls.Note(col, "'" + target + "' is a profile we ship. Restore puts our version back over your edits; deleting it also brings a pristine copy back on the next launch.");
+            else
+                UiaControls.Note(col, "'" + target + "' is yours - deleting it is permanent.");
+        }
+
+        private static int IndexOfName(List<string> all, string name)
+        {
+            if (all == null || string.IsNullOrEmpty(name)) return -1;
+            for (int i = 0; i < all.Count; i++)
+                if (string.Equals(all[i], name, System.StringComparison.OrdinalIgnoreCase)) return i;
+            return -1;
+        }
+
+        private void CancelConfirm()
+        {
+            _confirmDelete = false;
+            _confirmRestore = false;
+            UiaControlCenter.Refresh();
+        }
+
+        /// <summary>Delete a profile that is NOT the active one. The guard is re-checked here (not
+        /// just at build time) because the active profile can change between arming the confirm and
+        /// clicking it.</summary>
+        private void DoDelete(string name)
+        {
+            _confirmDelete = false;
+            global::StationeersUIMod.Windows.HudEditorWindow.FlushPendingElementEdit();
+            string active = HudConfig.HudActiveProfile != null ? HudConfig.HudActiveProfile.Value : null;
+            if (!string.IsNullOrEmpty(name)
+                && !string.Equals(name, active, System.StringComparison.OrdinalIgnoreCase))
+            {
+                HudProfileStore.Delete(name);
+                _manageName = null;   // re-seeds to the active profile on the rebuild below
+            }
+            UiaControlCenter.Refresh();
+        }
+
+        /// <summary>Re-copy our pristine shipped file over the player's edited copy, then reload it
+        /// if it happens to be the live one. The pending autosave is forced out FIRST: a debounced
+        /// write landing after the copy would put the player's edits straight back.</summary>
+        private void DoRestore(string name)
+        {
+            _confirmRestore = false;
+            if (string.IsNullOrEmpty(name)) { UiaControlCenter.Refresh(); return; }
+            string active = HudConfig.HudActiveProfile != null ? HudConfig.HudActiveProfile.Value : null;
+            bool isActive = string.Equals(name, active, System.StringComparison.OrdinalIgnoreCase);
+            try
+            {
+                global::StationeersUIMod.Windows.HudEditorWindow.FlushPendingElementEdit();
+                if (isActive) HudProfileStore.FlushNow();
+                bool ok = HudProfileStore.RestoreShipped(name);
+                if (ok && isActive) { Apply(name); return; }   // Apply refreshes the tab itself
+                // A silent no-op is the worst outcome of a confirmed destructive action: the player
+                // cannot tell "restored" from "nothing happened". Say which it was.
+                global::StationeersUIMod.Overlay.Toast.Show(ok
+                        ? "'" + name + "' restored to the version we ship."
+                        : "Could not restore '" + name + "' - the mod's installed folder isn't available.",
+                    ok ? global::StationeersUIMod.Overlay.Theme.TextPrimary : global::StationeersUIMod.Overlay.Theme.Critical,
+                    ok ? 3f : 4f);
+            }
+            catch (System.Exception e) { UIALog.Warn("Restore shipped profile failed: " + e.Message); }
+            UiaControlCenter.Refresh();
+        }
+
+        /// <summary>FlorpyDorp's "New Theme button that opens a blank slate". The document is built
+        /// by the store (current screen size, ONE follow-global hand-boxes element, no theme
+        /// snapshot, so it keeps the look you have now until you change a global). Auto-named,
+        /// because this side of the UI has no text input; rename it in F9.</summary>
+        private void NewBlank()
+        {
+            const string BaseName = "New profile";
+            string name = BaseName;
+            var existing = HudProfileStore.ListProfiles();
+            int n = 2;
+            while (IndexOfName(existing, name) >= 0 && n < 500) name = BaseName + " " + (n++);
+            if (HudProfileStore.CreateBlank(name))
+            {
+                _manageName = name;
+                _confirmDelete = false;
+                _confirmRestore = false;
+                Apply(name);
+            }
+            else UIALog.Warn("Could not create blank HUD profile '" + name + "'.");
         }
 
         private static List<string> PickFeatured(List<string> all)
@@ -151,10 +330,18 @@ namespace StationeersUIMod.UI.Menu.Tabs
             if (string.IsNullOrEmpty(name)) return;
             try
             {
+                // The F9 designer can be open behind this menu (it is a click-to-edit surface while
+                // the editor runs), so an in-flight property gesture must be committed to the
+                // OUTGOING document before the swap — same contract as the F9 profile combo.
+                global::StationeersUIMod.Windows.HudEditorWindow.FlushPendingElementEdit();
                 if (HudConfig.HudActiveProfile != null) HudConfig.HudActiveProfile.Value = name;
                 var keep = HudProfileStore.Active;
                 HudProfileStore.LoadActive(name, () => keep != null ? keep.Clone() : new HudDocument { Name = name });
                 HudDocumentHistory.Clear();
+                // Element ids do not survive a document swap, so a selection held by the F9 editor
+                // (which can be open behind this menu) would point at nothing. Same reset the F9
+                // switch path does — parity, so a switch is a switch wherever it is driven from.
+                global::StationeersUIMod.Windows.HudEditorMode.ClearElementSelection();
             }
             catch (System.Exception e) { UIALog.Warn("Apply profile failed: " + e.Message); }
             UiaControlCenter.Refresh();
@@ -168,7 +355,11 @@ namespace StationeersUIMod.UI.Menu.Tabs
             string name = baseName;
             var existing = HudProfileStore.ListProfiles();
             int n = 2;
-            while (existing.Contains(name)) name = baseName + " " + (n++);
+            // Case-INsensitive: profile names are Windows file names, so "Blue copy" and "blue copy"
+            // are the same file — an ordinal List.Contains would have let a duplicate silently
+            // overwrite an existing profile through Save (which has no collision guard, by design:
+            // it is also the autosave path).
+            while (IndexOfName(existing, name) >= 0 && n < 500) name = baseName + " " + (n++);
             if (HudProfileStore.Save(doc, name)) Apply(name);
         }
 

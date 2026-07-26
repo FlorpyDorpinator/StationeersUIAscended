@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using StationeersUIMod.Overlay;
 using StationeersUIMod.UI.Hud;
 using StationeersUIMod.UI.Menu.Kit;
 using UnityEngine;
@@ -12,6 +13,11 @@ namespace StationeersUIMod.UI.Menu.Tabs
     public sealed class HudTab : IUiaTab
     {
         public string Title => "HUD";
+
+        // Two-click confirm for the destructive "Restore shipped themes" button below — an
+        // INSTANCE field (not static) so it dies with this tab object rather than needing its own
+        // Shutdown reset; HudTab is rebuilt fresh whenever the Control Center's tab list is.
+        private float _restoreShippedArmUntil;
 
         public void Build(RectTransform content, bool advanced)
         {
@@ -69,6 +75,19 @@ namespace StationeersUIMod.UI.Menu.Tabs
             UiaUi.Go("sp", col).AddComponent<LayoutElement>().preferredHeight = 6f;
             UiaControls.Note(col, "Build your own layout and tune the glass effects in the HUD Designer.");
             UiaControls.Button(col, "Open the HUD Designer (F9)", OpenDesigner, -1f, UiaTheme.RowH, UiaControls.ButtonStyle.Primary);
+
+            // ---- Maintenance: the one home for the shipped-theme reset affordance (audit 06 P1 +
+            // the playtester incident — "my shipped theme is a mess and I don't know how to fix it").
+            UiaUi.Go("sp2", col).AddComponent<LayoutElement>().preferredHeight = 6f;
+            UiaControls.Header(col, "Maintenance (advanced)");
+            // Ask the STORE, not StationeersUIMod.ModDirectory: a mod folder that exists but has no
+            // HudProfiles subfolder is just as unrestorable as no mod folder at all, and only the
+            // store knows the shape it needs. (The store refuses the wipe in that case too.)
+            bool devOffline = !Features.HudProfileStore.ShippedFolderAvailable;
+            UiaControls.Note(col, devOffline
+                ? "Restore shipped themes needs the mod's installed folder, which isn't available right now (the F6 dev flow has none) - the button below will just explain that if you click it."
+                : "Puts Stationeers Blue and Pure HUD back exactly as shipped, undoing any edits you made to either. Your own profiles are never touched. Click twice to confirm.");
+            UiaControls.Button(col, "Restore shipped themes", RestoreShippedThemes, -1f, UiaTheme.RowH, UiaControls.ButtonStyle.Danger);
         }
 
         private static void OpenDesigner()
@@ -79,6 +98,54 @@ namespace StationeersUIMod.UI.Menu.Tabs
                 if (inst != null) { UiaControlCenter.Close(); inst.ToggleHudEditor(); }
             }
             catch { }
+        }
+
+        /// <summary>The F10 half of the shipped-theme reset affordance (the console has its own
+        /// general-purpose `uiareset` nuke — see Core/FinderCommands.cs — this is the scoped,
+        /// discoverable, in-menu version that touches ONLY the two shipped themes). Two clicks: the
+        /// first arms a 5-second confirm window and toasts what is about to happen; the second,
+        /// within that window, actually wipes the shipped set and immediately re-seeds it fresh from
+        /// the mod folder (<see cref="Features.HudProfileStore.ResetShippedProfiles"/>). Reloads the
+        /// live document afterward if the active profile was one of the wiped names, so the change is
+        /// visible immediately rather than after a restart.</summary>
+        private void RestoreShippedThemes()
+        {
+            string modDir = global::StationeersUIMod.StationeersUIMod.ModDirectory;
+            if (!Features.HudProfileStore.ShippedFolderAvailable)
+            {
+                Toast.Show("Restore shipped themes needs the mod's installed folder - unavailable under the F6 dev flow.", Theme.Critical, 3.5f);
+                return;
+            }
+
+            float now = Time.unscaledTime;
+            if (now > _restoreShippedArmUntil)
+            {
+                _restoreShippedArmUntil = now + 5f;
+                Toast.Show("Click 'Restore shipped themes' again within 5s to confirm - this reverts any edits to Stationeers Blue / Pure HUD.", Theme.Critical, 5f);
+                return;
+            }
+            _restoreShippedArmUntil = 0f;
+
+            try
+            {
+                string activeBefore = HudConfig.HudActiveProfile != null ? HudConfig.HudActiveProfile.Value : null;
+                Features.HudProfileStore.ResetShippedProfiles(modDir);
+                string activeAfter = HudConfig.HudActiveProfile != null ? HudConfig.HudActiveProfile.Value : null;
+                if (!string.IsNullOrEmpty(activeAfter)
+                    && !string.Equals(activeBefore, activeAfter, System.StringComparison.OrdinalIgnoreCase))
+                {
+                    var keep = Features.HudProfileStore.Active;
+                    Features.HudProfileStore.LoadActive(activeAfter, () => keep != null ? keep.Clone() : new HudDocument { Name = activeAfter });
+                    HudDocumentHistory.Clear();
+                }
+                Toast.Show("Shipped themes restored.", Theme.TextPrimary, 3f);
+                UiaControlCenter.Refresh();
+            }
+            catch (System.Exception e)
+            {
+                Core.UIALog.Warn("Restore shipped themes failed: " + e.Message);
+                Toast.Show("Restore shipped themes failed - see the log.", Theme.Critical, 3.5f);
+            }
         }
     }
 }
