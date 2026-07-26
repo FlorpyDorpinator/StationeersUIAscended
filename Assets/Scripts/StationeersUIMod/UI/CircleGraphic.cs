@@ -41,7 +41,15 @@ namespace StationeersUIMod.UI
 
             int segments = Mathf.Clamp(Mathf.CeilToInt(_radius * 1.2f), 48, 256);
             float bw = BorderWidth;
-            bool hasBorder = bw > 0.1f && BorderColor.a > 0.01f;
+            // Sub-pixel borders draw as a 1px hairline with alpha scaled by the missing coverage
+            // — the same treatment PanelGraphic's path gives a delicate themed border (its admit
+            // threshold is 0.05px, PanelGraphic.cs ~:470). Without this, a theme whose global
+            // BorderWidth is a hairline (both shipped themes: 0.076) made a follow-global ring
+            // VANISH below the old hard 0.1px cutoff while every panel around it still showed
+            // the theme's faint edge — the portrait's "border disappears on follow global" bug.
+            Color rim = BorderColor;
+            if (bw > 0.05f && bw < 1f) { rim.a *= bw; bw = 1f; }
+            bool hasBorder = bw >= 1f && rim.a > 0.004f && BorderWidth > 0.05f;
             float f = Feather;
 
             // Rings from the fan edge outwards. The rim needs a ramp on BOTH sides: an alpha-0
@@ -52,9 +60,9 @@ namespace StationeersUIMod.UI
             {
                 float rampStart = Mathf.Max(1f, _radius - f);
                 _stopR[0] = rampStart;        _stopC[0] = color;                 // fill up to here
-                _stopR[1] = _radius;          _stopC[1] = BorderColor;           // ramp -> rim
-                _stopR[2] = _radius + bw;     _stopC[2] = BorderColor;           // solid rim
-                _stopR[3] = _radius + bw + f; _stopC[3] = Fade(BorderColor);     // fringe out
+                _stopR[1] = _radius;          _stopC[1] = rim;                   // ramp -> rim
+                _stopR[2] = _radius + bw;     _stopC[2] = rim;                   // solid rim
+                _stopR[3] = _radius + bw + f; _stopC[3] = Fade(rim);             // fringe out
                 stops = 4;
             }
             else

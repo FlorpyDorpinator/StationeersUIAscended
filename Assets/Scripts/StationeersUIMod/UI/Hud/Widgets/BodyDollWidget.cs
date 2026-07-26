@@ -144,6 +144,14 @@ namespace StationeersUIMod.UI.Hud.Widgets
             base.DescribeProps(into);
             var d = Def;
             into.Add(HudProp.Bool("Only when damaged", () => d.GetB("auto", true), v => d.SetB("auto", v)));
+            // The ghost-outline WIDTH is live (UpdatePanel routes it through BorderWidthFor), but
+            // the border COLOUR is code-driven from the damage gradient — so this widget offers
+            // the width alone instead of the base's two-knob border-only chrome (whose colour row
+            // would be a dead control here). Follows the base's rule: the slider only appears in
+            // Custom style, because BorderWidthFor returns the global while following.
+            if (!FollowGlobal)
+                into.Add(HudProp.F("Outline width", () => d.BorderWidthFor(EditBare(d)),
+                    v => d.SetBorderWidthFor(EditBare(d), Mathf.Clamp(v, 0f, 8f)), 0f, 8f));
         }
 
         // ---- helpers ----
