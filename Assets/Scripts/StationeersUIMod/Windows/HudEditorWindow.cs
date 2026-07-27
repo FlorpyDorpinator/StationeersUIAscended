@@ -293,7 +293,10 @@ namespace StationeersUIMod.Windows
         {
             ImGui.TextColored(Accent, "TEXT");
             FontCombo();
-            FloatSlider(HudConfig.FontScale, "Font scale (all HUD text)", 0.6f, 1.8f);
+            // The shared HUD text scale is a registry row (an element's own font scale multiplies
+            // ON TOP of it — see HudStyleFx's "elFontScale"); the label size and the font name are
+            // not style knobs and stay hand-written.
+            FxRows(HudFxCategory.Surface, HudStyleFx.SecText);
             FloatSlider(HudConfig.LabelFontSize, "Label size (PRESSURE, HELMET...)", 7f, 22f);
 
             ImGui.Spacing();
@@ -327,23 +330,14 @@ namespace StationeersUIMod.Windows
 
             ImGui.Spacing();
             ImGui.TextColored(Accent, "BOX SHAPE");
-            FloatSlider(HudConfig.CornerRadius, "Default corner rounding (px)", 0f, 28f);
-            CornerStyleCombo();
-            FloatSlider(HudConfig.BorderWidth, "Default line thickness (px)", 0f, 6f);
-            FloatSlider(HudConfig.EdgeFeather, "Edge softness / AA (px)", 0f, 4f);
-            FloatSlider(HudConfig.GlassSheen, "Default glass sheen", 0f, 1f);
-            FloatSlider(HudConfig.GlassEdge, "Default glass edge light", 0f, 1f);
+            FxRows(HudFxCategory.Surface, HudStyleFx.SecBox);
 
             ImGui.Spacing();
             ImGui.TextColored(Accent, "SHARP GLASS PANELS");
-            Toggle(HudConfig.SdfPanels, "Draw boxes with the sharp panel shader");
-            ImGui.TextDisabled("  Crisper corners, rounder halos, and the advanced glow motion.");
-            ImGui.TextDisabled("  (the analytic SDF panel renderer)");
+            FxRows(HudFxCategory.Surface, HudStyleFx.SecSdfMaster);
             if (HudConfig.SdfPanels != null && HudConfig.SdfPanels.Value)
             {
-                FloatSlider(HudConfig.SdfSquircle, "  corner shape (2 round - 8 squircle)", 2f, 8f);
-                Toggle(HudConfig.SdfGaussianHalo, "  smooth distance falloff on halos");
-                ImGui.TextDisabled("    (Gaussian falloff, not a blur convolution)");
+                FxRows(HudFxCategory.Surface, HudStyleFx.SecSdf);
                 if (!Core.HudShaderStore.SdfAvailable)
                     ImGui.TextColored(WarnCol,
                         "  Shader bundle unavailable — panels fail soft to the mesh renderer.");
@@ -395,21 +389,10 @@ namespace StationeersUIMod.Windows
         private void DrawFxGlassSection()
         {
             ImGui.TextColored(Accent, "CORE EFFECTS");
-            Toggle(HudConfig.FxTierA, "Core effects - surfaces, edges and glow");
-            ImGui.TextDisabled("  Always available (needs no shader bundle). Off = flat plates.");
-            ImGui.TextDisabled("  Also gates the Edges and Glow sub-tabs.");
+            FxRows(HudFxCategory.Glass, HudStyleFx.SecTierA);
             if (On(HudConfig.FxTierA))
             {
-                Toggle(HudConfig.FxHairlinesOn, "Hairlines (sub-1px lines fade, not vanish)");
-                if (HudConfig.FxHairlinesOn.Value)
-                    FloatSlider(HudConfig.FxHairlineMin, "  thinnest line (px)", 0.05f, 1f);
-
-                Toggle(HudConfig.FxBorderFadeOn, "Border fade (unlit sections dissolve)");
-                if (HudConfig.FxBorderFadeOn.Value)
-                    FloatSlider(HudConfig.FxBorderFade, "  fade amount", 0f, 1f);
-                Toggle(HudConfig.FxSoftEdgeOn, "Soft edge (boxes melt together)");
-                if (HudConfig.FxSoftEdgeOn.Value)
-                    FloatSlider(HudConfig.FxSoftEdge, "  Width (px)##softEdgeWidth", 0f, 48f);
+                FxRows(HudFxCategory.Glass, HudStyleFx.SecCore);
 
                 // Shape of the per-element "Fade box ends L/R" / "top/bottom" ramps. The
                 // amounts stay per-element; the shape is shared so a HUD full of faded bars
@@ -417,10 +400,7 @@ namespace StationeersUIMod.Windows
                 ImGui.Spacing();
                 ImGui.TextColored(Accent, "BOX END FADE (shape)");
                 ImGui.TextDisabled("  Per-element sliders set WHERE a box fades; these set HOW.");
-                FloatSlider(HudConfig.FxEdgeFadeCurve,
-                    "  Fade curve (low = hard edge, high = long tail)##edgeFadeCurve", 0.25f, 4f);
-                FloatSlider(HudConfig.FxEdgeFadeBorder,
-                    "  Border joins the fade (1 = with the box)##edgeFadeBorder", 0f, 2f);
+                FxRows(HudFxCategory.Glass, HudStyleFx.SecBoxEndFade);
                 if (HudConfig.FxEdgeFadeBorder != null
                     && Mathf.Abs(HudConfig.FxEdgeFadeBorder.Value - 1f) > 0.01f)
                 {
@@ -442,21 +422,10 @@ namespace StationeersUIMod.Windows
                 Core.HudShaderStore.TierBAvailable
                     ? "  Shader bundle ready."
                     : "  SHADER BUNDLE NOT LOADED — THESE EFFECTS ARE INACTIVE");
-            Toggle(HudConfig.FxTierB, "Animated glass - shine, iridescence, colour fringe");
+            FxRows(HudFxCategory.Glass, HudStyleFx.SecTierB);
             if (HudConfig.FxTierB.Value)
             {
-                Toggle(HudConfig.FxShineOn, "Shine sweep");
-                if (HudConfig.FxShineOn.Value)
-                {
-                    FloatSlider(HudConfig.FxShine, "  Strength##shineStrength", 0f, 2f);
-                    FloatSlider(HudConfig.FxShinePeriod, "  period (seconds)", 2f, 60f);
-                }
-                Toggle(HudConfig.FxIridOn, "Iridescent rim");
-                if (HudConfig.FxIridOn.Value)
-                    FloatSlider(HudConfig.FxIridescence, "  Strength##iridescenceStrength", 0f, 1f);
-                Toggle(HudConfig.FxChromaOn, "Chromatic fringe (uses frosted backdrop)");
-                if (HudConfig.FxChromaOn.Value)
-                    FloatSlider(HudConfig.FxChroma, "  Strength##chromaStrength", 0f, 1f);
+                FxRows(HudFxCategory.Glass, HudStyleFx.SecAnimGlass);
                 // Dissolve's master is a TRANSITION and lives (with its strength, and its
                 // per-element Inherit/On/Off) on the Transitions sub-tab.
                 ImGui.TextDisabled("Dissolve reveal: see the Transitions sub-tab.");
@@ -464,14 +433,12 @@ namespace StationeersUIMod.Windows
 
             ImGui.Spacing();
             ImGui.TextColored(Accent, "FROSTED BACKDROP");
-            Toggle(HudConfig.FxTierC, "Frosted backdrop - blur the world behind the HUD");
-            ImGui.TextDisabled("  Flat and Vertex-warp curvature only; the priciest effect here.");
+            FxRows(HudFxCategory.Glass, HudStyleFx.SecTierC);
             if (HudConfig.FxTierC.Value)
             {
-                FloatSlider(HudConfig.FrostStrength, "Frost strength (all elements)", 0f, 1f);
-                FloatSlider(HudConfig.FrostDepth, "Blur depth (shallow - deep)", 0f, 1f);
-                FloatSlider(HudConfig.FrostDarken, "Backdrop darkening", 0f, 1f);
-                RgbConfig(HudConfig.FrostTint, "Frost tint", ref _frostTintStr, ref _frostTintVec);
+                // frost strength / blur depth / backdrop darkening / frost tint — the tint is a
+                // hue-wheel row and is dispatched inside the same loop, so order is preserved.
+                FxRows(HudFxCategory.Glass, HudStyleFx.SecFrost);
                 ImGui.TextDisabled(HudBackdrop.Active ? "Backdrop capture active." : "Backdrop capture is idle or unavailable in this view mode.");
                 ImGui.TextDisabled("Blur resolution and re-blur rate: Advanced sub-tab.");
             }
@@ -483,28 +450,9 @@ namespace StationeersUIMod.Windows
         {
             if (!On(HudConfig.FxTierA)) { CoreEffectsOffNotice("edge energy"); return; }
 
-            Toggle(HudConfig.FxEdgeLightOn, "Edge energy (borders + lines)");
+            FxRows(HudFxCategory.Edges, HudStyleFx.SecEdgeMaster);
             if (HudConfig.FxEdgeLightOn.Value)
-            {
-                FloatSlider(HudConfig.FxEdgeLight, "  Strength##edgeEnergyStrength", 0f, 2f);
-                DrawEdgeLightColour();
-                FloatSlider(HudConfig.FxEdgeLightAngle, "  light angle (0=R,90=top,180=L)", 0f, 360f);
-                FloatSlider(HudConfig.FxEdgeLightRim, "  opposing-rim catch", 0f, 2f);
-                FloatSlider(HudConfig.FxEdgeLightSharp, "  falloff (high=tight, low=broad)", 1f, 8f);
-                FloatSlider(HudConfig.FxEdgeRipple, "  irregular energy", 0f, 2.5f);
-                FloatSlider(HudConfig.FxEdgeRippleFreq, "  energy frequency", 0.05f, 8f);
-                FloatSlider(HudConfig.FxEdgeFlowSpeed, "  flow speed (0 = frozen)", 0f, 4f);
-                Toggle(HudConfig.FxRippleDesync, "  Desync per element (break lockstep)");
-                if (HudConfig.FxRippleDesync.Value)
-                    FloatSlider(HudConfig.FxRippleDesyncAmount, "    desync amount", 0f, 1f);
-                Toggle(HudConfig.FxGlowFlowAuraOn, "  Flowing edge aura");
-                if (HudConfig.FxGlowFlowAuraOn.Value)
-                {
-                    FloatSlider(HudConfig.FxGlowFlowAura, "    aura strength", 0f, 2f);
-                    ImGui.TextDisabled("    Moving edge crests emit through the shared halo radius/spread");
-                    ImGui.TextDisabled("    on the Glow sub-tab. Needs the sharp panel shader.");
-                }
-            }
+                FxRows(HudFxCategory.Edges, HudStyleFx.SecEdge);
         }
 
         /// <summary>Effects &gt; Glow: the halo, the envelope that halo and flowing aura share, and
@@ -513,31 +461,18 @@ namespace StationeersUIMod.Windows
         {
             if (!On(HudConfig.FxTierA)) { CoreEffectsOffNotice("the glow halo"); return; }
 
-            Toggle(HudConfig.FxGlowOn, "Glow halo");
-            if (HudConfig.FxGlowOn.Value)
-            {
-                FloatSlider(HudConfig.FxGlow, "  outward strength", 0f, 2f);
-                FloatSlider(HudConfig.FxGlowInner, "  inward strength", 0f, 2f);
-                FloatSlider(HudConfig.FxGlowHaze, "  extended atmospheric haze", 0f, 1f);
-            }
+            FxRows(HudFxCategory.Glow, HudStyleFx.SecHalo);
             bool haloEnvelopeOn = HudConfig.FxGlowOn.Value
                 || (HudConfig.FxEdgeLightOn.Value && HudConfig.FxGlowFlowAuraOn.Value);
             if (haloEnvelopeOn)
             {
                 ImGui.Spacing();
                 ImGui.TextColored(Accent, "SHARED HALO / FLOWING-AURA ENVELOPE");
-                FloatSlider(HudConfig.FxGlowWidth, "  Halo / aura radius (px)##glowWidth", 6f, 320f);
-                FloatSlider(HudConfig.FxGlowDiffuse, "  spread (tight rim -> diffuse)", 0f, 1f);
-                FloatSlider(HudConfig.FxGlowExtraDiffuse, "  extra diffuse (beyond max spread)", 0f, 1f);
-                Toggle(HudConfig.FxGlowBreathOn, "  Halo / aura breathing");
-                if (HudConfig.FxGlowBreathOn.Value)
-                    FloatSlider(HudConfig.FxGlowBreath, "    breath depth", 0f, 1f);
+                FxRows(HudFxCategory.Glow, HudStyleFx.SecEnvelope);
                 ImGui.TextDisabled("  Uneven / organic reach: Advanced sub-tab.");
                 ImGui.TextDisabled("  Extreme radius increases transparent GPU overdraw.");
             }
-            FloatSlider(HudConfig.FxGlowBreathSpeed,
-                "Shared Global + Custom breath speed (Hz)", 0.03f, 2f);
-            ImGui.TextDisabled("  Shared timing stays editable even when only Custom elements breathe.");
+            FxRows(HudFxCategory.Glow, HudStyleFx.SecBreathSpeed);
             DrawAdvancedHaloWarnings(haloEnvelopeOn);
 
             // The pulse MASTER lives on the Transitions sub-tab with the rest of the registry
@@ -547,11 +482,7 @@ namespace StationeersUIMod.Windows
             ImGui.Spacing();
             ImGui.TextColored(Accent, "BREATHING PULSE (shape)");
             ImGui.TextDisabled("Breathing pulse master: see the Transitions sub-tab.");
-            if (HudConfig.FxPulseOn.Value)
-            {
-                FloatSlider(HudConfig.FxPulseSpeed, "  pulse speed (Hz)", 0.05f, 3f);
-                FloatSlider(HudConfig.FxPulseDepth, "  pulse depth", 0f, 1f);
-            }
+            FxRows(HudFxCategory.Glow, HudStyleFx.SecPulseShape);
         }
 
         /// <summary>The one line every core-effects-gated sub-tab prints when the master is off —
@@ -590,15 +521,13 @@ namespace StationeersUIMod.Windows
         /// must stay reachable.</summary>
         private void DrawFxAlertsSection()
         {
-            Toggle(HudConfig.FxAlertPulseOn, "Warnings tint and breathe the HUD");
-            ImGui.TextDisabled("  Suited / robot only - never in bare mode.");
+            FxRows(HudFxCategory.Alerts, HudStyleFx.SecAlertMaster);
             if (HudConfig.FxAlertPulseOn.Value)
             {
                 // The ##id suffixes are load-bearing: ImGui keys widgets by label, and a bare
-                // "  breath speed (Hz)" would collide with the shared halo-breath slider.
-                FloatSlider(HudConfig.FxAlertBreathSeconds, "  breath length (sec)##alertBreathSecs", 0.35f, 5f);
-                IntSliderCfg(HudConfig.FxAlertCautionBreaths, "  caution flashes##alertBreathCount", 1, 10);
-                FloatSlider(HudConfig.FxAlertPulseStrength, "  breath strength##alertPulseStrength", 0f, 1f);
+                // "  breath speed (Hz)" would collide with the shared halo-breath slider. They are
+                // part of each registry row's Label for exactly that reason.
+                FxRows(HudFxCategory.Alerts, HudStyleFx.SecAlertShape);
                 ImGui.TextDisabled("  A caution flash lasts "
                     + (HudConfig.FxAlertBreathSeconds.Value * HudConfig.FxAlertCautionBreaths.Value)
                         .ToString("0.0") + "s in total.");
@@ -613,13 +542,16 @@ namespace StationeersUIMod.Windows
                 _frameSnapshot = HudPalette.Snapshot();
                 ImGui.PushID("alertfx");
 
+                // PARTIALLY HAND-WRITTEN ON PURPOSE: the two hues are HudPalette entries (not
+                // HudConfig), and each brightness gain belongs directly under its own wheel. So the
+                // two registry rows are drawn one at a time, in place, rather than as one run.
                 ImGui.TextDisabled("  Caution (yellow) - flashes, then clears for good:");
                 if (HudPalette.AlertCaution != null) ColorWheel(HudPalette.AlertCaution);
-                FloatSlider(HudConfig.FxAlertCautionBright, "  caution brightness##alertCautionBright", 0.25f, 3f);
+                FxRow("alertCautionBright");
 
                 ImGui.TextDisabled("  Critical (red) - breathes until the warning clears:");
                 if (HudPalette.AlertCritical != null) ColorWheel(HudPalette.AlertCritical);
-                FloatSlider(HudConfig.FxAlertCriticalBright, "  critical brightness##alertCriticalBright", 0.25f, 3f);
+                FxRow("alertCriticalBright");
 
                 ImGui.PopID();
 
@@ -739,13 +671,12 @@ namespace StationeersUIMod.Windows
         private void DrawFxAdvancedSection()
         {
             ImGui.TextColored(Accent, "PERFORMANCE");
-            if (On(HudConfig.FxTierC))
-            {
-                FrostDownsampleCombo();
-                IntSliderCfg(HudConfig.FrostUpdateEveryN, "Re-blur every N frames", 1, 8);
-            }
+            // Every row here is machine-local (HudTheme.Exclude): it trades frame time on the
+            // player's OWN machine, so an imported theme must never move it. The registry carries
+            // that as a per-row DoesNotTravel flag.
+            if (On(HudConfig.FxTierC)) FxRows(HudFxCategory.Glass, HudStyleFx.SecFrostPerf);
             else ImGui.TextDisabled("Frosted backdrop is off (Glass sub-tab) - its blur knobs are hidden.");
-            if (On(HudConfig.FxBloomOn)) BloomResCombo();
+            if (On(HudConfig.FxBloomOn)) FxRows(HudFxCategory.Bloom, HudStyleFx.SecBloomRes);
             else ImGui.TextDisabled("HUD bloom is off (Bloom sub-tab) - its resolution knob is hidden.");
 
             ImGui.Spacing();
@@ -756,12 +687,10 @@ namespace StationeersUIMod.Windows
                     || (On(HudConfig.FxEdgeLightOn) && On(HudConfig.FxGlowFlowAuraOn)));
             if (haloEnvelopeOn)
             {
-                Toggle(HudConfig.FxGlowUnevenOn, "Uneven / organic reach");
-                if (HudConfig.FxGlowUnevenOn.Value)
-                {
-                    FloatSlider(HudConfig.FxGlowUneven, "  unevenness amount", 0f, 1f);
-                    FloatSlider(HudConfig.FxGlowOrganicScale, "  organic scale (1 = classic)", 0.25f, 4f);
-                }
+                // Category = Glow (these ARE halo knobs and the element popup pages them there),
+                // Section = the Advanced home F9 gives them. Plan §3.4: "Effects > Glow (+ the
+                // Advanced halo rows)".
+                FxRows(HudFxCategory.Glow, HudStyleFx.SecAdvancedHalo);
                 DrawAdvancedHaloWarnings(true);
             }
             else ImGui.TextDisabled("No halo or flowing aura is on (Glow sub-tab) - reach knobs hidden.");
@@ -770,12 +699,9 @@ namespace StationeersUIMod.Windows
             ImGui.TextColored(Accent, "BLOOM COLOUR BIAS");
             if (On(HudConfig.FxBloomOn))
             {
-                FloatSlider(HudConfig.FxBloomSatBias,
-                    "  Colour bias (+ favours coloured pixels)##bloomBaseBias", -1f, 1f);
-                if (On(HudConfig.FxBloom2On))
-                    FloatSlider(HudConfig.FxBloom2SatBias,
-                        "  Colour bias (+ favours borders)##bloomHighlightBias", -1f, 1f);
-                else ImGui.TextDisabled("  Border / highlight bloom is off (Bloom sub-tab).");
+                FxRows(HudFxCategory.Bloom, HudStyleFx.SecBloomBias);
+                if (!On(HudConfig.FxBloom2On))
+                    ImGui.TextDisabled("  Border / highlight bloom is off (Bloom sub-tab).");
             }
             else ImGui.TextDisabled("HUD bloom is off (Bloom sub-tab).");
         }
@@ -1992,11 +1918,8 @@ namespace StationeersUIMod.Windows
 
         // ------------------------------------------------------------------ pieces
 
-        private static void DrawEdgeLightColour()
-        {
-            RgbConfig(HudConfig.FxEdgeLightColor, "  Edge-light colour##edgeLightColour",
-                ref _edgeTintStr, ref _edgeTintVec);
-        }
+        // The edge-light colour wheel is now dispatched from FxColorRow (registry key
+        // "edgeLightColour"), which owns the caption so the label cannot drift from the popup's.
 
         /// <summary>Draw a hue-wheel editor for a config value stored as a hand-editable #RRGGBB string.</summary>
         private static void RgbConfig(ConfigEntry<string> entry, string label,
@@ -2049,57 +1972,22 @@ namespace StationeersUIMod.Windows
                 HudBloomFx.Available
                     ? "BLOOM RENDERER READY"
                     : "BLOOM SHADER NOT LOADED — THESE CONTROLS ARE INACTIVE");
-            Toggle(HudConfig.FxBloomOn, "Enable HUD bloom (HUD elements light each other)");
+            FxRows(HudFxCategory.Bloom, HudStyleFx.SecBloomMaster);
             if (HudConfig.FxBloomOn == null || !HudConfig.FxBloomOn.Value) return;
 
             ImGui.TextDisabled("Base glow");
-            FloatSlider(HudConfig.FxBloomStrength, "  Strength##bloomBaseStrength", 0f, 3f);
-            FloatSlider(HudConfig.FxBloomThreshold, "  Bright threshold##bloomBaseThreshold", 0f, 1.5f);
-            FloatSlider(HudConfig.FxBloomKnee, "  Soft knee##bloomBaseKnee", 0f, 1f);
-            IntSliderCfg(HudConfig.FxBloomBlurSteps, "  Reach / blur steps##bloomBaseSteps", 1, 5);
-            FloatSlider(HudConfig.FxBloomSpread, "  Width fine-adjust##bloomBaseSpread", 0.5f, 3f);
-            FloatSlider(HudConfig.FxBloomAnamorph,
-                "  Streak shape (-1 vertical, +1 horizontal)##bloomBaseAnamorph", -1f, 1f);
-            FloatSlider(HudConfig.FxBloomSaturation,
-                "  Saturation (0 white-hot, 1 source hues)##bloomBaseSaturation", 0f, 2f);
-            RgbConfig(HudConfig.FxBloomTint, "  Glow tint##bloomBaseTint",
-                ref _bloomTintStr, ref _bloomTintVec);
+            FxRows(HudFxCategory.Bloom, HudStyleFx.SecBloomBase);
             // Glow resolution and the colour-bias pair moved to the Advanced sub-tab (perf +
             // esoterica), so this tab stays the shape-and-strength one.
             ImGui.TextDisabled("  Glow resolution and colour bias: Advanced sub-tab.");
 
             ImGui.Spacing();
-            Toggle(HudConfig.FxBloomPulseOn, "Breathing bloom");
-            if (HudConfig.FxBloomPulseOn != null && HudConfig.FxBloomPulseOn.Value)
-            {
-                FloatSlider(HudConfig.FxBloomPulseSpeed, "  Breaths per second##bloomPulseSpeed", 0.05f, 2f);
-                FloatSlider(HudConfig.FxBloomPulseDepth, "  Breath depth##bloomPulseDepth", 0f, 1f);
-            }
+            FxRows(HudFxCategory.Bloom, HudStyleFx.SecBloomPulse);
 
-            Toggle(HudConfig.FxBloomReactOn, "State-reactive bloom");
-            if (HudConfig.FxBloomReactOn != null && HudConfig.FxBloomReactOn.Value)
-            {
-                FloatSlider(HudConfig.FxBloomReactPower, "  Low suit power dimming##bloomReactPower", 0f, 1f);
-                FloatSlider(HudConfig.FxBloomReactAlarm, "  Critical alarm response##bloomReactAlarm", 0f, 1f);
-                FloatSlider(HudConfig.FxBloomReactBoot, "  Boot flare##bloomReactBoot", 0f, 1f);
-            }
+            FxRows(HudFxCategory.Bloom, HudStyleFx.SecBloomReact);
 
             ImGui.Spacing();
-            Toggle(HudConfig.FxBloom2On, "Border / highlight bloom (second bright band)");
-            if (HudConfig.FxBloom2On != null && HudConfig.FxBloom2On.Value)
-            {
-                FloatSlider(HudConfig.FxBloom2Threshold,
-                    "  Highlight threshold##bloomHighlightThreshold", 0f, 1.5f);
-                FloatSlider(HudConfig.FxBloom2Strength,
-                    "  Strength##bloomHighlightStrength", 0f, 3f);
-                IntSliderCfg(HudConfig.FxBloom2Steps,
-                    "  Reach / blur steps##bloomHighlightSteps", 1, 5);
-                FloatSlider(HudConfig.FxBloom2Spread,
-                    "  Width fine-adjust##bloomHighlightSpread", 0.5f, 3f);
-                RgbConfig(HudConfig.FxBloom2Tint, "  Highlight tint##bloomHighlightTint",
-                    ref _bloom2TintStr, ref _bloom2TintVec);
-                ImGui.TextDisabled("Raise panel edge light, then set this threshold between borders and text.");
-            }
+            FxRows(HudFxCategory.Bloom, HudStyleFx.SecBloomBand2);
 
             ImGui.TextDisabled("Measure real frame cost in Diagnostics or with: uiaprof ab bloom");
         }
@@ -2460,6 +2348,109 @@ namespace StationeersUIMod.Windows
             {
                 _pendingUndo = null;
             }
+        }
+
+        // ---- registry-driven global rows (style-parity Phase 1) -----------------------------
+        //
+        // The steady-state style knobs are described ONCE, in UI/Hud/HudStyleFx.cs. These helpers
+        // are the only thing that turns a registry row into an ImGui widget, so the label, the
+        // range, the companion-checkbox gating and the dimmed note lines under a row all come from
+        // the table — this menu and the per-element popup (Phase 2) cannot present different
+        // controls, different captions or different ranges.
+        //
+        // Nothing about the OUTPUT changed: every widget below is the same Toggle / FloatSlider /
+        // IntSliderCfg / RgbConfig / <family>Combo call the hand-written line made, in the same
+        // order, under the same conditions. The table simply supplies the arguments.
+        //
+        // Colour and Combo rows keep their bespoke drawers (a hue wheel needs the parse cache that
+        // lives in this window's statics; a combo needs its option strings), so they are dispatched
+        // by key rather than drawn generically. They stay IN the loop so row order is preserved.
+
+        private static void FxRow(HudStyleFxDef def)
+        {
+            if (def == null || !def.MasterOn) return;
+            switch (def.Kind)
+            {
+                case HudFxKind.Bool:
+                {
+                    ConfigEntry<bool> e = def.BoolEntry;
+                    if (e == null) return;
+                    Toggle(e, def.Label);
+                    break;
+                }
+                case HudFxKind.Float:
+                {
+                    ConfigEntry<float> e = def.FloatEntry;
+                    if (e == null) return;
+                    FloatSlider(e, def.Label, def.Min, def.Max);
+                    break;
+                }
+                case HudFxKind.Int:
+                {
+                    ConfigEntry<int> e = def.IntEntry;
+                    if (e == null) return;
+                    IntSliderCfg(e, def.Label, (int)def.Min, (int)def.Max);
+                    break;
+                }
+                case HudFxKind.Color:
+                    if (!FxColorRow(def)) return;
+                    break;
+                case HudFxKind.Combo:
+                    if (!FxComboRow(def)) return;
+                    break;
+                default: return;
+            }
+            if (def.Notes == null) return;
+            for (int i = 0; i < def.Notes.Length; i++) ImGui.TextDisabled(def.Notes[i]);
+        }
+
+        /// <summary>Hue-wheel rows. The swatch caches are per-entry statics in this window, so the
+        /// dispatch is by key; a registry colour row with no global wheel (the portrait ring's
+        /// per-element halo colour) draws nothing here and says so by returning false.</summary>
+        private static bool FxColorRow(HudStyleFxDef def)
+        {
+            switch (def.Key)
+            {
+                case "edgeLightColour":
+                    RgbConfig(HudConfig.FxEdgeLightColor, def.Label, ref _edgeTintStr, ref _edgeTintVec);
+                    return true;
+                case "frostTint":
+                    RgbConfig(HudConfig.FrostTint, def.Label, ref _frostTintStr, ref _frostTintVec);
+                    return true;
+                case "bloomTint":
+                    RgbConfig(HudConfig.FxBloomTint, def.Label, ref _bloomTintStr, ref _bloomTintVec);
+                    return true;
+                case "bloom2Tint":
+                    RgbConfig(HudConfig.FxBloom2Tint, def.Label, ref _bloom2TintStr, ref _bloom2TintVec);
+                    return true;
+                default: return false;
+            }
+        }
+
+        /// <summary>Named-option rows. Each combo owns its option strings (and, for corner style,
+        /// its own theme-dirty marking per selection), so it keeps its bespoke drawer.</summary>
+        private static bool FxComboRow(HudStyleFxDef def)
+        {
+            switch (def.Key)
+            {
+                case "cornerStyle": CornerStyleCombo(); return true;
+                case "frostDownsample": FrostDownsampleCombo(); return true;
+                case "bloomRes": BloomResCombo(); return true;
+                default: return false;
+            }
+        }
+
+        /// <summary>Draw one registry row by key. Used where a section is interrupted by content
+        /// the table does not describe.</summary>
+        private static void FxRow(string key) { FxRow(HudStyleFx.Find(key)); }
+
+        /// <summary>Draw every registry row in one (category, section) group, in table order.
+        /// Table order IS menu order — re-ordering the table moves the controls.</summary>
+        private static void FxRows(HudFxCategory cat, string section)
+        {
+            HudStyleFxDef[] all = HudStyleFx.All;
+            for (int i = 0; i < all.Length; i++)
+                if (HudStyleFx.InSection(all[i], cat, section)) FxRow(all[i]);
         }
 
         private static void Toggle(ConfigEntry<bool> entry, string label)

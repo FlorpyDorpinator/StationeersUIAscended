@@ -277,6 +277,151 @@ namespace StationeersUIMod.Core
             }
         }
 
+        /// <summary>`hudfx [elementId]` — READ-ONLY dump of the steady-state style registry
+        /// (<see cref="UI.Hud.HudStyleFx"/>) for ONE element, resolved at the style slot the HUD is
+        /// currently rendering.
+        ///
+        /// With no argument it lists every element in the active HUD document (Id + type + style
+        /// source), so you can copy an Id. The Id argument matches on a unique PREFIX — the
+        /// generated ones are GUIDs and nobody is typing those in full.
+        ///
+        /// Per row it prints: the category, the canonical key, WHERE the value came from
+        /// (global / own / shared) and what it resolves to. This is the diagnostic plan §6's risk
+        /// table asks for: every hand-list deleted in Phases 2-5 is paired with a before/after dump
+        /// diff per shipped profile, not just a screenshot. It mutates nothing — every read goes
+        /// through the same accessors the renderer uses.</summary>
+        public static void HudFx(string input)
+        {
+            try
+            {
+                var doc = Features.HudProfileStore.Active;
+                if (doc == null || doc.Elements == null)
+                {
+                    ConsoleWindow.Print("hudfx: no active HUD profile.", ConsoleColor.Yellow);
+                    return;
+                }
+
+                var parts = (input ?? "").Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+                string want = parts.Length >= 2 ? parts[1] : null;
+
+                if (string.IsNullOrEmpty(want))
+                {
+                    ConsoleWindow.Print(
+                        "hudfx: " + doc.Elements.Count + " element(s) in profile '" + (doc.Name ?? "?")
+                        + "'. Pass an Id prefix to dump one.", ConsoleColor.Cyan);
+                    foreach (var e in doc.Elements)
+                    {
+                        if (e == null) continue;
+                        var slot = e.ResolveSlot(UI.Hud.HudElementView.LayoutSlot);
+                        ConsoleWindow.Print(
+                            string.Format("  {0,-38} {1,-18} {2}", e.Id ?? "(no id)", e.Type,
+                                IsCustom(e, slot) ? "custom" : "global"),
+                            ConsoleColor.White);
+                    }
+                    ConsoleWindow.Print(
+                        "  registry: " + UI.Hud.HudStyleFx.All.Length + " style rows + "
+                        + UI.Hud.HudStyleFx.Transitions.Length + " transition effects.",
+                        ConsoleColor.White);
+                    return;
+                }
+
+                UI.Hud.HudElementDef target = null;
+                int matches = 0;
+                foreach (var e in doc.Elements)
+                {
+                    if (e == null || string.IsNullOrEmpty(e.Id)) continue;
+                    if (!e.Id.StartsWith(want, StringComparison.OrdinalIgnoreCase)) continue;
+                    matches++;
+                    if (target == null) target = e;
+                }
+                if (matches == 0)
+                {
+                    ConsoleWindow.Print("hudfx: no element Id starts with '" + want + "'. Run `hudfx` for the list.",
+                        ConsoleColor.Yellow);
+                    return;
+                }
+                if (matches > 1)
+                {
+                    ConsoleWindow.Print("hudfx: '" + want + "' matches " + matches + " elements - be more specific.",
+                        ConsoleColor.Yellow);
+                    return;
+                }
+
+                var s = target.ResolveSlot(UI.Hud.HudElementView.LayoutSlot);
+                bool custom = IsCustom(target, s);
+                ConsoleWindow.Print(
+                    string.Format("hudfx: {0} ({1})  slot {2}{3}  style {4}",
+                        target.Id, target.Type, s,
+                        target.ForksSlot(s) ? " [forked]" : " [shared base]",
+                        custom ? "CUSTOM" : "GLOBAL"),
+                    ConsoleColor.Cyan);
+                ConsoleWindow.Print(
+                    "  source: global = follows the F9 slider, own = this element stores it, "
+                    + "shared = physically one value for every panel.", ConsoleColor.White);
+
+                var all = UI.Hud.HudStyleFx.All;
+                UI.Hud.HudFxCategory? lastCat = null;
+                for (int i = 0; i < all.Length; i++)
+                {
+                    var def = all[i];
+                    if (def == null) continue;
+                    if (!lastCat.HasValue || lastCat.Value != def.Category)
+                    {
+                        lastCat = def.Category;
+                        ConsoleWindow.Print("  -- " + def.Category, ConsoleColor.Cyan);
+                    }
+
+                    string source;
+                    if (def.SharedOnly) source = "shared";
+                    else if (!def.HasGlobal) source = "own-only";
+                    else if (custom && def.HasOwnValue(target, s)) source = "own";
+                    else if (custom) source = "own(=global)";
+                    else source = "global";
+
+                    string flags = "";
+                    if (def.SdfOnly) flags += " sdf";
+                    if (def.LegacyApprox) flags += " approx";
+                    if (def.DoesNotTravel) flags += " machine-local";
+                    if (!def.TierOn) flags += " TIER-OFF";
+                    else if (!def.MasterOn) flags += " off";
+
+                    ConsoleWindow.Print(
+                        string.Format("     {0,-20} {1,-12} {2,-10} (global {3}){4}",
+                            def.Key, source, def.ResolveText(target, s, custom), def.GlobalText, flags),
+                        ConsoleColor.White);
+                }
+
+                // The seven power transitions are NOT in the style table (HudTransitionFx stays
+                // their sole authority - see HudStyleFx's type comment), so they are dumped from
+                // their own registry rather than duplicated into this one.
+                ConsoleWindow.Print("  -- Transitions (HudTransitionFx)", ConsoleColor.Cyan);
+                var fxs = UI.Hud.HudStyleFx.Transitions;
+                for (int i = 0; i < fxs.Length; i++)
+                {
+                    var fx = fxs[i];
+                    if (fx == null) continue;
+                    var mode = UI.Hud.HudTransitionFx.ModeOf(target, fx, false);
+                    ConsoleWindow.Print(
+                        string.Format("     {0,-20} {1,-12} {2,-10} (global {3})",
+                            fx.Key, mode.ToString().ToLowerInvariant(),
+                            UI.Hud.HudTransitionFx.Resolve(target, fx, false).ToString("0.###"),
+                            fx.GlobalOn ? fx.GlobalAmt.ToString("0.###") : "OFF"),
+                        ConsoleColor.White);
+                }
+            }
+            catch (Exception e)
+            {
+                ConsoleWindow.Print("hudfx failed: " + e.Message, ConsoleColor.Red);
+            }
+        }
+
+        /// <summary>Same clamp rule as the live resolvers: anything that is not an explicit 2 reads
+        /// as "follows the globals" (HudStyleMigration regresses every legacy element at load).</summary>
+        private static bool IsCustom(UI.Hud.HudElementDef d, UI.Hud.HudStyleSlot slot)
+            => d != null
+               && d.GetIFor(slot, "styleSource", UI.Hud.HudElementView.StyleGlobal)
+                  == UI.Hud.HudElementView.StyleCustom;
+
         private static string SafeName(Thing t)
         {
             if (t == null) return "?";
@@ -332,6 +477,7 @@ namespace StationeersUIMod.Core
                 if (Matches(cmd, "uiaflash")) { FinderCommands.FlashTest(cmd); return false; }
                 if (Matches(cmd, "stowtrace")) { FinderCommands.StowTrace(cmd); return false; }
                 if (Matches(cmd, "uiareset")) { FinderCommands.UiaReset(cmd); return false; }
+                if (Matches(cmd, "hudfx")) { FinderCommands.HudFx(cmd); return false; }
                 if (Matches(cmd, "uiadiag"))
                 {
                     // `uiadiag cursor` = focused pointer-flicker trace (cursor lock/visibility + every
