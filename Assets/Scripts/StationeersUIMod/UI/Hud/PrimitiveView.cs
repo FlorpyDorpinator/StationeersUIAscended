@@ -362,10 +362,12 @@ namespace StationeersUIMod.UI.Hud
                     into.Add(HudProp.F("Line width", () => d.GetFFor(EditBare(d), "width", 2f), v => d.SetFFor(EditBare(d), "width", Mathf.Max(0.05f, v)), 0.05f, 24f));
                     for (int i = appearanceStart; i < into.Count; i++) into[i].Group = HudPropGroup.Appearance;
 
-                    // The light/ripple/halo family now comes from the base inspector's
-                    // F9-mirrored line block (HudElementView.AddUnifiedEffectProps), governed
-                    // by the same follow-global checkbox as every panel. Only the line's own
-                    // geometry-participation knobs live here.
+                    // The light/ripple/halo family now comes from the base inspector's registry-
+                    // driven style pages (HudElementView.AddStylePage, Edges + Glow), governed by
+                    // the same follow-global checkbox as every panel — the hand-written Polyline
+                    // mirror that used to sit alongside them was deleted in Phase 2, and a line
+                    // now qualifies for a row through HudStyleFx's `Applies` predicates instead.
+                    // Only the line's own geometry-participation knobs live here.
                     int effectsStart = into.Count;
                     into.Add(HudProp.F("Fade ends (0=off)", () => d.GetFFor(EditBare(d), "fadeEnds", 0f), v => d.SetFFor(EditBare(d), "fadeEnds", Mathf.Clamp(v, 0f, 0.49f)), 0f, 0.49f));
                     into.Add(HudProp.F("Hairline floor px (-1 = global)", () => d.GetFFor(EditBare(d), "hairlineMin", -1f),

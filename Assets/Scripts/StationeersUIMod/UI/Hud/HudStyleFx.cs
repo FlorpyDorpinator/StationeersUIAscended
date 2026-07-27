@@ -111,12 +111,27 @@ namespace StationeersUIMod.UI.Hud
         /// shared-row label says "machine-local, does not travel with the theme" for these.</summary>
         public readonly bool DoesNotTravel;
 
-        /// <summary>Capability predicate — "does this element even have this surface?". NULL in
-        /// Phase 1 for every row: HudElementView's capability accessors (SupportsPanelAppearance,
-        /// SupportsAnalyticPanel, SupportsGlowHalo, SupportsBorderOnlyChrome, SupportsAuthoredCorners,
-        /// SupportsTrapezoid, UsesFontScale) are protected/private, so the predicates get wired in
-        /// Phase 2 by the popup builder, which lives inside that class and can see them. Null means
-        /// "applies wherever the surface exists", which is what every consumer assumes today.</summary>
+        /// <summary>A NULL-GLOBAL row whose renderer reads the per-element key in BOTH style states,
+        /// so the element popup keeps it editable even while the element follows the globals.
+        ///
+        /// Only meaningful when <see cref="HasGlobal"/> is false. The distinction is real and was
+        /// already deliberate before the registry existed: box-end fade and the trapezoid insets are
+        /// element GEOMETRY (<c>ApplyEdgeFade</c> / <c>InsetTop</c> read them unconditionally) and
+        /// the element font scale multiplies the shared one (<c>FontScaleFor</c>, likewise
+        /// unconditional), whereas <c>rippleSmooth</c> is hard-zeroed while following and the
+        /// portrait ring pair is only read on the Custom branch of <c>ApplyBorderOnlyEdge</c> — so
+        /// offering those three while following would be a dead control.</summary>
+        public readonly bool StateIndependent;
+
+        /// <summary>Capability predicate — "does this element even have this surface?". Wired in
+        /// Phase 2 against <see cref="HudElementView"/>'s <c>Fx*</c> capability accessors (the
+        /// internal facades over its protected/private Supports* virtuals). Null means "applies
+        /// wherever the surface exists", which is what every consumer assumes.
+        ///
+        /// Applies is about the element TYPE, never about runtime state: a knob that this surface
+        /// COULD use but that is currently inert (the analytic shader is off, the bundle is too old,
+        /// the panel's corners are Cut on an ABI-2 bundle) must still render, with a reason —
+        /// that is what <see cref="SdfOnly"/> and <see cref="LegacyApprox"/> are for.</summary>
         public readonly Func<HudElementView, bool> Applies;
 
         private readonly Func<ConfigEntry<float>> _gf;
@@ -135,7 +150,7 @@ namespace StationeersUIMod.UI.Hud
             Func<ConfigEntry<bool>> master, Func<ConfigEntry<bool>> tier,
             Func<HudElementDef, HudStyleSlot, string> ownText,
             bool sharedOnly, bool sdfOnly, bool legacyApprox, bool perTierCapable,
-            bool doesNotTravel, Func<HudElementView, bool> applies)
+            bool doesNotTravel, bool stateIndependent, Func<HudElementView, bool> applies)
         {
             Key = key;
             Category = category;
@@ -156,6 +171,7 @@ namespace StationeersUIMod.UI.Hud
             LegacyApprox = legacyApprox;
             PerTierCapable = perTierCapable;
             DoesNotTravel = doesNotTravel;
+            StateIndependent = stateIndependent;
             Applies = applies;
         }
 
@@ -304,7 +320,12 @@ namespace StationeersUIMod.UI.Hud
         internal const string SecBox = "box";                   //   ... BOX SHAPE
         internal const string SecSdfMaster = "sdfmaster";       //   ... SHARP GLASS PANELS (the master)
         internal const string SecSdf = "sdf";                   //   ... its two children
-        internal const string SecElementOnly = "elementonly";   // per-element knobs with no F9 row at all
+        // Per-element knobs with no F9 home at all. A per-element knob that DOES belong to an
+        // existing F9 group carries that group's section instead (the trapezoid insets sit in BOX
+        // SHAPE, the box-end-fade amounts in BOX END FADE, the frost opt-out in FROSTED BACKDROP),
+        // so the element popup renders it in the right place and in the right ORDER. That is safe
+        // for F9: its FxRow bails on a row whose global entry is null, which is every such row.
+        internal const string SecElementOnly = "elementonly";
 
         internal const string SecTierA = "tierA";               // Effects > Glass: CORE EFFECTS master
         internal const string SecCore = "core";                 //   ... its children
@@ -350,7 +371,7 @@ namespace StationeersUIMod.UI.Hud
             Func<HudElementView, bool> applies = null)
             => new HudStyleFxDef(key, cat, section, HudFxKind.Float, label, tip, paramKey, onParamKey,
                 firstClassField, min, max, notes, global, null, null, null, master, tier, ownText,
-                sharedOnly, sdfOnly, legacyApprox, !sharedOnly, doesNotTravel, applies);
+                sharedOnly, sdfOnly, legacyApprox, !sharedOnly, doesNotTravel, false, applies);
 
         private static HudStyleFxDef Bln(string key, HudFxCategory cat, string section, string label,
             Func<ConfigEntry<bool>> global, string paramKey = null, string tip = null,
@@ -360,7 +381,7 @@ namespace StationeersUIMod.UI.Hud
             Func<HudElementView, bool> applies = null)
             => new HudStyleFxDef(key, cat, section, HudFxKind.Bool, label, tip, paramKey, null,
                 null, 0f, 1f, notes, null, global, null, null, master, tier, null,
-                sharedOnly, sdfOnly, legacyApprox, !sharedOnly, doesNotTravel, applies);
+                sharedOnly, sdfOnly, legacyApprox, !sharedOnly, doesNotTravel, false, applies);
 
         private static HudStyleFxDef Whole(string key, HudFxCategory cat, string section, string label,
             Func<ConfigEntry<int>> global, int min, int max, string paramKey = null,
@@ -368,15 +389,16 @@ namespace StationeersUIMod.UI.Hud
             bool sharedOnly = false, bool doesNotTravel = false, string[] notes = null)
             => new HudStyleFxDef(key, cat, section, HudFxKind.Int, label, tip, paramKey, null,
                 null, min, max, notes, null, null, global, null, master, tier, null,
-                sharedOnly, false, false, !sharedOnly, doesNotTravel, null);
+                sharedOnly, false, false, !sharedOnly, doesNotTravel, false, null);
 
         private static HudStyleFxDef Col(string key, HudFxCategory cat, string section, string label,
             Func<ConfigEntry<string>> global, string paramKey = null, string tip = null,
             Func<ConfigEntry<bool>> master = null, Func<ConfigEntry<bool>> tier = null,
-            bool sharedOnly = false, bool doesNotTravel = false, string[] notes = null)
+            bool sharedOnly = false, bool doesNotTravel = false, string[] notes = null,
+            Func<HudElementView, bool> applies = null)
             => new HudStyleFxDef(key, cat, section, HudFxKind.Color, label, tip, paramKey, null,
                 null, 0f, 0f, notes, null, null, null, global, master, tier, null,
-                sharedOnly, false, false, !sharedOnly, doesNotTravel, null);
+                sharedOnly, false, false, !sharedOnly, doesNotTravel, false, applies);
 
         /// <param name="global">Int-backed combo (corner style, bloom glow resolution).</param>
         /// <param name="globalFloat">Float-backed combo — the backdrop blur divisor is stored as a
@@ -385,21 +407,27 @@ namespace StationeersUIMod.UI.Hud
             Func<ConfigEntry<int>> global, string paramKey = null, string tip = null,
             Func<ConfigEntry<bool>> master = null, Func<ConfigEntry<bool>> tier = null,
             bool sharedOnly = false, bool doesNotTravel = false,
-            Func<ConfigEntry<float>> globalFloat = null)
+            Func<ConfigEntry<float>> globalFloat = null,
+            Func<HudElementView, bool> applies = null)
             => new HudStyleFxDef(key, cat, section, HudFxKind.Combo, label, tip, paramKey, null,
                 null, 0f, 0f, null, globalFloat, null, global, null, master, tier, null,
-                sharedOnly, false, false, !sharedOnly, doesNotTravel, null);
+                sharedOnly, false, false, !sharedOnly, doesNotTravel, false, applies);
 
         /// <summary>A knob with NO global at all (plan §1.3's honest caveat, generalised): the value
-        /// is per-element or nothing, and it is NEUTRAL while the element follows. F9 never draws
-        /// these — there is no global row to draw.</summary>
+        /// is per-element or nothing. F9 never draws these — there is no global row to draw.
+        ///
+        /// <paramref name="stateIndependent"/> says the RENDERER reads the key in both style states,
+        /// so the element popup keeps the row editable while the element follows the globals; the
+        /// default (false) means the value is neutral while following and the popup hides it behind
+        /// the "follows global" summary rather than offering a dead control.</summary>
         private static HudStyleFxDef Own(string key, HudFxCategory cat, string label, float min,
             float max, string paramKey, string tip, HudFxKind kind = HudFxKind.Float,
             string firstClassField = null, Func<HudElementDef, HudStyleSlot, string> ownText = null,
-            bool sdfOnly = false)
-            => new HudStyleFxDef(key, cat, SecElementOnly, kind, label, tip, paramKey, null,
+            bool sdfOnly = false, bool stateIndependent = false,
+            Func<HudElementView, bool> applies = null, string section = SecElementOnly)
+            => new HudStyleFxDef(key, cat, section, kind, label, tip, paramKey, null,
                 firstClassField, min, max, null, null, null, null, null, null, null, ownText,
-                false, sdfOnly, false, true, false, null);
+                false, sdfOnly, false, true, false, stateIndependent, applies);
 
         // -------------------------------------------------------------------------------------
         // THE TABLE. Row order inside a (Category, Section) pair IS the F9 draw order — the sub-tab
@@ -411,7 +439,15 @@ namespace StationeersUIMod.UI.Hud
 
             Flt("hudFontScale", HudFxCategory.Surface, SecText, "Font scale (all HUD text)",
                 () => HudConfig.FontScale, 0.6f, 1.8f, sharedOnly: true,
-                tip: "Multiplies EVERY HUD label. An element's own font scale multiplies on top."),
+                tip: "Multiplies EVERY HUD label. An element's own font scale multiplies on top.",
+                applies: v => v.FxUsesFontScale),
+            // Element-only, but placed HERE rather than at the end of the category so the popup's
+            // Theme page reads top-to-bottom the way F9's does. F9 never loops SecElementOnly, so
+            // moving one of these rows can never move a control in the global menu.
+            Own("elFontScale", HudFxCategory.Surface, "Font scale", 0.4f, 3f, null,
+                "This element's own text multiplier, ON TOP of the shared HUD font scale.",
+                firstClassField: "FontScale", ownText: (d, s) => d.FontScaleFor(s).ToString("0.###"),
+                stateIndependent: true, applies: v => v.FxUsesFontScale, section: SecText),
 
             // BOX SHAPE. The four corner radii are ONE global row here and four per-element rows in
             // the popup — the global is the default all four fall back to through the -1 sentinel.
@@ -419,25 +455,37 @@ namespace StationeersUIMod.UI.Hud
                 () => HudConfig.CornerRadius, 0f, 28f, firstClassField: "RTL/RTR/RBR/RBL",
                 tip: "Corner size. Each element can set its four corners individually.",
                 ownText: (d, s) => d.RTLFor(s).ToString("0.##") + "/" + d.RTRFor(s).ToString("0.##")
-                    + "/" + d.RBRFor(s).ToString("0.##") + "/" + d.RBLFor(s).ToString("0.##")),
+                    + "/" + d.RBRFor(s).ToString("0.##") + "/" + d.RBLFor(s).ToString("0.##"),
+                applies: v => v.FxAuthoredCorners),
             Cmb("cornerStyle", HudFxCategory.Surface, SecBox, "Corner style",
                 () => HudConfig.HudCornerStyle, paramKey: "cornerStyle",
-                tip: "Rounded arcs or a flat 45-degree chamfer. Per element, 0 = follow this global."),
+                tip: "Rounded arcs or a flat 45-degree chamfer. Per element, 0 = follow this global.",
+                applies: v => v.FxAuthoredCorners),
             Flt("borderWidth", HudFxCategory.Surface, SecBox, "Default line thickness (px)",
                 () => HudConfig.BorderWidth, 0f, 6f, firstClassField: "BorderWidth",
                 tip: "Outline thickness.",
-                ownText: (d, s) => d.BorderWidthFor(s).ToString("0.##")),
+                ownText: (d, s) => d.BorderWidthFor(s).ToString("0.##"),
+                applies: v => v.FxHasChrome),
             Flt("feather", HudFxCategory.Surface, SecBox, "Edge softness / AA (px)",
                 () => HudConfig.EdgeFeather, 0f, 4f, paramKey: "feather",
-                tip: "Width of the anti-aliasing ramp on every edge."),
+                tip: "Width of the anti-aliasing ramp on every edge.",
+                applies: v => v.FxHasPanel),
             Flt("sheen", HudFxCategory.Surface, SecBox, "Default glass sheen",
                 () => HudConfig.GlassSheen, 0f, 1f, paramKey: "sheen",
-                tip: "The milky vertical gradient across the plate."),
+                tip: "The milky vertical gradient across the plate.",
+                applies: v => v.FxHasPanel),
             Flt("spec", HudFxCategory.Surface, SecBox, "Default glass edge light",
                 () => HudConfig.GlassEdge, 0f, 1f, paramKey: "spec",
                 tip: "How much the rim whitens where it faces the key light. A Custom element "
-                   + "stores the FINAL value, so this key is offered on both its Appearance and "
-                   + "its Effects page rather than double-counting a second strength."),
+                   + "stores the FINAL value, so this ONE key is the element's edge-light strength "
+                   + "rather than a second strength that would double-count on the next snapshot.",
+                applies: v => v.FxHasChrome),
+            Own("insetTop", HudFxCategory.Surface, "Top inset (trapezoid)", 0f, 400f, "insetTop",
+                "Trapezoid geometry: how far the top edge is drawn in. No global counterpart.",
+                stateIndependent: true, applies: v => v.FxHasTrapezoid, section: SecBox),
+            Own("insetBottom", HudFxCategory.Surface, "Bottom inset (trapezoid)", 0f, 400f, "insetBottom",
+                "Trapezoid geometry: how far the bottom edge is drawn in. No global counterpart.",
+                stateIndependent: true, applies: v => v.FxHasTrapezoid, section: SecBox),
 
             // SHARP GLASS PANELS.
             Bln("sdfPanels", HudFxCategory.Surface, SecSdfMaster, "Draw boxes with the sharp panel shader",
@@ -447,29 +495,27 @@ namespace StationeersUIMod.UI.Hud
                 {
                     "  Crisper corners, rounder halos, and the advanced glow motion.",
                     "  (the analytic SDF panel renderer)",
-                }),
+                },
+                applies: v => v.FxHasPanel),
             Flt("squircle", HudFxCategory.Surface, SecSdf, "  corner shape (2 round - 8 squircle)",
                 () => HudConfig.SdfSquircle, 2f, 8f, paramKey: "squircle", tier: () => HudConfig.SdfPanels,
                 sdfOnly: true,
-                tip: "Superellipse exponent for the corner shoulder. Mutually exclusive with Cut corners."),
+                tip: "Superellipse exponent for the corner shoulder. Mutually exclusive with Cut corners.",
+                applies: v => v.FxHasPanel),
             Bln("gaussianHalo", HudFxCategory.Surface, SecSdf, "  smooth distance falloff on halos",
                 () => HudConfig.SdfGaussianHalo, paramKey: "gaussianHalo", tier: () => HudConfig.SdfPanels,
                 sdfOnly: true, tip: "Gaussian distance falloff on the halo, not a blur convolution.",
-                notes: new[] { "    (Gaussian falloff, not a blur convolution)" }),
+                notes: new[] { "    (Gaussian falloff, not a blur convolution)" },
+                applies: v => v.FxHasPanel),
 
-            // Per-element-only Surface knobs: no global row exists for these anywhere in F9.
-            Own("elFontScale", HudFxCategory.Surface, "Font scale", 0.4f, 3f, null,
-                "This element's own text multiplier, ON TOP of the shared HUD font scale.",
-                firstClassField: "FontScale", ownText: (d, s) => d.FontScaleFor(s).ToString("0.###")),
-            Own("insetTop", HudFxCategory.Surface, "Top inset (trapezoid)", 0f, 400f, "insetTop",
-                "Trapezoid geometry: how far the top edge is drawn in. No global counterpart."),
-            Own("insetBottom", HudFxCategory.Surface, "Bottom inset (trapezoid)", 0f, 400f, "insetBottom",
-                "Trapezoid geometry: how far the bottom edge is drawn in. No global counterpart."),
+            // The portrait ring's own halo: no F9 group owns it, so it keeps SecElementOnly and the
+            // popup gives it its own heading.
             Own("ringGlow", HudFxCategory.Surface, "Ring glow", 0f, 2f, "ringGlow",
-                "Halo band on a border-only ring (portrait). 0 = none. No global counterpart."),
+                "Halo band on a border-only ring (portrait). 0 = none. No global counterpart.",
+                applies: v => v.FxHasRing),
             Own("ringGlowColor", HudFxCategory.Surface, "Ring glow colour", 0f, 0f, "ringGlowColor",
                 "Palette ref or hex for the ring halo. Empty = derive from the rim.",
-                kind: HudFxKind.Color),
+                kind: HudFxKind.Color, applies: v => v.FxHasRing),
 
             // ================= GLASS (Effects > Glass) =========================================
 
@@ -492,35 +538,44 @@ namespace StationeersUIMod.UI.Hud
             Bln("borderFadeOn", HudFxCategory.Glass, SecCore, "Border fade (unlit sections dissolve)",
                 () => HudConfig.FxBorderFadeOn, paramKey: "customBorderFadeOn",
                 tier: () => HudConfig.FxTierA,
-                tip: "The outline dissolves where the key light does not reach it."),
+                tip: "The outline dissolves where the key light does not reach it.",
+                applies: v => v.FxHasChrome),
             Flt("bfade", HudFxCategory.Glass, SecCore, "  fade amount",
                 () => HudConfig.FxBorderFade, 0f, 1f, paramKey: "bfade",
                 onParamKey: "customBorderFadeOn", master: () => HudConfig.FxBorderFadeOn,
                 tier: () => HudConfig.FxTierA,
-                tip: "0 = solid outline, 1 = unlit border sections dissolve completely."),
+                tip: "0 = solid outline, 1 = unlit border sections dissolve completely.",
+                applies: v => v.FxHasChrome),
             Bln("softEdgeOn", HudFxCategory.Glass, SecCore, "Soft edge (boxes melt together)",
                 () => HudConfig.FxSoftEdgeOn, paramKey: "customSoftEdgeOn",
                 tier: () => HudConfig.FxTierA,
-                tip: "The fill fades outward past the frame so neighbouring boxes blend."),
+                tip: "The fill fades outward past the frame so neighbouring boxes blend.",
+                applies: v => v.FxHasPanel),
             Flt("softEdge", HudFxCategory.Glass, SecCore, "  Width (px)##softEdgeWidth",
                 () => HudConfig.FxSoftEdge, 0f, 48f, paramKey: "softEdge",
                 onParamKey: "customSoftEdgeOn", master: () => HudConfig.FxSoftEdgeOn,
-                tier: () => HudConfig.FxTierA, tip: "How far outside the frame the fill fade reaches."),
+                tier: () => HudConfig.FxTierA, tip: "How far outside the frame the fill fade reaches.",
+                applies: v => v.FxHasPanel),
 
-            // BOX END FADE: the AMOUNTS are per-element geometry (below, element-only); the SHAPE is
-            // a shared uniform pair.
+            // BOX END FADE: the AMOUNTS are per-element geometry, the SHAPE is a shared uniform
+            // pair. The amounts sit FIRST because that is the order the element popup needs (set
+            // WHERE it fades, then read HOW) — and, being SecElementOnly, they are invisible to F9.
+            Own("edgeFadeX", HudFxCategory.Glass, "Fade box ends L/R", 0f, 0.5f, "edgeFadeX",
+                "Element GEOMETRY, editable in both style states. No global counterpart.",
+                stateIndependent: true, applies: v => v.FxHasPanel, section: SecBoxEndFade),
+            Own("edgeFadeY", HudFxCategory.Glass, "Fade box top/bottom", 0f, 0.5f, "edgeFadeY",
+                "Element GEOMETRY, editable in both style states. No global counterpart.",
+                stateIndependent: true, applies: v => v.FxHasPanel, section: SecBoxEndFade),
             Flt("edgeFadeCurve", HudFxCategory.Glass, SecBoxEndFade,
                 "  Fade curve (low = hard edge, high = long tail)##edgeFadeCurve",
                 () => HudConfig.FxEdgeFadeCurve, 0.25f, 4f, tier: () => HudConfig.FxTierA,
-                sharedOnly: true, tip: "Ramp shape for every element's box-end fade."),
+                sharedOnly: true, tip: "Ramp shape for every element's box-end fade.",
+                applies: v => v.FxHasPanel),
             Flt("edgeFadeBorder", HudFxCategory.Glass, SecBoxEndFade,
                 "  Border joins the fade (1 = with the box)##edgeFadeBorder",
                 () => HudConfig.FxEdgeFadeBorder, 0f, 2f, tier: () => HudConfig.FxTierA,
-                sharedOnly: true, tip: "How much the outline joins the end fade. Needs the sharp panel shader."),
-            Own("edgeFadeX", HudFxCategory.Glass, "Fade box ends L/R", 0f, 0.5f, "edgeFadeX",
-                "Element GEOMETRY, editable in both style states. No global counterpart."),
-            Own("edgeFadeY", HudFxCategory.Glass, "Fade box top/bottom", 0f, 0.5f, "edgeFadeY",
-                "Element GEOMETRY, editable in both style states. No global counterpart."),
+                sharedOnly: true, tip: "How much the outline joins the end fade. Needs the sharp panel shader.",
+                applies: v => v.FxHasPanel),
 
             Bln("tierB", HudFxCategory.Glass, SecTierB, "Animated glass - shine, iridescence, colour fringe",
                 () => HudConfig.FxTierB, sharedOnly: true,
@@ -528,55 +583,62 @@ namespace StationeersUIMod.UI.Hud
 
             Bln("shineOn", HudFxCategory.Glass, SecAnimGlass, "Shine sweep",
                 () => HudConfig.FxShineOn, paramKey: "customShineOn", tier: () => HudConfig.FxTierB,
-                tip: "A bright band sweeping across the plate."),
+                tip: "A bright band sweeping across the plate.", applies: v => v.FxHasPanel),
             Flt("shine", HudFxCategory.Glass, SecAnimGlass, "  Strength##shineStrength",
                 () => HudConfig.FxShine, 0f, 2f, paramKey: "customShine", onParamKey: "customShineOn",
                 master: () => HudConfig.FxShineOn, tier: () => HudConfig.FxTierB, legacyApprox: true,
-                tip: "How bright the sweep is."),
+                tip: "How bright the sweep is.", applies: v => v.FxHasPanel),
             Flt("shinePeriod", HudFxCategory.Glass, SecAnimGlass, "  period (seconds)",
                 () => HudConfig.FxShinePeriod, 2f, 60f, master: () => HudConfig.FxShineOn,
                 tier: () => HudConfig.FxTierB, sharedOnly: true,
-                tip: "Seconds between sweeps. ONE clock for the whole HUD (_ShinePos)."),
+                tip: "Seconds between sweeps. ONE clock for the whole HUD (_ShinePos).",
+                applies: v => v.FxHasPanel),
             Bln("iridOn", HudFxCategory.Glass, SecAnimGlass, "Iridescent rim",
                 () => HudConfig.FxIridOn, paramKey: "customIridOn", tier: () => HudConfig.FxTierB,
-                tip: "Angle-dependent colour shift along the rim."),
+                tip: "Angle-dependent colour shift along the rim.", applies: v => v.FxHasPanel),
             Flt("irid", HudFxCategory.Glass, SecAnimGlass, "  Strength##iridescenceStrength",
                 () => HudConfig.FxIridescence, 0f, 1f, paramKey: "customIrid", onParamKey: "customIridOn",
                 master: () => HudConfig.FxIridOn, tier: () => HudConfig.FxTierB, legacyApprox: true,
-                tip: "How strong the rim's colour shift is."),
+                tip: "How strong the rim's colour shift is.", applies: v => v.FxHasPanel),
             Bln("chromaOn", HudFxCategory.Glass, SecAnimGlass, "Chromatic fringe (uses frosted backdrop)",
                 () => HudConfig.FxChromaOn, paramKey: "customChromaOn", tier: () => HudConfig.FxTierB,
-                tip: "Colour fringing at the plate edge."),
+                tip: "Colour fringing at the plate edge.", applies: v => v.FxHasPanel),
             Flt("chroma", HudFxCategory.Glass, SecAnimGlass, "  Strength##chromaStrength",
                 () => HudConfig.FxChroma, 0f, 1f, paramKey: "customChroma", onParamKey: "customChromaOn",
                 master: () => HudConfig.FxChromaOn, tier: () => HudConfig.FxTierB,
                 sdfOnly: true, legacyApprox: true,
                 tip: "GATED ON FROST: the fringe is the frosted backdrop sampled at an offset, so an "
-                   + "element with no frost has nothing to offset and shows none."),
+                   + "element with no frost has nothing to offset and shows none.",
+                applies: v => v.FxHasPanel),
 
             Bln("tierC", HudFxCategory.Glass, SecTierC, "Frosted backdrop - blur the world behind the HUD",
                 () => HudConfig.FxTierC, sharedOnly: true,
                 tip: "Capability master for the backdrop blur capture.",
                 notes: new[] { "  Flat and Vertex-warp curvature only; the priciest effect here." }),
 
+            // The per-element opt-out sits FIRST (it gates the two rows below it in the popup);
+            // SecElementOnly keeps it invisible to F9, which has no such row.
+            Own("customFrostOn", HudFxCategory.Glass, "Frosted glass", 0f, 1f, "customFrostOn",
+                "Per-element frost opt-out. It has NO global gate - the global is the STRENGTH "
+                + "slider - so an absent key means ON, and that literal is the honest default.",
+                kind: HudFxKind.Bool, applies: v => v.FxHasPanel, section: SecFrost),
             Flt("frost", HudFxCategory.Glass, SecFrost, "Frost strength (all elements)",
                 () => HudConfig.FrostStrength, 0f, 1f, paramKey: "customFrost",
                 onParamKey: "customFrostOn", tier: () => HudConfig.FxTierC, legacyApprox: true,
-                tip: "How much of the blurred backdrop shows through this plate."),
+                tip: "How much of the blurred backdrop shows through this plate.",
+                applies: v => v.FxHasPanel),
             Flt("frostDepth", HudFxCategory.Glass, SecFrost, "Blur depth (shallow - deep)",
                 () => HudConfig.FrostDepth, 0f, 1f, paramKey: "frostDepth",
+                onParamKey: "customFrostOn",
                 tier: () => HudConfig.FxTierC, sdfOnly: true,
-                tip: "Which level of the shared blur pyramid this plate samples."),
+                tip: "Which level of the shared blur pyramid this plate samples.",
+                applies: v => v.FxHasPanel),
             Flt("frostDarken", HudFxCategory.Glass, SecFrost, "Backdrop darkening",
                 () => HudConfig.FrostDarken, 0f, 1f, tier: () => HudConfig.FxTierC, sharedOnly: true,
                 tip: "A shared material uniform (_FrostDarken) - one value for every panel."),
             Col("frostTint", HudFxCategory.Glass, SecFrost, "Frost tint",
                 () => HudConfig.FrostTint, tier: () => HudConfig.FxTierC, sharedOnly: true,
                 tip: "A shared material uniform (_FrostTint) - one value for every panel."),
-            Own("customFrostOn", HudFxCategory.Glass, "Frosted glass", 0f, 1f, "customFrostOn",
-                "Per-element frost opt-out. It has NO global gate - the global is the STRENGTH "
-                + "slider - so an absent key means ON, and that literal is the honest default.",
-                kind: HudFxKind.Bool),
 
             // Effects > Advanced: PERFORMANCE. Both size/throttle the ONE dual-Kawase pyramid.
             Cmb("frostDownsample", HudFxCategory.Glass, SecFrostPerf, "Backdrop blur resolution",
@@ -592,13 +654,15 @@ namespace StationeersUIMod.UI.Hud
 
             Bln("edgeLightOn", HudFxCategory.Edges, SecEdgeMaster, "Edge energy (borders + lines)",
                 () => HudConfig.FxEdgeLightOn, paramKey: "customRippleOn", tier: () => HudConfig.FxTierA,
-                tip: "The directional lit border, its shimmer and its flow."),
+                tip: "The directional lit border, its shimmer and its flow.",
+                applies: v => v.FxHasEdgeEnergy),
 
             Flt("edgeLight", HudFxCategory.Edges, SecEdge, "  Strength##edgeEnergyStrength",
                 () => HudConfig.FxEdgeLight, 0f, 2f, paramKey: "edgeLight",
                 onParamKey: "customRippleOn", tier: () => HudConfig.FxTierA,
                 tip: "Edge-light strength. LINES store it here; panels collapse theirs into the "
-                   + "0..1 glass quantity `spec` on the Surface page instead."),
+                   + "0..1 glass quantity `spec` on the Theme page instead.",
+                applies: v => v.FxIsLine),
             Col("edgeLightColour", HudFxCategory.Edges, SecEdge, "  Edge-light colour##edgeLightColour",
                 () => HudConfig.FxEdgeLightColor, tier: () => HudConfig.FxTierA, sharedOnly: true,
                 tip: "Shared _EdgeLightColor uniform - one key light for the whole HUD."),
@@ -613,18 +677,22 @@ namespace StationeersUIMod.UI.Hud
                 sharedOnly: true, tip: "Shared _EdgeLightSharp uniform: how tight the lit arc is."),
             Flt("ripple", HudFxCategory.Edges, SecEdge, "  irregular energy",
                 () => HudConfig.FxEdgeRipple, 0f, 2.5f, paramKey: "ripple", tier: () => HudConfig.FxTierA,
-                tip: "Light/dark shimmer running along the lit edge. 0 = smooth."),
+                tip: "Light/dark shimmer running along the lit edge. 0 = smooth.",
+                applies: v => v.FxHasEdgeEnergy),
             Flt("rippleFreq", HudFxCategory.Edges, SecEdge, "  energy frequency",
                 () => HudConfig.FxEdgeRippleFreq, 0.05f, 8f, paramKey: "rippleFreq",
-                tier: () => HudConfig.FxTierA, tip: "Shimmer cycles per ~100 px of edge."),
+                tier: () => HudConfig.FxTierA, tip: "Shimmer cycles per ~100 px of edge.",
+                applies: v => v.FxHasEdgeEnergy),
             Own("rippleSmooth", HudFxCategory.Edges, "  energy smoothness (per-element only)", 0f, 1f,
                 "rippleSmooth",
                 "THE one control that genuinely has no global (plan §1.3). Hard-zeroed while the "
-                + "element follows, so it is neutral there rather than silently inherited."),
+                + "element follows, so it is neutral there rather than silently inherited.",
+                applies: v => v.FxHasEdgeEnergy, section: SecEdge),
             Flt("edgeFlow", HudFxCategory.Edges, SecEdge, "  flow speed (0 = frozen)",
                 () => HudConfig.FxEdgeFlowSpeed, 0f, 4f, paramKey: "edgeFlow",
                 tier: () => HudConfig.FxTierA, sdfOnly: true,
-                tip: "How fast the shimmer crests travel along the edge. 0 = a frozen pattern."),
+                tip: "How fast the shimmer crests travel along the edge. 0 = a frozen pattern.",
+                applies: v => v.FxHasEdgeEnergy),
             Bln("rippleDesync", HudFxCategory.Edges, SecEdge, "  Desync per element (break lockstep)",
                 () => HudConfig.FxRippleDesync, tier: () => HudConfig.FxTierA, sharedOnly: true,
                 tip: "A shared RULE, not a shared value: it derives a stable per-element jitter "
@@ -636,12 +704,14 @@ namespace StationeersUIMod.UI.Hud
             Bln("glowFlowAuraOn", HudFxCategory.Edges, SecEdge, "  Flowing edge aura",
                 () => HudConfig.FxGlowFlowAuraOn, paramKey: "customGlowFlowOn",
                 tier: () => HudConfig.FxTierA, sdfOnly: true,
-                tip: "Moving edge crests emit their own aura through the shared halo envelope."),
+                tip: "Moving edge crests emit their own aura through the shared halo envelope.",
+                applies: v => v.FxHasPanel),
             Flt("glowFlowAura", HudFxCategory.Edges, SecEdge, "    aura strength",
                 () => HudConfig.FxGlowFlowAura, 0f, 2f, paramKey: "glowFlowAura",
                 onParamKey: "customGlowFlowOn", master: () => HudConfig.FxGlowFlowAuraOn,
                 tier: () => HudConfig.FxTierA, sdfOnly: true,
                 tip: "How brightly the travelling crests emit.",
+                applies: v => v.FxHasPanel,
                 notes: new[]
                 {
                     "    Moving edge crests emit through the shared halo radius/spread",
@@ -652,41 +722,45 @@ namespace StationeersUIMod.UI.Hud
 
             Bln("glowOn", HudFxCategory.Glow, SecHalo, "Glow halo",
                 () => HudConfig.FxGlowOn, paramKey: "customGlowOn", tier: () => HudConfig.FxTierA,
-                tip: "The halo band around (and into) the plate."),
+                tip: "The halo band around (and into) the plate.", applies: v => v.FxHasHalo),
             Flt("glow", HudFxCategory.Glow, SecHalo, "  outward strength",
                 () => HudConfig.FxGlow, 0f, 2f, paramKey: "glow", onParamKey: "customGlowOn",
                 master: () => HudConfig.FxGlowOn, tier: () => HudConfig.FxTierA,
-                tip: "Halo intensity OUTSIDE the frame."),
+                tip: "Halo intensity OUTSIDE the frame.", applies: v => v.FxHasHalo),
             Flt("glowIn", HudFxCategory.Glow, SecHalo, "  inward strength",
                 () => HudConfig.FxGlowInner, 0f, 2f, paramKey: "glowIn", onParamKey: "customGlowOn",
                 master: () => HudConfig.FxGlowOn, tier: () => HudConfig.FxTierA,
-                tip: "Halo intensity INTO the glass, under the text."),
+                tip: "Halo intensity INTO the glass, under the text.", applies: v => v.FxHasPanel),
             Flt("glowHaze", HudFxCategory.Glow, SecHalo, "  extended atmospheric haze",
                 () => HudConfig.FxGlowHaze, 0f, 1f, paramKey: "glowHaze", onParamKey: "customGlowOn",
                 master: () => HudConfig.FxGlowOn, tier: () => HudConfig.FxTierA, sdfOnly: true,
-                tip: "A faint long tail beyond the halo's core falloff."),
+                tip: "A faint long tail beyond the halo's core falloff.", applies: v => v.FxHasPanel),
 
             Flt("glowWidth", HudFxCategory.Glow, SecEnvelope, "  Halo / aura radius (px)##glowWidth",
                 () => HudConfig.FxGlowWidth, 6f, 320f, paramKey: "glowWidth",
                 tier: () => HudConfig.FxTierA,
                 tip: "Radius of the envelope the halo AND the flowing aura share. The mesh "
-                   + "fallback caps the visible radius at 160 px."),
+                   + "fallback caps the visible radius at 160 px.",
+                applies: v => v.FxHasHalo),
             Flt("glowDiffuse", HudFxCategory.Glow, SecEnvelope, "  spread (tight rim -> diffuse)",
                 () => HudConfig.FxGlowDiffuse, 0f, 1f, paramKey: "glowDiffuse",
-                tier: () => HudConfig.FxTierA, tip: "0 = a tight rim, 1 = a wide soft haze."),
+                tier: () => HudConfig.FxTierA, tip: "0 = a tight rim, 1 = a wide soft haze.",
+                applies: v => v.FxHasHalo),
             Flt("glowExtraDiffuse", HudFxCategory.Glow, SecEnvelope, "  extra diffuse (beyond max spread)",
                 () => HudConfig.FxGlowExtraDiffuse, 0f, 1f, paramKey: "glowExtraDiffuse",
                 tier: () => HudConfig.FxTierA, sdfOnly: true,
-                tip: "Softness past the spread slider's ceiling, on both glow bands."),
+                tip: "Softness past the spread slider's ceiling, on both glow bands.",
+                applies: v => v.FxHasHalo),
             Bln("glowBreathOn", HudFxCategory.Glow, SecEnvelope, "  Halo / aura breathing",
                 () => HudConfig.FxGlowBreathOn, paramKey: "customGlowBreathOn",
                 tier: () => HudConfig.FxTierA, sdfOnly: true,
-                tip: "The halo breathes without tinting the element itself."),
+                tip: "The halo breathes without tinting the element itself.",
+                applies: v => v.FxHasPanel),
             Flt("glowBreath", HudFxCategory.Glow, SecEnvelope, "    breath depth",
                 () => HudConfig.FxGlowBreath, 0f, 1f, paramKey: "glowBreath",
                 onParamKey: "customGlowBreathOn", master: () => HudConfig.FxGlowBreathOn,
                 tier: () => HudConfig.FxTierA, sdfOnly: true,
-                tip: "How far the halo swells and shrinks."),
+                tip: "How far the halo swells and shrinks.", applies: v => v.FxHasPanel),
 
             Flt("glowBreathSpeed", HudFxCategory.Glow, SecBreathSpeed,
                 "Shared Global + Custom breath speed (Hz)",
@@ -708,16 +782,18 @@ namespace StationeersUIMod.UI.Hud
             Bln("glowUnevenOn", HudFxCategory.Glow, SecAdvancedHalo, "Uneven / organic reach",
                 () => HudConfig.FxGlowUnevenOn, paramKey: "customGlowUnevenOn",
                 tier: () => HudConfig.FxTierA, sdfOnly: true,
-                tip: "Stable local-space breakup of the halo's reach and energy."),
+                tip: "Stable local-space breakup of the halo's reach and energy.",
+                applies: v => v.FxHasPanel),
             Flt("glowUneven", HudFxCategory.Glow, SecAdvancedHalo, "  unevenness amount",
                 () => HudConfig.FxGlowUneven, 0f, 1f, paramKey: "glowUneven",
                 onParamKey: "customGlowUnevenOn", master: () => HudConfig.FxGlowUnevenOn,
-                tier: () => HudConfig.FxTierA, sdfOnly: true, tip: "How irregular the reach becomes."),
+                tier: () => HudConfig.FxTierA, sdfOnly: true, tip: "How irregular the reach becomes.",
+                applies: v => v.FxHasPanel),
             Flt("glowOrganicScale", HudFxCategory.Glow, SecAdvancedHalo, "  organic scale (1 = classic)",
                 () => HudConfig.FxGlowOrganicScale, 0.25f, 4f, paramKey: "glowOrganicScale",
                 onParamKey: "customGlowUnevenOn", master: () => HudConfig.FxGlowUnevenOn,
                 tier: () => HudConfig.FxTierA, sdfOnly: true,
-                tip: "Footprint of the unevenness noise."),
+                tip: "Footprint of the unevenness noise.", applies: v => v.FxHasPanel),
 
             // ================= BLOOM (Effects > Bloom) — a full-screen post pass ==============
             // Nothing here can ever be per-element: HudBloomFx composites the whole HUD at once.
@@ -869,6 +945,76 @@ namespace StationeersUIMod.UI.Hud
         internal static bool InSection(HudStyleFxDef d, HudFxCategory cat, string section)
             => d != null && d.Category == cat
                && string.Equals(d.Section, section, StringComparison.Ordinal);
+
+        // ---- where F9 draws a section ---------------------------------------------------------
+        // The ids are the ones HudEditorWindow's BeginSubTab calls register, so a "jump to the
+        // global control" button in the element popup lands on the tab that actually owns the row.
+        // They live HERE, with the sections, because the section IS the thing that decides the
+        // answer — a section moved in F9 changes exactly one line, right next to its Sec* const.
+
+        internal const string TabTheme = "Theme";
+        internal const string TabEffects = "Effects";
+        internal const string SubTabThemeBoxes = "##UIAThemeBoxes";
+        internal const string SubTabGlass = "##UIAFxGlass";
+        internal const string SubTabEdges = "##UIAFxEdges";
+        internal const string SubTabGlow = "##UIAFxGlow";
+        internal const string SubTabBloom = "##UIAFxBloom";
+        internal const string SubTabAlerts = "##UIAFxAlerts";
+        internal const string SubTabTransitions = "##UIAFxTransitions";
+        internal const string SubTabAdvanced = "##UIAFxAdvanced";
+
+        /// <summary>The F9 tab / sub-tab that owns a row, so the element popup can offer a jump to
+        /// the shared control it is naming. Returns false for <see cref="SecElementOnly"/> — those
+        /// rows have no global and therefore no home to jump to.</summary>
+        internal static bool F9Home(HudStyleFxDef def, out string tab, out string subTabId,
+            out string caption)
+        {
+            tab = TabEffects; subTabId = SubTabGlass; caption = "Glass";
+            if (def == null || string.Equals(def.Section, SecElementOnly, StringComparison.Ordinal))
+                return false;
+            switch (def.Section)
+            {
+                case SecText:
+                case SecBox:
+                case SecSdfMaster:
+                case SecSdf:
+                    tab = TabTheme; subTabId = SubTabThemeBoxes; caption = "Typography & boxes";
+                    return true;
+                case SecTierA:
+                case SecCore:
+                case SecBoxEndFade:
+                case SecTierB:
+                case SecAnimGlass:
+                case SecTierC:
+                case SecFrost:
+                    caption = "Glass"; subTabId = SubTabGlass; return true;
+                case SecEdgeMaster:
+                case SecEdge:
+                    caption = "Edges"; subTabId = SubTabEdges; return true;
+                case SecHalo:
+                case SecEnvelope:
+                case SecBreathSpeed:
+                case SecPulseShape:
+                    caption = "Glow"; subTabId = SubTabGlow; return true;
+                case SecBloomMaster:
+                case SecBloomBase:
+                case SecBloomPulse:
+                case SecBloomReact:
+                case SecBloomBand2:
+                    caption = "Bloom"; subTabId = SubTabBloom; return true;
+                case SecAlertMaster:
+                case SecAlertShape:
+                case SecAlertBright:
+                    caption = "Alerts"; subTabId = SubTabAlerts; return true;
+                case SecFrostPerf:
+                case SecBloomRes:
+                case SecBloomBias:
+                case SecAdvancedHalo:
+                    caption = "Advanced"; subTabId = SubTabAdvanced; return true;
+                default:
+                    return true;
+            }
+        }
 
         /// <summary>How many rows a category owns. Diagnostics only.</summary>
         internal static int CountIn(HudFxCategory cat)

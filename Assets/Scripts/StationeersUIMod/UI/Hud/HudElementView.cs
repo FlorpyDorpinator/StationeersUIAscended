@@ -437,6 +437,45 @@ namespace StationeersUIMod.UI.Hud
         private bool SupportsAnalyticPanel => SupportsGlowHalo
             && Def != null && Def.Type != HudElementType.Shape;
 
+        // ---- capability facades for HudStyleFx's `Applies` predicates (Phase 2) --------------
+        //
+        // The Supports*/Uses* members above are protected or private (each widget declares its own),
+        // so a lambda living in HudStyleFx cannot see them. These internal one-liners are the whole
+        // bridge: the registry stays the single description of every knob, including WHICH SURFACES
+        // each knob exists on, and no second capability list is maintained anywhere.
+        //
+        // They answer "does this element TYPE have this surface at all", never "is it working right
+        // now" — a knob that is merely inert (analytic shader off, bundle too old, Cut corners on an
+        // ABI-2 bundle) still renders, with a reason. See SdfInertReason below.
+
+        /// <summary>Owns a UIA PanelGraphic/PolygonPanelGraphic surface (fill + border + glass).</summary>
+        internal bool FxHasPanel => SupportsPanelAppearance;
+
+        /// <summary>Draws a border-only ring from Border + BorderWidth (portrait, body doll).</summary>
+        internal bool FxHasRing => SupportsBorderOnlyChrome;
+
+        /// <summary>A drawn line (PolylineGraphic): edge light, ripple and the mesh halo, no fill.</summary>
+        internal bool FxIsLine => Def != null && Def.Type == HudElementType.Polyline;
+
+        /// <summary>Anything with an outline the edge/border family can light: panel or ring.</summary>
+        internal bool FxHasChrome => SupportsPanelAppearance || SupportsBorderOnlyChrome;
+
+        /// <summary>Renders the edge-energy family (lit border, shimmer, flow): panels and lines.</summary>
+        internal bool FxHasEdgeEnergy => SupportsPanelAppearance || FxIsLine;
+
+        /// <summary>Renders a glow halo band: panels, freeform shapes and lines.</summary>
+        internal bool FxHasHalo => SupportsGlowHalo || FxIsLine;
+
+        /// <summary>Consumes the four AUTHORED corner radii (not a derived pill radius, not a pen
+        /// contour), so the per-corner sliders and the corner-style combo mean something.</summary>
+        internal bool FxAuthoredCorners => SupportsAuthoredCorners;
+
+        /// <summary>Draws one framed background panel a trapezoid inset can reshape.</summary>
+        internal bool FxHasTrapezoid => SupportsTrapezoid;
+
+        /// <summary>Multiplies its text size by the element's own font scale.</summary>
+        internal bool FxUsesFontScale => UsesFontScale;
+
         /// <summary>Several widgets retain their panel styling while their optional background
         /// is hidden. Keep those values editable, but tell the author why they currently cannot
         /// see a response instead of presenting apparently broken controls.
@@ -1226,20 +1265,7 @@ namespace StationeersUIMod.UI.Hud
             int start = into.Count;
             // Per-mode edit: every Appearance value reads/writes the SUIT base OR the BARE override
             // depending on the active mode tab (EditBare(d) is true only while the Bare tab is
-            // selected on a Both element). Bare inherits the base until a property is forked. These
-            // shorthands keep the bag rows terse; first-class fields use their own ...For accessors.
-            System.Func<string, float, float> gf = (k, dv) => d.GetFFor(EditBare(d), k, dv);
-            System.Action<string, float> sf = (k, v) => d.SetFFor(EditBare(d), k, v);
-            System.Func<string, bool, bool> gb = (k, dv) => d.GetBFor(EditBare(d), k, dv);
-            System.Action<string, bool> sb = (k, v) => d.SetBFor(EditBare(d), k, v);
-            // GLOBAL-BACKED display defaults (Phase 0c). A row whose key is absent must show what
-            // the RESOLVER would use — the global — not a hand-picked literal, or the slider reads
-            // a number the HUD is not rendering and the first drag writes that wrong number in.
-            System.Func<string, ConfigEntry<float>, float> gfg = (k, g)
-                => d.GetFFor(EditBare(d), k, g != null ? g.Value : 0f);
-            System.Func<string, ConfigEntry<bool>, bool> gbg = (k, g)
-                => d.GetBFor(EditBare(d), k, g != null && g.Value);
-
+            // selected on a Both element). Bare inherits the base until a property is forked.
             into.Add(HudProp.Header("Appearance"));
             // Colours are per-element in BOTH style states (see GlobalOr) and per-MODE too: a
             // palette-name ref tracks the F9 palette live, a hex literal stands alone.
@@ -1254,122 +1280,21 @@ namespace StationeersUIMod.UI.Hud
             else if (SupportsBorderOnlyChrome)
             {
                 // No panel, but the widget draws a ring from these two — see SupportsBorderOnlyChrome.
-                // The COLOUR ref resolves in both states; the WIDTH routes through
-                // BorderWidthFor, which returns the global while following (review 2026-07-17:
-                // offering the slider in Global made it a dead control).
+                // Only the COLOUR ref lives here: it resolves in both states and is deliberately not
+                // follow-gated (plan §3.4). The ring's WIDTH, edge light, border fade and halo are
+                // registry rows and are drawn by the style pages on the Effects tab, under the same
+                // captions F9 uses for them — see AddUnifiedEffectProps.
                 into.Add(HudProp.Color("Ring / outline colour", () => d.BorderFor(EditBare(d)), v => d.SetBorderFor(EditBare(d), v)));
-                if (!UsesGlobalStyle)
-                {
-                    into.Add(HudProp.F("Ring / outline width", () => d.BorderWidthFor(EditBare(d)),
-                        v => d.SetBorderWidthFor(EditBare(d), Mathf.Clamp(v, 0f, 8f)), 0f, 8f));
-                    // Edge glass on the ring, matching a panel: an edge-light strength (drawn where
-                    // the rim faces the key light) and a border fade (the unlit arc dissolves).
-                    // These read the same "spec"/"bfade"/"customBorderFadeOn" keys a custom panel
-                    // uses, and ApplyBorderOnlyEdge now honours them (previously hard-zeroed).
-                    if (HudConfig.FxTierA == null || !HudConfig.FxTierA.Value)
-                        into.Add(HudProp.Header("  (Surface/edge master is OFF globally — edge light/fade are inactive)"));
-                    into.Add(HudProp.F("Ring edge light", () => gfg("spec", HudConfig.GlassEdge),
-                        v => sf("spec", Mathf.Clamp01(v)), 0f, 1f));
-                    into.Add(HudProp.Bool("Ring edge fade", () => gbg("customBorderFadeOn", HudConfig.FxBorderFadeOn),
-                        v => sb("customBorderFadeOn", v)));
-                    if (gbg("customBorderFadeOn", HudConfig.FxBorderFadeOn))
-                        into.Add(HudProp.F("  edge fade amount", () => gfg("bfade", HudConfig.FxBorderFade),
-                            v => sf("bfade", Mathf.Clamp01(v)), 0f, 1f));
-                    // The ring's own halo. Custom style is otherwise byte-for-byte what it always
-                    // was, so these two default to nothing: strength 0 emits no glow band at all,
-                    // and an empty colour ref derives the halo from the ring colour (a panel's
-                    // halo is likewise its own border hue).
-                    into.Add(HudProp.F("Ring glow", () => gf("ringGlow", 0f),
-                        v => sf("ringGlow", Mathf.Clamp(v, 0f, 2f)), 0f, 2f));
-                    into.Add(HudProp.Color("Ring glow colour", () => d.GetSFor(EditBare(d), "ringGlowColor", ""),
-                        v => d.SetSFor(EditBare(d), "ringGlowColor", string.IsNullOrEmpty(v) ? null : v),
-                        () => HudPalette.PanelBorder.Value));
-                }
-                else
-                {
-                    // The ring is not a panel, so F9's Effects tab has no per-element glass row
-                    // for it. Say where its edge actually comes from instead of leaving the
-                    // author to conclude the element simply has no edge treatment.
-                    into.Add(HudProp.Header(
-                        "Ring edge follows the theme: edge light, border fade and halo, as on panels"));
-                }
             }
-            if (UsesGlobalStyle)
-            {
-                into.Add(HudProp.Header("Sizing, glass and effects follow the F9 globals (Theme + Effects)"));
-            }
-            else if (SupportsPanelAppearance)
-            {
-                into.Add(HudProp.F("Border width", () => d.BorderWidthFor(EditBare(d)),
-                    v => d.SetBorderWidthFor(EditBare(d), Mathf.Clamp(v, 0f, 8f)), 0f, 8f));
-                into.Add(HudProp.F("Edge softness / AA", () => gfg("feather", HudConfig.EdgeFeather),
-                    v => sf("feather", Mathf.Clamp(v, 0f, 4f)), 0f, 4f));
-                if (SupportsAuthoredCorners)
-                {
-                    into.Add(HudProp.F("Corner TL", () => d.RTLFor(EditBare(d)), v => d.SetRTLFor(EditBare(d), Mathf.Max(0f, v)), 0f, 64f));
-                    into.Add(HudProp.F("Corner TR", () => d.RTRFor(EditBare(d)), v => d.SetRTRFor(EditBare(d), Mathf.Max(0f, v)), 0f, 64f));
-                    into.Add(HudProp.F("Corner BR", () => d.RBRFor(EditBare(d)), v => d.SetRBRFor(EditBare(d), Mathf.Max(0f, v)), 0f, 64f));
-                    into.Add(HudProp.F("Corner BL", () => d.RBLFor(EditBare(d)), v => d.SetRBLFor(EditBare(d), Mathf.Max(0f, v)), 0f, 64f));
-                    // The four sliders above set the SIZE of the corner; this sets its SHAPE.
-                    // Slot-aware through the same EditBare(d) accessors as its neighbours, so a
-                    // per-tier fork picks it up automatically (SeedSlotFromBase reads the prop
-                    // list itself — no key manifest to maintain).
-                    into.Add(HudProp.Enum("Corner style",
-                        () => Mathf.Clamp(d.GetIFor(EditBare(d), "cornerStyle", CornerStyleFollow), 0, 2),
-                        v => d.SetIFor(EditBare(d), "cornerStyle", Mathf.Clamp(v, 0, 2)),
-                        CornerStyleNames));
-                    // The chamfer is native to the sharp panel shader from ABI 3 on, so this hint
-                    // only appears when the FALLBACK is actually active — i.e. an older effects
-                    // bundle is resident. With a current bundle a cut box is as rich as a rounded
-                    // one and there is nothing to warn about.
-                    if (Mathf.Clamp(d.GetIFor(EditBare(d), "cornerStyle", CornerStyleFollow), 0, 2)
-                            == CornerStyleCut
-                        && HudConfig.SdfPanels != null && HudConfig.SdfPanels.Value
-                        && Core.HudShaderStore.SdfAvailable
-                        && !Core.HudShaderStore.SdfCutAvailable)
-                        into.Add(HudProp.Header(
-                            "  This bundle is too old to cut corners on the sharp panel shader — "
-                            + "the box keeps its shape on the classic renderer"));
-                }
-                else
-                {
-                    // The Theme tab has "Default corner rounding", so its absence here reads as
-                    // a missing control unless we say why. These surfaces derive their radius
-                    // from their own size (pills) or from a pen contour, and would ignore it.
-                    into.Add(HudProp.Header(Def != null && Def.Type == HudElementType.Shape
-                        ? "Corner rounding comes from the pen contour — edit the points instead"
-                        : "Corner rounding is derived from this element's size (pill shape)"));
-                }
-                into.Add(HudProp.F("Glass sheen", () => gfg("sheen", HudConfig.GlassSheen),
-                    v => sf("sheen", Mathf.Clamp01(v)), 0f, 1f));
-                into.Add(HudProp.F("Glass edge light", () => gfg("spec", HudConfig.GlassEdge),
-                    v => sf("spec", Mathf.Clamp01(v)), 0f, 1f));
-                if (SupportsAnalyticPanel)
-                {
-                    into.Add(HudProp.F("Corner shape (2=round, 8=squircle)", () => gfg("squircle", HudConfig.SdfSquircle),
-                        v => sf("squircle", Mathf.Clamp(v, 2f, 8f)), 2f, 8f));
-                    // Cut and squircle are mutually exclusive corner GEOMETRIES (the shader packs
-                    // exponent 1 for the cut), so say so rather than let the slider look broken.
-                    // The authored value is kept and resumes the moment Cut is off.
-                    if (CornerCutFor() == 1
-                        || (CornerCutFor() < 0 && HudConfig.HudCornerStyle != null
-                            && HudConfig.HudCornerStyle.Value == 1))
-                        into.Add(HudProp.Header(
-                            "  Cut corners replace the squircle shoulder — this returns when Cut is off"));
-                    into.Add(HudProp.Bool("Gaussian-distance halo", () => gbg("gaussianHalo", HudConfig.SdfGaussianHalo),
-                        v => sb("gaussianHalo", v)));
-                }
-            }
-            if (SupportsTrapezoid)
-            {
-                into.Add(HudProp.F("Top inset (trapezoid)", () => gf("insetTop", 0f),
-                    v => sf("insetTop", Mathf.Max(0f, v)), 0f, 400f));
-                into.Add(HudProp.F("Bottom inset (trapezoid)", () => gf("insetBottom", 0f),
-                    v => sf("insetBottom", Mathf.Max(0f, v)), 0f, 400f));
-            }
-            if (UsesFontScale)
-                into.Add(HudProp.F("Font scale", () => d.FontScaleFor(EditBare(d)),
-                    v => d.SetFontScaleFor(EditBare(d), Mathf.Clamp(v, 0.4f, 3f)), 0.4f, 3f));
+            // SIZING / GLASS / EFFECTS are no longer mirrored here by hand. Every one of those rows
+            // (border width, the four radii, corner style, edge softness, sheen, edge light, corner
+            // shape, gaussian halo, the trapezoid insets, the element font scale) is a HudStyleFx
+            // row, and the Effects tab's Theme page renders it from the registry with F9's own
+            // caption and range. Keeping a second copy here is precisely the five-place duplication
+            // the registry exists to delete (plan §1.7).
+            into.Add(HudProp.Note(UsesGlobalStyle
+                ? "Sizing, glass and effects: Effects tab (this element follows the F9 globals)"
+                : "Sizing, glass and effects: Effects tab (Theme / Glass / Edges / Glow pages)"));
             MarkProps(into, start, HudPropGroup.Appearance);
         }
 
@@ -1397,433 +1322,508 @@ namespace StationeersUIMod.UI.Hud
         private const string MachineLocalWording =
             "shared global - machine-local, does not travel with the theme";
 
-        // The sub-tab ids registered by HudEditorWindow.DrawEffectsTab's BeginSubTab calls.
-        private const string FxTabGlass = "##UIAFxGlass";
-        private const string FxTabEdges = "##UIAFxEdges";
-        private const string FxTabGlow = "##UIAFxGlow";
-        private const string FxTabBloom = "##UIAFxBloom";
-        private const string FxTabAlerts = "##UIAFxAlerts";
-        private const string FxTabAdvanced = "##UIAFxAdvanced";
-
-        private static string Num(ConfigEntry<float> e) => e != null ? e.Value.ToString("0.00") : "--";
-        private static string Num(ConfigEntry<int> e) => e != null ? e.Value.ToString() : "--";
-        private static string Whole(ConfigEntry<float> e) => e != null ? ((int)e.Value).ToString() : "--";
-        private static string Hz(ConfigEntry<float> e) => e != null ? e.Value.ToString("0.00") + " Hz" : "--";
-        private static string Sec(ConfigEntry<float> e) => e != null ? e.Value.ToString("0.0") + " s" : "--";
-        private static string OnOff(ConfigEntry<bool> e) => e != null && e.Value ? "ON" : "OFF";
-        private static string Str(ConfigEntry<string> e)
-            => e != null && !string.IsNullOrEmpty(e.Value) ? e.Value : "--";
-
-        /// <summary>The consistent shared-global row: what it is, the standing wording, the jump.
-        /// Used everywhere the popup used to drop a bare "…is a shared global" sentence.</summary>
-        private static void AddSharedGlobalRow(List<HudProp> into, string what,
-            string subTabId, string subTabName, string id, bool machineLocal = false)
-        {
-            into.Add(HudProp.Note("  " + what));
-            into.Add(HudProp.Note("    " + (machineLocal ? MachineLocalWording : SharedGlobalWording)));
-            AddJump(into, subTabId, subTabName, id);
-        }
-
-        /// <summary>Same, plus the knob's LIVE value — so a shared knob is never a blank pointer.
-        /// The popup rebuilds its prop list every frame (HudEditorWindow's _propScratch), so the
-        /// text is current without any subscription or cache.</summary>
-        private static void AddSharedValueRow(List<HudProp> into, string what, string value,
-            string subTabId, string subTabName, string id, bool machineLocal = false)
-        {
-            into.Add(HudProp.Note("  " + what + ":  " + value));
-            into.Add(HudProp.Note("    " + (machineLocal ? MachineLocalWording : SharedGlobalWording)));
-            AddJump(into, subTabId, subTabName, id);
-        }
-
         /// <summary>The jump button. Its CAPTION is the path, so it degrades to a readable
-        /// signpost if the F9 window is not on screen to receive the request.</summary>
-        private static void AddJump(List<HudProp> into, string subTabId, string subTabName, string id)
+        /// signpost if the F9 window is not on screen to receive the request. Both the tab and the
+        /// sub-tab id come from <see cref="HudStyleFx.F9Home"/>, so a section that moves in F9 moves
+        /// this button with it.</summary>
+        private static void AddJump(List<HudProp> into, string tab, string subTabId,
+            string subTabName, string id)
         {
-            into.Add(HudProp.Button("Open F9 > Effects > " + subTabName, "jmp_" + id,
-                () => Windows.HudEditorWindow.RequestEditorTab("Effects", subTabId),
+            into.Add(HudProp.Button("Open F9 > " + tab + " > " + subTabName, "jmp_" + id,
+                () => Windows.HudEditorWindow.RequestEditorTab(tab, subTabId),
                 "Opens the F9 HUD editor on that sub-tab. Everything there is shared by every panel."));
         }
 
-        /// <summary>The read-only block that replaces the old two-line frost prose. Every knob here
-        /// is physically shared — one dual-Kawase pyramid, one set of material uniforms, one
-        /// full-screen post pass, one alert clock — so it is shown with its live value rather than
-        /// as an editable row that would lie about being per-element.</summary>
-        private static void AddSharedGlobalsBlock(List<HudProp> into)
+        // ================= THE STYLE PAGES (Phase 2, 2026-07-27) =============================
+        //
+        // The element popup's style area is a NESTED TAB BAR whose pages are F9's own sub-tabs —
+        // Theme, Glass, Edges, Glow, Bloom, Alerts, Transitions (FlorpyDorp's decision 4). Every
+        // row on every page comes from ONE `foreach` over HudStyleFx.All filtered by category, in
+        // table order, with the table's label, range, section grouping and note lines. The ~230-line
+        // hand-written mirror this replaces (plus the separate Polyline mirror and the appearance
+        // duplication) was the thing that could drift from the global menu; there is nothing left to
+        // drift. Parity is now structural, exactly as it already was for the transitions family.
+        //
+        // What a row looks like, in the four cases the registry distinguishes:
+        //
+        //   SHARED-ONLY  physically one value for the whole HUD (one blur pyramid, one material
+        //                uniform, one clock, one post pass). ALWAYS rendered, in BOTH style states,
+        //                read-only, showing the live global — never silently absent, because an
+        //                author who cannot find "light angle" here must be told where it went. The
+        //                standing wording and a jump to the owning F9 sub-tab close each RUN of
+        //                shared rows rather than repeating under all 25 of them on the Bloom page.
+        //
+        //   PER-ELEMENT  editable while the element is Custom. While it FOLLOWS the globals the page
+        //                shows a one-line summary instead of the rows — the convention this popup
+        //                already used ("Panel appearance follows the F9 Effects globals"), kept so
+        //                Phase 2 changes no behaviour it does not have to.
+        //
+        //   NULL-GLOBAL  no global exists (the box-end fades, the trapezoid insets, the element font
+        //                scale, energy smoothness, the portrait ring, the frost opt-out). Labelled
+        //                "(per-element only)". The ones the RENDERER reads in both states
+        //                (StateIndependent) stay editable while following — that is deliberate,
+        //                pre-existing behaviour for the fades and the insets, and must not regress.
+        //
+        //   INERT        the surface exists but the effect cannot run right now (no analytic shader,
+        //                old bundle, Cut corners on an ABI-2 bundle, legacy single-scalar mesh).
+        //                The control still renders — its value is stored and returns the moment the
+        //                capability does — with a per-ROW reason line instead of the old blanket
+        //                section header.
+
+        /// <summary>The visible caption of a registry row: everything before ImGui's "##" id
+        /// separator. F9 shows exactly this, so the two menus read identically; the popup gets its
+        /// widget identity from <see cref="HudProp.StableId"/> instead.</summary>
+        private static string FxLabel(HudStyleFxDef def)
         {
-            into.Add(HudProp.Header("SHARED GLOBALS - one capture, one clock, every panel"));
-            into.Add(HudProp.Note("Not per-element and never can be. They KEEP applying to this"));
-            into.Add(HudProp.Note("element while it is off-global - only its own frost, chroma,"));
-            into.Add(HudProp.Note("edge light and halo stop tracking the F9 sliders."));
-
-            // The backdrop LOOK: shared uniforms on the shared glass materials. Travels with a theme.
-            into.Add(HudProp.Note("  Backdrop darkening:  " + Num(HudConfig.FrostDarken)));
-            into.Add(HudProp.Note("  Frost tint:  " + Str(HudConfig.FrostTint)));
-            into.Add(HudProp.Note("    " + SharedGlobalWording));
-            AddJump(into, FxTabGlass, "Glass", "backdroplook");
-
-            // The backdrop COST: sizes/throttles the one blur pyramid. HudTheme.Exclude keeps both
-            // out of themes so an imported look cannot tank another player's frame rate.
-            into.Add(HudProp.Note("  Frost downsample:  1 / " + Whole(HudConfig.FrostDownsample)));
-            into.Add(HudProp.Note("  Re-blur every:  " + Num(HudConfig.FrostUpdateEveryN) + " frame(s)"));
-            into.Add(HudProp.Note("    " + MachineLocalWording));
-            AddJump(into, FxTabAdvanced, "Advanced", "backdropcost");
-
-            // Bloom is a full-screen post pass (HudBloomFx) — nothing about it can be per-element.
-            into.Add(HudProp.Note("  Bloom:  " + OnOff(HudConfig.FxBloomOn)
-                + "   strength " + Num(HudConfig.FxBloomStrength)
-                + "   threshold " + Num(HudConfig.FxBloomThreshold)));
-            into.Add(HudProp.Note("  Bloom highlights (band 2):  " + OnOff(HudConfig.FxBloom2On)
-                + "   strength " + Num(HudConfig.FxBloom2Strength)));
-            into.Add(HudProp.Note("    " + SharedGlobalWording));
-            into.Add(HudProp.Note("    resolution, blur steps and fine detail are"));
-            into.Add(HudProp.Note("    " + MachineLocalWording));
-            AddJump(into, FxTabBloom, "Bloom", "bloom");
-
-            // Alerts: HudAlertPulse reads the globals; the element contributes only a stable seed.
-            into.Add(HudProp.Note("  Warning pulse:  " + OnOff(HudConfig.FxAlertPulseOn)
-                + "   breath " + Sec(HudConfig.FxAlertBreathSeconds)
-                + " x " + Num(HudConfig.FxAlertCautionBreaths)));
-            into.Add(HudProp.Note("  Strength " + Num(HudConfig.FxAlertPulseStrength)
-                + "   caution x" + Num(HudConfig.FxAlertCautionBright)
-                + "   critical x" + Num(HudConfig.FxAlertCriticalBright)));
-            into.Add(HudProp.Note("    " + SharedGlobalWording));
-            AddJump(into, FxTabAlerts, "Alerts", "alerts");
+            string s = def != null ? (def.Label ?? "") : "";
+            int i = s.IndexOf("##", System.StringComparison.Ordinal);
+            return i >= 0 ? s.Substring(0, i) : s;
         }
 
+        /// <summary>Does this element's TYPE have the surface this row belongs to?</summary>
+        private bool FxApplies(HudStyleFxDef def)
+            => def != null && (def.Applies == null || def.Applies(this));
+
+        /// <summary>True when this element is actually being drawn by the analytic panel shader —
+        /// the condition every <c>SdfOnly</c> row and every <c>LegacyApprox</c> caveat turns on.
+        /// Mirrors <see cref="ApplyFx"/>'s own `sdfWanted` test, including the ABI-2 Cut fallback.</summary>
+        private bool FxOnAnalyticPath
+        {
+            get
+            {
+                if (!SupportsAnalyticPanel) return false;
+                if (HudConfig.SdfPanels == null || !HudConfig.SdfPanels.Value) return false;
+                if (!Core.HudShaderStore.SdfAvailable) return false;
+                bool cut = CornerCutFor() == 1
+                    || (CornerCutFor() < 0 && HudConfig.HudCornerStyle != null
+                        && HudConfig.HudCornerStyle.Value == 1);
+                return !cut || Core.HudShaderStore.SdfCutAvailable;
+            }
+        }
+
+        /// <summary>Why an <c>SdfOnly</c> row cannot do anything on THIS element right now, or null
+        /// when it can. Generalises the two blanket headers the popup used to print into a per-row
+        /// answer, which is what the plan's "capability-inert rows render with a reason" asks for.</summary>
+        private string FxInertReason(HudStyleFxDef def)
+        {
+            if (def == null || !def.SdfOnly || FxOnAnalyticPath) return null;
+            // edgeFlow is the ONE SdfOnly row with a real mesh path: a freeform shape and a drawn
+            // line animate their baked uv1 payload through the edgefx family, so there it is inert
+            // only when the resident bundle predates that ABI.
+            if (string.Equals(def.Key, "edgeFlow", System.StringComparison.Ordinal)
+                && !SupportsAnalyticPanel)
+                return Core.HudShaderStore.FlowAbiAvailable ? null
+                    : "the resident effects bundle has no flow ABI - the shimmer stays frozen";
+            if (!SupportsAnalyticPanel)
+            {
+                if (Def != null && Def.Type == HudElementType.Shape)
+                    return "a freeform pen shape renders the mesh halo, not the analytic panel";
+                if (Def != null && Def.Type == HudElementType.Polyline)
+                    return "a drawn line renders the mesh halo, not the analytic panel";
+                return "this element owns no analytic panel surface";
+            }
+            if (HudConfig.SdfPanels == null || !HudConfig.SdfPanels.Value)
+                return "sharp glass panels are OFF (F9 > Theme > Typography & boxes)";
+            if (!Core.HudShaderStore.SdfAvailable)
+                return "the resident effects bundle has no analytic panel shader";
+            return "this panel's corners are Cut and this bundle cannot cut on the analytic shader";
+        }
+
+        /// <summary>Per-capability slider ceiling. Only the halo radius has one: the MESH halo
+        /// clamps at 160 px, so a 320 ceiling on a shape or a line would leave the top half of the
+        /// slider doing nothing (Phase 1 report, discrepancy 6).</summary>
+        private float FxMaxFor(HudStyleFxDef def)
+        {
+            if (def == null) return 1f;
+            if (string.Equals(def.Key, "glowWidth", System.StringComparison.Ordinal)
+                && !SupportsAnalyticPanel) return 160f;
+            return def.Max;
+        }
+
+        /// <summary>Is the companion feature that gates this row ON for this element? Following ⇒
+        /// the global, Custom ⇒ the element's own key with the global as its default — the same one
+        /// missing-key rule Phase 0b gave every resolver.</summary>
+        private bool FxFeatureOn(HudElementDef d, string onParamKey)
+        {
+            if (string.IsNullOrEmpty(onParamKey)) return true;
+            bool gv = FxCompanionDefault(onParamKey);
+            if (UsesGlobalStyle || d == null) return gv;
+            return d.GetBFor(EditBare(d), onParamKey, gv);
+        }
+
+        /// <summary>What an ABSENT companion bool means. Every one of them is some registry row's
+        /// own ParamKey, so the answer is that row's global — except "customFrostOn", which has no
+        /// global (the global IS the strength slider) and whose honest literal default is ON, the
+        /// same one <see cref="FrostAmountFor"/> uses.</summary>
+        private static bool FxCompanionDefault(string onParamKey)
+        {
+            if (string.Equals(onParamKey, "customFrostOn", System.StringComparison.Ordinal))
+                return true;
+            var comp = HudStyleFx.FindByParam(onParamKey);
+            return comp != null && comp.HasGlobal && comp.GlobalBool;
+        }
+
+        /// <summary>Whether a row is drawn at all on this element's page, before its section gate.</summary>
+        private bool FxRowVisible(HudElementDef d, HudStyleFxDef def)
+        {
+            if (def == null || !FxApplies(def)) return false;
+            if (def.SharedOnly) return def.MasterOn;       // exactly F9's own per-row master gate
+            if (!FxFeatureOn(d, def.OnParamKey)) return false;
+            if (!def.HasGlobal) return def.StateIndependent || UsesCustomStyle;
+            return UsesCustomStyle;                        // else: the page's follow summary covers it
+        }
+
+        /// <summary>The section gates a page inherits from its F9 sub-tab, resolved PER ELEMENT
+        /// (F9 asks the global, the popup asks this element's own feature state).</summary>
+        private bool FxSectionOpen(HudElementDef d, HudFxCategory cat, string section)
+        {
+            if (cat == HudFxCategory.Surface)
+                return !string.Equals(section, HudStyleFx.SecSdf, System.StringComparison.Ordinal)
+                    || (HudConfig.SdfPanels != null && HudConfig.SdfPanels.Value);
+            if (cat == HudFxCategory.Edges)
+                return !string.Equals(section, HudStyleFx.SecEdge, System.StringComparison.Ordinal)
+                    || FxFeatureOn(d, "customRippleOn");
+            if (cat == HudFxCategory.Glow)
+            {
+                bool envelope = string.Equals(section, HudStyleFx.SecEnvelope, System.StringComparison.Ordinal)
+                    || string.Equals(section, HudStyleFx.SecAdvancedHalo, System.StringComparison.Ordinal);
+                if (!envelope) return true;
+                // The shared halo envelope is live when a halo OR the flowing aura is on — the same
+                // test F9's Glow sub-tab makes against the globals.
+                return FxFeatureOn(d, "customGlowOn")
+                    || (FxFeatureOn(d, "customRippleOn") && FxFeatureOn(d, "customGlowFlowOn"));
+            }
+            return true;
+        }
+
+        /// <summary>The accent heading F9 prints above a section, or null where it prints none.</summary>
+        private static string FxSectionHeader(HudFxCategory cat, string section)
+        {
+            switch (section)
+            {
+                case HudStyleFx.SecText: return "TEXT";
+                case HudStyleFx.SecBox: return "BOX SHAPE";
+                case HudStyleFx.SecSdfMaster: return "SHARP GLASS PANELS";
+                case HudStyleFx.SecTierA: return "CORE EFFECTS";
+                case HudStyleFx.SecBoxEndFade: return "BOX END FADE";
+                case HudStyleFx.SecTierB: return "ANIMATED GLASS";
+                case HudStyleFx.SecTierC: return "FROSTED BACKDROP";
+                case HudStyleFx.SecFrostPerf: return "PERFORMANCE";
+                case HudStyleFx.SecEdgeMaster: return "EDGE ENERGY";
+                case HudStyleFx.SecHalo: return "GLOW HALO";
+                case HudStyleFx.SecEnvelope: return "SHARED HALO / FLOWING-AURA ENVELOPE";
+                case HudStyleFx.SecPulseShape: return "BREATHING PULSE (shape)";
+                case HudStyleFx.SecAdvancedHalo: return "HALO FINE DETAIL";
+                case HudStyleFx.SecBloomMaster: return "HUD BLOOM";
+                case HudStyleFx.SecBloomBase: return "BASE GLOW";
+                case HudStyleFx.SecBloomPulse: return "BREATHING BLOOM";
+                case HudStyleFx.SecBloomReact: return "STATE-REACTIVE BLOOM";
+                case HudStyleFx.SecBloomBand2: return "BORDER / HIGHLIGHT BLOOM";
+                case HudStyleFx.SecBloomRes: return "PERFORMANCE";
+                case HudStyleFx.SecBloomBias: return "BLOOM COLOUR BIAS";
+                case HudStyleFx.SecAlertMaster: return "WARNING PULSE";
+                case HudStyleFx.SecElementOnly:
+                    return cat == HudFxCategory.Surface ? "RING HALO" : null;
+                default: return null;
+            }
+        }
+
+        /// <summary>The tier/master warning F9 states once per family, kept because the popup shows
+        /// the rows anyway (their values are stored and return when the master does) — so it must
+        /// say why nothing is happening.</summary>
+        private static string FxSectionCaveat(HudFxCategory cat, string section)
+        {
+            if (cat == HudFxCategory.Glass)
+            {
+                if (string.Equals(section, HudStyleFx.SecCore, System.StringComparison.Ordinal)
+                    || string.Equals(section, HudStyleFx.SecBoxEndFade, System.StringComparison.Ordinal))
+                    return HudConfig.FxTierA == null || !HudConfig.FxTierA.Value
+                        ? "  Core effects are OFF globally - these values are inactive." : null;
+                if (string.Equals(section, HudStyleFx.SecAnimGlass, System.StringComparison.Ordinal))
+                    return HudConfig.FxTierB == null || !HudConfig.FxTierB.Value
+                        ? "  Animated glass is OFF globally - these values are inactive." : null;
+                if (string.Equals(section, HudStyleFx.SecFrost, System.StringComparison.Ordinal))
+                    return HudConfig.FxTierC == null || !HudConfig.FxTierC.Value
+                        ? "  Frosted backdrop is OFF globally - these values are inactive." : null;
+            }
+            if ((cat == HudFxCategory.Edges || cat == HudFxCategory.Glow)
+                && (HudConfig.FxTierA == null || !HudConfig.FxTierA.Value)
+                && (string.Equals(section, HudStyleFx.SecEdgeMaster, System.StringComparison.Ordinal)
+                    || string.Equals(section, HudStyleFx.SecHalo, System.StringComparison.Ordinal)))
+                return "  Core effects are OFF globally - these values are inactive.";
+            return null;
+        }
+
+        /// <summary>The trailing line F9 prints under a section — the pointers to controls that
+        /// live one tab over, and the one overdraw warning. Kept so a page is not merely the rows.</summary>
+        private static string FxSectionFooter(HudFxCategory cat, string section)
+        {
+            if (cat == HudFxCategory.Glass
+                && string.Equals(section, HudStyleFx.SecAnimGlass, System.StringComparison.Ordinal))
+                return "  Dissolve reveal: see the Transitions page.";
+            if (cat == HudFxCategory.Glow)
+            {
+                if (string.Equals(section, HudStyleFx.SecEnvelope, System.StringComparison.Ordinal))
+                    return "  Extreme radius increases transparent GPU overdraw.";
+                if (string.Equals(section, HudStyleFx.SecPulseShape, System.StringComparison.Ordinal))
+                    return "  Breathing pulse master: see the Transitions page.";
+            }
+            return null;
+        }
+
+        /// <summary>One page of the style tab bar: every registry row of one category, in table
+        /// order. Appends nothing when the page would be empty (a drawn line has no Theme page).</summary>
+        private void AddStylePage(List<HudProp> pages, HudElementDef d, string caption,
+            HudFxCategory cat)
+        {
+            var page = new List<HudProp>();
+            var all = HudStyleFx.All;
+            string lastSection = null;
+            HudStyleFxDef runDef = null;     // the open run of shared rows, if any
+            bool runLocal = false;           // ... and whether it held a machine-local one
+            bool anyFollowed = false;        // a per-element row was suppressed by the follow state
+
+            for (int i = 0; i < all.Length; i++)
+            {
+                HudStyleFxDef def = all[i];
+                if (def == null || def.Category != cat) continue;
+                if (!FxApplies(def)) continue;
+                if (!FxSectionOpen(d, cat, def.Section)) continue;
+                if (!FxRowVisible(d, def))
+                {
+                    if (!def.SharedOnly && UsesGlobalStyle && def.HasGlobal) anyFollowed = true;
+                    continue;
+                }
+                if (!string.Equals(def.Section, lastSection, System.StringComparison.Ordinal))
+                {
+                    FxCloseSharedRun(page, ref runDef, ref runLocal);
+                    string foot = FxSectionFooter(cat, lastSection);
+                    if (foot != null) page.Add(HudProp.Note(foot));
+                    string head = FxSectionHeader(cat, def.Section);
+                    if (head != null) page.Add(HudProp.Header(head));
+                    string caveat = FxSectionCaveat(cat, def.Section);
+                    if (caveat != null) page.Add(HudProp.Note(caveat));
+                    lastSection = def.Section;
+                }
+                if (def.SharedOnly)
+                {
+                    page.Add(HudProp.Note("  " + FxLabel(def).Trim() + ":  " + def.GlobalText
+                        + (def.DoesNotTravel ? "   [machine-local]" : ""), def.Tip));
+                    runDef = def;
+                    if (def.DoesNotTravel) runLocal = true;
+                    continue;
+                }
+                FxCloseSharedRun(page, ref runDef, ref runLocal);
+                AddFxEditableRow(page, d, def);
+            }
+            FxCloseSharedRun(page, ref runDef, ref runLocal);
+            string tailFoot = FxSectionFooter(cat, lastSection);
+            if (tailFoot != null) page.Add(HudProp.Note(tailFoot));
+            // Nothing to say at all — this element has no surface this family touches. A page whose
+            // rows are merely SUPPRESSED by the follow state is still shown: it must carry the
+            // summary that explains where its controls went.
+            if (page.Count == 0 && !anyFollowed) return;
+            if (anyFollowed)
+            {
+                page.Insert(0, HudProp.Note(
+                    "This element FOLLOWS the F9 globals - untick \"Follow F9 global style\""));
+                page.Insert(1, HudProp.Note("on the Appearance tab to give it its own values."));
+            }
+            pages.Add(HudProp.TabPage(caption, page));
+        }
+
+        /// <summary>Close a run of read-only shared rows with the standing wording and ONE jump to
+        /// the F9 sub-tab that owns them. Per RUN rather than per ROW on purpose: the wording is
+        /// identical for every row in a section, and 25 copies of it plus 25 buttons is what the
+        /// Bloom page would otherwise be.</summary>
+        private static void FxCloseSharedRun(List<HudProp> page, ref HudStyleFxDef runDef,
+            ref bool runLocal)
+        {
+            if (runDef == null) { runLocal = false; return; }
+            page.Add(HudProp.Note("    " + SharedGlobalWording));
+            if (runLocal) page.Add(HudProp.Note("    [machine-local]: " + MachineLocalWording));
+            string tab, subTabId, subTabName;
+            if (HudStyleFx.F9Home(runDef, out tab, out subTabId, out subTabName))
+                AddJump(page, tab, subTabId, subTabName, runDef.Key);
+            runDef = null;
+            runLocal = false;
+        }
+
+        /// <summary>ONE editable per-element row, built from its registry entry. The three
+        /// FIRST-CLASS fields (the four authored radii behind one global, border width, the element
+        /// font scale) live on <see cref="HudElementDef"/> rather than in the param bag and route
+        /// through their own accessors; everything else is a slot-aware param read/write.</summary>
+        private void AddFxEditableRow(List<HudProp> into, HudElementDef d, HudStyleFxDef def)
+        {
+            if (into == null || d == null || def == null) return;
+            string label = FxLabel(def);
+            if (!def.HasGlobal
+                && label.IndexOf("per-element only", System.StringComparison.Ordinal) < 0)
+                label = label + "  (per-element only)";
+
+            switch (def.Key)
+            {
+                // ONE global row, FOUR authored corners. The global is what all four fall back to
+                // through the -1 sentinel, so the popup necessarily shows more rows than F9 here.
+                case "cornerRadius":
+                    into.Add(WithId(HudProp.F("  Corner TL", () => d.RTLFor(EditBare(d)),
+                        v => d.SetRTLFor(EditBare(d), Mathf.Max(0f, v)), 0f, 64f), "elRTL"));
+                    into.Add(WithId(HudProp.F("  Corner TR", () => d.RTRFor(EditBare(d)),
+                        v => d.SetRTRFor(EditBare(d), Mathf.Max(0f, v)), 0f, 64f), "elRTR"));
+                    into.Add(WithId(HudProp.F("  Corner BR", () => d.RBRFor(EditBare(d)),
+                        v => d.SetRBRFor(EditBare(d), Mathf.Max(0f, v)), 0f, 64f), "elRBR"));
+                    into.Add(WithId(HudProp.F("  Corner BL", () => d.RBLFor(EditBare(d)),
+                        v => d.SetRBLFor(EditBare(d), Mathf.Max(0f, v)), 0f, 64f), "elRBL"));
+                    AddFxRowNotes(into, def);
+                    return;
+                case "borderWidth":
+                    into.Add(WithId(HudProp.F(label, () => d.BorderWidthFor(EditBare(d)),
+                        v => d.SetBorderWidthFor(EditBare(d), Mathf.Clamp(v, def.Min, def.Max)),
+                        def.Min, def.Max), "elBorderWidth"));
+                    AddFxRowNotes(into, def);
+                    return;
+                case "elFontScale":
+                    into.Add(WithId(HudProp.F(label, () => d.FontScaleFor(EditBare(d)),
+                        v => d.SetFontScaleFor(EditBare(d), Mathf.Clamp(v, def.Min, def.Max)),
+                        def.Min, def.Max), "elFontScale"));
+                    AddFxRowNotes(into, def);
+                    return;
+                case "cornerStyle":
+                    into.Add(WithId(HudProp.Enum(label,
+                        () => Mathf.Clamp(d.GetIFor(EditBare(d), "cornerStyle", CornerStyleFollow), 0, 2),
+                        v => d.SetIFor(EditBare(d), "cornerStyle", Mathf.Clamp(v, 0, 2)),
+                        CornerStyleNames), "cornerStyle"));
+                    AddFxRowNotes(into, def);
+                    return;
+            }
+
+            string key = def.ParamKey;
+            if (string.IsNullOrEmpty(key)) return;
+            switch (def.Kind)
+            {
+                case HudFxKind.Bool:
+                {
+                    bool gv = def.HasGlobal ? def.GlobalBool : FxCompanionDefault(key);
+                    into.Add(WithId(HudProp.Bool(label, () => d.GetBFor(EditBare(d), key, gv),
+                        v => d.SetBFor(EditBare(d), key, v)), def.Key));
+                    break;
+                }
+                case HudFxKind.Color:
+                    into.Add(WithId(HudProp.Color(label, () => d.GetSFor(EditBare(d), key, ""),
+                        v => d.SetSFor(EditBare(d), key, string.IsNullOrEmpty(v) ? null : v),
+                        () => HudPalette.PanelBorder.Value), def.Key));
+                    break;
+                case HudFxKind.Int:
+                    into.Add(WithId(HudProp.I(label, () => d.GetIFor(EditBare(d), key, def.GlobalInt),
+                        v => d.SetIFor(EditBare(d), key, Mathf.Clamp(v, (int)def.Min, (int)def.Max)),
+                        (int)def.Min, (int)def.Max), def.Key));
+                    break;
+                default:
+                {
+                    float min = def.Min, max = FxMaxFor(def);
+                    float gv = def.HasGlobal ? def.GlobalFloat : 0f;
+                    into.Add(WithId(HudProp.F(label, () => d.GetFFor(EditBare(d), key, gv),
+                        v => d.SetFFor(EditBare(d), key, Mathf.Clamp(v, min, max)), min, max), def.Key));
+                    break;
+                }
+            }
+            AddFxRowNotes(into, def);
+        }
+
+        /// <summary>The dimmed lines under one row: why it is inert (if it is), the legacy
+        /// single-scalar caveat (if it applies), the table's own note lines, and the two answers
+        /// the chroma row has always owed its author.</summary>
+        private void AddFxRowNotes(List<HudProp> into, HudStyleFxDef def)
+        {
+            string inert = FxInertReason(def);
+            if (inert != null) into.Add(HudProp.Note("    inactive: " + inert));
+            if (def.LegacyApprox && !FxOnAnalyticPath)
+                into.Add(HudProp.Note(
+                    "    legacy surface: shine / iridescence / frost / chroma share ONE strength here,"));
+            if (def.LegacyApprox && !FxOnAnalyticPath)
+                into.Add(HudProp.Note("    so independent per-element values are approximate."));
+            // `spec` used to carry THREE captions for one key (Phase 1 report, discrepancy 5) and one
+            // of them sat right here, at the top of the edge family. The registry gives it a single
+            // caption on the Theme page, so this is the pointer that replaces the duplicate row.
+            if (string.Equals(def.Key, "edgeLightOn", System.StringComparison.Ordinal)
+                && !FxIsLine && FxHasChrome)
+                into.Add(HudProp.Note(
+                    "    This element's edge-light STRENGTH is \"Default glass edge light\" (Theme page)."));
+            if (string.Equals(def.Key, "chroma", System.StringComparison.Ordinal))
+            {
+                // The fringe IS the frosted backdrop sampled at an offset, so with no frost there is
+                // nothing to offset. This is the second-order term behind FlorpyDorp's "the
+                // chromatic aberration AND the frosted blur dissipate together".
+                into.Add(HudProp.Note("    Needs frost > 0 on THIS element."));
+                if (FrostAmountFor() <= 0.001f)
+                    into.Add(HudProp.Note("    Inactive right now: this element's frost resolves to 0."));
+            }
+            if (def.Notes == null) return;
+            for (int i = 0; i < def.Notes.Length; i++) into.Add(HudProp.Note(def.Notes[i]));
+        }
+
+        /// <summary>The element's STYLE AREA: a nested tab bar whose pages are F9's own sub-tabs,
+        /// each rendered from <see cref="HudStyleFx"/> (see the block comment above AddStylePage).
+        ///
+        /// Everything that used to live here — the ~200-line Custom mirror of F9's Effects tab, the
+        /// separate Polyline mirror, and the hand-written shared-globals block — is gone: those rows
+        /// ARE the registry now, and a knob added to the table appears on both menus at once.
+        ///
+        /// PER-FRAME COST, stated rather than optimised away: the popup rebuilds its prop list every
+        /// frame and this builds EVERY page, not just the visible one. That is deliberate, not an
+        /// oversight — <see cref="SeedSlotFromBase"/> walks this same list to fork a per-tier style,
+        /// and it must see every page or a Bare fork would only copy whichever tab happened to be
+        /// open. A Custom Box builds roughly 190 props/frame against the ~150 the old mirror built,
+        /// only while the popup is open, with no allocation beyond the props themselves. Measure
+        /// before caching (plan §6's risk table says the same).</summary>
         private void AddUnifiedEffectProps(List<HudProp> into, HudElementDef d)
         {
             int start = into.Count;
-            // Per-mode edit shorthands (see AddUnifiedAppearanceProps): every effect knob forks
-            // between the SUIT base and the BARE override on EditBare(d). The ONE exception is the
-            // "Motion & power transitions" trio (collapse / glitch / warp) further down — those are
-            // NOT threaded at render time (a death/power transition shouldn't fork per mode), so
-            // they stay on the shared base via raw d.GetB/d.SetB here to keep editor and render honest.
-            System.Func<string, float, float> gf = (k, dv) => d.GetFFor(EditBare(d), k, dv);
-            System.Action<string, float> sf = (k, v) => d.SetFFor(EditBare(d), k, v);
-            System.Func<string, bool, bool> gb = (k, dv) => d.GetBFor(EditBare(d), k, dv);
-            System.Action<string, bool> sb = (k, v) => d.SetBFor(EditBare(d), k, v);
-            // POPUP DEFAULTS = RENDERER DEFAULTS (Phase 0c, 2026-07-26). Every row whose key can be
-            // absent reads its display default from the SAME global the resolver falls back to.
-            // The literals these replaced disagreed with the renderer — customFrost showed 1.0
-            // against a live FrostStrength of 0.87, customChroma 0.3 against 0.564, glowWidth 24
-            // against FxGlowWidth — so the slider read a number the HUD was not rendering and the
-            // first drag wrote that wrong number in. The three keys that genuinely have NO global
-            // (rippleSmooth, edgeFadeX/Y, customFrostOn) keep their literal and say so in place.
-            System.Func<string, ConfigEntry<float>, float> gfg = (k, g)
-                => d.GetFFor(EditBare(d), k, g != null ? g.Value : 0f);
-            System.Func<string, ConfigEntry<bool>, bool> gbg = (k, g)
-                => d.GetBFor(EditBare(d), k, g != null && g.Value);
             into.Add(HudProp.Header("Effects"));
             if (SupportsPanelAppearance && OptionalPanelBackgroundIsOff)
-                into.Add(HudProp.Header(OptionalPanelBackgroundHint));
-            if (SupportsAnalyticPanel
-                && (HudConfig.SdfPanels == null || !HudConfig.SdfPanels.Value
-                    || !Core.HudShaderStore.SdfAvailable))
-                into.Add(HudProp.Header(HudConfig.SdfPanels == null || !HudConfig.SdfPanels.Value
-                    ? "Analytic SDF panels are OFF — advanced halo motion is inactive; fallback radius caps at 160 px"
-                    : "ABI-2 SDF bundle is unavailable — advanced halo motion is inactive; fallback radius caps at 160 px"));
-            if (SupportsPanelAppearance && UsesGlobalStyle)
-                into.Add(HudProp.Header("Panel appearance follows the F9 Effects globals"));
-            if (SupportsPanelAppearance && UsesCustomStyle)
+                into.Add(HudProp.Note(OptionalPanelBackgroundHint));
+
+            var pages = new List<HudProp>();
+            AddStylePage(pages, d, "Theme", HudFxCategory.Surface);
+            // The effect families only earn a page on an element that renders something they can
+            // touch. A borrowed vanilla widget or a bare label would otherwise get four pages of
+            // shared globals it has no surface for.
+            if (FxHasChrome || FxIsLine)
             {
-                // PARITY CONTRACT: this block mirrors the F9 Effects tab section-for-section,
-                // label-for-label and range-for-range, so separating an element from the globals
-                // never presents a smaller or differently-named set of knobs than the tab it just
-                // stopped following. Values that physically CANNOT be per-element (shared material
-                // uniforms — light direction/tint/rim/falloff, the animation clocks, and the one
-                // backdrop capture) are named in place as shared rather than silently omitted:
-                // an author who cannot find "light angle" here must be told where it went.
-
-                // ---- mirrors global "Edges, glow & pulse" ----
-                into.Add(HudProp.Header("Edges, glow & pulse"));
-                if (HudConfig.FxTierA == null || !HudConfig.FxTierA.Value)
-                    into.Add(HudProp.Header("Surface/edge master is OFF globally — Tier A values are inactive"));
-
-                // The global tab splits edge light across Theme ("Default glass edge light")
-                // and Effects ("Edge energy -> Strength"), which ADD. Custom collapses them
-                // into the single final value the snapshot froze, so the same key is offered
-                // in both places rather than inventing a second strength that would
-                // double-count on the next snapshot. UNGATED: GlassEdgeFor renders `spec`
-                // regardless of the Edge-energy checkbox, so hiding this row behind it left a
-                // hidden-but-active value (review 2026-07-17).
-                into.Add(HudProp.F("  strength (= Appearance -> Glass edge light)", () => gfg("spec", HudConfig.GlassEdge),
-                    v => sf("spec", Mathf.Clamp01(v)), 0f, 1f));
-                into.Add(HudProp.Bool("Edge energy (borders + lines)", () => gbg("customRippleOn", HudConfig.FxEdgeLightOn),
-                    v => sb("customRippleOn", v)));
-                if (gbg("customRippleOn", HudConfig.FxEdgeLightOn))
-                {
-                    AddSharedGlobalRow(into,
-                        "light angle, colour, opposing-rim catch and falloff",
-                        FxTabEdges, "Edges", "edgelight");
-                    into.Add(HudProp.F("  irregular energy", () => gfg("ripple", HudConfig.FxEdgeRipple),
-                        v => sf("ripple", Mathf.Clamp(v, 0f, 2.5f)), 0f, 2.5f));
-                    into.Add(HudProp.F("  energy frequency", () => gfg("rippleFreq", HudConfig.FxEdgeRippleFreq),
-                        v => sf("rippleFreq", Mathf.Clamp(v, 0.05f, 8f)), 0.05f, 8f));
-                    // The one control that genuinely has no global to fall back to.
-                    into.Add(HudProp.F("  energy smoothness (per-element only)", () => gf("rippleSmooth", 0f),
-                        v => sf("rippleSmooth", Mathf.Clamp01(v)), 0f, 1f));
-                    if (SupportsAnalyticPanel || (Def != null && Def.Type == HudElementType.Shape))
-                        into.Add(HudProp.F("  flow speed (0 = frozen)", () => gfg("edgeFlow", HudConfig.FxEdgeFlowSpeed),
-                            v => sf("edgeFlow", Mathf.Clamp(v, 0f, 4f)), 0f, 4f));
-                    AddSharedGlobalRow(into, "per-element ripple desync (on + amount)",
-                        FxTabEdges, "Edges", "desync");
-                    if (SupportsAnalyticPanel)
-                    {
-                        into.Add(HudProp.Bool("  Flowing edge aura (SDF)", () => gbg("customGlowFlowOn", HudConfig.FxGlowFlowAuraOn),
-                            v => sb("customGlowFlowOn", v)));
-                        if (gbg("customGlowFlowOn", HudConfig.FxGlowFlowAuraOn))
-                            into.Add(HudProp.F("    aura strength", () => gfg("glowFlowAura", HudConfig.FxGlowFlowAura),
-                                v => sf("glowFlowAura", Mathf.Clamp(v, 0f, 2f)), 0f, 2f));
-                    }
-                }
-
-                into.Add(HudProp.Bool("Border fade (unlit sections dissolve)", () => gbg("customBorderFadeOn", HudConfig.FxBorderFadeOn),
-                    v => sb("customBorderFadeOn", v)));
-                if (gbg("customBorderFadeOn", HudConfig.FxBorderFadeOn))
-                    into.Add(HudProp.F("  fade amount", () => gfg("bfade", HudConfig.FxBorderFade),
-                        v => sf("bfade", Mathf.Clamp01(v)), 0f, 1f));
-                into.Add(HudProp.Bool("Soft edge (boxes melt together)", () => gbg("customSoftEdgeOn", HudConfig.FxSoftEdgeOn),
-                    v => sb("customSoftEdgeOn", v)));
-                if (gbg("customSoftEdgeOn", HudConfig.FxSoftEdgeOn))
-                    into.Add(HudProp.F("  width (px)", () => gfg("softEdge", HudConfig.FxSoftEdge),
-                        v => sf("softEdge", Mathf.Clamp(v, 0f, 48f)), 0f, 48f));
-
-                // F9 places BOX END FADE inside "Edges, glow & pulse" (after soft edge); the
-                // popup mirrors that order. The pair stays editable in Global mode too — the
-                // stand-alone section below covers that path. Both are element GEOMETRY with no
-                // global counterpart, so 0 is the honest display default.
-                into.Add(HudProp.Header("Box end fade"));
-                into.Add(HudProp.F("Fade box ends L/R", () => gf("edgeFadeX", 0f),
-                    v => sf("edgeFadeX", Mathf.Clamp(v, 0f, 0.5f)), 0f, 0.5f));
-                into.Add(HudProp.F("Fade box top/bottom", () => gf("edgeFadeY", 0f),
-                    v => sf("edgeFadeY", Mathf.Clamp(v, 0f, 0.5f)), 0f, 0.5f));
-                AddSharedGlobalRow(into, "fade curve and border influence (the ramp SHAPE)",
-                    FxTabGlass, "Glass", "edgefadeshape");
-
-                if (SupportsGlowHalo)
-                {
-                    into.Add(HudProp.Bool("Glow halo", () => gbg("customGlowOn", HudConfig.FxGlowOn),
-                        v => sb("customGlowOn", v)));
-                    if (gbg("customGlowOn", HudConfig.FxGlowOn))
-                    {
-                        into.Add(HudProp.F("  outward strength", () => gfg("glow", HudConfig.FxGlow),
-                            v => sf("glow", Mathf.Clamp(v, 0f, 2f)), 0f, 2f));
-                        into.Add(HudProp.F("  inward strength", () => gfg("glowIn", HudConfig.FxGlowInner),
-                            v => sf("glowIn", Mathf.Clamp(v, 0f, 2f)), 0f, 2f));
-                        if (SupportsAnalyticPanel)
-                            into.Add(HudProp.F("  extended atmospheric haze (SDF)", () => gfg("glowHaze", HudConfig.FxGlowHaze),
-                                v => sf("glowHaze", Mathf.Clamp01(v)), 0f, 1f));
-                    }
-                }
-
-                // The envelope (radius/spread) drives the MESH halo too, so it shows for any
-                // surface with glow on — Shapes included. The organic extras (uneven reach,
-                // breathing) are analytic-shader terms and stay rectangle-only.
-                bool customHaloEnvelopeOn = (SupportsGlowHalo && gbg("customGlowOn", HudConfig.FxGlowOn))
-                    || (SupportsAnalyticPanel
-                        && gbg("customRippleOn", HudConfig.FxEdgeLightOn)
-                        && gbg("customGlowFlowOn", HudConfig.FxGlowFlowAuraOn));
-                if (customHaloEnvelopeOn)
-                {
-                    into.Add(HudProp.Header("SHARED HALO / FLOWING-AURA ENVELOPE"));
-                    // A Shape renders the MESH halo, whose GlowWidth clamps at 160 px — a
-                    // 320 slider ceiling there means the top half silently does nothing
-                    // (review 2026-07-17). Analytic panels carry the full 320.
-                    float haloCap = SupportsAnalyticPanel ? 320f : 160f;
-                    into.Add(HudProp.F("  Halo / aura radius (px)", () => gfg("glowWidth", HudConfig.FxGlowWidth),
-                        v => sf("glowWidth", Mathf.Clamp(v, 6f, haloCap)), 6f, haloCap));
-                    into.Add(HudProp.F("  spread (tight rim -> diffuse)", () => gfg("glowDiffuse", HudConfig.FxGlowDiffuse),
-                        v => sf("glowDiffuse", Mathf.Clamp01(v)), 0f, 1f));
-                    into.Add(HudProp.F("  extra diffuse (beyond max spread)", () => gfg("glowExtraDiffuse", HudConfig.FxGlowExtraDiffuse),
-                        v => sf("glowExtraDiffuse", Mathf.Clamp01(v)), 0f, 1f));
-                    if (SupportsAnalyticPanel)
-                    {
-                        into.Add(HudProp.Bool("  Uneven / organic reach (SDF)", () => gbg("customGlowUnevenOn", HudConfig.FxGlowUnevenOn),
-                            v => sb("customGlowUnevenOn", v)));
-                        if (gbg("customGlowUnevenOn", HudConfig.FxGlowUnevenOn))
-                        {
-                            into.Add(HudProp.F("    unevenness amount", () => gfg("glowUneven", HudConfig.FxGlowUneven),
-                                v => sf("glowUneven", Mathf.Clamp01(v)), 0f, 1f));
-                            into.Add(HudProp.F("    organic scale (1 = classic)", () => gfg("glowOrganicScale", HudConfig.FxGlowOrganicScale),
-                                v => sf("glowOrganicScale", Mathf.Clamp(v, 0.25f, 4f)), 0.25f, 4f));
-                        }
-                        into.Add(HudProp.Bool("  Halo / aura breathing (SDF)", () => gbg("customGlowBreathOn", HudConfig.FxGlowBreathOn),
-                            v => sb("customGlowBreathOn", v)));
-                        if (gbg("customGlowBreathOn", HudConfig.FxGlowBreathOn))
-                            into.Add(HudProp.F("    breath depth", () => gfg("glowBreath", HudConfig.FxGlowBreath),
-                                v => sf("glowBreath", Mathf.Clamp01(v)), 0f, 1f));
-                    }
-                    into.Add(HudProp.Note("  Extreme radius increases transparent GPU overdraw."));
-                }
-                AddSharedValueRow(into, "halo breath speed",
-                    Hz(HudConfig.FxGlowBreathSpeed), FxTabGlow, "Glow", "breathspeed");
-
-                // Global groups the per-element pulse opt-in under "Edges, glow & pulse"; match it
-                // here rather than stranding it below in Motion, where it reads as a different
-                // feature from the one the tab presents.
-                // The pulse CONTROL now lives in "Motion & power transitions" below, with the rest
-                // of the tri-state effects — one row per effect, in one place, for every element
-                // (Custom or not). Only the pointer stays here so the F9 grouping still reads true.
-                into.Add(HudProp.Note("  Breathing pulse: see \"Motion & power transitions\" below."));
-                if (HudConfig.FxPulseOn == null || !HudConfig.FxPulseOn.Value)
-                    into.Add(HudProp.Note("  Per-element pulse is disabled globally."));
-                AddSharedValueRow(into, "pulse speed / depth",
-                    Hz(HudConfig.FxPulseSpeed) + ", " + Num(HudConfig.FxPulseDepth),
-                    FxTabGlow, "Glow", "pulseshape");
-
-                // ---- mirrors global "Glass animation" ----
-                into.Add(HudProp.Header(SupportsAnalyticPanel
-                    ? "Glass animation"
-                    : "Glass animation (legacy surface: independent strengths are approximate)"));
-                if (HudConfig.FxTierB == null || !HudConfig.FxTierB.Value)
-                    into.Add(HudProp.Header("Glass animation master is OFF globally — Tier B values are inactive"));
-                into.Add(HudProp.Bool("Shine sweep", () => gbg("customShineOn", HudConfig.FxShineOn),
-                    v => sb("customShineOn", v)));
-                if (gbg("customShineOn", HudConfig.FxShineOn))
-                {
-                    into.Add(WithId(HudProp.F("  strength", () => gfg("customShine", HudConfig.FxShine),
-                        v => sf("customShine", Mathf.Clamp(v, 0f, 2f)), 0f, 2f), "customShine"));
-                    AddSharedValueRow(into, "sweep period",
-                        Sec(HudConfig.FxShinePeriod), FxTabGlass, "Glass", "shineperiod");
-                }
-                into.Add(HudProp.Bool("Iridescent rim", () => gbg("customIridOn", HudConfig.FxIridOn),
-                    v => sb("customIridOn", v)));
-                if (gbg("customIridOn", HudConfig.FxIridOn))
-                    into.Add(WithId(HudProp.F("  strength", () => gfg("customIrid", HudConfig.FxIridescence),
-                        v => sf("customIrid", Mathf.Clamp01(v)), 0f, 1f), "customIrid"));
-                into.Add(HudProp.Bool("Chromatic fringe (uses frosted backdrop)", () => gbg("customChromaOn", HudConfig.FxChromaOn),
-                    v => sb("customChromaOn", v)));
-                if (gbg("customChromaOn", HudConfig.FxChromaOn))
-                {
-                    into.Add(WithId(HudProp.F("  strength", () => gfg("customChroma", HudConfig.FxChroma),
-                        v => sf("customChroma", Mathf.Clamp01(v)), 0f, 1f), "customChroma"));
-                    // The fringe is produced by OFFSETTING the frosted backdrop sample, so with no
-                    // frost there is nothing to offset (HudPanelSdf.shader, the chroma tap). This
-                    // gate is correct, but until now the popup only hinted at it with "(uses
-                    // frosted backdrop)" — and it is the second-order term behind FlorpyDorp's
-                    // "the chromatic aberration AND the frosted blur dissipate together".
-                    into.Add(HudProp.Note(
-                        "    Needs frost > 0 on THIS element - the fringe is the frosted"));
-                    into.Add(HudProp.Note(
-                        "    backdrop sampled at an offset, so no frost means no fringe."));
-                    if (FrostAmountFor() <= 0.001f)
-                        into.Add(HudProp.Note(
-                            "    Inactive right now: this element's frost resolves to 0."));
-                }
-                // Dissolve is a TRANSITION, not a steady glass term: its tri-state row is in
-                // "Motion & power transitions" below (writing the old `customDissolve` bool from
-                // here as well would let two controls disagree with the resolver).
-                into.Add(HudProp.Note("  Dissolve reveal: see \"Motion & power transitions\" below."));
-
-                // ---- mirrors global "Frosted glass" ----
-                into.Add(HudProp.Header("Frosted glass"));
-                if (HudConfig.FxTierC == null || !HudConfig.FxTierC.Value)
-                    into.Add(HudProp.Header("Frosted-glass master is OFF globally — Tier C values are inactive"));
-                // No global counterpart: FrostAmountFor's own default for this key is a literal
-                // true (the global gate is the STRENGTH slider, offered below).
-                into.Add(HudProp.Bool("Frosted glass", () => gb("customFrostOn", true),
-                    v => sb("customFrostOn", v)));
-                if (gb("customFrostOn", true))
-                {
-                    into.Add(HudProp.F("  frost strength", () => gfg("customFrost", HudConfig.FrostStrength),
-                        v => sf("customFrost", Mathf.Clamp01(v)), 0f, 1f));
-                    if (SupportsAnalyticPanel)
-                        into.Add(HudProp.F("  blur depth (shallow - deep)", () => gfg("frostDepth", HudConfig.FrostDepth),
-                            v => sf("frostDepth", Mathf.Clamp01(v)), 0f, 1f));
-                }
+                AddStylePage(pages, d, "Glass", HudFxCategory.Glass);
+                AddStylePage(pages, d, "Edges", HudFxCategory.Edges);
+                AddStylePage(pages, d, "Glow", HudFxCategory.Glow);
+                AddStylePage(pages, d, "Bloom", HudFxCategory.Bloom);
+                AddStylePage(pages, d, "Alerts", HudFxCategory.Alerts);
             }
+            pages.Add(HudProp.TabPage("Transitions", BuildTransitionsPage(d)));
+            into.Add(WithId(HudProp.TabGroup("elStyle", pages), "elStyle"));
+            MarkProps(into, start, HudPropGroup.Effects);
+        }
 
-            // ---- Polyline mirror of the F9 "Edges, glow & pulse" section ----
-            // Lines render the edge-light/ripple family and the mesh glow halo (2026-07-16),
-            // resolved through the SAME two-state contract as panels. The line's strength key
-            // stays `edgeLight` (0..2, the raw F9 "Edge energy -> Strength" scale) — panels
-            // collapse theirs into `spec`, which is a different 0..1 glass quantity.
-            bool isLine = Def != null && Def.Type == HudElementType.Polyline;
-            if (isLine && UsesGlobalStyle)
-                into.Add(HudProp.Header("Line effects follow the F9 Effects globals"));
-            if (isLine && UsesCustomStyle)
-            {
-                into.Add(HudProp.Header("Edges, glow & pulse"));
-                if (HudConfig.FxTierA == null || !HudConfig.FxTierA.Value)
-                    into.Add(HudProp.Header("Surface/edge master is OFF globally — Tier A values are inactive"));
-                into.Add(HudProp.Bool("Edge energy (borders + lines)", () => gbg("customRippleOn", HudConfig.FxEdgeLightOn),
-                    v => sb("customRippleOn", v)));
-                if (gbg("customRippleOn", HudConfig.FxEdgeLightOn))
-                {
-                    into.Add(HudProp.F("  strength (line edge light)", () => gfg("edgeLight", HudConfig.FxEdgeLight),
-                        v => sf("edgeLight", Mathf.Clamp(v, 0f, 2f)), 0f, 2f));
-                    AddSharedGlobalRow(into,
-                        "light angle, colour, opposing-rim catch and falloff",
-                        FxTabEdges, "Edges", "lineedgelight");
-                    into.Add(HudProp.F("  irregular energy", () => gfg("ripple", HudConfig.FxEdgeRipple),
-                        v => sf("ripple", Mathf.Clamp(v, 0f, 2.5f)), 0f, 2.5f));
-                    into.Add(HudProp.F("  energy frequency", () => gfg("rippleFreq", HudConfig.FxEdgeRippleFreq),
-                        v => sf("rippleFreq", Mathf.Clamp(v, 0.05f, 8f)), 0.05f, 8f));
-                    into.Add(HudProp.F("  energy smoothness (per-element only)", () => gf("rippleSmooth", 0f),
-                        v => sf("rippleSmooth", Mathf.Clamp01(v)), 0f, 1f));
-                    AddSharedGlobalRow(into, "per-element ripple desync (on + amount)",
-                        FxTabEdges, "Edges", "linedesync");
-                }
-                into.Add(HudProp.Bool("Glow halo", () => gbg("customGlowOn", HudConfig.FxGlowOn),
-                    v => sb("customGlowOn", v)));
-                if (gbg("customGlowOn", HudConfig.FxGlowOn))
-                {
-                    into.Add(HudProp.F("  outward strength", () => gfg("glow", HudConfig.FxGlow),
-                        v => sf("glow", Mathf.Clamp(v, 0f, 2f)), 0f, 2f));
-                    into.Add(HudProp.Header("SHARED HALO / FLOWING-AURA ENVELOPE"));
-                    // The line halo is the MESH recipe: its radius cap is 160 px, not the
-                    // analytic panels' 320.
-                    into.Add(HudProp.F("  Halo / aura radius (px)", () => gfg("glowWidth", HudConfig.FxGlowWidth),
-                        v => sf("glowWidth", Mathf.Clamp(v, 6f, 160f)), 6f, 160f));
-                    into.Add(HudProp.F("  spread (tight rim -> diffuse)", () => gfg("glowDiffuse", HudConfig.FxGlowDiffuse),
-                        v => sf("glowDiffuse", Mathf.Clamp01(v)), 0f, 1f));
-                    into.Add(HudProp.F("  extra diffuse (beyond max spread)", () => gfg("glowExtraDiffuse", HudConfig.FxGlowExtraDiffuse),
-                        v => sf("glowExtraDiffuse", Mathf.Clamp01(v)), 0f, 1f));
-                    AddSharedValueRow(into, "halo breath speed",
-                        Hz(HudConfig.FxGlowBreathSpeed), FxTabGlow, "Glow", "linebreathspeed");
-                }
-            }
-
-            // ONE shared-globals block per popup, whichever mirror ran above (a Polyline is not a
-            // panel, so the two branches are mutually exclusive today — but a duplicated block
-            // would collide on the jump buttons' StableIds, so this is stated rather than assumed).
-            if (UsesCustomStyle && (SupportsPanelAppearance || isLine))
-                AddSharedGlobalsBlock(into);
-
-            // These are element participation/geometry controls rather than theme values, so
-            // they remain editable in both coherent modes. (Custom shows the pair inline above,
-            // in the F9 position — this stand-alone section covers the following state.)
-            if (SupportsPanelAppearance && !UsesCustomStyle)
-            {
-                into.Add(HudProp.Header("Box end fade"));
-                into.Add(HudProp.F("Fade box ends L/R", () => gf("edgeFadeX", 0f),
-                    v => sf("edgeFadeX", Mathf.Clamp(v, 0f, 0.5f)), 0f, 0.5f));
-                into.Add(HudProp.F("Fade box top/bottom", () => gf("edgeFadeY", 0f),
-                    v => sf("edgeFadeY", Mathf.Clamp(v, 0f, 0.5f)), 0f, 0.5f));
-                // The RAMP SHAPE (curve + how much the border joins in) is shared, like the edge
-                // light's angle and falloff — say where it lives rather than leave a gap.
-                AddSharedGlobalRow(into, "fade curve and border influence (the ramp SHAPE)",
-                    FxTabGlass, "Glass", "edgefadeshapeglobal");
-            }
-
-            // ---- Motion & power transitions ------------------------------------------------
-            // DELIBERATELY NOT gated on UsesCustomStyle (bug, 2026-07-19: the toggles were both
-            // invisible AND ignored for a global-styled element). "Follow the global THEME" and
-            // "follow the global MOTION" are different questions: an element must be able to keep
-            // the shared look while sitting a transition out — or, from a Custom element, keep
-            // inheriting the globals for motion. So this block is unconditional and every row is a
-            // tri-state, which is the only encoding that can express Off at all.
-            //
+        /// <summary>The Transitions page — the existing HudTransitionFx-driven rows, moved verbatim
+        /// off the bottom of the old Effects list and onto their own page.
+        ///
+        /// DELIBERATELY NOT gated on UsesCustomStyle (bug, 2026-07-19: the toggles were both
+        /// invisible AND ignored for a global-styled element). "Follow the global THEME" and "follow
+        /// the global MOTION" are different questions: an element must be able to keep the shared
+        /// look while sitting a transition out. Retiring the tri-state in favour of a per-category
+        /// follow checkbox is Phase 3, not this phase.</summary>
+        private List<HudProp> BuildTransitionsPage(HudElementDef d)
+        {
+            var page = new List<HudProp>();
+            page.Add(HudProp.Header("Motion & power transitions"));
+            page.Add(HudProp.Header("  Inherit = follow the F9 global (Effects -> Suit power)"));
+            page.Add(HudProp.Header("  On = force it, at this element's own strength.  Off = never."));
             // One row per registry effect, driven by HudTransitionFx.All, so this inspector and the
             // F9 global menu cannot present different effects or different labels.
-            into.Add(HudProp.Header("Motion & power transitions"));
-            into.Add(HudProp.Header("  Inherit = follow the F9 global (Effects -> Suit power)"));
-            into.Add(HudProp.Header("  On = force it, at this element's own strength.  Off = never."));
             for (int i = 0; i < HudTransitionFx.All.Length; i++)
-                AddTransitionRows(into, d, HudTransitionFx.All[i]);
-            into.Add(HudProp.Header("  A global master that is OFF wins over every element."));
-            into.Add(HudProp.Header("  Transitions are shared by the suit and bare layouts."));
-            MarkProps(into, start, HudPropGroup.Effects);
+                AddTransitionRows(page, d, HudTransitionFx.All[i]);
+            page.Add(HudProp.Header("  A global master that is OFF wins over every element."));
+            page.Add(HudProp.Header("  Transitions are shared by the suit and bare layouts."));
+            AddJump(page, HudStyleFx.TabEffects, HudStyleFx.SubTabTransitions, "Transitions",
+                "transitions");
+            return page;
         }
 
         /// <summary>Combo captions for the per-effect tri-state. A readonly array of literals: no
