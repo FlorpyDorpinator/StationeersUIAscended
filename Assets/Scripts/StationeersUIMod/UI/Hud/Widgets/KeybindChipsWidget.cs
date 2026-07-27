@@ -62,7 +62,7 @@ namespace StationeersUIMod.UI.Hud.Widgets
 
                 ((RectTransform)_chip[i].transform).anchoredPosition = new Vector2(cx, cy);
                 _chip[i].SetShape(cw, ch,
-                    Radius(Def.RTLFor(LayoutBare)), Radius(Def.RTRFor(LayoutBare)), Radius(Def.RBRFor(LayoutBare)), Radius(Def.RBLFor(LayoutBare)));
+                    RadiusTL(), RadiusTR(), RadiusBR(), RadiusBL());
 
                 float keyW = Mathf.Max(2f, cw * 0.34f);
                 _key[i].rectTransform.sizeDelta = new Vector2(keyW, ch);

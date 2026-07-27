@@ -35,10 +35,13 @@ namespace StationeersUIMod.UI.Hud
     /// the illegal states are unrepresentable, the same reasoning that produced
     /// <see cref="HudFxMode"/> for the transitions family.
     ///
-    /// <see cref="Donor"/> is Phase 4 (inherit-from-another-element). It is already legal in the
-    /// packing so a Phase 4 profile round-trips through Phase 3 code, but nothing offers it in the
-    /// UI yet and <see cref="HudStyleFx.SourceOf"/> resolves it as <see cref="Global"/> — fail-soft,
-    /// never as a blank element.</summary>
+    /// <see cref="Donor"/> is Phase 4 (inherit-from-another-element, plan §5): the category reads
+    /// ANOTHER element's stored values, resolved live every frame through
+    /// <see cref="HudStyleDonor"/>. It is legal only for the four steady families — Transitions
+    /// resolves on Base for every tier and folds back to <see cref="Global"/>
+    /// (<see cref="HudStyleDonor.IsDonorCapable"/>) — and any donor that is missing, self-pointing
+    /// or itself a follower (the depth-1 rule) degrades that category to <see cref="Global"/>:
+    /// fail-soft, never a neutral, never a blank element.</summary>
     internal enum HudFxSource { Global = 0, Donor = 1, Own = 2 }
 
     /// <summary>ONE steady-state style knob: its per-element param key, its display label, its
@@ -1120,19 +1123,28 @@ namespace StationeersUIMod.UI.Hud
                    == HudElementView.StyleCustom ? AllOwnPacked : AllGlobalPacked;
         }
 
-        /// <summary>Unpack ONE category out of an already-read word. Two bit ops, no allocation.</summary>
+        /// <summary>Unpack ONE category out of an already-read word. Two bit ops, no allocation.
+        ///
+        /// PHASE 4 made <see cref="HudFxSource.Donor"/> meaningful for the four steady families.
+        /// It still folds to Global for a category that CANNOT have a donor — Transitions, which
+        /// resolves on Base for every tier through a different storage model
+        /// (<see cref="HudStyleDonor.IsDonorCapable"/>) — and the illegal 3 always folds to Global.
+        /// Never to a neutral, never to a blank element.</summary>
         internal static HudFxSource SourceIn(int packed, HudFxCategory cat)
         {
             int shift = ShiftFor(cat);
             if (shift < 0) return HudFxSource.Global;
             int v = (packed >> shift) & 3;
-            // Donor (1) is Phase 4 and 3 is illegal: both degrade to Global, never to a neutral.
-            return v == (int)HudFxSource.Own ? HudFxSource.Own : HudFxSource.Global;
+            if (v == (int)HudFxSource.Own) return HudFxSource.Own;
+            if (v == (int)HudFxSource.Donor && HudStyleDonor.IsDonorCapable(cat))
+                return HudFxSource.Donor;
+            return HudFxSource.Global;
         }
 
         /// <summary>THE resolution rule (plan §3.2), asked once per resolver: Global => the global
         /// value; Own => the element's stored param with THE GLOBAL as its default (the one
-        /// missing-key convention Phase 0b established); Donor => Global until Phase 4.
+        /// missing-key convention Phase 0b established); Donor => the DONOR's stored param when the
+        /// donor owns that category, else the global (Phase 4, <see cref="HudStyleDonor"/>).
         ///
         /// TRANSITIONS ALWAYS RESOLVE AGAINST <see cref="HudStyleSlot.Base"/>, whatever slot the
         /// caller asks for. The seven power transitions are deliberately NOT per-tier
@@ -1162,19 +1174,22 @@ namespace StationeersUIMod.UI.Hud
             return (packed & ~(3 << shift)) | (((int)src & 3) << shift);
         }
 
-        /// <summary>True when EVERY followable category follows the globals — the state the legacy
+        /// <summary>True when EVERY followable category follows the GLOBALS — the state the legacy
         /// <see cref="LegacySourceParamKey"/> records as 1, and what the master checkbox shows
-        /// ticked. Word-only overload: callers that have an ELEMENT must use the overload below,
-        /// which routes Transitions through its own slot (see <see cref="SlotFor"/>).</summary>
+        /// ticked. A category inheriting from another ELEMENT is deliberately NOT "following":
+        /// it does not track the F9 sliders, so reporting it as a follower would make the master
+        /// checkbox lie (Phase 4). Word-only overload: callers that have an ELEMENT must use the
+        /// overload below, which routes Transitions through its own slot (see
+        /// <see cref="SlotFor"/>).</summary>
         internal static bool AllFollow(int packed)
         {
             for (int i = 0; i < Followable.Length; i++)
-                if (SourceIn(packed, Followable[i]) == HudFxSource.Own) return false;
+                if (SourceIn(packed, Followable[i]) != HudFxSource.Global) return false;
             return true;
         }
 
         /// <summary>True when NO followable category follows — the master checkbox shows unticked
-        /// (anything between the two is "(mixed)").</summary>
+        /// (anything between the two, INCLUDING a donor category, is "(mixed)").</summary>
         internal static bool NoneFollow(int packed)
         {
             for (int i = 0; i < Followable.Length; i++)
@@ -1189,7 +1204,7 @@ namespace StationeersUIMod.UI.Hud
         internal static bool AllFollow(HudElementDef d, HudStyleSlot slot)
         {
             for (int i = 0; i < Followable.Length; i++)
-                if (SourceOf(d, Followable[i], slot) == HudFxSource.Own) return false;
+                if (SourceOf(d, Followable[i], slot) != HudFxSource.Global) return false;
             return true;
         }
 

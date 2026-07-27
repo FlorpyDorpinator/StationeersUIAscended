@@ -1371,7 +1371,30 @@ namespace StationeersUIMod.Windows
             if (HudConfig.ShowGrid != null && HudConfig.ShowGrid.Value && HudConfig.GridSnapSize != null)
                 DrawGrid(dl, sel, scale);
 
-            if (hov != null && !ReferenceEquals(hov, sel))
+            // DONOR PICK CUE (style parity Phase 4, plan §5.3). The normal hover outline is kept —
+            // it is how you already know what is under the cursor — and recoloured to say whether
+            // this target can be taken: green accepts, red rejects (self, or an element that is
+            // itself inheriting this family, which the depth-1 rule forbids). The caption rides the
+            // cursor so the gesture explains itself without a modal.
+            if (HudEditorMode.PickingDonor)
+            {
+                bool legal = hov != null && HudEditorMode.DonorPickLegal(hov);
+                uint okCol = ImGui.GetColorU32(new Vector4(0.35f, 0.95f, 0.45f, 0.95f));
+                uint noCol = ImGui.GetColorU32(new Vector4(0.95f, 0.35f, 0.3f, 0.95f));
+                if (hov != null) OutlineRect(dl, hov.CanvasRect(scale), legal ? okCol : noCol, 2f);
+                string what = UI.Hud.HudStyleFx.CategoryName(HudEditorMode.DonorPickCategory);
+                string verb = HudEditorMode.DonorPickCopyOnly ? "COPY " + what + " FROM" : "INHERIT " + what + " FROM";
+                string msg = hov == null
+                    ? verb + ": click an element  (Esc / right-click cancels)"
+                    : legal
+                        ? verb + ": " + hov.Def.Type + "  (Esc / right-click cancels)"
+                        : "CANNOT use this element (itself inheriting, or the same element)";
+                var mp = (Vector2)Input.mousePosition;
+                Overlay.DrawUtil.TextShadowCentered(dl,
+                    new Vector2(mp.x, Screen.height - mp.y + 26f),
+                    legal || hov == null ? okCol : noCol, msg);
+            }
+            else if (hov != null && !ReferenceEquals(hov, sel))
                 OutlineRect(dl, hov.CanvasRect(scale), hovCol, 1.2f);
 
             // Marquee group members get their own outline (thinner than the primary).

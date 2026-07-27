@@ -143,7 +143,7 @@ namespace StationeersUIMod.UI.Hud
                 // Insets pull the top/bottom corners inward — a positive bottom inset
                 // makes the visor-bar trapezoid (top edge wider, angled sides).
                 _box.SetShape(s.x, s.y,
-                    Radius(Def.RTLFor(LayoutBare)), Radius(Def.RTRFor(LayoutBare)), Radius(Def.RBRFor(LayoutBare)), Radius(Def.RBLFor(LayoutBare)),
+                    RadiusTL(), RadiusTR(), RadiusBR(), RadiusBL(),
                     InsetTop(scale), InsetBottom(scale));
             }
             if (_text != null)
@@ -284,8 +284,7 @@ namespace StationeersUIMod.UI.Hud
                     ? OwnOrGlobal(HudFxCategory.Edges, "ripple", HudConfig.FxEdgeRipple) : 0f;
                 _line.EdgeRippleFreq = RippleFreqFor(
                     OwnOrGlobal(HudFxCategory.Edges, "rippleFreq", HudConfig.FxEdgeRippleFreq));
-                _line.RippleSmooth = Owns(HudFxCategory.Edges)
-                    ? Def.GetFFor(LayoutBare, "rippleSmooth", 0f) : 0f;
+                _line.RippleSmooth = SrcFloat(HudFxCategory.Edges, "rippleSmooth", 0f);
                 bool glowOn = tierA
                     && StyleFeatureOn(HudFxCategory.Glow, "customGlowOn", HudConfig.FxGlowOn);
                 // Same Tier-A-gated constant floor as the panels (see ApplyMeshFx).

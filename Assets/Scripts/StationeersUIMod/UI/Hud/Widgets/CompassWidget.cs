@@ -123,7 +123,7 @@ namespace StationeersUIMod.UI.Hud.Widgets
             _center = c;
 
             ((RectTransform)_back.transform).anchoredPosition = c;
-            _back.SetShape(w, h, Mathf.Min(Radius(Def.RTLFor(LayoutBare)), h * 0.4f),
+            _back.SetShape(w, h, Mathf.Min(RadiusTL(), h * 0.4f),
                 InsetTop(scale), InsetBottom(scale));
 
             // The mask stays at the (unwarped) centre; its children are individually bent

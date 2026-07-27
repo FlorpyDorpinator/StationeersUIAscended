@@ -215,7 +215,7 @@ namespace StationeersUIMod.UI.Hud.Widgets
 
                 ((RectTransform)_panel[idx].transform).anchoredPosition = pos;
                 _panel[idx].SetShape(chipW, chipH,
-                    Radius(Def.RTLFor(LayoutBare)), Radius(Def.RTRFor(LayoutBare)), Radius(Def.RBRFor(LayoutBare)), Radius(Def.RBLFor(LayoutBare)));
+                    RadiusTL(), RadiusTR(), RadiusBR(), RadiusBL());
 
                 if (words)
                 {

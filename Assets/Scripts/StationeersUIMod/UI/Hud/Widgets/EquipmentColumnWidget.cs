@@ -99,8 +99,8 @@ namespace StationeersUIMod.UI.Hud.Widgets
                 prt.anchoredPosition = center;
                 float rr = box * 0.25f;
                 b.Panel.SetShape(box, box,
-                    Mathf.Min(Radius(Def.RTLFor(LayoutBare)), rr), Mathf.Min(Radius(Def.RTRFor(LayoutBare)), rr),
-                    Mathf.Min(Radius(Def.RBRFor(LayoutBare)), rr), Mathf.Min(Radius(Def.RBLFor(LayoutBare)), rr));
+                    Mathf.Min(RadiusTL(), rr), Mathf.Min(RadiusTR(), rr),
+                    Mathf.Min(RadiusBR(), rr), Mathf.Min(RadiusBL(), rr));
 
                 // Nudged down+right off the rounded corner (FlorpyDorp: the digit was
                 // clipping the box edge).

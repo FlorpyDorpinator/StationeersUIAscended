@@ -200,9 +200,77 @@ namespace StationeersUIMod.UI.Hud
         /// <summary>True when this category carries the element's OWN values.</summary>
         protected bool Owns(HudFxCategory cat) => SourceFor(cat) == HudFxSource.Own;
 
-        /// <summary>True when this category follows the F9 globals (or a donor, which resolves to
-        /// the globals until Phase 4).</summary>
+        /// <summary>True when this category does NOT carry the element's own values — it follows
+        /// the F9 globals or inherits from a donor element. Kept for the handful of call sites that
+        /// only care "is this value mine"; everything that RESOLVES a value goes through
+        /// <see cref="StyleSrc"/> instead, which answers Global/Donor/Own in one read.</summary>
         protected bool Follows(HudFxCategory cat) => SourceFor(cat) != HudFxSource.Own;
+
+        // ================= WHERE ONE CATEGORY'S VALUES COME FROM (Phase 4) ===================
+        //
+        // Phase 3 gave every resolver a two-way question: Own (read my param) or Global (read the
+        // F9 entry). Phase 4 adds the third — Donor: read ANOTHER ELEMENT's param, live, every
+        // frame (plan §5.1). Rather than teach ~20 resolvers a second branch each, they all ask ONE
+        // question with a three-way answer:
+        //
+        //     "which DEF and SLOT do I read this category's stored values from,
+        //      or NULL if the answer is the global?"
+        //
+        // That collapses Own and Donor into the same code path (a def + a slot), leaves the Global
+        // path byte-identical to Phase 3, and makes the depth-1 degrade automatic: an illegal or
+        // missing donor simply answers null, i.e. the global — never a neutral, never blank.
+        //
+        // ALLOCATION-FREE. Global/Own cost exactly what they cost in Phase 3 (one packed-word read
+        // plus two bit ops). Donor adds one param read and one dictionary hit, and ONLY on the
+        // categories actually set to Donor.
+
+        /// <summary>The slot a per-frame SOURCE read resolves against — the same answer
+        /// <see cref="StyleSlot"/> and <see cref="EditSlot"/> give, so the renderer, the editor and
+        /// the seed cannot disagree about which slot owns a category's source.
+        ///
+        /// NOT the bool overload's rule. `GetXFor(LayoutBare, …)` maps Robot to Base because
+        /// `LayoutBare` is a two-state question, and a source read that inherited that narrowing
+        /// would consult the BASE word while the VALUES underneath it came from a Robot fork. That
+        /// is dead today (nothing in the editor can create a Robot fork yet) and it is exactly the
+        /// kind of latent mismatch that surfaces as an unreproducible tier bug the day one can.
+        /// The `GetXFor(bool)` VALUE mapping is deliberately left alone — see the Phase 4 report.</summary>
+        private HudStyleSlot LayoutReadSlot
+            => Def != null ? Def.ResolveSlot(LayoutSlot) : HudStyleSlot.Base;
+
+        /// <summary>THE per-category source resolution, def-only (plan §5.1). Returns the element
+        /// whose stored params this category reads — this element for Own, the DONOR for a legal
+        /// Donor — or null when the category resolves to the F9 global.
+        ///
+        /// Def-only on purpose: the donor may have NO live view (hidden by tier, or its widget
+        /// failed to build) and a follower must still inherit from it, so nothing here touches a
+        /// view. Per-tier per plan §5.6: <paramref name="slot"/> is the slot the CALLER is
+        /// resolving and every read on the donor goes through the donor's own
+        /// <c>ResolveSlot</c> — "bare follows bare", with no extra storage.</summary>
+        internal static HudElementDef StyleSrcDefFor(HudElementDef d, HudFxCategory cat,
+            HudStyleSlot slot, out HudStyleSlot readSlot)
+        {
+            readSlot = slot;
+            if (d == null) return null;
+            var src = HudStyleFx.SourceOf(d, cat, slot);
+            if (src == HudFxSource.Own) return d;
+            if (src == HudFxSource.Donor) return HudStyleDonor.Resolve(d, cat, slot);
+            return null;
+        }
+
+        /// <summary>The rendering-slot flavour of <see cref="StyleSrcDefFor"/> — what every
+        /// per-frame resolver below calls.</summary>
+        protected HudElementDef StyleSrc(HudFxCategory cat, out HudStyleSlot slot)
+            => StyleSrcDefFor(Def, cat, LayoutReadSlot, out slot);
+
+        /// <summary>A NULL-GLOBAL per-element float (energy smoothness, the ring halo): the stored
+        /// value when this category is Own or inherits from a donor that owns it, else the neutral.
+        /// There is no global to fall back to — that is what makes these rows different.</summary>
+        protected float SrcFloat(HudFxCategory cat, string key, float neutral)
+        {
+            HudStyleSlot s;
+            var d = StyleSrc(cat, out s);
+            return d != null ? d.GetFFor(s, key, neutral) : neutral;
+        }
 
         /// <summary>True while this element's SURFACE family (sizing, corners, glass sheen and
         /// edge light — F9's Theme tab) follows the globals. Widget props that would merely mirror
@@ -210,13 +278,48 @@ namespace StationeersUIMod.UI.Hud
         /// FollowGlobal, narrowed to the category those props actually belong to.</summary>
         protected bool FollowGlobal => Follows(HudFxCategory.Surface);
 
+        // The four authored corners, as the CALL SITE identifies them. A widget passes its own
+        // stored corner; under a Surface DONOR that value is meaningless and the donor's matching
+        // corner is what must be read — which is why the corner has to be nameable here.
+        internal const int CornerTL = 0;
+        internal const int CornerTR = 1;
+        internal const int CornerBR = 2;
+        internal const int CornerBL = 3;
+
         /// <summary>Per-corner radius. SURFACE category; the -1 sentinel is retained for legacy
-        /// profiles and still means "the global".</summary>
-        protected float Radius(float perCorner)
+        /// profiles and still means "the global".
+        ///
+        /// <paramref name="corner"/> names WHICH corner the caller is asking about, so a category
+        /// inheriting from a donor can read the donor's matching corner (plan §5.1). -1 = "the
+        /// caller did not say"; a donor then contributes its top-left radius to all four, which is
+        /// exact for the usual uniform-cornered donor and an approximation otherwise. Only
+        /// <c>VitalsPanelWidget</c> still calls it that way — see the Phase 4 report.</summary>
+        protected float Radius(float perCorner, int corner = -1)
         {
             float global = HudConfig.CornerRadius != null ? HudConfig.CornerRadius.Value : 10f;
-            if (Follows(HudFxCategory.Surface)) return global;
-            return perCorner >= 0f ? perCorner : global;
+            HudStyleSlot s;
+            var d = StyleSrc(HudFxCategory.Surface, out s);
+            if (d == null) return global;
+            float own = ReferenceEquals(d, Def) ? perCorner : DonorRadius(d, s, corner);
+            return own >= 0f ? own : global;
+        }
+
+        /// <summary>Convenience accessors so a widget names the corner instead of fetching its own
+        /// stored value and hoping the resolver can tell which one it is.</summary>
+        protected float RadiusTL() => Radius(Def != null ? Def.RTLFor(LayoutBare) : -1f, CornerTL);
+        protected float RadiusTR() => Radius(Def != null ? Def.RTRFor(LayoutBare) : -1f, CornerTR);
+        protected float RadiusBR() => Radius(Def != null ? Def.RBRFor(LayoutBare) : -1f, CornerBR);
+        protected float RadiusBL() => Radius(Def != null ? Def.RBLFor(LayoutBare) : -1f, CornerBL);
+
+        private static float DonorRadius(HudElementDef donor, HudStyleSlot slot, int corner)
+        {
+            switch (corner)
+            {
+                case CornerTR: return donor.RTRFor(slot);
+                case CornerBR: return donor.RBRFor(slot);
+                case CornerBL: return donor.RBLFor(slot);
+                default: return donor.RTLFor(slot);
+            }
         }
 
         /// <summary>The element's corner STYLE as <see cref="PanelGraphic.CornerCut"/> expects it:
@@ -229,8 +332,10 @@ namespace StationeersUIMod.UI.Hud
         /// to -1 and renders exactly as before.</summary>
         protected int CornerCutFor()
         {
-            if (Follows(HudFxCategory.Surface)) return -1;
-            int own = Def != null ? Def.GetIFor(LayoutBare, "cornerStyle", 0) : 0;
+            HudStyleSlot s;
+            var d = StyleSrc(HudFxCategory.Surface, out s);
+            if (d == null) return -1;
+            int own = d.GetIFor(s, "cornerStyle", 0);
             return own == CornerStyleRounded ? 0 : own == CornerStyleCut ? 1 : -1;
         }
 
@@ -244,8 +349,10 @@ namespace StationeersUIMod.UI.Hud
         protected float BorderWidthFor()
         {
             float global = HudConfig.BorderWidth != null ? HudConfig.BorderWidth.Value : 1.4f;
-            if (Follows(HudFxCategory.Surface)) return global;
-            float bw = Def != null ? Def.BorderWidthFor(LayoutBare) : -1f;
+            HudStyleSlot s;
+            var d = StyleSrc(HudFxCategory.Surface, out s);
+            if (d == null) return global;
+            float bw = d.BorderWidthFor(s);
             return bw >= 0f ? bw : global;
         }
 
@@ -389,7 +496,11 @@ namespace StationeersUIMod.UI.Hud
             // and the ring vanished — the exact defect ApplyBorderOnlyEdge was written to fix,
             // re-entering through the follow checkbox. Panel parity in BOTH states: a ring's
             // sub-pixel line behaves like a panel's sub-pixel line, always.
-            bool ownSurface = Owns(HudFxCategory.Surface);
+            // Phase 4: "owns Surface" became "resolves Surface from SOME element's stored values" —
+            // this element's own, or a donor's. Both carry a ringGlow/ringGlowColor pair; only the
+            // global fallback has none, and that is the branch that derives from the panel recipe.
+            HudStyleSlot surfSlot;
+            var surfDef = StyleSrc(HudFxCategory.Surface, out surfSlot);
             bool tierA = HudConfig.FxTierA != null && HudConfig.FxTierA.Value;
             ring.HairlineFloor = 0.05f;
             ring.EdgeSpec = GlassEdgeFor();
@@ -399,12 +510,12 @@ namespace StationeersUIMod.UI.Hud
                 ? OwnOrGlobal(HudFxCategory.Glass, "bfade", HudConfig.FxBorderFade) : 0f;
             ring.GlowStrength = RingGlowFor();
             ring.GlowWidth = OwnOrGlobal(HudFxCategory.Glow, "glowWidth", HudConfig.FxGlowWidth);
-            if (!ownSurface)
+            if (surfDef == null)
             {
                 ring.GlowColor = Color.clear;                        // the rim's own hue, as panels do
                 return;
             }
-            string cref = Def != null ? Def.GetSFor(LayoutBare, "ringGlowColor", "") : "";
+            string cref = surfDef.GetSFor(surfSlot, "ringGlowColor", "");
             ring.GlowColor = string.IsNullOrEmpty(cref)
                 ? Color.clear                                        // clear = derive from the rim
                 : HudPalette.Resolve(cref, HudPalette.PanelBorder.Value);
@@ -421,8 +532,9 @@ namespace StationeersUIMod.UI.Hud
             // "ringGlow" is a SURFACE row (the registry gives it no F9 home and files it with the
             // ring's other chrome), so the Surface source decides whether the ring carries its own
             // halo band or derives one from the Glow family's panel recipe.
-            if (Owns(HudFxCategory.Surface))
-                return Mathf.Max(0f, Def.GetFFor(LayoutBare, "ringGlow", 0f));
+            HudStyleSlot s;
+            var d = StyleSrc(HudFxCategory.Surface, out s);
+            if (d != null) return Mathf.Max(0f, d.GetFFor(s, "ringGlow", 0f));
             bool tierA = HudConfig.FxTierA != null && HudConfig.FxTierA.Value;
             bool glowOn = tierA
                 && StyleFeatureOn(HudFxCategory.Glow, "customGlowOn", HudConfig.FxGlowOn);
@@ -634,8 +746,10 @@ namespace StationeersUIMod.UI.Hud
         protected float GlassSheenFor()
         {
             float global = HudConfig.GlassSheen != null ? HudConfig.GlassSheen.Value : 0f;
-            if (Follows(HudFxCategory.Surface)) return global;
-            float v = Def != null ? Def.GetFFor(LayoutBare, "sheen", -1f) : -1f;
+            HudStyleSlot s;
+            var d = StyleSrc(HudFxCategory.Surface, out s);
+            if (d == null) return global;
+            float v = d.GetFFor(s, "sheen", -1f);
             return v >= 0f ? v : global;
         }
 
@@ -649,9 +763,13 @@ namespace StationeersUIMod.UI.Hud
         protected float GlassEdgeFor()
         {
             float global = HudConfig.GlassEdge != null ? HudConfig.GlassEdge.Value : 0f;
-            if (Owns(HudFxCategory.Surface))
+            HudStyleSlot slot;
+            var src = StyleSrc(HudFxCategory.Surface, out slot);
+            if (src != null)
             {
-                float own = Def != null ? Def.GetFFor(LayoutBare, "spec", -1f) : -1f;
+                // Own OR a donor that owns Surface: `spec` is a FINAL strength on both, so the
+                // Tier-A boost must not be applied a second time on top of it.
+                float own = src.GetFFor(slot, "spec", -1f);
                 return Mathf.Clamp01(own >= 0f ? own : global);
             }
             float baseSpec = global;
@@ -718,8 +836,9 @@ namespace StationeersUIMod.UI.Hud
         /// the fallback). Same "-1 = global" convention as corner radius and border width.</summary>
         protected float FeatherFor()
         {
-            if (Follows(HudFxCategory.Surface)) return -1f;
-            return Def != null ? Def.GetFFor(LayoutBare, "feather", -1f) : -1f;
+            HudStyleSlot s;
+            var d = StyleSrc(HudFxCategory.Surface, out s);
+            return d != null ? d.GetFFor(s, "feather", -1f) : -1f;
         }
 
         private float EffectiveFeatherFor()
@@ -776,9 +895,9 @@ namespace StationeersUIMod.UI.Hud
             g.EdgeRipple = rippleOn ? OwnOrGlobal(HudFxCategory.Edges, "ripple", HudConfig.FxEdgeRipple) : 0f;
             g.EdgeRippleFreq = RippleFreqFor(
                 OwnOrGlobal(HudFxCategory.Edges, "rippleFreq", HudConfig.FxEdgeRippleFreq));
-            // rippleSmooth is the one knob with NO global at all, so "following" can only mean 0.
-            g.RippleSmooth = Owns(HudFxCategory.Edges) && Def != null
-                ? Def.GetFFor(LayoutBare, "rippleSmooth", 0f) : 0f;
+            // rippleSmooth is the one knob with NO global at all, so "following" can only mean 0 —
+            // but a DONOR that owns Edges does have a value, and that is what we inherit.
+            g.RippleSmooth = SrcFloat(HudFxCategory.Edges, "rippleSmooth", 0f);
 
             // The MOVING ripple on freeform Shapes: same edgeFlow speed the SDF panels use,
             // animated by HudEdgeFX/HudGlass off the uv1 payload the shape bakes. Gated on
@@ -799,20 +918,27 @@ namespace StationeersUIMod.UI.Hud
         /// are Glass rows even though they read as "edges", because that is where F9 draws them.
         ///
         /// Following ⇒ the global. Own ⇒ the element's own param, with the global as the default
-        /// (the -1 sentinel is retained for the legacy profiles that wrote it).</summary>
+        /// (the -1 sentinel is retained for the legacy profiles that wrote it). Donor ⇒ the same
+        /// read, taken on the DONOR (Phase 4) — a degraded donor answers null and lands on the
+        /// global, so this function needs no donor branch of its own.</summary>
         protected float OwnOrGlobal(HudFxCategory cat, string key, ConfigEntry<float> global)
         {
-            if (Follows(cat)) return global != null ? global.Value : 0f;
-            float v = Def != null ? Def.GetFFor(LayoutBare, key, -1f) : -1f;
-            return v >= 0f ? v : (global != null ? global.Value : 0f);
+            float gv = global != null ? global.Value : 0f;
+            HudStyleSlot s;
+            var d = StyleSrc(cat, out s);
+            if (d == null) return gv;
+            float v = d.GetFFor(s, key, -1f);
+            return v >= 0f ? v : gv;
         }
 
         /// <summary>THE companion-bool resolver, per category. Same rule: following ⇒ the global
-        /// master; Own ⇒ the element's own checkbox, defaulting to the global master.</summary>
+        /// master; Own (or a donor) ⇒ that element's own checkbox, defaulting to the global.</summary>
         protected bool StyleFeatureOn(HudFxCategory cat, string customKey, ConfigEntry<bool> global)
         {
             bool gv = global != null && global.Value;
-            return Owns(cat) && Def != null ? Def.GetBFor(LayoutBare, customKey, gv) : gv;
+            HudStyleSlot s;
+            var d = StyleSrc(cat, out s);
+            return d != null ? d.GetBFor(s, customKey, gv) : gv;
         }
 
         /// <summary>Resolver for the SDF halo family (the keys introduced 2026-07-16).
@@ -830,15 +956,19 @@ namespace StationeersUIMod.UI.Hud
         private bool NewSdfFeatureOn(HudFxCategory cat, string customKey, ConfigEntry<bool> global)
         {
             bool gv = global != null && global.Value;
-            return Owns(cat) && Def != null ? Def.GetBFor(LayoutBare, customKey, gv) : gv;
+            HudStyleSlot s;
+            var d = StyleSrc(cat, out s);
+            return d != null ? d.GetBFor(s, customKey, gv) : gv;
         }
 
         protected float NewSdfOwnOrGlobal(HudFxCategory cat, string key, ConfigEntry<float> global)
         {
             float gv = global != null ? global.Value : 0f;
-            if (Follows(cat)) return gv;
-            // Own: a missing key resolves to the GLOBAL, the same rule OwnOrGlobal uses.
-            return Def != null ? Def.GetFFor(LayoutBare, key, gv) : gv;
+            HudStyleSlot s;
+            var d = StyleSrc(cat, out s);
+            // Own (or a donor's own): a missing key resolves to the GLOBAL, the same rule
+            // OwnOrGlobal uses. These keys never used a -1 sentinel.
+            return d != null ? d.GetFFor(s, key, gv) : gv;
         }
 
         /// <summary>Per-element edge-ripple frequency. When the global "Desync ripple" toggle is on,
@@ -965,16 +1095,19 @@ namespace StationeersUIMod.UI.Hud
         private float SdfSquircleFor()
         {
             float global = HudConfig.SdfSquircle != null ? HudConfig.SdfSquircle.Value : 2f;
-            if (Follows(HudFxCategory.Surface)) return global;
-            float own = Def != null ? Def.GetFFor(LayoutBare, "squircle", -1f) : -1f;
+            HudStyleSlot s;
+            var d = StyleSrc(HudFxCategory.Surface, out s);
+            if (d == null) return global;
+            float own = d.GetFFor(s, "squircle", -1f);
             return own >= 2f ? Mathf.Clamp(own, 2f, 8f) : global;
         }
 
         private bool SdfGaussianFor()
         {
             bool global = HudConfig.SdfGaussianHalo != null && HudConfig.SdfGaussianHalo.Value;
-            return Owns(HudFxCategory.Surface) && Def != null
-                ? Def.GetBFor(LayoutBare, "gaussianHalo", global) : global;
+            HudStyleSlot s;
+            var d = StyleSrc(HudFxCategory.Surface, out s);
+            return d != null ? d.GetBFor(s, "gaussianHalo", global) : global;
         }
 
         private float EdgeFlowFor()
@@ -1036,8 +1169,11 @@ namespace StationeersUIMod.UI.Hud
         /// <summary>The per-element frost opt-out, resolved. It is the one companion bool with NO
         /// global gate (the global IS the strength slider), so an absent key means ON.</summary>
         private bool FrostFeatureOn()
-            => Owns(HudFxCategory.Glass) && Def != null
-                ? Def.GetBFor(LayoutBare, "customFrostOn", true) : true;
+        {
+            HudStyleSlot s;
+            var d = StyleSrc(HudFxCategory.Glass, out s);
+            return d == null || d.GetBFor(s, "customFrostOn", true);
+        }
 
         private float ShineAmountFor()
         {
@@ -1045,9 +1181,11 @@ namespace StationeersUIMod.UI.Hud
             if (!tier || Def == null) return 0f;
             bool globalOn = HudConfig.FxShineOn != null && HudConfig.FxShineOn.Value;
             float global = HudConfig.FxShine != null ? HudConfig.FxShine.Value : 0f;
-            if (Follows(HudFxCategory.Glass)) return globalOn ? Mathf.Clamp(global, 0f, 2f) : 0f;
-            return Def.GetBFor(LayoutBare, "customShineOn", globalOn)
-                ? Mathf.Clamp(Def.GetFFor(LayoutBare, "customShine", global), 0f, 2f) : 0f;
+            HudStyleSlot s;
+            var d = StyleSrc(HudFxCategory.Glass, out s);
+            if (d == null) return globalOn ? Mathf.Clamp(global, 0f, 2f) : 0f;
+            return d.GetBFor(s, "customShineOn", globalOn)
+                ? Mathf.Clamp(d.GetFFor(s, "customShine", global), 0f, 2f) : 0f;
         }
 
         private float IridAmountFor()
@@ -1056,9 +1194,11 @@ namespace StationeersUIMod.UI.Hud
             if (!tier || Def == null) return 0f;
             bool globalOn = HudConfig.FxIridOn != null && HudConfig.FxIridOn.Value;
             float global = HudConfig.FxIridescence != null ? HudConfig.FxIridescence.Value : 0f;
-            if (Follows(HudFxCategory.Glass)) return globalOn ? Mathf.Clamp01(global) : 0f;
-            return Def.GetBFor(LayoutBare, "customIridOn", globalOn)
-                ? Mathf.Clamp01(Def.GetFFor(LayoutBare, "customIrid", global)) : 0f;
+            HudStyleSlot s;
+            var d = StyleSrc(HudFxCategory.Glass, out s);
+            if (d == null) return globalOn ? Mathf.Clamp01(global) : 0f;
+            return d.GetBFor(s, "customIridOn", globalOn)
+                ? Mathf.Clamp01(d.GetFFor(s, "customIrid", global)) : 0f;
         }
 
         private float FrostAmountFor()
@@ -1066,9 +1206,11 @@ namespace StationeersUIMod.UI.Hud
             bool tier = HudBackdrop.Active && HudConfig.FxTierC != null && HudConfig.FxTierC.Value;
             if (!tier || Def == null) return 0f;
             float global = HudConfig.FrostStrength != null ? HudConfig.FrostStrength.Value : 1f;
-            if (Follows(HudFxCategory.Glass)) return Mathf.Clamp01(global);
-            return Def.GetBFor(LayoutBare, "customFrostOn", true)
-                ? Mathf.Clamp01(Def.GetFFor(LayoutBare, "customFrost", global)) : 0f;
+            HudStyleSlot s;
+            var d = StyleSrc(HudFxCategory.Glass, out s);
+            if (d == null) return Mathf.Clamp01(global);
+            return d.GetBFor(s, "customFrostOn", true)
+                ? Mathf.Clamp01(d.GetFFor(s, "customFrost", global)) : 0f;
         }
 
         private float ChromaAmountFor()
@@ -1078,9 +1220,11 @@ namespace StationeersUIMod.UI.Hud
             bool globalOn = HudConfig.FxChromaOn != null && HudConfig.FxChromaOn.Value;
             float global = HudConfig.FxChroma != null ? HudConfig.FxChroma.Value : 0f;
             if (!tier) return 0f;
-            if (Follows(HudFxCategory.Glass)) return globalOn ? Mathf.Clamp01(global) : 0f;
-            return Def.GetBFor(LayoutBare, "customChromaOn", globalOn)
-                ? Mathf.Clamp01(Def.GetFFor(LayoutBare, "customChroma", global)) : 0f;
+            HudStyleSlot s;
+            var d = StyleSrc(HudFxCategory.Glass, out s);
+            if (d == null) return globalOn ? Mathf.Clamp01(global) : 0f;
+            return d.GetBFor(s, "customChromaOn", globalOn)
+                ? Mathf.Clamp01(d.GetFFor(s, "customChroma", global)) : 0f;
         }
 
         private bool DissolveFor()
@@ -1464,6 +1608,20 @@ namespace StationeersUIMod.UI.Hud
         private static bool EditOwns(HudElementDef d, HudFxCategory cat)
             => !HudStyleFx.IsFollowable(cat) || EditSourceFor(d, cat) == HudFxSource.Own;
 
+        /// <summary>The popup's twin of <see cref="StyleSrc"/>: the def+slot ONE category resolves
+        /// its values from, in the slot the EDITOR is targeting. Returns null when the category
+        /// resolves to the global. Every visibility gate and every displayed value on a page goes
+        /// through this, so the read-only preview a Donor page shows is the same resolution the
+        /// renderer performs — not a second opinion.</summary>
+        private static HudElementDef EditStyleSrcDef(HudElementDef d, HudFxCategory cat,
+            out HudStyleSlot slot)
+        {
+            var editSlot = EditSlot(d);
+            slot = editSlot;
+            if (!HudStyleFx.IsFollowable(cat)) return d;   // Bloom / Alerts: shared rows only
+            return StyleSrcDefFor(d, cat, editSlot, out slot);
+        }
+
         /// <summary>Is the companion feature that gates this row ON for this element? Following ⇒
         /// the global, Own ⇒ the element's own key with the global as its default — the same one
         /// missing-key rule Phase 0b gave every resolver. The companion's OWN category decides,
@@ -1476,8 +1634,9 @@ namespace StationeersUIMod.UI.Hud
             if (d == null) return gv;
             var comp = HudStyleFx.FindByParam(onParamKey);
             var cat = comp != null ? comp.Category : HudFxCategory.Glass;
-            if (!EditOwns(d, cat)) return gv;
-            return d.GetBFor(EditBare(d), onParamKey, gv);
+            HudStyleSlot slot;
+            var src = EditStyleSrcDef(d, cat, out slot);
+            return src != null ? src.GetBFor(slot, onParamKey, gv) : gv;
         }
 
         /// <summary>What an ABSENT companion bool means. Every one of them is some registry row's
@@ -1507,12 +1666,19 @@ namespace StationeersUIMod.UI.Hud
         ///   • StateIndependent null-global rows (the box-end fades, the trapezoid insets, the
         ///     element font scale) sit OUTSIDE the follow system — the renderer reads them in both
         ///     states, so hiding them would be a regression, not a simplification.</summary>
+        ///
+        /// PHASE 4 adds the third state: a category INHERITING from another element renders the
+        /// same rows READ-ONLY, showing what the donor resolves them to (plan §5.2). They are not
+        /// controls there either — the donor owns them — but they must be visible, or "inherit
+        /// from that element" would be a promise the popup never shows you the result of.
         private bool FxRowVisible(HudElementDef d, HudStyleFxDef def)
         {
             if (def == null || !FxApplies(def)) return false;
             if (def.SharedOnly) return def.MasterOn;       // exactly F9's own per-row master gate
             if (!def.HasGlobal && def.StateIndependent) return true;
-            if (!EditOwns(d, def.Category)) return false;
+            var src = HudStyleFx.IsFollowable(def.Category)
+                ? EditSourceFor(d, def.Category) : HudFxSource.Own;
+            if (src == HudFxSource.Global) return false;
             if (!def.HasGlobal) return true;
             return FxFeatureOn(d, def.OnParamKey);
         }
@@ -1680,6 +1846,266 @@ namespace StationeersUIMod.UI.Hud
                 "styleSrc" + (int)cat);
         }
 
+        /// <summary>The THREE-STATE source control that heads every donor-capable style page
+        /// (plan §5.2): Follow global / Inherit from element / Own values.
+        ///
+        /// It is a COMBO rather than the plan sketch's radio because that is what the prop model
+        /// has — and a combo makes the illegal states unrepresentable exactly as the radio would.
+        /// Its <see cref="HudProp.StableId"/> is deliberately the SAME "styleSrc&lt;cat&gt;" the
+        /// Phase 3 checkbox used, so the per-tier fork seed (<see cref="SeedSlotFromBase"/>, which
+        /// round-trips this very prop list) carries the full tri-state into a Bare fork with no
+        /// extra bookkeeping — it used to carry a bool and now carries the source itself.
+        ///
+        /// TRANSITIONS DO NOT GET THIS. They keep the Phase 3 checkbox plus one line saying why:
+        /// their state lives on the shared Base slot and in HudTransitionFx's own tri-state, not in
+        /// a registry row, so a donor there would mean mirroring a second storage model for no gain
+        /// the one-shot "Copy from" does not already give (<see cref="HudStyleDonor.IsDonorCapable"/>).</summary>
+        private static readonly string[] StyleSourceNames =
+            { "Follow F9 globals", "Inherit from another element", "Own values" };
+
+        private void AddCategorySourceRows(List<HudProp> page, HudElementDef d, HudFxCategory cat)
+        {
+            string name = HudStyleFx.CategoryName(cat);
+            // Not donor-capable = Transitions today, and its page never comes through here (it
+            // builds its own head in BuildTransitionsPage, which carries the "not offered" line).
+            // The branch stays as the honest fallback for any future non-donor-capable family.
+            if (!HudStyleDonor.IsDonorCapable(cat))
+            {
+                page.Add(CategoryFollowRow(d, cat));
+                return;
+            }
+
+            // ARMED-BUT-NOT-YET-WRITTEN is a state the combo has to show. Choosing "Inherit from
+            // another element" with no usable donor stored deliberately leaves the bits alone (so
+            // Esc can cancel with nothing to undo, plan §5.3 point 3) — but that meant the page
+            // redrew its old Global/Own branch and the combo appeared to snap straight back, with
+            // no hint that the canvas was now waiting for a click. While the pick is armed the
+            // combo therefore READS as Donor and the page says what it is waiting for.
+            bool arming = Windows.HudEditorMode.IsPickingFor(d, cat, false);
+            page.Add(WithId(WithHelp(HudProp.Enum("Style source: " + name,
+                () => arming ? (int)HudFxSource.Donor : (int)EditSourceFor(d, cat),
+                v => SetCategorySourceFromMenu(cat, (HudFxSource)Mathf.Clamp(v, 0, 2)),
+                StyleSourceNames),
+                "Follow: this element takes the F9 " + name + " globals. Inherit: it reads ANOTHER "
+                + "element's " + name + ", live. Own: its own copy, seeded from what it shows now."),
+                "styleSrc" + (int)cat));
+
+            var src = EditSourceFor(d, cat);
+            if (arming && src != HudFxSource.Donor)
+            {
+                page.Add(HudProp.Note("    PICKING: click the element to inherit " + name
+                    + " from. Esc / right-click cancels."));
+                page.Add(HudProp.Note("    Or choose one from the list below - it reaches elements "
+                    + "hidden by this tier."));
+                AddDonorPickerCombo(page, d, cat, null);
+                return;
+            }
+            if (src == HudFxSource.Global)
+            {
+                page.Add(HudProp.Note("    This element's " + name + " follows the F9 globals."));
+                page.Add(HudProp.Note(
+                    "    Switch to Own to edit it here - the values open at exactly what you see now."));
+                AddCategoryJump(page, cat);
+                return;
+            }
+
+            if (src == HudFxSource.Donor)
+            {
+                AddDonorRows(page, d, cat, name);
+                return;
+            }
+
+            // Own: one extra affordance — the one-shot copy, which has no lifetime semantics at
+            // all and is the right tool for "make this look like that, then diverge" (plan §5.1).
+            page.Add(WithId(HudProp.Button("Copy " + name + " from another element...",
+                "fxcopy" + (int)cat,
+                () => Windows.HudEditorMode.BeginDonorPick(cat, true),
+                "Click an element on screen to copy its " + name + " values in. Nothing is linked - "
+                + "this is a one-shot copy."), "fxcopy" + (int)cat));
+            if (Windows.HudEditorMode.IsPickingFor(d, cat, true))
+                page.Add(HudProp.Note("    PICKING: click the element to copy from. Esc / right-click cancels."));
+        }
+
+        /// <summary>The Donor state's header block: who we inherit from, whether that is actually
+        /// working, and the two escapes ([Change] / [Detach to own], plan §5.2) plus the keyboard
+        /// fallback dropdown that also reaches TIER-HIDDEN elements the pick gesture cannot click
+        /// (plan §5.3 point 4).</summary>
+        private void AddDonorRows(List<HudProp> page, HudElementDef d, HudFxCategory cat, string name)
+        {
+            HudStyleSlot slot = EditSlot(d);
+            HudElementDef donor;
+            var state = HudStyleDonor.Evaluate(d, cat, slot, out donor);
+            string id = HudStyleDonor.DonorIdOf(d, cat, slot);
+            page.Add(HudProp.Note("    " + name + ": " + HudStyleDonor.DescribeState(state, donor, id)));
+            if (state == HudDonorState.Depth)
+                page.Add(HudProp.Note(
+                    "    Only ONE hop is allowed: you cannot inherit from an element that is itself inheriting."));
+            if (state != HudDonorState.Ok)
+                page.Add(HudProp.Note("    Showing the F9 globals until this is fixed."));
+            else
+                page.Add(HudProp.Note("    Read-only here - edit the donor and this follows it live."));
+
+            page.Add(WithId(HudProp.Button("Change donor...", "fxdonorpick" + (int)cat,
+                () => Windows.HudEditorMode.BeginDonorPick(cat, false),
+                "Click another element on screen. Esc or right-click cancels."),
+                "fxdonorpick" + (int)cat));
+            if (Windows.HudEditorMode.IsPickingFor(d, cat, false))
+                page.Add(HudProp.Note("    PICKING: click the element to inherit from. Esc / right-click cancels."));
+            page.Add(WithId(HudProp.Button("Detach to own (keep these values)",
+                "fxdonordetach" + (int)cat,
+                () => Windows.HudEditorMode.RunUndoableElementEdit(
+                    () => SetCategorySource(cat, HudFxSource.Own)),
+                "Freezes what this element is showing now as its own " + name + " values and stops "
+                + "following the donor."), "fxdonordetach" + (int)cat));
+
+            AddDonorPickerCombo(page, d, cat, id);
+        }
+
+        // ---- the donor dropdown, and its cold-path cache -------------------------------------
+        //
+        // The popup rebuilds its whole prop list EVERY FRAME (HudEditorWindow:1775-1777), so a
+        // freshly built id list plus a string[] of labels per Donor page would be two allocations
+        // per page per frame for a list that only changes when the DOCUMENT does. It is cached on
+        // (donor-index stamp, document identity, element, category) — the same signals the donor
+        // resolver itself keys on, so a delete/add/undo/profile-switch rebuilds it and nothing else
+        // does. One category at a time is enough: only one page is open, and the F9 popup is the
+        // only caller.
+
+        private static string _donorCacheElId;
+        private static HudFxCategory _donorCacheCat;
+        private static string _donorCacheCurrent;
+        private static int _donorCacheStamp = -1;
+        private static HudDocument _donorCacheDoc;
+        private static List<string> _donorCacheIds;
+        private static string[] _donorCacheNames;
+
+        /// <summary>Drop the cached dropdown contents. Called from the same teardown that clears
+        /// the donor index, so nothing survives an F6 reload.</summary>
+        internal static void ClearDonorPickerCache()
+        {
+            _donorCacheElId = null;
+            _donorCacheCurrent = null;
+            _donorCacheStamp = -1;
+            _donorCacheDoc = null;
+            _donorCacheIds = null;
+            _donorCacheNames = null;
+        }
+
+        private void AddDonorPickerCombo(List<HudProp> page, HudElementDef d, HudFxCategory cat,
+            string current)
+        {
+            HudDocument doc = null;
+            try { doc = Features.HudProfileStore.Active; } catch { }
+            string cur = current ?? "";
+            if (_donorCacheIds == null || _donorCacheNames == null
+                || _donorCacheStamp != HudStyleDonor.Stamp
+                || !ReferenceEquals(_donorCacheDoc, doc)
+                || _donorCacheCat != cat
+                || !string.Equals(_donorCacheElId, d.Id, System.StringComparison.Ordinal)
+                || !string.Equals(_donorCacheCurrent, cur, System.StringComparison.Ordinal))
+            {
+                _donorCacheIds = DonorChoiceIds(d, cat, current);
+                _donorCacheNames = new string[_donorCacheIds.Count];
+                for (int i = 0; i < _donorCacheIds.Count; i++)
+                {
+                    string cid = _donorCacheIds[i];
+                    if (string.IsNullOrEmpty(cid))
+                    {
+                        _donorCacheNames[i] = "(no donor yet - choose one)";
+                        continue;
+                    }
+                    var e = HudStyleDonor.Find(cid);
+                    _donorCacheNames[i] = HudStyleDonor.LabelOf(e)
+                        + (e != null && HudStyleFx.SourceOf(e, cat, HudStyleSlot.Base) != HudFxSource.Own
+                            ? "  (follows globals)" : "");
+                }
+                _donorCacheStamp = HudStyleDonor.Stamp;
+                _donorCacheDoc = doc;
+                _donorCacheCat = cat;
+                _donorCacheElId = d.Id;
+                _donorCacheCurrent = cur;
+            }
+
+            var ids = _donorCacheIds;
+            var names = _donorCacheNames;
+            if (ids.Count == 0) return;
+            page.Add(WithId(WithHelp(HudProp.Enum("  Donor element",
+                () => { int k = ids.IndexOf(cur); return k < 0 ? 0 : k; },
+                v => { if (v >= 0 && v < ids.Count) PickDonor(cat, ids[v]); },
+                names),
+                "Every element in this profile, including ones hidden by the current tier."),
+                "fxdonorsel" + (int)cat));
+        }
+
+        /// <summary>Legal donors for one category: everything except this element and anything that
+        /// is ITSELF inheriting that category (the depth-1 rule, plan §5.4). An element that merely
+        /// FOLLOWS the globals is legal — inheriting from it simply means following the globals
+        /// too, and it becomes meaningful the moment that element takes ownership.</summary>
+        private static List<string> DonorChoiceIds(HudElementDef d, HudFxCategory cat, string current)
+        {
+            var outIds = new List<string>();
+            HudDocument doc = null;
+            try { doc = Features.HudProfileStore.Active; } catch { }
+            if (doc == null || doc.Elements == null || d == null) return outIds;
+            // The CURRENT donor always leads the list, even when it has since become illegal
+            // (it started inheriting too) — a combo whose selected value is missing would
+            // otherwise display, and on any replay WRITE, somebody else's Id.
+            if (!string.IsNullOrEmpty(current)
+                && !string.Equals(current, d.Id, System.StringComparison.Ordinal))
+                outIds.Add(current);
+            else
+                outIds.Add("");   // the combo needs a truthful "nothing chosen yet" entry
+            for (int i = 0; i < doc.Elements.Count; i++)
+            {
+                var e = doc.Elements[i];
+                if (e == null || string.IsNullOrEmpty(e.Id)) continue;
+                if (string.Equals(e.Id, d.Id, System.StringComparison.Ordinal)) continue;
+                if (outIds.Contains(e.Id)) continue;
+                if (HudStyleFx.SourceOf(e, cat, HudStyleSlot.Base) == HudFxSource.Donor) continue;
+                outIds.Add(e.Id);
+            }
+            return outIds;
+        }
+
+        /// <summary>Choosing "Inherit from another element" in the combo. A stored donor that is
+        /// still legal is re-applied immediately (the common case: you flipped to Own for one edit
+        /// and want the link back); otherwise the pick gesture is ARMED and the bits are left alone,
+        /// so cancelling with Esc leaves the category exactly where it was (plan §5.3 point 3).</summary>
+        private void SetCategorySourceFromMenu(HudFxCategory cat, HudFxSource src)
+        {
+            if (src != HudFxSource.Donor) { SetCategorySource(cat, src); return; }
+            var d = Def;
+            if (d == null) return;
+            string id = HudStyleDonor.DonorIdOf(d, cat, EditSlot(d));
+            if (!string.IsNullOrEmpty(id) && HudStyleDonor.Find(id) != null
+                && !string.Equals(id, d.Id, System.StringComparison.Ordinal))
+            {
+                SetCategorySource(cat, HudFxSource.Donor);
+                return;
+            }
+            // No usable donor yet. During the per-tier fork REPLAY this setter is called by
+            // SeedSlotFromBase, not by a human, so arming a pick gesture there would hijack the
+            // canvas because somebody ticked "Separate BARE style" — write the honest bits instead
+            // and let the page's own [Change donor...] button do the asking.
+            if (_replayingSlotSeed) { SetCategorySource(cat, HudFxSource.Donor); return; }
+            Windows.HudEditorMode.BeginDonorPick(cat, false);
+        }
+
+        /// <summary>Apply a donor chosen from the DROPDOWN (the canvas gesture goes through
+        /// <see cref="Windows.HudEditorMode.ApplyDonorPick"/> instead, so its whole click is one
+        /// undo step; this row is bracketed by the prop drawer).
+        ///
+        /// IT ALSO DISARMS THE CANVAS PICK. The two affordances answer the same question, and
+        /// "[Change donor...]" arms the gesture before the user has any chance to reach the
+        /// dropdown — so choosing from the list while a pick is armed used to leave it armed, and
+        /// the next unrelated click anywhere on the HUD silently re-pointed the category.</summary>
+        internal void PickDonor(HudFxCategory cat, string donorId)
+        {
+            if (string.IsNullOrEmpty(donorId)) return;
+            SetCategoryDonor(cat, donorId);
+            Windows.HudEditorMode.CancelDonorPick();
+        }
+
         /// <summary>One page of the style tab bar: the category's follow checkbox, then either its
         /// summary line (following) or every registry row of that category in table order (own).
         /// Appends nothing when the element has no surface the category can touch.</summary>
@@ -1690,19 +2116,8 @@ namespace StationeersUIMod.UI.Hud
 
             var page = new List<HudProp>();
             bool followable = HudStyleFx.IsFollowable(cat) && FxCategoryHasFollowableRows(cat);
-            bool own = EditOwns(d, cat);
-            if (followable)
-            {
-                page.Add(CategoryFollowRow(d, cat));
-                if (!own)
-                {
-                    page.Add(HudProp.Note("    This element's " + HudStyleFx.CategoryName(cat)
-                        + " follows the F9 globals."));
-                    page.Add(HudProp.Note(
-                        "    Untick to edit it here - the values open at exactly what you see now."));
-                    AddCategoryJump(page, cat);
-                }
-            }
+            if (followable) AddCategorySourceRows(page, d, cat);
+            bool readOnly = followable && EditSourceFor(d, cat) == HudFxSource.Donor;
 
             var all = HudStyleFx.All;
             string lastSection = null;
@@ -1736,7 +2151,13 @@ namespace StationeersUIMod.UI.Hud
                     continue;
                 }
                 FxCloseSharedRun(page, ref runDef, ref runLocal);
-                AddFxEditableRow(page, d, def);
+                // A DONOR category is not editable here — the donor owns these values — but it is
+                // shown, resolved, so "inheriting Glass from that box" is a visible promise rather
+                // than a blank page. StateIndependent geometry stays editable in every state.
+                if (readOnly && !(def.StateIndependent && !def.HasGlobal))
+                    AddFxReadOnlyRow(page, d, def);
+                else
+                    AddFxEditableRow(page, d, def);
             }
             FxCloseSharedRun(page, ref runDef, ref runLocal);
             string tailFoot = FxSectionFooter(cat, lastSection);
@@ -1847,6 +2268,28 @@ namespace StationeersUIMod.UI.Hud
                     break;
                 }
             }
+            AddFxRowNotes(into, def);
+        }
+
+        /// <summary>ONE row of an INHERITING category: the registry's own caption plus the value
+        /// this element currently resolves it to, dimmed and non-interactive — the same shape a
+        /// shared-global row uses, because it is the same kind of thing (a value you can see and
+        /// cannot set here).
+        ///
+        /// The value is resolved THROUGH THE DONOR, by the same
+        /// <see cref="EditStyleSrcDef"/> the renderer's <see cref="StyleSrc"/> mirrors: the donor's
+        /// stored value when the donor owns the family, the global when it does not or when the
+        /// reference has degraded. So a dangling or depth-illegal donor reads "the global" here and
+        /// renders the global on screen — one answer, never two.</summary>
+        private void AddFxReadOnlyRow(List<HudProp> into, HudElementDef d, HudStyleFxDef def)
+        {
+            if (into == null || d == null || def == null) return;
+            HudStyleSlot slot;
+            var src = EditStyleSrcDef(d, def.Category, out slot);
+            string value = src != null
+                ? def.ResolveText(src, slot, true)
+                : def.ResolveText(null, slot, false);
+            into.Add(HudProp.Note("  " + FxLabel(def).Trim() + ":  " + value, def.Tip));
             AddFxRowNotes(into, def);
         }
 
@@ -1963,6 +2406,10 @@ namespace StationeersUIMod.UI.Hud
         {
             var page = new List<HudProp>();
             page.Add(CategoryFollowRow(d, HudFxCategory.Transitions));
+            // Stated HERE because this page builds its own head — AddCategorySourceRows (which owns
+            // the three-state combo, and had this line) is never reached for Transitions.
+            page.Add(HudProp.Note(
+                "    Inherit-from-element is not offered here: motion is shared by every tier."));
             if (!EditOwns(d, HudFxCategory.Transitions))
             {
                 page.Add(HudProp.Note(
@@ -2082,6 +2529,14 @@ namespace StationeersUIMod.UI.Hud
                 "elAnchor", "elX", "elY", "elW", "elH", "elWPct", "elHPct", "zOrder", "tiers",
                 "styleSourceAll",
             };
+            // The Phase 4 DONOR PICKERS ("fxdonorsel<cat>"). Skipped for the same reason the
+            // transition rows are: replaying one is a mutation, not a copy — and it is unnecessary,
+            // because "styleDonor" is a slot-aware param whose base value the fresh fork already
+            // resolves ("same donor for every tier" for free, plan §5.1). The per-category SOURCE
+            // combos ("styleSrc0".."styleSrc6") are NOT skipped: they carry the real per-slot
+            // Global/Donor/Own state across the fork.
+            for (int i = 0; i < HudStyleFx.Followable.Length; i++)
+                s.Add("fxdonorsel" + (int)HudStyleFx.Followable[i]);
             for (int i = 0; i < HudTransitionFx.All.Length; i++)
             {
                 var fx = HudTransitionFx.All[i];
@@ -2158,12 +2613,20 @@ namespace StationeersUIMod.UI.Hud
         ///
         /// No hand-maintained key manifest: the widget's own <see cref="DescribeProps"/> IS the
         /// manifest, so a widget that gains a knob gains a forkable knob for free.</summary>
+        /// <summary>True only inside <see cref="SeedSlotFromBase"/>'s replay. Exactly one setter
+        /// cares: the Phase 4 style-source combo, which ARMS A PICK GESTURE when a category is set
+        /// to Donor with no usable donor stored — a fine thing to do for a click, a canvas hijack
+        /// when it is a replay writing a fork. Set and cleared in the same synchronous call (in a
+        /// finally), so no teardown can strand it.</summary>
+        private static bool _replayingSlotSeed;
+
         internal static void SeedSlotFromBase(HudElementView view, HudStyleSlot slot)
         {
             if (view == null || view.Def == null || slot == HudStyleSlot.Base) return;
             var d = view.Def;
             var prevEdit = EditTargetSlot;
             var prevLayout = LayoutSlot;
+            _replayingSlotSeed = true;
             var scratch = new List<HudProp>();
             var values = new Dictionary<string, object>(System.StringComparer.Ordinal);
             try
@@ -2190,6 +2653,7 @@ namespace StationeersUIMod.UI.Hud
             }
             finally
             {
+                _replayingSlotSeed = false;
                 EditTargetSlot = prevEdit;
                 LayoutSlot = prevLayout;
                 d.Set(HudElementDef.TierStyleSeedKey, null);
@@ -2229,21 +2693,117 @@ namespace StationeersUIMod.UI.Hud
         /// (<see cref="HudStyleFx.SlotFor"/>). Writing it per-slot desynced the checkbox from its
         /// own rows on a bare-forked element: untick a transition and the box sprang back.</summary>
         internal void SetCategoryFollow(HudFxCategory cat, bool follow)
+            => SetCategorySource(cat, follow ? HudFxSource.Global : HudFxSource.Own);
+
+        /// <summary>Move ONE category to an explicit source — the Phase 4 generalisation of the
+        /// follow checkbox into the three-state control (plan §5.2).
+        ///
+        /// Global  : flip the bits. Any stored values (and the donor reference) stay dormant on
+        ///           disk, decision 5.
+        /// Own     : SEED FIRST, while the old source is still live, so every row opens at exactly
+        ///           what the element is rendering — the same value-preserving contract for a
+        ///           DONOR ("Detach to own" freezes the donor's values) as for a global.
+        /// Donor   : flip the bits only. Donor resolution is live, so there is nothing to seed;
+        ///           the caller must have written the category's own donor key first
+        ///           (<see cref="SetCategoryDonor"/> does both).
+        ///
+        /// Seeding is gated on a REAL change of source. For the four steady families re-seeding an
+        /// already-Own category is idempotent, so the gate changes nothing there — but
+        /// SeedTransitions is NOT idempotent (it writes Inherit over stored On/Off by design), and
+        /// the per-tier fork seed replays every control at its current value, so an unguarded call
+        /// would wipe an already-separated element's motion design just because the author ticked
+        /// "Separate BARE style".
+        ///
+        /// Per SLOT: separating while the BARE tab is up writes the bare fork, not the shared base
+        /// every tier inherits — EXCEPT Transitions, whose bits live on Base whatever tab is up,
+        /// because the rows it governs do (<see cref="HudStyleFx.SlotFor"/>).</summary>
+        internal void SetCategorySource(HudFxCategory cat, HudFxSource src)
         {
             var d = Def;
             if (d == null || !HudStyleFx.IsFollowable(cat)) return;
+            if (src == HudFxSource.Donor && !HudStyleDonor.IsDonorCapable(cat)) return;
+            // Any EXPLICIT source change for this family makes an armed pick for it stale — the
+            // combo's Global/Own entries, the master checkbox and "Detach to own" all land here.
+            // Leaving it armed would let the next unrelated canvas click re-point the category,
+            // which is the same trap the dropdown path had (fix 3).
+            if (src != HudFxSource.Donor && Windows.HudEditorMode.IsPickingFor(d, cat, false))
+                Windows.HudEditorMode.CancelDonorPick();
             var slot = HudStyleFx.SlotFor(cat, EditSlot(d));
-            // Seed only on a REAL Global -> Own transition. For the four steady families re-seeding
-            // an already-Own category is idempotent (every write is that category's own value read
-            // back), so the gate changes nothing there — but SeedTransitions is NOT idempotent: it
-            // writes Inherit over stored On/Off by design, and the per-tier fork seed replays every
-            // checkbox at its current value, so an unguarded call would wipe an already-separated
-            // element's motion design just because the author ticked "Separate BARE style".
-            if (!follow && HudStyleFx.SourceOf(d, cat, slot) != HudFxSource.Own)
+            var was = HudStyleFx.SourceOf(d, cat, slot);
+            if (src == HudFxSource.Own && was != HudFxSource.Own) SeedCategory(d, slot, cat);
+            WriteSourceBits(d, slot, HudStyleFx.WithSource(HudStyleFx.PackedOf(d, slot), cat, src));
+        }
+
+        /// <summary>Point ONE category at another element and switch it to Donor, as one edit.
+        /// Writes the donor reference FIRST so the bits are never live against an absent Id (which
+        /// would degrade to Global for a frame and log a spurious warning).
+        ///
+        /// Legality is the caller's (the pick gesture's) job — see
+        /// <see cref="HudStyleDonor.Evaluate"/>. A donor that becomes illegal LATER is not an error
+        /// here: it degrades to the globals at resolve time, which is exactly the depth-1 rule.</summary>
+        internal void SetCategoryDonor(HudFxCategory cat, string donorId)
+        {
+            var d = Def;
+            if (d == null || string.IsNullOrEmpty(donorId)) return;
+            if (!HudStyleDonor.IsDonorCapable(cat)) return;
+            var slot = HudStyleFx.SlotFor(cat, EditSlot(d));
+            d.SetSFor(slot, HudStyleDonor.DonorParamKeyFor(cat), donorId);
+            WriteSourceBits(d, slot,
+                HudStyleFx.WithSource(HudStyleFx.PackedOf(d, slot), cat, HudFxSource.Donor));
+            HudStyleDonor.Invalidate();
+        }
+
+        /// <summary>The ONE-SHOT copy (plan §5.1's "and it is why we should also ship a plain Copy
+        /// &lt;category&gt; from… button"): take another element's RESOLVED values for one family,
+        /// write them in as this element's own, and store NO reference at all. "Make this look like
+        /// that, then diverge" — no lifetime semantics, nothing to dangle.
+        ///
+        /// Implemented by pointing at the donor for the duration of one seed and putting the
+        /// previous reference back, so it reuses <see cref="SeedCategory"/> verbatim rather than
+        /// growing a second copy of the "what does this row resolve to" rules — the exact
+        /// five-place duplication the registry exists to delete.</summary>
+        internal void CopyCategoryFrom(string donorId, HudFxCategory cat)
+        {
+            var d = Def;
+            if (d == null || string.IsNullOrEmpty(donorId)) return;
+            if (!HudStyleDonor.IsDonorCapable(cat)) return;
+            if (string.Equals(donorId, d.Id, System.StringComparison.Ordinal)) return;
+            var slot = HudStyleFx.SlotFor(cat, EditSlot(d));
+            int packed = HudStyleFx.PackedOf(d, slot);
+            string donorKey = HudStyleDonor.DonorParamKeyFor(cat);
+            string rawKey = HudElementDef.SlotPrefix(slot) + donorKey;
+            // RAW presence, per slot. HasSlotOverride tests a PREFIXED key and is false for Base by
+            // construction, so the base slot has to be asked directly or restoring would delete a
+            // reference the element genuinely stored.
+            bool hadOwnRef = slot == HudStyleSlot.Base
+                ? d.GetS(donorKey, null) != null
+                : d.HasSlotOverride(slot, donorKey);
+            string prevRef = hadOwnRef ? d.GetSFor(slot, donorKey, null) : null;
+            try
+            {
+                // BOTH transient writes are RAW. They exist for the duration of one seed and are
+                // undone in the finally, so neither may trip the copy-on-write: SetSFor would stamp
+                // a doomed donor Id into a fork, and SetIFor would permanently materialise
+                // "b_styleSrc" at the OLD base word on a fork that had none (a Sanitize-adopted
+                // legacy fork, say) — freezing its follow state against every later base edit. The
+                // finally's WriteSourceBits is the one write that SHOULD copy-on-write, because it
+                // is the real, lasting change.
+                d.Set(rawKey, donorId);
+                d.SetI(HudElementDef.SlotPrefix(slot) + HudStyleFx.SourceParamKey,
+                    HudStyleFx.WithSource(packed, cat, HudFxSource.Donor));
+                HudStyleDonor.Invalidate();
                 SeedCategory(d, slot, cat);
-            int packed = HudStyleFx.WithSource(HudStyleFx.PackedOf(d, slot), cat,
-                follow ? HudFxSource.Global : HudFxSource.Own);
-            WriteSourceBits(d, slot, packed);
+            }
+            finally
+            {
+                d.Set(rawKey, hadOwnRef ? prevRef : null);
+                // Put the ORIGINAL word back (raw) BEFORE the real write, so the copy-on-write
+                // inside WriteSourceBits hands an unprotected fork the word it was actually
+                // resolving rather than the transient donor one.
+                d.SetI(HudElementDef.SlotPrefix(slot) + HudStyleFx.SourceParamKey, packed);
+                WriteSourceBits(d, slot, HudStyleFx.WithSource(packed, cat, HudFxSource.Own));
+                HudStyleDonor.Invalidate();
+            }
         }
 
         /// <summary>Freeze ONE category's currently resolved values into the element, by walking
@@ -2331,6 +2891,14 @@ namespace StationeersUIMod.UI.Hud
         /// (cornerStyle 0, an empty colour ref), and the four null-global keys. Everything else
         /// falls through to the generic branch, which IS plan §3.2's one rule — so a row added to
         /// the table is seeded correctly without touching this function.</summary>
+        ///
+        /// SLOT INVARIANT: the named branches below resolve through the LIVE resolvers
+        /// (<c>BorderWidthFor</c>, <c>GlassEdgeFor</c>, <c>RingGlowFor</c>, …), which read at
+        /// <see cref="LayoutReadSlot"/> — and <see cref="SeedCategory"/> pins <c>LayoutSlot</c> to
+        /// the target slot for the whole loop, so they read the slot being seeded. That only became
+        /// true once <c>LayoutReadSlot</c> stopped narrowing Robot to Base (Phase 4 fix 7); before
+        /// it, seeding a Robot fork would have frozen the BASE values while the generic branch and
+        /// `rippleSmooth` (which pass the slot explicitly) froze the fork's. Keep the two in step.
         private void SeedFxRow(HudElementDef d, HudStyleSlot slot, HudStyleFxDef def)
         {
             if (d == null || def == null || def.SharedOnly) return;
@@ -2338,10 +2906,12 @@ namespace StationeersUIMod.UI.Hud
             {
                 // ---- first-class HudElementDef fields ----
                 case "cornerRadius":
-                    d.SetRTLFor(slot, Radius(d.RTLFor(slot)));
-                    d.SetRTRFor(slot, Radius(d.RTRFor(slot)));
-                    d.SetRBRFor(slot, Radius(d.RBRFor(slot)));
-                    d.SetRBLFor(slot, Radius(d.RBLFor(slot)));
+                    // The corner INDEX matters here for the same reason it matters on the draw
+                    // path: seeding out of a donor must copy the donor's matching corner.
+                    d.SetRTLFor(slot, Radius(d.RTLFor(slot), CornerTL));
+                    d.SetRTRFor(slot, Radius(d.RTRFor(slot), CornerTR));
+                    d.SetRBRFor(slot, Radius(d.RBRFor(slot), CornerBR));
+                    d.SetRBLFor(slot, Radius(d.RBLFor(slot), CornerBL));
                     return;
                 case "borderWidth": d.SetBorderWidthFor(slot, BorderWidthFor()); return;
                 // The element font scale MULTIPLIES the shared one and is read in both states, so
@@ -2381,9 +2951,16 @@ namespace StationeersUIMod.UI.Hud
                 case "ringGlow": d.SetFFor(slot, "ringGlow", Mathf.Clamp(RingGlowFor(), 0f, 2f)); return;
                 case "customFrostOn": d.SetBFor(slot, "customFrostOn", FrostFeatureOn()); return;
                 case "rippleSmooth":
-                    d.SetFFor(slot, "rippleSmooth",
-                        Owns(HudFxCategory.Edges) ? d.GetFFor(slot, "rippleSmooth", 0f) : 0f);
+                {
+                    // No global: the value is whatever the SOURCE stores (this element, or a donor
+                    // that owns Edges), and 0 when the category follows the globals. Resolved on
+                    // the TARGET slot rather than through the render-slot helper, so seeding a
+                    // Robot fork reads Robot.
+                    HudStyleSlot rs;
+                    var rd = StyleSrcDefFor(d, HudFxCategory.Edges, slot, out rs);
+                    d.SetFFor(slot, "rippleSmooth", rd != null ? rd.GetFFor(rs, "rippleSmooth", 0f) : 0f);
                     return;
+                }
             }
 
             string key = def.ParamKey;
@@ -2399,24 +2976,30 @@ namespace StationeersUIMod.UI.Hud
                 return;
             }
 
-            // THE GENERIC BRANCH = plan §3.2's one rule. Following ⇒ the global; Own ⇒ the stored
-            // value with the global as its default. Colour refs are deliberately never snapshotted.
+            // THE GENERIC BRANCH = plan §3.2's one rule, now with Phase 4's third source. Following
+            // ⇒ the global; Own ⇒ the stored value with the global as its default; Donor ⇒ the same
+            // read taken on the DONOR, which is what makes "Detach to own" (and the one-shot "Copy
+            // from") freeze exactly what the follower is rendering. Resolved on the TARGET SLOT,
+            // not through the render-slot helper, so seeding a Robot fork reads Robot.
+            // Colour refs are deliberately never snapshotted.
+            HudStyleSlot ss;
+            var sd = StyleSrcDefFor(d, def.Category, slot, out ss);
             switch (def.Kind)
             {
                 case HudFxKind.Bool:
-                    d.SetBFor(slot, key, Owns(def.Category)
-                        ? d.GetBFor(slot, key, def.GlobalBool) : def.GlobalBool);
+                    d.SetBFor(slot, key, sd != null
+                        ? sd.GetBFor(ss, key, def.GlobalBool) : def.GlobalBool);
                     break;
                 case HudFxKind.Color:
                     break;
                 case HudFxKind.Int:
                 case HudFxKind.Combo:
-                    d.SetIFor(slot, key, Owns(def.Category)
-                        ? d.GetIFor(slot, key, def.GlobalInt) : def.GlobalInt);
+                    d.SetIFor(slot, key, sd != null
+                        ? sd.GetIFor(ss, key, def.GlobalInt) : def.GlobalInt);
                     break;
                 default:
-                    d.SetFFor(slot, key, Owns(def.Category)
-                        ? d.GetFFor(slot, key, def.GlobalFloat) : def.GlobalFloat);
+                    d.SetFFor(slot, key, sd != null
+                        ? sd.GetFFor(ss, key, def.GlobalFloat) : def.GlobalFloat);
                     break;
             }
         }
@@ -2513,6 +3096,13 @@ namespace StationeersUIMod.UI.Hud
             // today: every caller passes forceCustomSnapshot when followGlobal is false.)
             if (!forceCustomSnapshot && legacySource == StyleCustom) return;
 
+            // PHASE 4, and it must run BEFORE the loop below reads the source bits: a category
+            // INHERITING from another element stores nothing of its own, so a snapshot taken from
+            // this def alone would freeze the GLOBAL and quietly undo the inheritance the author
+            // set up. Fold the donor's stored keys in first and mark the family Own; the loop then
+            // preserves them verbatim, exactly as it would a family the element had owned all along.
+            FoldDonorCategoriesIntoOwn(d);
+
             // PHASE 3: the ~40 hand-written writes that used to sit here are a REGISTRY LOOP. The
             // per-key rules are unchanged (SnapshotDefRow still honours a stored 0's full legacy
             // semantics, which HudStyleMigration depends on) — what changed is that the table drives
@@ -2542,6 +3132,74 @@ namespace StationeersUIMod.UI.Hud
             d.Set("followGlobal", null); // extinct legacy flag — never re-written
             d.SetB("customStyleReady", true);
             WriteSourceBits(d, HudStyleSlot.Base, BulkPackedFor(d, false));
+        }
+
+        /// <summary>Def-only "detach to own" for every category currently inheriting from another
+        /// element: copy the donor's STORED values across (verbatim, as strings — so -1 sentinels,
+        /// "follow the global" zeros and empty colour refs keep meaning exactly what they meant on
+        /// the donor) and switch the family to Own.
+        ///
+        /// Only the def-only bulk path needs this. The interactive one goes through
+        /// <see cref="SeedCategory"/>, whose resolvers already read through the donor.
+        ///
+        /// A DEGRADED donor (deleted, self, depth-illegal) copies NOTHING, which is the right
+        /// answer and not a special case: with no keys stored, Phase 0b's one missing-key
+        /// convention resolves every row to the global — which is precisely what a degraded donor
+        /// renders. Base slot only, like the rest of this path.</summary>
+        private static void FoldDonorCategoriesIntoOwn(HudElementDef d)
+        {
+            if (d == null) return;
+            int packed = HudStyleFx.PackedOf(d, HudStyleSlot.Base);
+            bool any = false;
+            for (int c = 0; c < HudStyleFx.Followable.Length; c++)
+            {
+                var cat = HudStyleFx.Followable[c];
+                if (HudStyleFx.SourceIn(packed, cat) != HudFxSource.Donor) continue;
+                var donor = HudStyleDonor.Resolve(d, cat, HudStyleSlot.Base);
+                if (donor != null) CopyStoredCategory(donor, d, cat);
+                packed = HudStyleFx.WithSource(packed, cat, HudFxSource.Own);
+                any = true;
+            }
+            if (any) WriteSourceBits(d, HudStyleSlot.Base, packed);
+        }
+
+        /// <summary>Copy one category's stored BASE keys from one def to another, verbatim. Param
+        /// rows come from the registry (so a knob added tomorrow travels for free) and the three
+        /// first-class fields are named because they are not in the param bag.</summary>
+        private static void CopyStoredCategory(HudElementDef from, HudElementDef to,
+            HudFxCategory cat)
+        {
+            if (from == null || to == null) return;
+            var all = HudStyleFx.All;
+            for (int i = 0; i < all.Length; i++)
+            {
+                var def = all[i];
+                if (def == null || def.Category != cat || def.SharedOnly) continue;
+                if (string.IsNullOrEmpty(def.ParamKey)) continue;
+                // StateIndependent rows (the box-end fades, the trapezoid insets, the element font
+                // scale) sit OUTSIDE the follow system entirely — they are this element's own
+                // GEOMETRY in every state, so a donor must never overwrite them.
+                if (def.StateIndependent) continue;
+                // The two def-only capability gates the rest of this path already applies, so a
+                // fold cannot hand a Box a dead ring key or a panel the line-only edge light.
+                if ((string.Equals(def.Key, "ringGlow", System.StringComparison.Ordinal)
+                        || string.Equals(def.Key, "ringGlowColor", System.StringComparison.Ordinal))
+                    && !SupportsBorderOnlyChromeFor(to)) continue;
+                if (string.Equals(def.Key, "edgeLight", System.StringComparison.Ordinal)
+                    && to.Type != HudElementType.Polyline) continue;
+                to.Set(def.ParamKey, from.GetS(def.ParamKey, null));
+            }
+            if (cat != HudFxCategory.Surface) return;
+            // THROUGH THE SLOT WRITERS, never the raw fields. A direct `to.BorderWidth = …` skips
+            // ProtectFieldForks, so a Bare/Robot fork that was merely INHERITING the base width or
+            // a corner radius would silently start tracking the donor's values instead — the exact
+            // leak Wave C exists to prevent, and the same correction the Phase 3 review applied to
+            // the reset loop's param writes.
+            to.SetBorderWidthFor(HudStyleSlot.Base, from.BorderWidth);
+            to.SetRTLFor(HudStyleSlot.Base, from.RTL);
+            to.SetRTRFor(HudStyleSlot.Base, from.RTR);
+            to.SetRBRFor(HudStyleSlot.Base, from.RBR);
+            to.SetRBLFor(HudStyleSlot.Base, from.RBL);
         }
 
         /// <summary>Border-only chrome, answered from a raw def (no live view) — the same static-map
@@ -2581,19 +3239,25 @@ namespace StationeersUIMod.UI.Hud
             switch (def.Key)
             {
                 // ---- first-class fields ----
+                // The first-class FIELDS go through the slot writers, not the raw fields: a direct
+                // assignment skips ProtectFieldForks, so a fork that was merely INHERITING the base
+                // width or a corner radius would silently start tracking the new base value. (This
+                // was a pre-existing hole on the plain Global path, not new to Phase 4 — fixed here
+                // because Phase 4's donor fold sits two functions away and shares the rule.)
                 case "borderWidth":
                 {
                     float g = HudConfig.BorderWidth != null ? HudConfig.BorderWidth.Value : 1.4f;
-                    d.BorderWidth = sourceGlobal || d.BorderWidth < 0f ? g : d.BorderWidth;
+                    d.SetBorderWidthFor(HudStyleSlot.Base,
+                        sourceGlobal || d.BorderWidth < 0f ? g : d.BorderWidth);
                     return;
                 }
                 case "cornerRadius":
                 {
                     float g = HudConfig.CornerRadius != null ? HudConfig.CornerRadius.Value : 10f;
-                    d.RTL = sourceGlobal || d.RTL < 0f ? g : d.RTL;
-                    d.RTR = sourceGlobal || d.RTR < 0f ? g : d.RTR;
-                    d.RBR = sourceGlobal || d.RBR < 0f ? g : d.RBR;
-                    d.RBL = sourceGlobal || d.RBL < 0f ? g : d.RBL;
+                    d.SetRTLFor(HudStyleSlot.Base, sourceGlobal || d.RTL < 0f ? g : d.RTL);
+                    d.SetRTRFor(HudStyleSlot.Base, sourceGlobal || d.RTR < 0f ? g : d.RTR);
+                    d.SetRBRFor(HudStyleSlot.Base, sourceGlobal || d.RBR < 0f ? g : d.RBR);
+                    d.SetRBLFor(HudStyleSlot.Base, sourceGlobal || d.RBL < 0f ? g : d.RBL);
                     return;
                 }
                 case "elFontScale": return;   // the element's own multiplier: never follows

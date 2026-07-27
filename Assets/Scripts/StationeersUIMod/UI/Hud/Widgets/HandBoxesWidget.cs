@@ -60,12 +60,12 @@ namespace StationeersUIMod.UI.Hud.Widgets
 
             ((RectTransform)_tray.transform).anchoredPosition = c;
             _tray.SetShape(s.x, s.y,
-                Radius(Def.RTLFor(LayoutBare)), Radius(Def.RTRFor(LayoutBare)), Radius(Def.RBRFor(LayoutBare)), Radius(Def.RBLFor(LayoutBare)),
+                RadiusTL(), RadiusTR(), RadiusBR(), RadiusBL(),
                 topInset: s.x * 0.116f);
 
             float boxW, boxH, boxX;
             BoxMetrics(scale, out boxW, out boxH, out boxX);
-            float boxRadius = Mathf.Min(Radius(Def.RTLFor(LayoutBare)), 12f);
+            float boxRadius = Mathf.Min(RadiusTL(), 12f);
 
             // F9 nudges for the two text rows (reference px × scale). Applied identically to both
             // hands so the pair stays symmetric — "+X" shifts both labels the same screen direction.

@@ -330,7 +330,24 @@ namespace StationeersUIMod.UI.Hud
             }
             if (srcMapped > 0) RepairedOnLoad = true;
 
+            // Style-parity Phase 4 (2026-07-27): a "styleDonor" that names no live element — the
+            // donor was deleted, or the file was hand-edited — is cleared, and every category that
+            // pointed at it drops back to Global (plan §4.2 / §5.5). Self-references go the same
+            // way. A DEPTH violation is deliberately NOT swept: it is not a broken reference but a
+            // state that appears and disappears as the DONOR's own source changes, so it degrades
+            // at resolve time instead. Reads no live global; fail-soft per document.
+            int donorFixed = 0;
+            try { donorFixed = HudStyleDonor.Sweep(this); }
+            catch (Exception e)
+            {
+                UIALog.Warn("HudDocument: donor sweep failed (" + e.Message
+                    + ") — dangling references degrade to the globals at render time.");
+            }
+            if (donorFixed > 0) RepairedOnLoad = true;
+
             string label = string.IsNullOrEmpty(Name) ? "HudDocument" : "HudDocument '" + Name + "'";
+            if (donorFixed > 0)
+                UIALog.Warn($"{label}: cleared {donorFixed} dangling style-donor reference(s); those families follow the globals again.");
             if (srcMapped > 0)
                 UIALog.Warn($"{label}: mapped {srcMapped} style slot(s) onto the per-category follow model.");
             if (sdfBackfilled > 0)

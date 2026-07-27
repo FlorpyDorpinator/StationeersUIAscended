@@ -370,7 +370,25 @@ namespace StationeersUIMod.Core
                         + SourceLine(target, UI.Hud.HudStyleSlot.Base), ConsoleColor.White);
                 ConsoleWindow.Print(
                     "  source: global = follows the F9 slider, own = this element stores it, "
-                    + "shared = physically one value for every panel.", ConsoleColor.White);
+                    + "donor = it reads ANOTHER element's, shared = one value for every panel.",
+                    ConsoleColor.White);
+                // Phase 4: every category in state D gets a line naming its donor and saying
+                // whether the link actually resolves — dangling and depth-illegal donors print
+                // WHY they degraded rather than silently reading as "global" three lines down.
+                var followable = UI.Hud.HudStyleFx.Followable;
+                for (int i = 0; i < followable.Length; i++)
+                {
+                    var fcat = followable[i];
+                    if (UI.Hud.HudStyleFx.SourceOf(target, fcat, s) != UI.Hud.HudFxSource.Donor)
+                        continue;
+                    UI.Hud.HudElementDef donorDef;
+                    var dstate = UI.Hud.HudStyleDonor.Evaluate(target, fcat, s, out donorDef);
+                    string did = UI.Hud.HudStyleDonor.DonorIdOf(target, fcat, s);
+                    ConsoleWindow.Print("  donor [" + fcat + "]  D -> "
+                        + UI.Hud.HudStyleDonor.ShortId(did) + "   "
+                        + UI.Hud.HudStyleDonor.DescribeState(dstate, donorDef, did),
+                        dstate == UI.Hud.HudDonorState.Ok ? ConsoleColor.Green : ConsoleColor.Yellow);
+                }
 
                 var all = UI.Hud.HudStyleFx.All;
                 UI.Hud.HudFxCategory? lastCat = null;
@@ -386,11 +404,16 @@ namespace StationeersUIMod.Core
 
                     // PER-ROW EFFECTIVE SOURCE, from this row's own CATEGORY rather than from one
                     // element-wide flag — the point of Phase 3, and what makes a mixed element
-                    // legible in the dump.
-                    bool rowOwn = UI.Hud.HudStyleFx.SourceOf(target, def.Category, s)
-                                  == UI.Hud.HudFxSource.Own;
+                    // legible in the dump. Phase 4: a row can now resolve THROUGH A DONOR, and the
+                    // value column follows it there, so what is printed is what renders.
+                    var rowSrc = UI.Hud.HudStyleFx.SourceOf(target, def.Category, s);
+                    UI.Hud.HudStyleSlot rowSlot;
+                    var rowDef = UI.Hud.HudElementView.StyleSrcDefFor(target, def.Category, s, out rowSlot);
+                    bool rowOwn = rowDef != null;
                     string source;
                     if (def.SharedOnly) source = "shared";
+                    else if (rowSrc == UI.Hud.HudFxSource.Donor)
+                        source = rowDef != null ? "donor" : "donor(=global)";
                     else if (!def.HasGlobal) source = rowOwn ? "own-only" : "own-only(off)";
                     else if (rowOwn && def.HasOwnValue(target, s)) source = "own";
                     else if (rowOwn) source = "own(=global)";
@@ -405,7 +428,9 @@ namespace StationeersUIMod.Core
 
                     ConsoleWindow.Print(
                         string.Format("     {0,-20} {1,-14} {2,-10} (global {3}){4}",
-                            def.Key, source, def.ResolveText(target, s, rowOwn), def.GlobalText, flags),
+                            def.Key, source,
+                            rowDef != null ? def.ResolveText(rowDef, rowSlot, true) : def.GlobalText,
+                            def.GlobalText, flags),
                         ConsoleColor.White);
                 }
 

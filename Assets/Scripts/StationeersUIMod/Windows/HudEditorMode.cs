@@ -73,6 +73,7 @@ namespace StationeersUIMod.Windows
             _origHout.Clear();
             _dragPointIndex = -1;
             EditingPoints = false;
+            CancelDonorPick();          // Phase 4: never leave a stranded pick across F6 / re-entry
             CancelDrawLine();
             CancelDrawShape();
             HudSystem.ForceTier = null;
@@ -90,6 +91,11 @@ namespace StationeersUIMod.Windows
         {
             Exit();
             UI.Hud.HudDocumentHistory.Clear();
+            // The donor Id -> def index holds a document reference; drop it with everything else so
+            // a hot reload cannot leave the resolvers pointing at the previous assembly's document.
+            // The popup's donor dropdown caches a derived view of the same document — same rule.
+            UI.Hud.HudStyleDonor.Shutdown();
+            UI.Hud.HudElementView.ClearDonorPickerCache();
             _views.Clear();
             if (_dimCanvas != null) Object.Destroy(_dimCanvas.gameObject);
             _dimCanvas = null;
@@ -278,6 +284,37 @@ namespace StationeersUIMod.Windows
                 }
             }
 
+            // DONOR PICK MODE intercepts the canvas entirely (plan §5.3): the click picks a donor
+            // instead of moving the selection or starting a drag, and Esc / right-click cancels
+            // with the category left exactly where it was. Placed AFTER the hover hit-test (it
+            // needs HoverElement) and BEFORE every gesture that could consume the same click.
+            if (PickingDonor)
+            {
+                // The element the gesture was armed for must still be the selected one; a profile
+                // switch or a delete underneath us cancels rather than writing into a stale doc.
+                if (SelectedElement == null || SelectedElement.Def == null
+                    || !string.Equals(SelectedElement.Def.Id, _donorPickForId,
+                        System.StringComparison.Ordinal))
+                {
+                    CancelDonorPick();
+                    return;
+                }
+                if (Input.GetKeyDown(KeyCode.Escape) || Input.GetMouseButtonDown(1))
+                {
+                    CancelDonorPick();
+                    return;
+                }
+                if (!imguiOwnsMouse && Input.GetMouseButtonDown(0))
+                {
+                    // An illegal target (self, or an element already inheriting this family) and
+                    // empty space both CONSUME the click and stay armed — the cue already says
+                    // why, and silently exiting the mode would read as "it took my click".
+                    if (HoverElement != null && DonorPickLegal(HoverElement))
+                        ApplyDonorPick(HoverElement);
+                }
+                return;
+            }
+
             // Marquee in progress: track until release, then select everything it touches.
             if (_marquee)
             {
@@ -446,6 +483,100 @@ namespace StationeersUIMod.Windows
 
         /// <summary>Bumped whenever a NEW element is selected so the popup follows.</summary>
         public static int ElementStamp;
+
+        // ================= DONOR PICK MODE (style parity Phase 4, plan §5.3) =================
+        //
+        // "Inherit this family from THAT element": the popup arms pick mode, the next left-click
+        // over an element CONSUMES the click (it does not move the selection, does not start a
+        // drag), validates the target, writes the donor reference and exits. Esc or right-click
+        // cancels, leaving the category exactly where it was — the combo never wrote its bits.
+        //
+        // It reuses the editor's OWN hit-test (HoverElement) rather than inventing a second one,
+        // so a curved HUD picks true and the hover outline the user already knows still shows
+        // which element is under the cursor; DrawGizmos adds the accept/reject cue on top.
+        //
+        // ALL OF THIS IS EDITOR STATE and must not survive a hot reload — see Exit(), which
+        // Shutdown() calls (CLAUDE.md: every new static resets in the relevant teardown).
+
+        internal static bool PickingDonor { get; private set; }
+        internal static UI.Hud.HudFxCategory DonorPickCategory { get; private set; }
+        /// <summary>True for the one-shot "Copy &lt;category&gt; from…" gesture, which stores no
+        /// reference at all — so it has no depth rule and any element but the target itself is a
+        /// legal source.</summary>
+        internal static bool DonorPickCopyOnly { get; private set; }
+        private static string _donorPickForId;
+
+        /// <summary>Arm the pick gesture for the SELECTED element (the popup that offers the
+        /// buttons is that element's). No-op with nothing selected.</summary>
+        internal static void BeginDonorPick(UI.Hud.HudFxCategory cat, bool copyOnly)
+        {
+            var v = SelectedElement;
+            if (v == null || v.Def == null) return;
+            PickingDonor = true;
+            DonorPickCategory = cat;
+            DonorPickCopyOnly = copyOnly;
+            _donorPickForId = v.Def.Id;
+        }
+
+        internal static void CancelDonorPick()
+        {
+            PickingDonor = false;
+            _donorPickForId = null;
+            DonorPickCopyOnly = false;
+        }
+
+        /// <summary>Is the gesture currently armed for exactly this element/category/mode? Drives
+        /// the "PICKING: click an element" line in the popup.</summary>
+        internal static bool IsPickingFor(UI.Hud.HudElementDef d, UI.Hud.HudFxCategory cat, bool copyOnly)
+            => PickingDonor && d != null && DonorPickCopyOnly == copyOnly
+               && DonorPickCategory == cat
+               && string.Equals(_donorPickForId, d.Id, System.StringComparison.Ordinal);
+
+        /// <summary>May this element be picked right now? Self is never legal; for a LINKED donor
+        /// the depth-1 rule (plan §5.4) also rejects an element that is itself inheriting this
+        /// family. A one-shot COPY has no lifetime and therefore no depth rule.</summary>
+        internal static bool DonorPickLegal(UI.Hud.HudElementView v)
+        {
+            if (!PickingDonor || v == null || v.Def == null) return false;
+            if (string.Equals(v.Def.Id, _donorPickForId, System.StringComparison.Ordinal)) return false;
+            if (DonorPickCopyOnly) return true;
+            return UI.Hud.HudStyleFx.SourceOf(v.Def, DonorPickCategory, UI.Hud.HudStyleSlot.Base)
+                   != UI.Hud.HudFxSource.Donor;
+        }
+
+        /// <summary>Run a one-shot element edit that came from a BUTTON row in the popup as exactly
+        /// one undo step. The prop drawer brackets sliders, checkboxes and combos itself but
+        /// deliberately not buttons ("whatever it does is responsible for its own bracketing"), and
+        /// <see cref="CommitDocumentMutation"/> only spends a step on a real change — so an
+        /// idempotent click still leaves undo/redo alone.</summary>
+        internal static void RunUndoableElementEdit(System.Action edit)
+        {
+            if (edit == null) return;
+            var doc = Features.HudProfileStore.Active;
+            var before = doc != null ? doc.Clone() : null;
+            edit();
+            CommitDocumentMutation(before);
+            if (SelectedElement != null) HudSystem.RelayoutElement(SelectedElement);
+        }
+
+        /// <summary>Consume a pick click. The WHOLE gesture is one undo step, bracketed exactly
+        /// like every other element edit (CommitDocumentMutation only spends a step on a real
+        /// change, so an idempotent re-pick leaves undo alone).</summary>
+        private static void ApplyDonorPick(UI.Hud.HudElementView donor)
+        {
+            var follower = SelectedElement;
+            var cat = DonorPickCategory;
+            bool copyOnly = DonorPickCopyOnly;
+            CancelDonorPick();
+            if (follower == null || follower.Def == null || donor == null || donor.Def == null) return;
+
+            var doc = Features.HudProfileStore.Active;
+            var before = doc != null ? doc.Clone() : null;
+            if (copyOnly) follower.CopyCategoryFrom(donor.Def.Id, cat);
+            else follower.SetCategoryDonor(cat, donor.Def.Id);
+            CommitDocumentMutation(before);
+            HudSystem.RelayoutElement(follower);
+        }
 
         /// <summary>The F10 Control Center window is the current edit target (clicked while open
         /// behind the editor). Mutually exclusive with an element selection; drives the
@@ -1189,6 +1320,9 @@ namespace StationeersUIMod.Windows
                 doc.Elements.Remove(v.Def);
             _multiIds.Clear();
             _selectedId = null;
+            // A follower pointing at what we just deleted must degrade THIS frame (plan §5.5): drop
+            // the donor index so the lookup returns null immediately rather than resolving a ghost.
+            UI.Hud.HudStyleDonor.Invalidate();
             Features.HudProfileStore.MarkChanged();
             HudSystem.RequestViewRebuild();
         }
@@ -1217,6 +1351,10 @@ namespace StationeersUIMod.Windows
             copy.X += 14f;
             copy.Y -= 14f;
             doc.Elements.Add(copy);
+            // The clone keeps its source's donor reference (a Params copy) and gets a fresh Id, so
+            // it inherits from the same element — correct, and free. Re-index so it can also BE a
+            // donor immediately.
+            UI.Hud.HudStyleDonor.Invalidate();
             _pendingSelectId = copy.Id;
             Features.HudProfileStore.MarkChanged();
             HudSystem.RequestViewRebuild();

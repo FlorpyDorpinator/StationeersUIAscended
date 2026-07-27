@@ -421,8 +421,8 @@ namespace StationeersUIMod.UI.Hud.Widgets
                 bg.gameObject.SetActive(true);
                 ((RectTransform)bg.transform).anchoredPosition = center;
                 bg.SetShape(size.x, size.y,
-                    Radius(Def.RTLFor(LayoutBare)), Radius(Def.RTRFor(LayoutBare)),
-                    Radius(Def.RBRFor(LayoutBare)), Radius(Def.RBLFor(LayoutBare)));
+                    RadiusTL(), RadiusTR(),
+                    RadiusBR(), RadiusBL());
                 bg.color = FillColor();
                 bg.BorderColor = BorderColor();
                 bg.BorderWidth = BorderWidthFor();
@@ -439,8 +439,8 @@ namespace StationeersUIMod.UI.Hud.Widgets
             var s = SizeFor(scale);
             ((RectTransform)_bg.transform).anchoredPosition = c;
             _bg.SetShape(s.x, s.y,
-                Radius(Def.RTLFor(LayoutBare)), Radius(Def.RTRFor(LayoutBare)),
-                Radius(Def.RBRFor(LayoutBare)), Radius(Def.RBLFor(LayoutBare)),
+                RadiusTL(), RadiusTR(),
+                RadiusBR(), RadiusBL(),
                 InsetTop(scale), InsetBottom(scale));
             _bg.color = FillColor();
             _bg.BorderColor = BorderColor();

@@ -69,7 +69,7 @@ namespace StationeersUIMod.UI.Hud.Widgets
 
             ((RectTransform)_box.transform).anchoredPosition = c;
             _box.SetShape(s.x, s.y,
-                Radius(Def.RTLFor(LayoutBare)), Radius(Def.RTRFor(LayoutBare)), Radius(Def.RBRFor(LayoutBare)), Radius(Def.RBLFor(LayoutBare)),
+                RadiusTL(), RadiusTR(), RadiusBR(), RadiusBL(),
                 InsetTop(scale), InsetBottom(scale));
 
             float pad = 6f * scale;
