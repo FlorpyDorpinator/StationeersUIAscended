@@ -51,14 +51,26 @@ profile ("pure hud" → "Pure HUD") from either the F9 or F10 UI — F9 treats t
 plain cancel. Deliberate for now (the alternative is a two-step move through a temp name), but
 it's a rough edge a tester will hit. Do it in the file system in the meantime.
 
-## 9. Shipped themes are still authored at Schema 7  *(Wave E §7 / Config-and-Theme-Migration §3)*
-`Stationeers Blue.xml` and `Pure HUD.xml` both carry `Schema="7"` while `HudDocument.CurrentSchema`
-has moved to 15. Harmless today — `Sanitize` migrates + re-saves them on open every time, and
-`SyncShipped` hashes the canonical (post-`Sanitize`) form on both sides, so the stale `Schema`
-attribute never causes a spurious refresh — but it does mean an extra disk write at boot for
-every player, and it's needless churn to keep carrying forward. Re-export both at the current
-schema (F9's dev-only export-to-shipped flow, §D5 of the checklist) during the next
-theme-authoring pass, not mid-release.
+## 9. ~~Shipped themes are still authored at Schema 7~~ — **DONE 2026-07-27** *(style-parity Phase 5)*
+`Stationeers Blue.xml` and `Pure HUD.xml` are now stored in their own post-`Sanitize` canonical
+form at **Schema 16**: `styleSrc` materialised on all 44 element slots, the Phase 0b SDF halo
+back-fill applied to the three bare-forked elements in each, and the Wave C `tierStyle` adoption
+pre-done. A new install therefore parses them and finds nothing to repair — no `RepairedOnLoad`
+rewrite at boot. Produced by a throwaway console harness that loads each XML through the mod's
+OWN `XmlSerializer` + `HudDocument.Sanitize` and writes the result back (no hand-transcription;
+`Sanitize` reads no live global, so a headless run is valid — verified). The re-export is a
+FIXED POINT: re-running it changes nothing. `ShippedProfiles.cs`'s embedded constants were
+re-synced from the same output and verified line-for-line and by `CanonHash` equality.
+See `Changes Reports/2026-07-27 - Style parity Phase 5 (StripGlass on the registry, shipped
+themes at Schema 16).md`.
+
+## 9b. ~~Report 03 rec 7 / item 1: the five hand-written effect lists~~ — **DONE, Phases 1–3**
+The audit's "the reset button silently rotted because the knob list is hand-maintained" finding
+(`03-F9-Editor-and-Knob-Parity.md` finding 5 / recommendation 7, and `00-Overview-and-Release-
+Plan.md` §170 item 1) is closed by the `HudStyleFx` registry: F9's global rows (Phase 1), the
+element popup (Phase 2), the seed / def-only snapshot / "reset to globals" loops (Phase 3) and
+"Flatten ALL boxes" (Phase 5) are all rendered or driven from the ONE table. There is no
+hand-written steady-state effect list left to drift.
 
 ## 10. SDF chamfer support — superellipse p=1  *(corner-style follow-up, 2026-07-26)*
 Cut panels currently drop off the analytic `sdfglass` renderer (its silhouette is computed

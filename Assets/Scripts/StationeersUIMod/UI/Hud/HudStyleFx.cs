@@ -257,6 +257,34 @@ namespace StationeersUIMod.UI.Hud
             }
         }
 
+        /// <summary>Does this row HAVE a value at which it contributes nothing at all — the
+        /// "flat" end of its range (plan §3.3's <c>def.Neutral</c>)?
+        ///
+        /// True for every checkbox (unticked is always off) and for every float whose range
+        /// REACHES zero, because that is what a strength/width/depth slider's zero means. False
+        /// for the three rate/shape floats whose range starts above zero — energy frequency
+        /// (0.05..8), halo radius (6..320), organic scale (0.25..4): there is no "frequency" that
+        /// means off, the off-switch is the gate above them. Also false for the colour, combo and
+        /// integer rows, where zero is a palette/enum value rather than an amount (a `cornerStyle`
+        /// of 0 means "follow the global", the exact sentinel a flatten must not write).
+        ///
+        /// Deliberately DERIVED from the row's own kind and range rather than hand-declared per
+        /// row: a hand-written neutral is a fifth list to keep in step, which is the whole failure
+        /// this registry exists to make impossible.</summary>
+        public bool HasNeutral
+        {
+            get
+            {
+                if (Kind == HudFxKind.Bool) return true;
+                return Kind == HudFxKind.Float && Min <= 0f;
+            }
+        }
+
+        /// <summary>The value <see cref="HasNeutral"/> describes: 0 — false for a checkbox, zero
+        /// strength for a slider. Meaningless (and never written) when <see cref="HasNeutral"/> is
+        /// false.</summary>
+        public float Neutral => 0f;
+
         /// <summary>True when this element/slot actually STORES its own value for this row (as
         /// opposed to resolving the global through an absent key). Read-only presence test.</summary>
         public bool HasOwnValue(HudElementDef d, HudStyleSlot slot)

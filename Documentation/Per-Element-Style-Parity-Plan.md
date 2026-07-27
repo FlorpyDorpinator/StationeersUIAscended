@@ -1,7 +1,15 @@
 # Per-Element Style Parity — bug root causes, the `HudStyleFx` registry, and inherit-from-element
 
-**Status:** APPROVED by FlorpyDorp 2026-07-26 — in implementation. His decisions on the open
-questions are recorded at the top of §7.
+**Status:** APPROVED by FlorpyDorp 2026-07-26 — **Phases 0–5 are IMPLEMENTED** (0 and 1 on
+2026-07-26; 2, 3, 4 and 5 on 2026-07-27, one Changes Report each in `Changes Reports/`). This
+document is kept intact as the DESIGN RECORD, not as a running task list: where the shipped code
+deviates from the text below, the deviation is argued in the phase's Changes Report and in the
+code comments, and this plan is deliberately not retro-edited to match. Two such deviations worth
+knowing before reading §6: the seven power transitions were NOT copied into `HudStyleFx.All`
+(`HudTransitionFx` remains their sole authority, bridged by `HudStyleFx.Transitions`), and
+§6's "drop the `styleSource` write" in the Phase 5 row is superseded by §4.2's more specific
+one-release rule — the write is KEPT for 0.9.2.5 and dropped in the release after. His decisions
+on the open questions are recorded at the top of §7.
 **Author:** investigation pass, 2026-07-26. No code, config or profile was modified.
 **Companion reading:** `Documentation/Config-and-Theme-Migration.md` (the migration disciplines this
 plan obeys), `Documentation/Release Prep Reports/03-F9-Editor-and-Knob-Parity.md` (the audit that
@@ -599,7 +607,11 @@ to authors.
 ### 4.4 Shipped themes
 
 Re-export Glassy 4.0 / Pure HUD / Stationeers Blue / Zirillian Red at Schema 16 in Phase 5 — this
-is exactly **to-do item 9**, which this plan absorbs. `HudProfileStore.SyncShipped` hashes the
+is exactly **to-do item 9**, which this plan absorbs. *(Implementation note, 2026-07-27: the
+SHIPPED set is only two — `HudProfiles/` holds `Stationeers Blue.xml` + `Pure HUD.xml`. Glassy 4.0
+survives only as an embedded self-heal factory for players whose old profile file goes missing,
+and Zirillian Red is FlorpyDorp's own in-progress theme, present in the repo folder as a preview
+`.png` with no XML. Both re-exported themes are byte-mirrored into `ShippedProfiles.cs`.)* `HudProfileStore.SyncShipped` hashes the
 canonical post-`Sanitize` form on both sides, so the re-export causes no spurious refresh for
 players who have not edited them, and no loss for players who have (migration doc §3).
 

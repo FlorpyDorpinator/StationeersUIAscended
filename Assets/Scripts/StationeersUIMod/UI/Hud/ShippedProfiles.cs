@@ -27,7 +27,7 @@ namespace StationeersUIMod.UI.Hud
         public const string PureHudName = "Pure HUD";
 
         public const string StationeersBlueXml =
-@"<HudDocument xmlns:xsd='http://www.w3.org/2001/XMLSchema' xmlns:xsi='http://www.w3.org/2001/XMLSchema-instance' Schema='7' Name='Stationeers Blue' RefW='0' RefH='0'>
+@"<HudDocument xmlns:xsd='http://www.w3.org/2001/XMLSchema' xmlns:xsi='http://www.w3.org/2001/XMLSchema-instance' Schema='16' Name='Stationeers Blue' RefW='0' RefH='0'>
   <El Id='g2-topbar' Type='Box' Anchor='TopCenter' X='0' Y='-38' W='1860' H='62' WPct='0.99' HPct='-1' Z='0' Tiers='Suited Robot' Fill='#001727D5' Border='#54D5FE65' TextColor='#FFFFFFF5' BorderWidth='0.076' RTL='32.778' RTR='23.263' RBR='64' RBL='64' FontScale='1' Align='Center'>
     <P K='insetBottom' V='9.418' />
     <P K='sheen' V='0' />
@@ -83,6 +83,7 @@ namespace StationeersUIMod.UI.Hud
     <P K='styleSource' V='2' />
     <P K='fxWarp' V='true' />
     <P K='fxCollapseMode' V='2' />
+    <P K='styleSrc' V='682' />
   </El>
   <El Id='g2-clock' Type='Clock' Anchor='TopLeft' X='150' Y='-38' W='200' H='40' WPct='-1' HPct='-1' Z='2' Tiers='Suited Robot' Fill='#0017279A' Border='#54D5FE65' TextColor='#FFFFFF5B' BorderWidth='0.076' RTL='11.771' RTR='11.771' RBR='11.771' RBL='11.771' FontScale='1' Align='Center'>
     <P K='fxCollapse' V='false' />
@@ -135,6 +136,7 @@ namespace StationeersUIMod.UI.Hud
     <P K='customStyleReady' V='true' />
     <P K='styleSource' V='1' />
     <P K='fxCollapseMode' V='2' />
+    <P K='styleSrc' V='512' />
   </El>
   <El Id='g2-extpress' Type='Readout' Anchor='TopLeft' X='488.8861' Y='-31.7937088' W='287.217' H='61.11' WPct='-1' HPct='-1' Z='2' Tiers='Suited Robot' Fill='HudPanelFill' Border='HudPanelBorder' TextColor='HudTextValue' BorderWidth='0.076' RTL='11.771' RTR='11.771' RBR='11.771' RBL='11.771' FontScale='1' Align='Center'>
     <P K='src' V='ExternalPressure' />
@@ -195,6 +197,7 @@ namespace StationeersUIMod.UI.Hud
     <P K='customStyleReady' V='true' />
     <P K='styleSource' V='1' />
     <P K='fxCollapseMode' V='2' />
+    <P K='styleSrc' V='512' />
   </El>
   <El Id='g2-compass' Type='Compass' Anchor='TopCenter' X='-24' Y='-38' W='329.813' H='68' WPct='-0.995' HPct='-1' Z='3' Tiers='Suited Robot' Fill='HudPanelFill' Border='HudPanelBorder' TextColor='HudTextValue' BorderWidth='0.076' RTL='11.771' RTR='11.771' RBR='11.771' RBL='11.771' FontScale='1.08' Align='Center'>
     <P K='box' V='false' />
@@ -253,6 +256,7 @@ namespace StationeersUIMod.UI.Hud
     <P K='customStyleReady' V='true' />
     <P K='styleSource' V='1' />
     <P K='fxCollapseMode' V='2' />
+    <P K='styleSrc' V='512' />
   </El>
   <El Id='g2-exttemp' Type='Readout' Anchor='TopRight' X='-360' Y='-38' W='240' H='50' WPct='-1' HPct='-1' Z='2' Tiers='Suited Robot' Fill='HudPanelFill' Border='HudPanelBorder' TextColor='HudTextValue' BorderWidth='0.076' RTL='11.771' RTR='11.771' RBR='11.771' RBL='11.771' FontScale='0.836' Align='Center' Icon='Temp'>
     <P K='src' V='ExternalTemp' />
@@ -312,6 +316,7 @@ namespace StationeersUIMod.UI.Hud
     <P K='customStyleReady' V='true' />
     <P K='styleSource' V='1' />
     <P K='fxCollapseMode' V='2' />
+    <P K='styleSrc' V='512' />
   </El>
   <El Id='g2-day' Type='DayCounter' Anchor='TopRight' X='-120' Y='-38' W='130' H='40' WPct='-1' HPct='-1' Z='2' Tiers='Suited Robot' Fill='#0017279A' Border='#54D5FE65' TextColor='#FFFFFF5B' BorderWidth='0.076' RTL='11.771' RTR='11.771' RBR='11.771' RBL='11.771' FontScale='1' Align='Center'>
     <P K='fxCollapse' V='false' />
@@ -364,6 +369,7 @@ namespace StationeersUIMod.UI.Hud
     <P K='customStyleReady' V='true' />
     <P K='styleSource' V='1' />
     <P K='fxCollapseMode' V='2' />
+    <P K='styleSrc' V='512' />
   </El>
   <El Id='g2-moodlets' Type='MoodletDashboard' Anchor='TopCenter' X='-26' Y='-105' W='1414' H='64' WPct='-1' HPct='-1' Z='91' Tiers='All' Fill='#070B17D8' Border='#08567A65' TextColor='#FFFFFFF5' BorderWidth='0.511' RTL='11.771' RTR='11.771' RBR='11.771' RBL='11.771' FontScale='1.138' Align='Center'>
     <P K='box' V='false' />
@@ -442,6 +448,7 @@ namespace StationeersUIMod.UI.Hud
     <P K='fxCollapseMode' V='2' />
     <P K='fxGlitchMode' V='2' />
     <P K='fxWarpMode' V='1' />
+    <P K='styleSrc' V='512' />
   </El>
   <El Id='g2-eqleft' Type='EquipmentColumn' Anchor='BottomCenter' X='-360' Y='56' W='264' H='78' WPct='-1' HPct='-1' Z='2' Tiers='All' Fill='HudPanelFill' Border='#54D5FE65' TextColor='HudTextValue' BorderWidth='0.67' RTL='11.771' RTR='11.771' RBR='11.771' RBL='11.771' FontScale='1.041' Align='Center'>
     <P K='horizontal' V='true' />
@@ -508,6 +515,18 @@ namespace StationeersUIMod.UI.Hud
     <P K='b_customGlowOn' V='false' />
     <P K='fxCollapseMode' V='2' />
     <P K='fxGlitchMode' V='2' />
+    <P K='tierStyle' V='1' />
+    <P K='tierStyleNeedsSeed' V='true' />
+    <P K='b_glowExtraDiffuse' V='0' />
+    <P K='b_glowHaze' V='0.424' />
+    <P K='b_glowBreath' V='0.299' />
+    <P K='b_glowUneven' V='0.436' />
+    <P K='b_glowOrganicScale' V='1' />
+    <P K='b_glowFlowAura' V='0.065' />
+    <P K='b_customGlowBreathOn' V='true' />
+    <P K='b_customGlowUnevenOn' V='true' />
+    <P K='b_customGlowFlowOn' V='true' />
+    <P K='styleSrc' V='682' />
   </El>
   <El Id='g2-hands' Type='HandBoxes' Anchor='BottomCenter' X='-16' Y='62' W='358' H='118' WPct='-1' HPct='-1' Z='2' Tiers='All' Fill='#0017279A' Border='#54D5FE65' TextColor='#FFFFFFF5' BorderWidth='0.076' RTL='11.771' RTR='11.771' RBR='11.771' RBL='11.771' FontScale='0.599' Align='Center'>
     <P K='tray' V='false' />
@@ -578,6 +597,18 @@ namespace StationeersUIMod.UI.Hud
     <P K='fxCollapseMode' V='2' />
     <P K='fxDissolveMode' V='2' />
     <P K='fxGlitchMode' V='2' />
+    <P K='tierStyle' V='1' />
+    <P K='tierStyleNeedsSeed' V='true' />
+    <P K='b_glowExtraDiffuse' V='0' />
+    <P K='b_glowHaze' V='0' />
+    <P K='b_glowBreath' V='0' />
+    <P K='b_glowUneven' V='0' />
+    <P K='b_glowOrganicScale' V='1' />
+    <P K='b_glowFlowAura' V='0' />
+    <P K='b_customGlowBreathOn' V='false' />
+    <P K='b_customGlowUnevenOn' V='false' />
+    <P K='b_customGlowFlowOn' V='false' />
+    <P K='styleSrc' V='682' />
   </El>
   <El Id='g2-eqright' Type='EquipmentColumn' Anchor='BottomCenter' X='360' Y='56' W='264' H='78' WPct='-1' HPct='-1' Z='2' Tiers='All' Fill='HudPanelFill' Border='HudPanelBorder' TextColor='HudTextValue' BorderWidth='0.076' RTL='11.771' RTR='11.771' RBR='11.771' RBL='11.771' FontScale='1' Align='Center'>
     <P K='horizontal' V='true' />
@@ -641,6 +672,18 @@ namespace StationeersUIMod.UI.Hud
     <P K='b_customGlowOn' V='false' />
     <P K='fxCollapseMode' V='2' />
     <P K='fxGlitchMode' V='2' />
+    <P K='tierStyle' V='1' />
+    <P K='tierStyleNeedsSeed' V='true' />
+    <P K='b_glowExtraDiffuse' V='0' />
+    <P K='b_glowHaze' V='0.424' />
+    <P K='b_glowBreath' V='0.299' />
+    <P K='b_glowUneven' V='0.436' />
+    <P K='b_glowOrganicScale' V='1' />
+    <P K='b_glowFlowAura' V='0.065' />
+    <P K='b_customGlowBreathOn' V='true' />
+    <P K='b_customGlowUnevenOn' V='true' />
+    <P K='b_customGlowFlowOn' V='true' />
+    <P K='styleSrc' V='682' />
   </El>
   <El Id='g2-portrait' Type='Portrait' Anchor='BottomRight' X='-96' Y='100' W='186' H='178' WPct='-1' HPct='-1' Z='3' Tiers='Suited Robot' Fill='HudPanelFill' Border='#54D5FE83' TextColor='HudTextValue' BorderWidth='0.728' RTL='11.771' RTR='11.771' RBR='11.771' RBL='11.771' FontScale='0.679' Align='Center'>
     <P K='camFov' V='25.08' />
@@ -696,6 +739,7 @@ namespace StationeersUIMod.UI.Hud
     <P K='customStyleReady' V='true' />
     <P K='styleSource' V='2' />
     <P K='fxDissolveMode' V='2' />
+    <P K='styleSrc' V='682' />
   </El>
   <El Id='g2-chips' Type='StateChips' Anchor='BottomRight' X='-98' Y='208' W='115.479019' H='27.8273258' WPct='-1' HPct='-1' Z='3' Tiers='Suited Robot' Fill='HudPanelFill' Border='HudPanelBorder' TextColor='HudTextValue' BorderWidth='-1' RTL='-1' RTR='-1' RBR='-1' RBL='-1' FontScale='1' Align='Center'>
     <P K='light' V='true' />
@@ -709,6 +753,7 @@ namespace StationeersUIMod.UI.Hud
     <P K='mAWPct' V='-1' />
     <P K='mAHPct' V='-1' />
     <P K='styleSource' V='1' />
+    <P K='styleSrc' V='0' />
   </El>
   <El Id='g2-intpress' Type='Readout' Anchor='BottomRight' X='-226.599' Y='125.067' W='72' H='56' WPct='-0.741' HPct='-0.758' Z='-7' Tiers='Suited Robot' Fill='HudPanelFill' Border='HudPanelBorder' TextColor='HudTextValue' BorderWidth='-1' RTL='-1' RTR='-1' RBR='-1' RBL='-1' FontScale='1.47' Align='Center'>
     <P K='src' V='InternalPressure' />
@@ -732,6 +777,7 @@ namespace StationeersUIMod.UI.Hud
     <P K='iconScale' V='0.76' />
     <P K='rowTitleY' V='0.835' />
     <P K='rowValueY' V='0.173' />
+    <P K='styleSrc' V='0' />
   </El>
   <El Id='g2-inttemp' Type='Readout' Anchor='BottomRight' X='-226.599' Y='69.687' W='74.763' H='49.8420029' WPct='-1' HPct='-1' Z='3' Tiers='Suited Robot' Fill='HudPanelFill' Border='HudPanelBorder' TextColor='HudTextValue' BorderWidth='-1' RTL='-1' RTR='-1' RBR='-1' RBL='-1' FontScale='2.116' Align='Center' Icon='Temp'>
     <P K='src' V='InternalTemp' />
@@ -755,6 +801,7 @@ namespace StationeersUIMod.UI.Hud
     <P K='styleSource' V='1' />
     <P K='rowValueY' V='0.169' />
     <P K='rowTargetY' V='0.517' />
+    <P K='styleSrc' V='0' />
   </El>
   <El Id='g2-jetpack' Type='JetpackBox' Anchor='BottomRight' X='-226.599' Y='183.216' W='71.994' H='55.38' WPct='-1' HPct='-1' Z='3' Tiers='Suited Robot' Fill='HudPanelFill' Border='HudPanelBorder' TextColor='HudTextValue' BorderWidth='0.076' RTL='11.771' RTR='11.771' RBR='11.771' RBL='11.771' FontScale='0.75' Align='Center'>
     <P K='mAL' V='true' />
@@ -806,6 +853,7 @@ namespace StationeersUIMod.UI.Hud
     <P K='customFrostOn' V='true' />
     <P K='customFrost' V='0.87' />
     <P K='customStyleReady' V='true' />
+    <P K='styleSrc' V='0' />
   </El>
   <El Id='g2-vitals' Type='VitalsPanel' Anchor='BottomRight' X='-304.131' Y='133.374' W='73.82112' H='152' WPct='-1' HPct='-1' Z='3' Tiers='Suited Robot' Fill='HudPanelFill' Border='HudPanelBorder' TextColor='HudTextValue' BorderWidth='0.076' RTL='11.771' RTR='11.771' RBR='11.771' RBL='11.771' FontScale='0.858' Align='Center'>
     <P K='sheen' V='0' />
@@ -862,6 +910,7 @@ namespace StationeersUIMod.UI.Hud
     <P K='customDissolve' V='true' />
     <P K='customStyleReady' V='true' />
     <P K='styleSource' V='1' />
+    <P K='styleSrc' V='0' />
   </El>
   <El Id='g2-bare-senses' Type='BareSenses' Anchor='Center' X='-564.876038' Y='13.845' W='304.59' H='415.35' WPct='-1' HPct='-1' Z='73' Tiers='Bare' Fill='#0000002C' Border='#54D5FE00' TextColor='HudTextValue' BorderWidth='0.076' RTL='11.771' RTR='11.771' RBR='11.771' RBL='11.771' FontScale='1' Align='Center'>
     <P K='order' V='temp,air,pressure,thirst,hunger,health,toilet,cognition' />
@@ -920,6 +969,7 @@ namespace StationeersUIMod.UI.Hud
     <P K='pad' V='22.776' />
     <P K='showDay' V='false' />
     <P K='box' V='true' />
+    <P K='styleSrc' V='170' />
   </El>
   <El Id='cfe7acaf9a1e4ee0af3e7bf373ad9c3b' Type='Readout' Anchor='Center' X='836.697' Y='-575.49' W='77.532' H='38.766' WPct='-1' HPct='-1' Z='50' Tiers='Suited Robot' Fill='HudPanelFill' Border='HudPanelBorder' TextColor='HudTextValue' BorderWidth='0.076' RTL='11.771' RTR='11.771' RBR='11.771' RBL='11.771' FontScale='2.381' Align='Center' Icon='speed'>
     <P K='src' V='Speed' />
@@ -979,6 +1029,7 @@ namespace StationeersUIMod.UI.Hud
     <P K='customDissolve' V='true' />
     <P K='customStyleReady' V='true' />
     <P K='styleSource' V='1' />
+    <P K='styleSrc' V='0' />
   </El>
   <El Id='e4d9d8873c1b46fab33d7ccb368865d4' Type='PngDoll' Anchor='Center' X='673.326' Y='-500.72702' W='90' H='218' WPct='-1' HPct='-1' Z='50' Tiers='Suited Robot' Fill='HudPanelFill' Border='HudPanelBorder' TextColor='HudTextValue' BorderWidth='0.076' RTL='11.771' RTR='11.771' RBR='11.771' RBL='11.771' FontScale='1' Align='Center'>
     <P K='armY' V='0.002' />
@@ -1036,6 +1087,7 @@ namespace StationeersUIMod.UI.Hud
     <P K='customDissolve' V='true' />
     <P K='customStyleReady' V='true' />
     <P K='styleSource' V='1' />
+    <P K='styleSrc' V='0' />
   </El>
   <El Id='d78f4bc71d534617b57769c7dc63ecaa' Type='Box' Anchor='Center' X='6.7859993' Y='467.210022' W='1603.971' H='64.428' WPct='-1' HPct='-0.134' Z='-45' Tiers='Suited Robot' Fill='#0017279A' Border='#54D5FEFF' TextColor='#FFFFFFF5' BorderWidth='0.076' RTL='2.061' RTR='1.881' RBR='10.524' RBL='9.803' FontScale='1' Align='Center'>
     <P K='insetTop' V='27.701' />
@@ -1092,6 +1144,7 @@ namespace StationeersUIMod.UI.Hud
     <P K='customStyleReady' V='true' />
     <P K='styleSource' V='1' />
     <P K='fxCollapseMode' V='2' />
+    <P K='styleSrc' V='512' />
   </El>
   <El Id='7fe6ca4964ec4808bc58d33ac38d072a' Type='Box' Anchor='Center' X='34.786' Y='439.210022' W='1603.971' H='64.428' WPct='-1' HPct='-0.134' Z='-76' Tiers='Suited Robot' Fill='HudPanelFill' Border='HudPanelBorder' TextColor='HudTextValue' BorderWidth='0.076' RTL='3.141' RTR='1.341' RBR='21.777' RBL='13.764' FontScale='1' Align='Center'>
     <P K='insetTop' V='27.701' />
@@ -1147,6 +1200,7 @@ namespace StationeersUIMod.UI.Hud
     <P K='styleSource' V='1' />
     <P K='fxCollapseMode' V='2' />
     <P K='fxDissolveMode' V='2' />
+    <P K='styleSrc' V='512' />
   </El>
   <El Id='bd7856c8bad94f32befa9185b6b2faea' Type='Box' Anchor='Center' X='20.786' Y='453.210022' W='1603.971' H='64.428' WPct='-1' HPct='-0.134' Z='-31' Tiers='Suited Robot' Fill='#000000CB' Border='#E0E1E100' TextColor='#FFFFFFF5' BorderWidth='0.076' RTL='0.8' RTR='0.62' RBR='10.524' RBL='9.803' FontScale='1' Align='Center'>
     <P K='insetTop' V='27.701' />
@@ -1206,6 +1260,7 @@ namespace StationeersUIMod.UI.Hud
     <P K='customStyleReady' V='true' />
     <P K='styleSource' V='2' />
     <P K='fxCollapseMode' V='2' />
+    <P K='styleSrc' V='682' />
   </El>
   <El Id='9e793ae9588642b98e3aab5a592c649b' Type='Box' Anchor='Center' X='0' Y='0' W='180' H='60' WPct='-1' HPct='-1' Z='-85' Tiers='Suited Robot' Fill='HudPanelFill' Border='HudPanelBorder' TextColor='HudTextValue' BorderWidth='0.076' RTL='11.771' RTR='11.771' RBR='11.771' RBL='11.771' FontScale='1' Align='Center'>
     <P K='mAL' V='true' />
@@ -1264,6 +1319,7 @@ namespace StationeersUIMod.UI.Hud
     <P K='fxPulse' V='false' />
     <P K='fxPulseAmt' V='1' />
     <P K='customStyleReady' V='true' />
+    <P K='styleSrc' V='0' />
   </El>
   <El Id='3628cff85bc6445d9fe6fefc60b5d3ba' Type='Polyline' Anchor='Center' X='-2.77398682' Y='-393.328278' W='1622.24939' H='104.955254' WPct='-1' HPct='-1' Z='-98' Tiers='Suited Robot' Fill='#0017279A' Border='#54D5FE65' TextColor='#7DDDFB91' BorderWidth='0.076' RTL='11.771' RTR='11.771' RBR='11.771' RBL='11.771' FontScale='1.167' Align='Center'>
     <P K='pts' V='-811.1247,-46;-520,-52;-295.1247,40;-9.124695,52.4776268;280.8753,38.4776268;528.8753,-52.4776268;811.1247,-46.388134' />
@@ -1320,6 +1376,7 @@ namespace StationeersUIMod.UI.Hud
     <P K='fxPulse' V='false' />
     <P K='fxPulseAmt' V='1' />
     <P K='customStyleReady' V='true' />
+    <P K='styleSrc' V='170' />
   </El>
   <Theme>
     <E k='cfg:Curvature' v='VertexWarp' />
@@ -1522,7 +1579,7 @@ namespace StationeersUIMod.UI.Hud
 </HudDocument>";
 
         public const string PureHudXml =
-@"<HudDocument xmlns:xsd='http://www.w3.org/2001/XMLSchema' xmlns:xsi='http://www.w3.org/2001/XMLSchema-instance' Schema='7' Name='Pure HUD' RefW='0' RefH='0'>
+@"<HudDocument xmlns:xsd='http://www.w3.org/2001/XMLSchema' xmlns:xsi='http://www.w3.org/2001/XMLSchema-instance' Schema='16' Name='Pure HUD' RefW='0' RefH='0'>
   <El Id='g2-clock' Type='Clock' Anchor='TopLeft' X='150' Y='-38' W='200' H='40' WPct='-1' HPct='-1' Z='2' Tiers='Suited Robot' Fill='#0017279A' Border='#54D5FE65' TextColor='HudTextLabel' BorderWidth='0.076' RTL='11.771' RTR='11.771' RBR='11.771' RBL='11.771' FontScale='1' Align='Center'>
     <P K='fxCollapse' V='false' />
     <P K='sheen' V='0' />
@@ -1574,6 +1631,7 @@ namespace StationeersUIMod.UI.Hud
     <P K='customStyleReady' V='true' />
     <P K='styleSource' V='1' />
     <P K='fxCollapseMode' V='2' />
+    <P K='styleSrc' V='512' />
   </El>
   <El Id='g2-extpress' Type='Readout' Anchor='TopLeft' X='488.8861' Y='-31.7937088' W='287.217' H='61.11' WPct='-1' HPct='-1' Z='2' Tiers='Suited Robot' Fill='HudPanelFill' Border='HudPanelBorder' TextColor='HudTextValue' BorderWidth='0.076' RTL='11.771' RTR='11.771' RBR='11.771' RBL='11.771' FontScale='1' Align='Center'>
     <P K='src' V='ExternalPressure' />
@@ -1635,6 +1693,7 @@ namespace StationeersUIMod.UI.Hud
     <P K='styleSource' V='1' />
     <P K='fxCollapseMode' V='2' />
     <P K='tempIcon' V='false' />
+    <P K='styleSrc' V='512' />
   </El>
   <El Id='g2-compass' Type='Compass' Anchor='TopCenter' X='-24' Y='-38' W='329.813' H='68' WPct='-0.995' HPct='-1' Z='3' Tiers='Suited Robot' Fill='#33CE00E3' Border='HudPanelBorder' TextColor='HudTextValue' BorderWidth='0.076' RTL='11.771' RTR='11.771' RBR='11.771' RBL='11.771' FontScale='1.08' Align='Center'>
     <P K='box' V='false' />
@@ -1697,6 +1756,7 @@ namespace StationeersUIMod.UI.Hud
     <P K='tickColor' V='HudPanelBorder' />
     <P K='cardinalColor' V='HudPanelBorder' />
     <P K='degreesColor' V='HudPanelBorder' />
+    <P K='styleSrc' V='682' />
   </El>
   <El Id='g2-exttemp' Type='Readout' Anchor='TopRight' X='-360' Y='-38' W='240' H='50' WPct='-1' HPct='-1' Z='2' Tiers='Suited Robot' Fill='HudPanelFill' Border='HudPanelBorder' TextColor='HudTextValue' BorderWidth='0.076' RTL='11.771' RTR='11.771' RBR='11.771' RBL='11.771' FontScale='0.985' Align='Center' Icon='Temp'>
     <P K='src' V='ExternalTemp' />
@@ -1756,6 +1816,7 @@ namespace StationeersUIMod.UI.Hud
     <P K='customStyleReady' V='true' />
     <P K='styleSource' V='1' />
     <P K='fxCollapseMode' V='2' />
+    <P K='styleSrc' V='512' />
   </El>
   <El Id='g2-day' Type='DayCounter' Anchor='TopRight' X='-120' Y='-38' W='130' H='40' WPct='-1' HPct='-1' Z='2' Tiers='Suited Robot' Fill='#0017279A' Border='#54D5FE65' TextColor='HudTextLabel' BorderWidth='0.076' RTL='11.771' RTR='11.771' RBR='11.771' RBL='11.771' FontScale='1' Align='Center'>
     <P K='fxCollapse' V='false' />
@@ -1808,6 +1869,7 @@ namespace StationeersUIMod.UI.Hud
     <P K='customStyleReady' V='true' />
     <P K='styleSource' V='1' />
     <P K='fxCollapseMode' V='2' />
+    <P K='styleSrc' V='512' />
   </El>
   <El Id='g2-moodlets' Type='MoodletDashboard' Anchor='TopCenter' X='-26' Y='-105' W='1414' H='64' WPct='-1' HPct='-1' Z='91' Tiers='All' Fill='#070B17D8' Border='#08567A65' TextColor='#FFFFFFF5' BorderWidth='0.511' RTL='11.771' RTR='11.771' RBR='11.771' RBL='11.771' FontScale='1.138' Align='Center'>
     <P K='box' V='false' />
@@ -1887,6 +1949,7 @@ namespace StationeersUIMod.UI.Hud
     <P K='fxGlitchMode' V='2' />
     <P K='fxWarpMode' V='1' />
     <P K='words' V='true' />
+    <P K='styleSrc' V='512' />
   </El>
   <El Id='g2-eqleft' Type='EquipmentColumn' Anchor='BottomCenter' X='-360' Y='56' W='264' H='78' WPct='-1' HPct='-1' Z='2' Tiers='All' Fill='HudPanelFill' Border='HudGood' TextColor='HudTextValue' BorderWidth='0.67' RTL='11.771' RTR='11.771' RBR='11.771' RBL='11.771' FontScale='1.041' Align='Center'>
     <P K='horizontal' V='true' />
@@ -1955,6 +2018,18 @@ namespace StationeersUIMod.UI.Hud
     <P K='fxGlitchMode' V='2' />
     <P K='numColor' V='HudPanelBorder' />
     <P K='labelEmptyColor' V='HudPanelBorder' />
+    <P K='tierStyle' V='1' />
+    <P K='tierStyleNeedsSeed' V='true' />
+    <P K='b_glowExtraDiffuse' V='0' />
+    <P K='b_glowHaze' V='0.424' />
+    <P K='b_glowBreath' V='0.299' />
+    <P K='b_glowUneven' V='0.436' />
+    <P K='b_glowOrganicScale' V='1' />
+    <P K='b_glowFlowAura' V='0.065' />
+    <P K='b_customGlowBreathOn' V='true' />
+    <P K='b_customGlowUnevenOn' V='true' />
+    <P K='b_customGlowFlowOn' V='true' />
+    <P K='styleSrc' V='682' />
   </El>
   <El Id='g2-hands' Type='HandBoxes' Anchor='BottomCenter' X='-16' Y='62' W='358' H='118' WPct='-1' HPct='-1' Z='2' Tiers='All' Fill='#33CE0005' Border='#33CE00E3' TextColor='#23FF00F5' BorderWidth='0.076' RTL='11.771' RTR='11.771' RBR='11.771' RBL='11.771' FontScale='0.599' Align='Center'>
     <P K='tray' V='false' />
@@ -2026,6 +2101,18 @@ namespace StationeersUIMod.UI.Hud
     <P K='fxDissolveMode' V='2' />
     <P K='fxGlitchMode' V='2' />
     <P K='activeBorderColor' V='#52FF29E6' />
+    <P K='tierStyle' V='1' />
+    <P K='tierStyleNeedsSeed' V='true' />
+    <P K='b_glowExtraDiffuse' V='0' />
+    <P K='b_glowHaze' V='0' />
+    <P K='b_glowBreath' V='0' />
+    <P K='b_glowUneven' V='0' />
+    <P K='b_glowOrganicScale' V='1' />
+    <P K='b_glowFlowAura' V='0' />
+    <P K='b_customGlowBreathOn' V='false' />
+    <P K='b_customGlowUnevenOn' V='false' />
+    <P K='b_customGlowFlowOn' V='false' />
+    <P K='styleSrc' V='682' />
   </El>
   <El Id='g2-eqright' Type='EquipmentColumn' Anchor='BottomCenter' X='360' Y='56' W='264' H='78' WPct='-1' HPct='-1' Z='2' Tiers='All' Fill='HudPanelFill' Border='HudPanelBorder' TextColor='HudTextValue' BorderWidth='0.076' RTL='11.771' RTR='11.771' RBR='11.771' RBL='11.771' FontScale='1' Align='Center'>
     <P K='horizontal' V='true' />
@@ -2091,6 +2178,18 @@ namespace StationeersUIMod.UI.Hud
     <P K='fxGlitchMode' V='2' />
     <P K='labelEmptyColor' V='HudPanelBorder' />
     <P K='numColor' V='HudPanelBorder' />
+    <P K='tierStyle' V='1' />
+    <P K='tierStyleNeedsSeed' V='true' />
+    <P K='b_glowExtraDiffuse' V='0' />
+    <P K='b_glowHaze' V='0.424' />
+    <P K='b_glowBreath' V='0.299' />
+    <P K='b_glowUneven' V='0.436' />
+    <P K='b_glowOrganicScale' V='1' />
+    <P K='b_glowFlowAura' V='0.065' />
+    <P K='b_customGlowBreathOn' V='true' />
+    <P K='b_customGlowUnevenOn' V='true' />
+    <P K='b_customGlowFlowOn' V='true' />
+    <P K='styleSrc' V='682' />
   </El>
   <El Id='g2-portrait' Type='Portrait' Anchor='BottomRight' X='-96' Y='100' W='186' H='178' WPct='-1' HPct='-1' Z='3' Tiers='Suited Robot' Fill='HudPanelFill' Border='#33CE000B' TextColor='HudTextValue' BorderWidth='0.728' RTL='11.771' RTR='11.771' RBR='11.771' RBL='11.771' FontScale='0.679' Align='Center'>
     <P K='camFov' V='25.08' />
@@ -2148,6 +2247,7 @@ namespace StationeersUIMod.UI.Hud
     <P K='fxDissolveMode' V='2' />
     <P K='fxWarpMode' V='0' />
     <P K='holoTint' V='#0AB400AD' />
+    <P K='styleSrc' V='682' />
   </El>
   <El Id='g2-chips' Type='StateChips' Anchor='BottomRight' X='-98' Y='208' W='115.479019' H='27.8273258' WPct='-1' HPct='-1' Z='3' Tiers='Suited Robot' Fill='HudPanelFill' Border='HudPanelBorder' TextColor='HudTextValue' BorderWidth='-1' RTL='-1' RTR='-1' RBR='-1' RBL='-1' FontScale='0.97' Align='Center'>
     <P K='light' V='true' />
@@ -2164,6 +2264,7 @@ namespace StationeersUIMod.UI.Hud
     <P K='iconTintOn' V='true' />
     <P K='iconTint' V='HudPanelBorder' />
     <P K='inset' V='0.045' />
+    <P K='styleSrc' V='0' />
   </El>
   <El Id='g2-intpress' Type='Readout' Anchor='BottomRight' X='-226.599' Y='125.067' W='72' H='56' WPct='-0.741' HPct='-0.758' Z='-7' Tiers='Suited Robot' Fill='HudPanelFill' Border='HudPanelBorder' TextColor='HudTextValue' BorderWidth='-1' RTL='-1' RTR='-1' RBR='-1' RBL='-1' FontScale='1.47' Align='Center'>
     <P K='src' V='InternalPressure' />
@@ -2188,6 +2289,7 @@ namespace StationeersUIMod.UI.Hud
     <P K='rowTitleY' V='0.835' />
     <P K='rowValueY' V='0.173' />
     <P K='wrap' V='true' />
+    <P K='styleSrc' V='0' />
   </El>
   <El Id='g2-inttemp' Type='Readout' Anchor='BottomRight' X='-226.599' Y='69.687' W='74.763' H='49.8420029' WPct='-1' HPct='-1' Z='3' Tiers='Suited Robot' Fill='HudPanelFill' Border='HudPanelBorder' TextColor='HudTextValue' BorderWidth='-1' RTL='-1' RTR='-1' RBR='-1' RBL='-1' FontScale='2.116' Align='Center' Icon='Temp'>
     <P K='src' V='InternalTemp' />
@@ -2211,6 +2313,7 @@ namespace StationeersUIMod.UI.Hud
     <P K='styleSource' V='1' />
     <P K='rowValueY' V='0.169' />
     <P K='rowTargetY' V='0.517' />
+    <P K='styleSrc' V='0' />
   </El>
   <El Id='g2-jetpack' Type='JetpackBox' Anchor='BottomRight' X='-226.599' Y='183.216' W='71.994' H='55.38' WPct='-1' HPct='-1' Z='3' Tiers='Suited Robot' Fill='HudPanelFill' Border='HudPanelBorder' TextColor='HudTextValue' BorderWidth='-1' RTL='-1' RTR='-1' RBR='-1' RBL='-1' FontScale='0.75' Align='Center'>
     <P K='mAL' V='true' />
@@ -2226,6 +2329,7 @@ namespace StationeersUIMod.UI.Hud
     <P K='styleSource' V='1' />
     <P K='box' V='true' />
     <P K='icon' V='false' />
+    <P K='styleSrc' V='0' />
   </El>
   <El Id='g2-vitals' Type='VitalsPanel' Anchor='BottomRight' X='-304.131' Y='133.374' W='73.82112' H='152' WPct='-1' HPct='-1' Z='3' Tiers='Suited Robot' Fill='HudPanelFill' Border='HudPanelBorder' TextColor='HudTextValue' BorderWidth='0.076' RTL='11.771' RTR='11.771' RBR='11.771' RBL='11.771' FontScale='0.858' Align='Center'>
     <P K='sheen' V='0' />
@@ -2285,6 +2389,7 @@ namespace StationeersUIMod.UI.Hud
     <P K='icons' V='false' />
     <P K='rowLines' V='false' />
     <P K='iconWords' V='true' />
+    <P K='styleSrc' V='0' />
   </El>
   <El Id='g2-bare-senses' Type='BareSenses' Anchor='Center' X='-564.876038' Y='13.845' W='304.59' H='415.35' WPct='-1' HPct='-1' Z='73' Tiers='Bare' Fill='#0000002C' Border='#54D5FE00' TextColor='HudTextValue' BorderWidth='0.076' RTL='11.771' RTR='11.771' RBR='11.771' RBL='11.771' FontScale='1' Align='Center'>
     <P K='order' V='temp,air,pressure,thirst,hunger,health,toilet,cognition' />
@@ -2343,6 +2448,7 @@ namespace StationeersUIMod.UI.Hud
     <P K='pad' V='22.776' />
     <P K='showDay' V='false' />
     <P K='box' V='true' />
+    <P K='styleSrc' V='170' />
   </El>
   <El Id='cfe7acaf9a1e4ee0af3e7bf373ad9c3b' Type='Readout' Anchor='Center' X='836.697' Y='-575.49' W='77.532' H='38.766' WPct='-1' HPct='-1' Z='50' Tiers='Suited Robot' Fill='HudPanelFill' Border='HudPanelBorder' TextColor='HudTextValue' BorderWidth='0.076' RTL='11.771' RTR='11.771' RBR='11.771' RBL='11.771' FontScale='2.381' Align='Center' Icon='speed'>
     <P K='src' V='Speed' />
@@ -2403,6 +2509,7 @@ namespace StationeersUIMod.UI.Hud
     <P K='customStyleReady' V='true' />
     <P K='styleSource' V='1' />
     <P K='icon' V='false' />
+    <P K='styleSrc' V='0' />
   </El>
   <El Id='e4d9d8873c1b46fab33d7ccb368865d4' Type='PngDoll' Anchor='Center' X='673.326' Y='-500.72702' W='90' H='218' WPct='-1' HPct='-1' Z='50' Tiers='Suited Robot' Fill='HudPanelFill' Border='HudPanelBorder' TextColor='HudTextValue' BorderWidth='0.076' RTL='11.771' RTR='11.771' RBR='11.771' RBL='11.771' FontScale='1' Align='Center'>
     <P K='armY' V='0.002' />
@@ -2461,6 +2568,7 @@ namespace StationeersUIMod.UI.Hud
     <P K='customStyleReady' V='true' />
     <P K='styleSource' V='1' />
     <P K='cWarn' V='#F5FF00E6' />
+    <P K='styleSrc' V='0' />
   </El>
   <El Id='d78f4bc71d534617b57769c7dc63ecaa' Type='Box' Anchor='Center' X='6.7859993' Y='467.210022' W='1603.971' H='64.428' WPct='-1' HPct='-0.134' Z='-45' Tiers='Suited Robot' Fill='#00172700' Border='#6FFE54FF' TextColor='#23FF00F5' BorderWidth='0.076' RTL='2.061' RTR='1.881' RBR='10.524' RBL='9.803' FontScale='1' Align='Center'>
     <P K='insetTop' V='27.701' />
@@ -2519,6 +2627,7 @@ namespace StationeersUIMod.UI.Hud
     <P K='fxCollapseMode' V='2' />
     <P K='bRight' V='false' />
     <P K='bLeft' V='false' />
+    <P K='styleSrc' V='682' />
   </El>
   <El Id='9e793ae9588642b98e3aab5a592c649b' Type='Box' Anchor='Center' X='0' Y='0' W='180' H='60' WPct='-1' HPct='-1' Z='-85' Tiers='Suited Robot' Fill='HudPanelFill' Border='HudPanelBorder' TextColor='HudTextValue' BorderWidth='0.076' RTL='11.771' RTR='11.771' RBR='11.771' RBL='11.771' FontScale='1' Align='Center'>
     <P K='mAL' V='true' />
@@ -2577,6 +2686,7 @@ namespace StationeersUIMod.UI.Hud
     <P K='fxPulse' V='false' />
     <P K='fxPulseAmt' V='1' />
     <P K='customStyleReady' V='true' />
+    <P K='styleSrc' V='0' />
   </El>
   <Theme>
     <E k='cfg:Curvature' v='VertexWarp' />

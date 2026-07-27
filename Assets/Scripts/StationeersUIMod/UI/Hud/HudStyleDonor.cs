@@ -376,6 +376,9 @@ namespace StationeersUIMod.UI.Hud
             if (fixedPacked != packed)
             {
                 el.SetIFor(slot, HudStyleFx.SourceParamKey, fixedPacked);
+                // TODO(one release after 0.9.2.5): stop writing styleSource — see
+                // HudElementView.WriteSourceBits, which this pair mirrors. Kept for ONE release
+                // so a downgrade to 0.9.2.x still reads a swept element correctly (plan §4.2).
                 el.SetIFor(slot, HudStyleFx.LegacySourceParamKey,
                     HudStyleFx.AllFollow(fixedPacked)
                         ? HudElementView.StyleGlobal : HudElementView.StyleCustom);

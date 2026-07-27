@@ -2667,7 +2667,15 @@ namespace StationeersUIMod.UI.Hud
         /// The legacy "styleSource" write is DOWNGRADE COMPAT and nothing else (plan §4.2): a
         /// 0.9.2.x build reads only that field, so a profile saved here must still describe itself
         /// in its vocabulary — 1 when every category follows, 2 otherwise, which is the closest
-        /// honest two-state summary of a five-state word. Phase 5 drops the write.</summary>
+        /// honest two-state summary of a five-state word.
+        ///
+        /// PHASE 5 KEPT THE WRITE, deliberately: plan §4.2 gives it ONE release, and 0.9.2.5 is
+        /// that release. Dropping it now would mean a player who rolls back to 0.9.2.x after
+        /// touching a profile here reads every element as a follower and loses their separations
+        /// on screen. The §6 phase table's shorter "drop the styleSource write" is superseded by
+        /// §4.2's more specific rule.</summary>
+        // TODO(one release after 0.9.2.5): stop writing styleSource — delete the SetIFor below,
+        // HudStyleDonor.Sweep's matching pair, and HudStyleFx.PackedOf's legacy fallback together.
         private static void WriteSourceBits(HudElementDef d, HudStyleSlot slot, int packed)
         {
             if (d == null) return;

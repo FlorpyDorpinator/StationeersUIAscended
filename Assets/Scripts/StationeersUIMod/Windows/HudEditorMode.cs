@@ -1555,11 +1555,24 @@ namespace StationeersUIMod.Windows
             }
         }
 
-        /// <summary>Strip the "glassy" look from one element: zero its sheen (milky fill), edge
-        /// light (spec — the bright border whitening), and glow, so it renders as a plain,
-        /// slightly-transparent bordered box. Fill / border / corners / feather are left alone.
-        /// Written as an explicit 0 (NOT -1 = follow global), so it stays flat regardless of the
-        /// global glass sliders.</summary>
+        /// <summary>Strip the "glassy" look from one element: zero every optical layer — the milky
+        /// sheen, the edge light, the halo, the shimmer, the shine/iridescence/fringe and the
+        /// frost — so it renders as a plain, slightly-transparent bordered box. Fill / border /
+        /// corners / feather / geometry are left alone. Written as explicit zeros (NOT -1 = follow
+        /// global), so it stays flat regardless of the global glass sliders.
+        ///
+        /// PHASE 5: the hand-written key list is a REGISTRY LOOP over the Glass / Edges / Glow
+        /// families (plan §3.3's last remaining hand-list), so a knob added to
+        /// <see cref="UI.Hud.HudStyleFx"/> tomorrow is flattened for free instead of quietly
+        /// surviving "Flatten ALL boxes". See <see cref="FlattenCoversRow"/> for exactly what it
+        /// covers and what it deliberately does not.
+        ///
+        /// IT NO LONGER TOUCHES MOTION. The old list ended with <c>customDissolve = false</c>,
+        /// which is <c>fxDissolve</c>'s LEGACY MIRROR KEY — so flattening permanently opted the
+        /// element out of the power-on dissolve reveal, a transition that has nothing to do with
+        /// glass and that no other flatten write even hinted at (Phase 1 audit, discrepancy 4).
+        /// Transitions are their own follow-able family with their own reset; a "make it flat"
+        /// button must not write an explicit Off into one of them.</summary>
         private static void StripGlass(UI.Hud.HudElementDef d)
         {
             if (d == null || !HudElementView.CanFlattenDefinition(d)) return;
@@ -1567,34 +1580,60 @@ namespace StationeersUIMod.Windows
             // first so a Global element keeps its colours/geometry, then disable every optical
             // layer explicitly instead of writing sentinels that Global would ignore.
             HudElementView.SetUnifiedStyleSourceWithoutView(d, false, true);
-            d.SetF("sheen", 0f);
-            d.SetF("spec", 0f);       // 0 (not -1) = also opts out of the GLOBAL edge-light boost
-            d.SetF("glow", 0f);
-            d.SetF("glowIn", 0f);
-            d.SetF("glowExtraDiffuse", 0f);
-            d.SetF("glowHaze", 0f);
-            d.SetF("glowBreath", 0f);
-            d.SetF("glowUneven", 0f);
-            d.SetF("glowFlowAura", 0f);
-            d.SetF("softEdge", 0f);
-            d.SetF("bfade", 0f);      // solid border, no light-driven dissolve
-            d.SetF("ripple", 0f);     // no edge shimmer
-            d.SetB("customBorderFadeOn", false);
-            d.SetB("customSoftEdgeOn", false);
-            d.SetB("customGlowOn", false);
-            d.SetB("customGlowBreathOn", false);
-            d.SetB("customGlowUnevenOn", false);
-            d.SetB("customGlowFlowOn", false);
-            d.SetB("customRippleOn", false);
-            d.SetB("customShineOn", false);
-            d.SetF("customShine", 0f);
-            d.SetB("customIridOn", false);
-            d.SetF("customIrid", 0f);
-            d.SetB("customChromaOn", false);
-            d.SetF("customChroma", 0f);
-            d.SetB("customFrostOn", false);
-            d.SetF("customFrost", 0f);
-            d.SetB("customDissolve", false);
+
+            // Base slot, through the SLOT writers so ProtectForks runs first: a Bare fork that was
+            // merely INHERITING the glass keeps what it was showing instead of silently going flat
+            // with the suited design (the raw d.SetF calls this replaces bypassed the copy-on-write
+            // entirely — the exact leak Wave C exists to prevent).
+            var b = UI.Hud.HudStyleSlot.Base;
+            var all = UI.Hud.HudStyleFx.All;
+            for (int i = 0; i < all.Length; i++)
+            {
+                var def = all[i];
+                if (!FlattenCoversRow(def)) continue;
+                if (def.Kind == UI.Hud.HudFxKind.Bool) d.SetBFor(b, def.ParamKey, false);
+                else d.SetFFor(b, def.ParamKey, def.Neutral);
+            }
+        }
+
+        /// <summary>Which registry rows "Flatten" zeroes. The three OPTICAL families in full —
+        /// Glass, Edges, Glow — plus the two Surface rows that are glass rather than shape
+        /// (<c>sheen</c>, the milky fill gradient, and <c>spec</c>, whose explicit 0 also opts the
+        /// element out of the GLOBAL edge-light boost). Deliberately excluded, and this is the
+        /// whole list:
+        ///   • SharedOnly rows — one value for the whole HUD; flattening ONE box must never move
+        ///     the light angle or the backdrop darkening for every other box;
+        ///   • StateIndependent rows — the box-end fades and the trapezoid insets are element
+        ///     GEOMETRY, and the author's silhouette must survive being made flat;
+        ///   • rows with no neutral (<see cref="UI.Hud.HudStyleFxDef.HasNeutral"/>) — energy
+        ///     frequency, halo radius and organic scale describe a SHAPE, not an amount, and their
+        ///     ranges do not even reach zero; the gates above them are what turn them off;
+        ///   • the rest of Surface — corner radii, corner style, line thickness, edge softness,
+        ///     squircle, gaussian falloff and the portrait ring's halo pair: box shape and sizing,
+        ///     which this button has never touched and must not start touching;
+        ///   • Bloom / Alerts (shared) and Transitions (motion, see <see cref="StripGlass"/>).
+        ///
+        /// Against the hand-list it replaces this adds exactly five keys, all of them inert once
+        /// the gates above them are off — <c>frostDepth</c>, <c>glowDiffuse</c>, <c>edgeFlow</c>,
+        /// <c>rippleSmooth</c> — plus one that was a real gap: <c>edgeLight</c>, which is where a
+        /// POLYLINE stores the edge-light strength that <c>spec</c> holds on a panel, so flattening
+        /// a line used to leave its edge lit.</summary>
+        private static bool FlattenCoversRow(UI.Hud.HudStyleFxDef def)
+        {
+            if (def == null || def.SharedOnly || string.IsNullOrEmpty(def.ParamKey)) return false;
+            if (def.StateIndependent) return false;
+            if (!def.HasNeutral) return false;
+            switch (def.Category)
+            {
+                case UI.Hud.HudFxCategory.Glass:
+                case UI.Hud.HudFxCategory.Edges:
+                case UI.Hud.HudFxCategory.Glow:
+                    return true;
+                case UI.Hud.HudFxCategory.Surface:
+                    return def.Key == "sheen" || def.Key == "spec";
+                default:
+                    return false;
+            }
         }
 
         /// <summary>Flatten the SELECTED element (see <see cref="StripGlass"/>). One undo step.</summary>
