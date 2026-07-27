@@ -169,18 +169,41 @@ namespace StationeersUIMod.UI.Hud
             return null;
         }
 
-        /// <summary>This element's stored tri-state, with the legacy-bool fallback for profiles
-        /// that predate the migration (and for elements built in memory this session).</summary>
+        /// <summary>This element's effective tri-state for one effect.
+        ///
+        /// PHASE 3 GATE (per-category follow): when the element's <b>Transitions</b> category
+        /// FOLLOWS the globals, every effect reads as <see cref="HudFxMode.Inherit"/> regardless of
+        /// what is stored. That is what "follow" has to mean — and it is what makes FlorpyDorp's
+        /// decision 5 work here: re-ticking the Transitions follow box leaves the stored On/Off
+        /// keys dormant on disk instead of deleting them, and this gate is the thing that stops
+        /// them being read. Unticking it again re-reveals exactly the same rows.
+        ///
+        /// Nothing was migrated to make that true: the Sanitize mapping gives any element with a
+        /// stored On/Off <c>Transitions = Own</c>, so an existing profile resolves identically.
+        /// Use <see cref="RawModeOf"/> when you need the STORED state (the migration does).</summary>
         internal static HudFxMode ModeOf(HudElementDef d, HudTransitionFxDef fx, bool bare)
         {
             if (d == null || fx == null) return HudFxMode.Inherit;
-            int m = d.GetIFor(bare, fx.ModeKey, -1);
+            var slot = bare ? HudStyleSlot.Bare : HudStyleSlot.Base;
+            if (HudStyleFx.SourceOf(d, HudFxCategory.Transitions, slot) != HudFxSource.Own)
+                return HudFxMode.Inherit;
+            return RawModeOf(d, fx, slot);
+        }
+
+        /// <summary>The STORED tri-state, with the legacy-bool fallback for profiles that predate
+        /// the tri-state migration (and for elements built in memory this session). Ignores the
+        /// per-category follow gate on purpose — the Sanitize mapping reads this to decide whether
+        /// the element's Transitions category should be Own in the first place.</summary>
+        internal static HudFxMode RawModeOf(HudElementDef d, HudTransitionFxDef fx, HudStyleSlot slot)
+        {
+            if (d == null || fx == null) return HudFxMode.Inherit;
+            int m = d.GetIFor(slot, fx.ModeKey, -1);
             if (m == (int)HudFxMode.Inherit) return HudFxMode.Inherit;
             if (m == (int)HudFxMode.On) return HudFxMode.On;
             if (m == (int)HudFxMode.Off) return HudFxMode.Off;
 
             // Not stored (or garbage): read the legacy bool exactly the way its own default meant it.
-            bool legacy = d.GetBFor(bare, fx.LegacyKey, fx.LegacyDefault);
+            bool legacy = d.GetBFor(slot, fx.LegacyKey, fx.LegacyDefault);
             if (fx.LegacyDefault) return legacy ? HudFxMode.Inherit : HudFxMode.Off;
             return legacy ? HudFxMode.On : HudFxMode.Inherit;
         }

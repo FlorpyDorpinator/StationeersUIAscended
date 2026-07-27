@@ -168,47 +168,54 @@ namespace StationeersUIMod.UI.Hud
         internal const int StyleGlobal = 1;
         internal const int StyleCustom = 2;
 
-        /// <summary>The style source of ONE slot. Per-slot since 0.9.2.5, so an element can be flat
-        /// in bare and glassy in suit; a slot that is not forked resolves the base value, so this is
-        /// backward-identical for every existing profile.</summary>
-        private static int StyleSourceOf(HudElementDef d, HudStyleSlot slot)
-        {
-            // Missing/0 reads as Global: HudStyleMigration rewrites every stored legacy element
-            // during Sanitize, so this default only decides brand-new in-memory elements.
-            int v = d != null ? d.GetIFor(slot, "styleSource", StyleGlobal) : StyleGlobal;
-            return v == StyleCustom ? StyleCustom : StyleGlobal;
-        }
+        // The per-slot StyleSourceOf helpers that used to sit here are gone (Phase 3). Nothing reads
+        // the two-state field at runtime any more — HudStyleFx.SourceOf answers per CATEGORY, and
+        // "styleSource" survives only as a write for downgrade compat (see WriteSourceBits) and as
+        // the legacy input the def-only snapshot and HudStyleMigration still interpret.
 
-        private static int StyleSourceOf(HudElementDef d) => StyleSourceOf(d, HudStyleSlot.Base);
+        // ================= PER-CATEGORY FOLLOW (Phase 3, 2026-07-27) =========================
+        //
+        // The single two-state switch above is no longer what the resolvers ask. Each of the five
+        // followable families — Surface / Glass / Edges / Glow / Transitions, i.e. F9's own
+        // sub-tabs — carries its own source, packed two bits per category into the element's
+        // "styleSrc" param (HudStyleFx.SourceParamKey). "styleSource" is still WRITTEN in lock-step
+        // (1 when every category follows, 2 otherwise) so a downgrade to 0.9.2.x still renders
+        // correctly for one release; nothing reads it any more except the legacy def-only snapshot
+        // and HudStyleMigration.
+        //
+        // THE ONE RULE, everywhere (plan §3.2):
+        //     Global  ->  the global value
+        //     Own     ->  the element's stored param, WITH THE GLOBAL AS ITS DEFAULT
+        //     Donor   ->  Global for now (Phase 4)
+        // The "default IS the global" half is Phase 0b's one missing-key convention, and it is what
+        // makes the Phase 3 migration a pure re-encoding: an incomplete old Custom snapshot picks
+        // the globals up for the keys it never stored, so nothing needs seeding at migration time.
 
-        private int StyleSource
-        {
-            get
-            {
-                // StyleSlot, not LayoutSlot: an element that has not opted in reads the base. While
-                // the F9 editor is open HudSystem drives LayoutSlot and EditTargetSlot from the
-                // SAME preview, so this is also the slot DescribeProps is editing.
-                return StyleSourceOf(Def, StyleSlot);
-            }
-        }
+        /// <summary>Where ONE category of this element's style comes from, for the slot the HUD is
+        /// drawing (StyleSlot, so an element that has not forked reads the base). One param-bag
+        /// read plus two bit ops — the same cost the single styleSource read used to be.</summary>
+        protected HudFxSource SourceFor(HudFxCategory cat)
+            => HudStyleFx.SourceOf(Def, cat, StyleSlot);
 
-        // Protected: PrimitiveView's polyline styling resolves through the same two-state
-        // contract (the line was the last surface on raw -1 sentinels, styleSource-blind).
-        protected bool UsesGlobalStyle => StyleSource == StyleGlobal;
-        protected bool UsesCustomStyle => StyleSource == StyleCustom;
+        /// <summary>True when this category carries the element's OWN values.</summary>
+        protected bool Owns(HudFxCategory cat) => SourceFor(cat) == HudFxSource.Own;
 
-        /// <summary>True while this element's styling follows the globals (the two-state
-        /// contract: legacy reads as Global after migration). Widget props that would merely
-        /// mirror global-palette values hide behind this.</summary>
-        protected bool FollowGlobal => UsesGlobalStyle;
+        /// <summary>True when this category follows the F9 globals (or a donor, which resolves to
+        /// the globals until Phase 4).</summary>
+        protected bool Follows(HudFxCategory cat) => SourceFor(cat) != HudFxSource.Own;
 
-        /// <summary>Per-corner radius resolved through the explicit style source, with the old
-        /// -1 sentinel retained only for legacy profiles.</summary>
+        /// <summary>True while this element's SURFACE family (sizing, corners, glass sheen and
+        /// edge light — F9's Theme tab) follows the globals. Widget props that would merely mirror
+        /// a global sizing value hide behind this; it is the successor to the old whole-element
+        /// FollowGlobal, narrowed to the category those props actually belong to.</summary>
+        protected bool FollowGlobal => Follows(HudFxCategory.Surface);
+
+        /// <summary>Per-corner radius. SURFACE category; the -1 sentinel is retained for legacy
+        /// profiles and still means "the global".</summary>
         protected float Radius(float perCorner)
         {
             float global = HudConfig.CornerRadius != null ? HudConfig.CornerRadius.Value : 10f;
-            if (UsesGlobalStyle) return global;
-            if (UsesCustomStyle) return perCorner >= 0f ? perCorner : global;
+            if (Follows(HudFxCategory.Surface)) return global;
             return perCorner >= 0f ? perCorner : global;
         }
 
@@ -222,7 +229,7 @@ namespace StationeersUIMod.UI.Hud
         /// to -1 and renders exactly as before.</summary>
         protected int CornerCutFor()
         {
-            if (UsesGlobalStyle) return -1;
+            if (Follows(HudFxCategory.Surface)) return -1;
             int own = Def != null ? Def.GetIFor(LayoutBare, "cornerStyle", 0) : 0;
             return own == CornerStyleRounded ? 0 : own == CornerStyleCut ? 1 : -1;
         }
@@ -237,7 +244,7 @@ namespace StationeersUIMod.UI.Hud
         protected float BorderWidthFor()
         {
             float global = HudConfig.BorderWidth != null ? HudConfig.BorderWidth.Value : 1.4f;
-            if (UsesGlobalStyle) return global;
+            if (Follows(HudFxCategory.Surface)) return global;
             float bw = Def != null ? Def.BorderWidthFor(LayoutBare) : -1f;
             return bw >= 0f ? bw : global;
         }
@@ -365,43 +372,42 @@ namespace StationeersUIMod.UI.Hud
             ring.BorderColor = BorderColor();
             ring.BorderWidth = BorderWidthFor();
 
-            if (UsesCustomStyle)
-            {
-                // Edge light + border fade were HARD-ZEROED here, so a custom-styled ring (the
-                // portrait under a per-suit theme, styleSource=Custom) could never show the edge
-                // glass a panel shows, and F9 offered no knob for it — FlorpyDorp: "I still don't
-                // get the edge lighting effects on the portrait border" with bfade already set.
-                // Resolve them the SAME way a custom PANEL does: GlassEdgeFor reads the element's
-                // own "spec", and border fade rides its own "customBorderFadeOn"/"bfade" under the
-                // Tier-A master (identical gating to ApplyMeshFx). The portrait-specific halo knobs
-                // (ringGlow/ringGlowColor) are kept verbatim, so no profile key is renamed/removed
-                // (no ConfigMigration needed). Sub-pixel stroke behaviour stays classic (0 floor).
-                bool edgeTierA = HudConfig.FxTierA != null && HudConfig.FxTierA.Value;
-                ring.HairlineFloor = 0f;
-                ring.EdgeSpec = GlassEdgeFor();
-                ring.EdgeTint = PanelGraphic.LightTint();
-                ring.EdgeFade = edgeTierA && StyleFeatureOn("customBorderFadeOn", HudConfig.FxBorderFadeOn)
-                    ? OwnOrGlobal("bfade", HudConfig.FxBorderFade) : 0f;
-                ring.GlowStrength = RingGlowFor();
-                ring.GlowWidth = OwnOrGlobal("glowWidth", HudConfig.FxGlowWidth);
-                string cref = Def != null ? Def.GetSFor(LayoutBare, "ringGlowColor", "") : "";
-                ring.GlowColor = string.IsNullOrEmpty(cref)
-                    ? Color.clear                                   // clear = derive from the rim
-                    : HudPalette.Resolve(cref, HudPalette.PanelBorder.Value);
-                return;
-            }
-
-            // Follow-global. PanelGraphic's own admit threshold, so the ring's sub-pixel line is
-            // the panel's sub-pixel line.
+            // PHASE 3: the two branches this used to have (Custom vs follow-global) collapsed into
+            // one, because every value in them was already resolved by a per-family helper and only
+            // TWO things actually differ — and both belong to the SURFACE family:
+            //   • whether the halo comes from the element's own "ringGlow" or is derived from the
+            //     panel recipe (RingGlowFor, which now asks the same question);
+            //   • whether the halo takes the authored "ringGlowColor" ref or the rim's own hue.
+            // Edge light (spec, Surface), border fade (Glass) and halo radius (Glow) were computed
+            // IDENTICALLY in both branches, so they simply resolve through their own categories now
+            // and a ring can, say, own its width while still following the global border fade.
+            //
+            // THE HAIRLINE FLOOR IS NOW UNCONDITIONAL, and that is a FIX, not a simplification.
+            // The old Custom branch kept the classic 0 floor, so unfollowing Theme on a portrait
+            // under a theme whose global PanelBorderWidth is sub-pixel (0.076 on Stationeers Blue
+            // and Zirillian Red) dropped the rim BELOW PanelGraphic's own `bw > 0.05f` admit gate
+            // and the ring vanished — the exact defect ApplyBorderOnlyEdge was written to fix,
+            // re-entering through the follow checkbox. Panel parity in BOTH states: a ring's
+            // sub-pixel line behaves like a panel's sub-pixel line, always.
+            bool ownSurface = Owns(HudFxCategory.Surface);
+            bool tierA = HudConfig.FxTierA != null && HudConfig.FxTierA.Value;
             ring.HairlineFloor = 0.05f;
             ring.EdgeSpec = GlassEdgeFor();
             ring.EdgeTint = PanelGraphic.LightTint();
-            bool tierA = HudConfig.FxTierA != null && HudConfig.FxTierA.Value;
-            ring.EdgeFade = tierA && StyleFeatureOn("customBorderFadeOn", HudConfig.FxBorderFadeOn)
-                ? OwnOrGlobal("bfade", HudConfig.FxBorderFade) : 0f;
+            ring.EdgeFade = tierA
+                && StyleFeatureOn(HudFxCategory.Glass, "customBorderFadeOn", HudConfig.FxBorderFadeOn)
+                ? OwnOrGlobal(HudFxCategory.Glass, "bfade", HudConfig.FxBorderFade) : 0f;
             ring.GlowStrength = RingGlowFor();
-            ring.GlowWidth = OwnOrGlobal("glowWidth", HudConfig.FxGlowWidth);
-            ring.GlowColor = Color.clear;                            // the rim's own hue, as panels do
+            ring.GlowWidth = OwnOrGlobal(HudFxCategory.Glow, "glowWidth", HudConfig.FxGlowWidth);
+            if (!ownSurface)
+            {
+                ring.GlowColor = Color.clear;                        // the rim's own hue, as panels do
+                return;
+            }
+            string cref = Def != null ? Def.GetSFor(LayoutBare, "ringGlowColor", "") : "";
+            ring.GlowColor = string.IsNullOrEmpty(cref)
+                ? Color.clear                                        // clear = derive from the rim
+                : HudPalette.Resolve(cref, HudPalette.PanelBorder.Value);
         }
 
         /// <summary>The halo strength a BORDER-ONLY ring is currently showing, resolved the same
@@ -412,10 +418,16 @@ namespace StationeersUIMod.UI.Hud
         private float RingGlowFor()
         {
             if (Def == null) return 0f;
-            if (UsesCustomStyle) return Mathf.Max(0f, Def.GetFFor(LayoutBare, "ringGlow", 0f));
+            // "ringGlow" is a SURFACE row (the registry gives it no F9 home and files it with the
+            // ring's other chrome), so the Surface source decides whether the ring carries its own
+            // halo band or derives one from the Glow family's panel recipe.
+            if (Owns(HudFxCategory.Surface))
+                return Mathf.Max(0f, Def.GetFFor(LayoutBare, "ringGlow", 0f));
             bool tierA = HudConfig.FxTierA != null && HudConfig.FxTierA.Value;
-            bool glowOn = tierA && StyleFeatureOn("customGlowOn", HudConfig.FxGlowOn);
-            return glowOn ? Mathf.Max(0f, OwnOrGlobal("glow", HudConfig.FxGlow)) : 0f;
+            bool glowOn = tierA
+                && StyleFeatureOn(HudFxCategory.Glow, "customGlowOn", HudConfig.FxGlowOn);
+            return glowOn
+                ? Mathf.Max(0f, OwnOrGlobal(HudFxCategory.Glow, "glow", HudConfig.FxGlow)) : 0f;
         }
 
         /// <summary>Used by F9 to suppress panel-only actions on text, borrowed vanilla UI and
@@ -425,8 +437,12 @@ namespace StationeersUIMod.UI.Hud
         internal static bool CanFlattenDefinition(HudElementDef d)
             => SupportsPanelAppearanceFor(d);
 
+        /// <summary>Does this element own ANY style family of its own (base slot)? The Phase 3
+        /// successor to "styleSource == 2": a MIXED element answers true, because it is no longer
+        /// a pure follower. Callers that need a finer answer ask
+        /// <see cref="HudStyleFx.SourceOf"/> per category.</summary>
         internal static bool IsCustomStyleDefinition(HudElementDef d)
-            => StyleSourceOf(d) == StyleCustom;
+            => !HudStyleFx.AllFollow(d, HudStyleSlot.Base);
 
         // Freeform pen Shapes use PolygonPanelGraphic (an arbitrary concave contour is not
         // representable by the rounded-box SDF). Its MESH renders both halo bands now
@@ -618,7 +634,7 @@ namespace StationeersUIMod.UI.Hud
         protected float GlassSheenFor()
         {
             float global = HudConfig.GlassSheen != null ? HudConfig.GlassSheen.Value : 0f;
-            if (UsesGlobalStyle) return global;
+            if (Follows(HudFxCategory.Surface)) return global;
             float v = Def != null ? Def.GetFFor(LayoutBare, "sheen", -1f) : -1f;
             return v >= 0f ? v : global;
         }
@@ -633,7 +649,7 @@ namespace StationeersUIMod.UI.Hud
         protected float GlassEdgeFor()
         {
             float global = HudConfig.GlassEdge != null ? HudConfig.GlassEdge.Value : 0f;
-            if (UsesCustomStyle)
+            if (Owns(HudFxCategory.Surface))
             {
                 float own = Def != null ? Def.GetFFor(LayoutBare, "spec", -1f) : -1f;
                 return Mathf.Clamp01(own >= 0f ? own : global);
@@ -702,7 +718,7 @@ namespace StationeersUIMod.UI.Hud
         /// the fallback). Same "-1 = global" convention as corner radius and border width.</summary>
         protected float FeatherFor()
         {
-            if (UsesGlobalStyle) return -1f;
+            if (Follows(HudFxCategory.Surface)) return -1f;
             return Def != null ? Def.GetFFor(LayoutBare, "feather", -1f) : -1f;
         }
 
@@ -723,12 +739,19 @@ namespace StationeersUIMod.UI.Hud
         protected void ApplyMeshFx(IGlassSurface g)
         {
             if (g == null) return;
+            // CATEGORY MAP for this block, taken from the registry (HudStyleFx.All), which is the
+            // single truth: border fade and soft edge are GLASS rows (F9 draws them under Effects >
+            // Glass, CORE EFFECTS — decision 4 says the categories ARE the F9 sub-tabs); the halo
+            // family is GLOW; the ripple/flow family is EDGES.
             bool tierA = HudConfig.FxTierA != null && HudConfig.FxTierA.Value;
-            bool bfOn = tierA && StyleFeatureOn("customBorderFadeOn", HudConfig.FxBorderFadeOn);
-            bool seOn = tierA && StyleFeatureOn("customSoftEdgeOn", HudConfig.FxSoftEdgeOn);
-            bool glOn = tierA && StyleFeatureOn("customGlowOn", HudConfig.FxGlowOn);
-            g.BorderFade = bfOn ? OwnOrGlobal("bfade", HudConfig.FxBorderFade) : 0f;
-            g.SoftEdge = seOn ? OwnOrGlobal("softEdge", HudConfig.FxSoftEdge) : 0f;
+            bool bfOn = tierA
+                && StyleFeatureOn(HudFxCategory.Glass, "customBorderFadeOn", HudConfig.FxBorderFadeOn);
+            bool seOn = tierA
+                && StyleFeatureOn(HudFxCategory.Glass, "customSoftEdgeOn", HudConfig.FxSoftEdgeOn);
+            bool glOn = tierA
+                && StyleFeatureOn(HudFxCategory.Glow, "customGlowOn", HudConfig.FxGlowOn);
+            g.BorderFade = bfOn ? OwnOrGlobal(HudFxCategory.Glass, "bfade", HudConfig.FxBorderFade) : 0f;
+            g.SoftEdge = seOn ? OwnOrGlobal(HudFxCategory.Glass, "softEdge", HudConfig.FxSoftEdge) : 0f;
             // Outer glow only, and only inside an enabled Tier A: an alarm forces a halo to exist so
             // there is something to tint when the user has the glow checkbox off (FxGlowOn defaults
             // false), but Tier A off must stay "everything 0 = classic 0.8.0 output". The floor is a
@@ -739,19 +762,23 @@ namespace StationeersUIMod.UI.Hud
             // BorderColor, so flooring the glow there would light it in its NORMAL hue — an alarm
             // that brightens without changing colour is an anti-signal. Such an element simply sits
             // the alert out.
-            float glowBase = glOn ? OwnOrGlobal("glow", HudConfig.FxGlow) : 0f;
+            float glowBase = glOn ? OwnOrGlobal(HudFxCategory.Glow, "glow", HudConfig.FxGlow) : 0f;
             g.Glow = tierA ? (BorderWidthFor() > 0.05f ? HudAlertPulse.Glow(glowBase, AlertSeed) : glowBase) : 0f;
-            g.GlowInner = glOn ? OwnOrGlobal("glowIn", HudConfig.FxGlowInner) : 0f; // never floored: sits under the text
-            g.GlowWidth = OwnOrGlobal("glowWidth", HudConfig.FxGlowWidth);
-            g.GlowDiffuse = OwnOrGlobal("glowDiffuse", HudConfig.FxGlowDiffuse);
+            g.GlowInner = glOn ? OwnOrGlobal(HudFxCategory.Glow, "glowIn", HudConfig.FxGlowInner) : 0f; // never floored: sits under the text
+            g.GlowWidth = OwnOrGlobal(HudFxCategory.Glow, "glowWidth", HudConfig.FxGlowWidth);
+            g.GlowDiffuse = OwnOrGlobal(HudFxCategory.Glow, "glowDiffuse", HudConfig.FxGlowDiffuse);
             // An SDF-family key (2026-07-16). Since Phase 0b a missing per-element value resolves
             // to the GLOBAL, like every other knob here — see NewSdfOwnOrGlobal.
             g.GlowExtraDiffuse = Mathf.Clamp01(
-                NewSdfOwnOrGlobal("glowExtraDiffuse", HudConfig.FxGlowExtraDiffuse));
-            bool rippleOn = tierA && StyleFeatureOn("customRippleOn", HudConfig.FxEdgeLightOn);
-            g.EdgeRipple = rippleOn ? OwnOrGlobal("ripple", HudConfig.FxEdgeRipple) : 0f;
-            g.EdgeRippleFreq = RippleFreqFor(OwnOrGlobal("rippleFreq", HudConfig.FxEdgeRippleFreq));
-            g.RippleSmooth = UsesGlobalStyle ? 0f : (Def != null ? Def.GetFFor(LayoutBare, "rippleSmooth", 0f) : 0f);
+                NewSdfOwnOrGlobal(HudFxCategory.Glow, "glowExtraDiffuse", HudConfig.FxGlowExtraDiffuse));
+            bool rippleOn = tierA
+                && StyleFeatureOn(HudFxCategory.Edges, "customRippleOn", HudConfig.FxEdgeLightOn);
+            g.EdgeRipple = rippleOn ? OwnOrGlobal(HudFxCategory.Edges, "ripple", HudConfig.FxEdgeRipple) : 0f;
+            g.EdgeRippleFreq = RippleFreqFor(
+                OwnOrGlobal(HudFxCategory.Edges, "rippleFreq", HudConfig.FxEdgeRippleFreq));
+            // rippleSmooth is the one knob with NO global at all, so "following" can only mean 0.
+            g.RippleSmooth = Owns(HudFxCategory.Edges) && Def != null
+                ? Def.GetFFor(LayoutBare, "rippleSmooth", 0f) : 0f;
 
             // The MOVING ripple on freeform Shapes: same edgeFlow speed the SDF panels use,
             // animated by HudEdgeFX/HudGlass off the uv1 payload the shape bakes. Gated on
@@ -766,18 +793,26 @@ namespace StationeersUIMod.UI.Hud
             ApplyFx(g);
         }
 
-        /// <summary>Sheen-pattern resolve: the element's own param when >= 0, else the global.</summary>
-        protected float OwnOrGlobal(string key, ConfigEntry<float> global)
+        /// <summary>THE float resolver, per category (plan §3.2). <paramref name="cat"/> names the
+        /// follow-able family the key belongs to — always the one the REGISTRY assigns it
+        /// (<see cref="HudStyleFx.All"/>), never a guess at the call site: border fade and soft edge
+        /// are Glass rows even though they read as "edges", because that is where F9 draws them.
+        ///
+        /// Following ⇒ the global. Own ⇒ the element's own param, with the global as the default
+        /// (the -1 sentinel is retained for the legacy profiles that wrote it).</summary>
+        protected float OwnOrGlobal(HudFxCategory cat, string key, ConfigEntry<float> global)
         {
-            if (UsesGlobalStyle) return global != null ? global.Value : 0f;
+            if (Follows(cat)) return global != null ? global.Value : 0f;
             float v = Def != null ? Def.GetFFor(LayoutBare, key, -1f) : -1f;
             return v >= 0f ? v : (global != null ? global.Value : 0f);
         }
 
-        protected bool StyleFeatureOn(string customKey, ConfigEntry<bool> global)
+        /// <summary>THE companion-bool resolver, per category. Same rule: following ⇒ the global
+        /// master; Own ⇒ the element's own checkbox, defaulting to the global master.</summary>
+        protected bool StyleFeatureOn(HudFxCategory cat, string customKey, ConfigEntry<bool> global)
         {
             bool gv = global != null && global.Value;
-            return UsesCustomStyle && Def != null ? Def.GetBFor(LayoutBare, customKey, gv) : gv;
+            return Owns(cat) && Def != null ? Def.GetBFor(LayoutBare, customKey, gv) : gv;
         }
 
         /// <summary>Resolver for the SDF halo family (the keys introduced 2026-07-16).
@@ -792,17 +827,17 @@ namespace StationeersUIMod.UI.Hud
         /// re-seeds a complete snapshot (see <see cref="SeedCustomStyleFromEffective"/>), and
         /// (2) <c>HudDocument.Sanitize</c> back-fills the six SDF keys + three booleans into
         /// already-stored Custom elements once, from the current globals.</summary>
-        private bool NewSdfFeatureOn(string customKey, ConfigEntry<bool> global)
+        private bool NewSdfFeatureOn(HudFxCategory cat, string customKey, ConfigEntry<bool> global)
         {
             bool gv = global != null && global.Value;
-            return UsesCustomStyle && Def != null ? Def.GetBFor(LayoutBare, customKey, gv) : gv;
+            return Owns(cat) && Def != null ? Def.GetBFor(LayoutBare, customKey, gv) : gv;
         }
 
-        protected float NewSdfOwnOrGlobal(string key, ConfigEntry<float> global)
+        protected float NewSdfOwnOrGlobal(HudFxCategory cat, string key, ConfigEntry<float> global)
         {
             float gv = global != null ? global.Value : 0f;
-            if (UsesGlobalStyle) return gv;
-            // Custom: a missing key resolves to the GLOBAL, the same rule OwnOrGlobal uses.
+            if (Follows(cat)) return gv;
+            // Own: a missing key resolves to the GLOBAL, the same rule OwnOrGlobal uses.
             return Def != null ? Def.GetFFor(LayoutBare, key, gv) : gv;
         }
 
@@ -930,7 +965,7 @@ namespace StationeersUIMod.UI.Hud
         private float SdfSquircleFor()
         {
             float global = HudConfig.SdfSquircle != null ? HudConfig.SdfSquircle.Value : 2f;
-            if (UsesGlobalStyle) return global;
+            if (Follows(HudFxCategory.Surface)) return global;
             float own = Def != null ? Def.GetFFor(LayoutBare, "squircle", -1f) : -1f;
             return own >= 2f ? Mathf.Clamp(own, 2f, 8f) : global;
         }
@@ -938,38 +973,39 @@ namespace StationeersUIMod.UI.Hud
         private bool SdfGaussianFor()
         {
             bool global = HudConfig.SdfGaussianHalo != null && HudConfig.SdfGaussianHalo.Value;
-            return UsesCustomStyle && Def != null ? Def.GetBFor(LayoutBare, "gaussianHalo", global) : global;
+            return Owns(HudFxCategory.Surface) && Def != null
+                ? Def.GetBFor(LayoutBare, "gaussianHalo", global) : global;
         }
 
         private float EdgeFlowFor()
-            => OwnOrGlobal("edgeFlow", HudConfig.FxEdgeFlowSpeed);
+            => OwnOrGlobal(HudFxCategory.Edges, "edgeFlow", HudConfig.FxEdgeFlowSpeed);
 
         private float HaloHazeFor()
         {
             bool tierA = HudConfig.FxTierA != null && HudConfig.FxTierA.Value;
-            bool glowOn = StyleFeatureOn("customGlowOn", HudConfig.FxGlowOn);
+            bool glowOn = StyleFeatureOn(HudFxCategory.Glow, "customGlowOn", HudConfig.FxGlowOn);
             return tierA && glowOn
-                ? Mathf.Clamp01(NewSdfOwnOrGlobal("glowHaze", HudConfig.FxGlowHaze)) : 0f;
+                ? Mathf.Clamp01(NewSdfOwnOrGlobal(HudFxCategory.Glow, "glowHaze", HudConfig.FxGlowHaze)) : 0f;
         }
 
         private float HaloBreathFor()
         {
             bool tierA = HudConfig.FxTierA != null && HudConfig.FxTierA.Value;
-            bool glowOn = StyleFeatureOn("customGlowOn", HudConfig.FxGlowOn);
+            bool glowOn = StyleFeatureOn(HudFxCategory.Glow, "customGlowOn", HudConfig.FxGlowOn);
             bool auraOn = HaloFlowAuraFor() > 0.001f;
-            bool breathOn = NewSdfFeatureOn("customGlowBreathOn", HudConfig.FxGlowBreathOn);
+            bool breathOn = NewSdfFeatureOn(HudFxCategory.Glow, "customGlowBreathOn", HudConfig.FxGlowBreathOn);
             return tierA && (glowOn || auraOn) && breathOn
-                ? Mathf.Clamp01(NewSdfOwnOrGlobal("glowBreath", HudConfig.FxGlowBreath)) : 0f;
+                ? Mathf.Clamp01(NewSdfOwnOrGlobal(HudFxCategory.Glow, "glowBreath", HudConfig.FxGlowBreath)) : 0f;
         }
 
         private float HaloUnevenFor()
         {
             bool tierA = HudConfig.FxTierA != null && HudConfig.FxTierA.Value;
-            bool glowOn = StyleFeatureOn("customGlowOn", HudConfig.FxGlowOn);
+            bool glowOn = StyleFeatureOn(HudFxCategory.Glow, "customGlowOn", HudConfig.FxGlowOn);
             bool auraOn = HaloFlowAuraFor() > 0.001f;
-            bool unevenOn = NewSdfFeatureOn("customGlowUnevenOn", HudConfig.FxGlowUnevenOn);
+            bool unevenOn = NewSdfFeatureOn(HudFxCategory.Glow, "customGlowUnevenOn", HudConfig.FxGlowUnevenOn);
             return tierA && (glowOn || auraOn) && unevenOn
-                ? Mathf.Clamp01(NewSdfOwnOrGlobal("glowUneven", HudConfig.FxGlowUneven)) : 0f;
+                ? Mathf.Clamp01(NewSdfOwnOrGlobal(HudFxCategory.Glow, "glowUneven", HudConfig.FxGlowUneven)) : 0f;
         }
 
         /// <summary>Footprint multiplier of the unevenness noise (0.25x..4x, 1 = classic).
@@ -977,7 +1013,7 @@ namespace StationeersUIMod.UI.Hud
         private float HaloOrganicScaleFor()
         {
             if (HaloUnevenFor() <= 0.001f) return 1f;
-            float v = NewSdfOwnOrGlobal("glowOrganicScale", HudConfig.FxGlowOrganicScale);
+            float v = NewSdfOwnOrGlobal(HudFxCategory.Glow, "glowOrganicScale", HudConfig.FxGlowOrganicScale);
             // A -1 sentinel can reach the Custom branch raw (ResetEffectsToGlobal writes it
             // into every _fxKeys slot) — anything below the slider floor means "neutral".
             return v < 0.2f ? 1f : Mathf.Clamp(v, 0.25f, 4f);
@@ -985,15 +1021,23 @@ namespace StationeersUIMod.UI.Hud
 
         private float HaloFlowAuraFor()
         {
+            // The flowing aura is an EDGES row in the registry (F9 draws it on Effects > Edges,
+            // under the edge-energy master) even though it emits through the Glow envelope.
             bool tierA = HudConfig.FxTierA != null && HudConfig.FxTierA.Value;
-            bool edgeOn = StyleFeatureOn("customRippleOn", HudConfig.FxEdgeLightOn);
-            bool auraOn = NewSdfFeatureOn("customGlowFlowOn", HudConfig.FxGlowFlowAuraOn);
+            bool edgeOn = StyleFeatureOn(HudFxCategory.Edges, "customRippleOn", HudConfig.FxEdgeLightOn);
+            bool auraOn = NewSdfFeatureOn(HudFxCategory.Edges, "customGlowFlowOn", HudConfig.FxGlowFlowAuraOn);
             return tierA && edgeOn && auraOn
-                ? Mathf.Clamp(NewSdfOwnOrGlobal("glowFlowAura", HudConfig.FxGlowFlowAura), 0f, 2f) : 0f;
+                ? Mathf.Clamp(NewSdfOwnOrGlobal(HudFxCategory.Edges, "glowFlowAura", HudConfig.FxGlowFlowAura), 0f, 2f) : 0f;
         }
 
         private float FrostDepthFor()
-            => Mathf.Clamp01(OwnOrGlobal("frostDepth", HudConfig.FrostDepth));
+            => Mathf.Clamp01(OwnOrGlobal(HudFxCategory.Glass, "frostDepth", HudConfig.FrostDepth));
+
+        /// <summary>The per-element frost opt-out, resolved. It is the one companion bool with NO
+        /// global gate (the global IS the strength slider), so an absent key means ON.</summary>
+        private bool FrostFeatureOn()
+            => Owns(HudFxCategory.Glass) && Def != null
+                ? Def.GetBFor(LayoutBare, "customFrostOn", true) : true;
 
         private float ShineAmountFor()
         {
@@ -1001,7 +1045,7 @@ namespace StationeersUIMod.UI.Hud
             if (!tier || Def == null) return 0f;
             bool globalOn = HudConfig.FxShineOn != null && HudConfig.FxShineOn.Value;
             float global = HudConfig.FxShine != null ? HudConfig.FxShine.Value : 0f;
-            if (UsesGlobalStyle) return globalOn ? Mathf.Clamp(global, 0f, 2f) : 0f;
+            if (Follows(HudFxCategory.Glass)) return globalOn ? Mathf.Clamp(global, 0f, 2f) : 0f;
             return Def.GetBFor(LayoutBare, "customShineOn", globalOn)
                 ? Mathf.Clamp(Def.GetFFor(LayoutBare, "customShine", global), 0f, 2f) : 0f;
         }
@@ -1012,7 +1056,7 @@ namespace StationeersUIMod.UI.Hud
             if (!tier || Def == null) return 0f;
             bool globalOn = HudConfig.FxIridOn != null && HudConfig.FxIridOn.Value;
             float global = HudConfig.FxIridescence != null ? HudConfig.FxIridescence.Value : 0f;
-            if (UsesGlobalStyle) return globalOn ? Mathf.Clamp01(global) : 0f;
+            if (Follows(HudFxCategory.Glass)) return globalOn ? Mathf.Clamp01(global) : 0f;
             return Def.GetBFor(LayoutBare, "customIridOn", globalOn)
                 ? Mathf.Clamp01(Def.GetFFor(LayoutBare, "customIrid", global)) : 0f;
         }
@@ -1022,7 +1066,7 @@ namespace StationeersUIMod.UI.Hud
             bool tier = HudBackdrop.Active && HudConfig.FxTierC != null && HudConfig.FxTierC.Value;
             if (!tier || Def == null) return 0f;
             float global = HudConfig.FrostStrength != null ? HudConfig.FrostStrength.Value : 1f;
-            if (UsesGlobalStyle) return Mathf.Clamp01(global);
+            if (Follows(HudFxCategory.Glass)) return Mathf.Clamp01(global);
             return Def.GetBFor(LayoutBare, "customFrostOn", true)
                 ? Mathf.Clamp01(Def.GetFFor(LayoutBare, "customFrost", global)) : 0f;
         }
@@ -1034,7 +1078,7 @@ namespace StationeersUIMod.UI.Hud
             bool globalOn = HudConfig.FxChromaOn != null && HudConfig.FxChromaOn.Value;
             float global = HudConfig.FxChroma != null ? HudConfig.FxChroma.Value : 0f;
             if (!tier) return 0f;
-            if (UsesGlobalStyle) return globalOn ? Mathf.Clamp01(global) : 0f;
+            if (Follows(HudFxCategory.Glass)) return globalOn ? Mathf.Clamp01(global) : 0f;
             return Def.GetBFor(LayoutBare, "customChromaOn", globalOn)
                 ? Mathf.Clamp01(Def.GetFFor(LayoutBare, "customChroma", global)) : 0f;
         }
@@ -1189,43 +1233,9 @@ namespace StationeersUIMod.UI.Hud
         public virtual void DescribeProps(List<HudProp> into)
         {
             var d = Def;
-            int styleStart = into.Count;
-            into.Add(HudProp.Header("Style"));
-            // ONE switch, two states. Unchecking ALWAYS seeds a complete snapshot from the
-            // CURRENTLY EFFECTIVE values first (every read runs under the OLD mode), so every
-            // slider below pops open at exactly the value the element is already showing — no
-            // jump, no stale profile values.
-            //
-            // THE GUARD THAT USED TO SIT HERE WAS THE BUG (Phase 0a, 2026-07-26). It skipped the
-            // seed whenever "customStyleReady" was already true — and that flag is STICKY: any
-            // previous separation, "Snapshot ALL as Custom", or the legacy fold left it set even
-            // after the element went back to Global. Unchecking then revealed a snapshot frozen at
-            // some unrelated past moment (FlorpyDorp's shipped profiles carry customFrost 0.125
-            // against a live global of 0.87, and spec/sheen/glow all 0), which is exactly the
-            // "the frost and the chromatic aberration dissipate" report.
-            //
-            // The cost, stated plainly: a DORMANT Custom design no longer survives a Global
-            // round-trip. "Uncheck -> recheck -> uncheck" now restores what is on screen, not the
-            // values you had before. Per FlorpyDorp's decision 5 the dormant keys are still KEPT
-            // (nothing is deleted on re-follow) — they are simply overwritten by the fresh seed.
-            into.Add(WithId(HudProp.Bool("Follow F9 global style (theme + effects)",
-                () => UsesGlobalStyle,
-                v =>
-                {
-                    // Per-SLOT since 0.9.2.5: separating while the BARE tab is up must snapshot
-                    // into the bare slot, not into the shared base every tier inherits (that was
-                    // the second, silent leak the Wave C audit found).
-                    var slot = EditSlot(d);
-                    if (v)
-                    {
-                        d.SetIFor(slot, "styleSource", StyleGlobal);
-                        return;
-                    }
-                    SeedCustomStyleFromEffective(d, slot);
-                    d.SetIFor(slot, "styleSource", StyleCustom);
-                }), "styleSource"));
-            MarkProps(into, styleStart, HudPropGroup.Appearance);
-
+            // The single whole-element "Follow F9 global style" switch that used to live here is
+            // gone (Phase 3). It became a MASTER ROW above the style tab bar, plus one follow
+            // checkbox per category page — see AddUnifiedEffectProps / CategoryFollowRow.
             AddUnifiedLayoutProps(into, d);
             AddUnifiedAppearanceProps(into, d);
             AddUnifiedEffectProps(into, d);
@@ -1292,9 +1302,10 @@ namespace StationeersUIMod.UI.Hud
             // row, and the Effects tab's Theme page renders it from the registry with F9's own
             // caption and range. Keeping a second copy here is precisely the five-place duplication
             // the registry exists to delete (plan §1.7).
-            into.Add(HudProp.Note(UsesGlobalStyle
-                ? "Sizing, glass and effects: Effects tab (this element follows the F9 globals)"
-                : "Sizing, glass and effects: Effects tab (Theme / Glass / Edges / Glow pages)"));
+            into.Add(HudProp.Note(
+                "Sizing, glass and effects: Effects tab (Theme / Glass / Edges / Glow pages)"));
+            into.Add(HudProp.Note(
+                "Each page has its own \"Follow global\" box - untick only what you want to own."));
             MarkProps(into, start, HudPropGroup.Appearance);
         }
 
@@ -1440,14 +1451,32 @@ namespace StationeersUIMod.UI.Hud
             return def.Max;
         }
 
+        /// <summary>The source of ONE category in the slot the POPUP is editing (EditSlot), which
+        /// is what every row-visibility test must ask — the render slot and the edit slot agree
+        /// while F9 is open, but the editor is the authority on what it is about to write.
+        /// <see cref="HudStyleFx.SourceOf"/> redirects Transitions to Base for us.</summary>
+        private static HudFxSource EditSourceFor(HudElementDef d, HudFxCategory cat)
+            => HudStyleFx.SourceOf(d, cat, EditSlot(d));
+
+        /// <summary>True when the popup's target slot carries its OWN values for this category.
+        /// A category with no follow state at all (Bloom / Alerts) answers true, because its rows
+        /// are physically shared and are always rendered.</summary>
+        private static bool EditOwns(HudElementDef d, HudFxCategory cat)
+            => !HudStyleFx.IsFollowable(cat) || EditSourceFor(d, cat) == HudFxSource.Own;
+
         /// <summary>Is the companion feature that gates this row ON for this element? Following ⇒
-        /// the global, Custom ⇒ the element's own key with the global as its default — the same one
-        /// missing-key rule Phase 0b gave every resolver.</summary>
+        /// the global, Own ⇒ the element's own key with the global as its default — the same one
+        /// missing-key rule Phase 0b gave every resolver. The companion's OWN category decides,
+        /// which matters for the cross-category gates (the flowing aura is an Edges checkbox that
+        /// opens a Glow envelope).</summary>
         private bool FxFeatureOn(HudElementDef d, string onParamKey)
         {
             if (string.IsNullOrEmpty(onParamKey)) return true;
             bool gv = FxCompanionDefault(onParamKey);
-            if (UsesGlobalStyle || d == null) return gv;
+            if (d == null) return gv;
+            var comp = HudStyleFx.FindByParam(onParamKey);
+            var cat = comp != null ? comp.Category : HudFxCategory.Glass;
+            if (!EditOwns(d, cat)) return gv;
             return d.GetBFor(EditBare(d), onParamKey, gv);
         }
 
@@ -1463,14 +1492,29 @@ namespace StationeersUIMod.UI.Hud
             return comp != null && comp.HasGlobal && comp.GlobalBool;
         }
 
-        /// <summary>Whether a row is drawn at all on this element's page, before its section gate.</summary>
+        /// <summary>Whether a row is drawn at all on this element's page, before its section gate.
+        ///
+        /// PHASE 3: a FOLLOWING category hides its per-element CONTROLS (requirement 3: "following a
+        /// category ⇒ its controls are hidden") and shows its follow checkbox plus a summary line
+        /// instead. Two classes of row are NOT controls and stay put in both states:
+        ///
+        ///   • SHARED-ONLY rows. Plan §3.6 is explicit — "always rendered, greyed, showing the live
+        ///     global … never silently absent". They are read-only values, not controls, and they
+        ///     are the ONLY place several of them appear: backdrop darkening, frost tint, the blur
+        ///     resolution and the re-blur rate are GLASS rows, and 16 of Stationeers Blue's 24
+        ///     elements follow Glass — hiding them there put FlorpyDorp's original complaint
+        ///     ("no knob to adjust them") straight back where it started.
+        ///   • StateIndependent null-global rows (the box-end fades, the trapezoid insets, the
+        ///     element font scale) sit OUTSIDE the follow system — the renderer reads them in both
+        ///     states, so hiding them would be a regression, not a simplification.</summary>
         private bool FxRowVisible(HudElementDef d, HudStyleFxDef def)
         {
             if (def == null || !FxApplies(def)) return false;
             if (def.SharedOnly) return def.MasterOn;       // exactly F9's own per-row master gate
-            if (!FxFeatureOn(d, def.OnParamKey)) return false;
-            if (!def.HasGlobal) return def.StateIndependent || UsesCustomStyle;
-            return UsesCustomStyle;                        // else: the page's follow summary covers it
+            if (!def.HasGlobal && def.StateIndependent) return true;
+            if (!EditOwns(d, def.Category)) return false;
+            if (!def.HasGlobal) return true;
+            return FxFeatureOn(d, def.OnParamKey);
         }
 
         /// <summary>The section gates a page inherits from its F9 sub-tab, resolved PER ELEMENT
@@ -1571,17 +1615,99 @@ namespace StationeersUIMod.UI.Hud
             return null;
         }
 
-        /// <summary>One page of the style tab bar: every registry row of one category, in table
-        /// order. Appends nothing when the page would be empty (a drawn line has no Theme page).</summary>
+        /// <summary>Does this element own ANY row of a category — i.e. does the category earn a
+        /// page at all? Asked before the follow state, because a FOLLOWING page still has to exist
+        /// to carry its checkbox and its summary (a drawn line, by contrast, has no Theme page in
+        /// either state because no Surface row applies to it).</summary>
+        private bool FxCategoryApplies(HudFxCategory cat)
+        {
+            var all = HudStyleFx.All;
+            for (int i = 0; i < all.Length; i++)
+                if (all[i] != null && all[i].Category == cat && FxApplies(all[i])) return true;
+            return false;
+        }
+
+        /// <summary>Does this element have at least one row of a category that the follow state
+        /// actually GOVERNS? A page whose only applicable rows are SHARED read-only values or
+        /// StateIndependent geometry (a text-only element's Theme page, which is just the font
+        /// scale and the shared HUD font scale) gets no follow checkbox — the box would be a
+        /// control that provably cannot change anything.</summary>
+        private bool FxCategoryHasFollowableRows(HudFxCategory cat)
+        {
+            var all = HudStyleFx.All;
+            for (int i = 0; i < all.Length; i++)
+            {
+                var def = all[i];
+                if (def == null || def.Category != cat || !FxApplies(def)) continue;
+                if (def.SharedOnly) continue;
+                if (!def.HasGlobal && def.StateIndependent) continue;
+                return true;
+            }
+            return false;
+        }
+
+        /// <summary>The F9 sub-tab a category's jump button points at: the first row in the
+        /// category that actually has a home there. Derived, never hand-typed.</summary>
+        private static void AddCategoryJump(List<HudProp> into, HudFxCategory cat)
+        {
+            var all = HudStyleFx.All;
+            for (int i = 0; i < all.Length; i++)
+            {
+                string tab, subTabId, subTabName;
+                if (all[i] == null || all[i].Category != cat) continue;
+                if (!HudStyleFx.F9Home(all[i], out tab, out subTabId, out subTabName)) continue;
+                AddJump(into, tab, subTabId, subTabName, "cat" + (int)cat);
+                return;
+            }
+        }
+
+        /// <summary>The per-category FOLLOW checkbox that heads every followable page — plan §3.3
+        /// requirement 3, and the row that replaced the single whole-element switch.
+        ///
+        /// Unticking SEEDS the category from the values the element is currently resolving BEFORE
+        /// the source flips, so not a single pixel changes (the Phase 0a value-preserving contract,
+        /// now per category). Re-ticking only flips the bits: the seeded keys stay on disk, dormant
+        /// and unread, which is FlorpyDorp's decision 5 — nothing is lost, and unticking again
+        /// re-seeds from whatever is on screen at that moment.</summary>
+        private HudProp CategoryFollowRow(HudElementDef d, HudFxCategory cat)
+        {
+            string name = HudStyleFx.CategoryName(cat);
+            return WithId(WithHelp(HudProp.Bool("Follow global " + name,
+                () => !EditOwns(d, cat),
+                v => SetCategoryFollow(cat, v)),
+                "Ticked: this element takes the F9 " + name + " globals. Unticked: it gets its own "
+                + "copy of every " + name + " value, seeded from exactly what it shows now."),
+                "styleSrc" + (int)cat);
+        }
+
+        /// <summary>One page of the style tab bar: the category's follow checkbox, then either its
+        /// summary line (following) or every registry row of that category in table order (own).
+        /// Appends nothing when the element has no surface the category can touch.</summary>
         private void AddStylePage(List<HudProp> pages, HudElementDef d, string caption,
             HudFxCategory cat)
         {
+            if (!FxCategoryApplies(cat)) return;
+
             var page = new List<HudProp>();
+            bool followable = HudStyleFx.IsFollowable(cat) && FxCategoryHasFollowableRows(cat);
+            bool own = EditOwns(d, cat);
+            if (followable)
+            {
+                page.Add(CategoryFollowRow(d, cat));
+                if (!own)
+                {
+                    page.Add(HudProp.Note("    This element's " + HudStyleFx.CategoryName(cat)
+                        + " follows the F9 globals."));
+                    page.Add(HudProp.Note(
+                        "    Untick to edit it here - the values open at exactly what you see now."));
+                    AddCategoryJump(page, cat);
+                }
+            }
+
             var all = HudStyleFx.All;
             string lastSection = null;
             HudStyleFxDef runDef = null;     // the open run of shared rows, if any
             bool runLocal = false;           // ... and whether it held a machine-local one
-            bool anyFollowed = false;        // a per-element row was suppressed by the follow state
 
             for (int i = 0; i < all.Length; i++)
             {
@@ -1589,11 +1715,7 @@ namespace StationeersUIMod.UI.Hud
                 if (def == null || def.Category != cat) continue;
                 if (!FxApplies(def)) continue;
                 if (!FxSectionOpen(d, cat, def.Section)) continue;
-                if (!FxRowVisible(d, def))
-                {
-                    if (!def.SharedOnly && UsesGlobalStyle && def.HasGlobal) anyFollowed = true;
-                    continue;
-                }
+                if (!FxRowVisible(d, def)) continue;
                 if (!string.Equals(def.Section, lastSection, System.StringComparison.Ordinal))
                 {
                     FxCloseSharedRun(page, ref runDef, ref runLocal);
@@ -1619,16 +1741,7 @@ namespace StationeersUIMod.UI.Hud
             FxCloseSharedRun(page, ref runDef, ref runLocal);
             string tailFoot = FxSectionFooter(cat, lastSection);
             if (tailFoot != null) page.Add(HudProp.Note(tailFoot));
-            // Nothing to say at all — this element has no surface this family touches. A page whose
-            // rows are merely SUPPRESSED by the follow state is still shown: it must carry the
-            // summary that explains where its controls went.
-            if (page.Count == 0 && !anyFollowed) return;
-            if (anyFollowed)
-            {
-                page.Insert(0, HudProp.Note(
-                    "This element FOLLOWS the F9 globals - untick \"Follow F9 global style\""));
-                page.Insert(1, HudProp.Note("on the Appearance tab to give it its own values."));
-            }
+            if (page.Count == 0) return;
             pages.Add(HudProp.TabPage(caption, page));
         }
 
@@ -1657,9 +1770,16 @@ namespace StationeersUIMod.UI.Hud
         {
             if (into == null || d == null || def == null) return;
             string label = FxLabel(def);
-            if (!def.HasGlobal
-                && label.IndexOf("per-element only", System.StringComparison.Ordinal) < 0)
-                label = label + "  (per-element only)";
+            // A row with NO global is per-element or nothing — and the two classes of those behave
+            // DIFFERENTLY under the follow system, so the caption has to say which. StateIndependent
+            // rows (the box-end fades, the trapezoid insets, the element font scale) are element
+            // geometry and stay editable in both states; the rest (energy smoothness, the portrait
+            // ring pair, the frost opt-out) are neutral while the category follows and therefore
+            // only appear once it does not.
+            if (!def.HasGlobal)
+                label = label + (def.StateIndependent
+                    ? "  (per-element only)"
+                    : "  (per-element only; shown when not following)");
 
             switch (def.Key)
             {
@@ -1783,6 +1903,27 @@ namespace StationeersUIMod.UI.Hud
             if (SupportsPanelAppearance && OptionalPanelBackgroundIsOff)
                 into.Add(HudProp.Note(OptionalPanelBackgroundHint));
 
+            // THE MASTER ROW (Phase 3). It is a convenience over the five per-page checkboxes, not
+            // a separate piece of state: ticked when ALL five follow, unticked when none do, and
+            // it says "(mixed)" in between rather than lying in either direction. Clicking it drives
+            // every category through the SAME seed-on-unfollow / dormant-on-refollow semantics as
+            // the page checkboxes, so the two can never disagree.
+            //
+            // It is deliberately EXCLUDED from the per-tier seed walk (SeedSkip): its getter
+            // collapses a mixed element to `false`, and replaying that into a fresh Bare fork would
+            // unfollow all five categories on an element that only owned one. The five page
+            // checkboxes carry the real per-category state across the fork.
+            bool allFollow = HudStyleFx.AllFollow(d, EditSlot(d));
+            bool noneFollow = HudStyleFx.NoneFollow(d, EditSlot(d));
+            into.Add(WithId(WithHelp(HudProp.Bool("Follow F9 global style (theme + effects)",
+                () => HudStyleFx.AllFollow(d, EditSlot(d)),
+                v => { for (int i = 0; i < HudStyleFx.Followable.Length; i++)
+                           SetCategoryFollow(HudStyleFx.Followable[i], v); }),
+                "Every style family at once. Each page below can be followed or owned on its own."),
+                "styleSourceAll"));
+            if (!allFollow && !noneFollow)
+                into.Add(HudProp.Note("    (mixed) - some families follow the globals, some do not."));
+
             var pages = new List<HudProp>();
             AddStylePage(pages, d, "Theme", HudFxCategory.Surface);
             // The effect families only earn a page on an element that renders something they can
@@ -1801,40 +1942,67 @@ namespace StationeersUIMod.UI.Hud
             MarkProps(into, start, HudPropGroup.Effects);
         }
 
-        /// <summary>The Transitions page — the existing HudTransitionFx-driven rows, moved verbatim
-        /// off the bottom of the old Effects list and onto their own page.
+        /// <summary>The Transitions page (Phase 3, FlorpyDorp's decision 3: the Inherit/On/Off
+        /// dropdowns are RETIRED, with no "Advanced" escape hatch).
         ///
-        /// DELIBERATELY NOT gated on UsesCustomStyle (bug, 2026-07-19: the toggles were both
-        /// invisible AND ignored for a global-styled element). "Follow the global THEME" and "follow
-        /// the global MOTION" are different questions: an element must be able to keep the shared
-        /// look while sitting a transition out. Retiring the tri-state in favour of a per-category
-        /// follow checkbox is Phase 3, not this phase.</summary>
+        /// Following ⇒ the follow checkbox, a summary line and a jump. Nothing else — a following
+        /// element's motion is entirely the F9 globals, so there is nothing here to set.
+        ///
+        /// Own ⇒ seven rows that look exactly like F9's: a plain checkbox and a strength slider
+        /// each. No third state is offered, because once the category is unfollowed each transition
+        /// is simply on or off FOR THIS ELEMENT.
+        ///
+        /// WHY THIS DOES NOT LOSE THE GRANULARITY THE PLAN PREDICTED (§3.7): storage is still
+        /// HudTransitionFx's own per-effect keys, and an effect the author has not touched stores
+        /// NOTHING — its mode stays absent, i.e. Inherit, so it keeps tracking the global master and
+        /// the global strength for ever. The checkbox and the slider simply DISPLAY those live
+        /// globals until the row is touched. So the plan's worry — "an element that was Inherit on 6
+        /// and Off on 1 ends up with 6 effects frozen at today's globals" — does not happen: exactly
+        /// the one row that was ever touched is frozen, and it was already frozen before.</summary>
         private List<HudProp> BuildTransitionsPage(HudElementDef d)
         {
             var page = new List<HudProp>();
+            page.Add(CategoryFollowRow(d, HudFxCategory.Transitions));
+            if (!EditOwns(d, HudFxCategory.Transitions))
+            {
+                page.Add(HudProp.Note(
+                    "    This element's motion follows the F9 globals (Effects > Transitions)."));
+                page.Add(HudProp.Note(
+                    "    Untick to switch individual transitions on or off for this element."));
+                AddJump(page, HudStyleFx.TabEffects, HudStyleFx.SubTabTransitions, "Transitions",
+                    "transitions");
+                return page;
+            }
+
             page.Add(HudProp.Header("Motion & power transitions"));
-            page.Add(HudProp.Header("  Inherit = follow the F9 global (Effects -> Suit power)"));
-            page.Add(HudProp.Header("  On = force it, at this element's own strength.  Off = never."));
             // One row per registry effect, driven by HudTransitionFx.All, so this inspector and the
             // F9 global menu cannot present different effects or different labels.
             for (int i = 0; i < HudTransitionFx.All.Length; i++)
                 AddTransitionRows(page, d, HudTransitionFx.All[i]);
-            page.Add(HudProp.Header("  A global master that is OFF wins over every element."));
-            page.Add(HudProp.Header("  Transitions are shared by the suit and bare layouts."));
+            page.Add(HudProp.Note("  A global master that is OFF wins over every element."));
+            page.Add(HudProp.Note("  Transitions are shared by the suit and bare layouts."));
+            page.Add(HudProp.Note("  A row you never touch keeps tracking the global, live."));
             AddJump(page, HudStyleFx.TabEffects, HudStyleFx.SubTabTransitions, "Transitions",
                 "transitions");
             return page;
         }
 
-        /// <summary>Combo captions for the per-effect tri-state. A readonly array of literals: no
-        /// scene, document or ConfigEntry reference, so it needs no hot-reload teardown (the whole
-        /// type goes with the assembly on F6). Index order MUST match <see cref="HudFxMode"/>.</summary>
-        private static readonly string[] TransitionModeNames = { "Inherit", "On", "Off" };
+        /// <summary>What the checkbox for one effect SHOWS. On/Off are the element's own stored
+        /// decision; an untouched (Inherit) row displays the live global master, so the page reads
+        /// as a faithful copy of F9 before you touch anything — and stays a live one afterwards for
+        /// every row you leave alone. This is a DISPLAY-time read, never a stored write.</summary>
+        private static bool TransitionRowOn(HudElementDef d, HudTransitionFxDef fx)
+        {
+            var m = HudTransitionFx.ModeOf(d, fx, false);
+            if (m == HudFxMode.On) return true;
+            if (m == HudFxMode.Off) return false;
+            return fx.GlobalOn;
+        }
 
-        /// <summary>Per-element rows for ONE registry transition effect, bound to the TRI-STATE so
-        /// the inspector can never disagree with the resolver: an explicit Inherit / On / Off
-        /// picker, plus the element's OWN strength while it is forced On (an inheriting element is
-        /// told what the global would give it instead, so the row is never a silent blank).
+        /// <summary>Per-element rows for ONE registry transition effect: a checkbox and a strength,
+        /// styled exactly like F9's pair. Ticking writes <see cref="HudFxMode.On"/>, unticking
+        /// writes <see cref="HudFxMode.Off"/>; dragging the strength promotes an untouched row to On
+        /// (HudTransitionFx.SetAmount's own rule — otherwise the slider would visibly do nothing).
         ///
         /// EVERY accessor is called with bare:false — i.e. the RAW base value, never the "b_" bare
         /// override. Power transitions are one animation for the whole element and are deliberately
@@ -1848,29 +2016,21 @@ namespace StationeersUIMod.UI.Hud
             // StableId, not the label, keys the ImGui control: seven rows share the "  strength"
             // caption and would otherwise collapse into one (HudPropDrawer derives the id from
             // Group + Label).
-            into.Add(WithId(HudProp.Enum(fx.Label,
-                () => (int)HudTransitionFx.ModeOf(d, fx, false),
-                v => HudTransitionFx.SetMode(d, fx, false, ToMode(v)),
-                TransitionModeNames), fx.ModeKey));
+            into.Add(WithId(WithHelp(HudProp.Bool(fx.Label,
+                () => TransitionRowOn(d, fx),
+                v => HudTransitionFx.SetMode(d, fx, false, v ? HudFxMode.On : HudFxMode.Off)),
+                fx.Tip), fx.ModeKey));
+            into.Add(WithId(HudProp.F("  strength", () => HudTransitionFx.AmountOf(d, fx, false),
+                v => HudTransitionFx.SetAmount(d, fx, false, v), 0f, 2f), fx.AmtKey));
 
             HudFxMode mode = HudTransitionFx.ModeOf(d, fx, false);
-            if (mode == HudFxMode.On)
-                into.Add(WithId(HudProp.F("  strength", () => HudTransitionFx.AmountOf(d, fx, false),
-                    v => HudTransitionFx.SetAmount(d, fx, false, v), 0f, 2f), fx.AmtKey));
-            else if (mode == HudFxMode.Inherit)
-                into.Add(HudProp.Header(fx.GlobalOn
-                    ? "  inheriting strength " + fx.GlobalAmt.ToString("0.00")
-                    : "  inheriting OFF (this effect's global master is off)"));
-            if (mode == HudFxMode.On && !fx.GlobalOn)
-                into.Add(HudProp.Header("  Global master is OFF - forcing On here changes nothing"));
-        }
-
-        /// <summary>Combo index -> tri-state, clamped so a stray index can never author garbage.</summary>
-        private static HudFxMode ToMode(int v)
-        {
-            if (v == (int)HudFxMode.On) return HudFxMode.On;
-            if (v == (int)HudFxMode.Off) return HudFxMode.Off;
-            return HudFxMode.Inherit;
+            if (mode == HudFxMode.Inherit)
+                into.Add(HudProp.Note(fx.GlobalOn
+                    ? "    still tracking the global (" + fx.GlobalAmt.ToString("0.00")
+                      + ") - touch a row to freeze it here"
+                    : "    still tracking the global (master OFF) - touch a row to freeze it here"));
+            if (!fx.GlobalOn && mode == HudFxMode.On)
+                into.Add(HudProp.Note("    Global master is OFF - ticking this changes nothing."));
         }
 
         private static void MarkProps(List<HudProp> props, int start, HudPropGroup group)
@@ -1890,6 +2050,13 @@ namespace StationeersUIMod.UI.Hud
             return p;
         }
 
+        /// <summary>Attach a tooltip to a prop whose factory takes none (Bool / Float).</summary>
+        private static HudProp WithHelp(HudProp p, string help)
+        {
+            if (p != null) p.Help = help;
+            return p;
+        }
+
         // ---- per-tier fork seeding ----------------------------------------------------------
 
         /// <summary>Rows <see cref="SeedSlotFromBase"/> must NOT round-trip: setters with side
@@ -1898,7 +2065,14 @@ namespace StationeersUIMod.UI.Hud
         /// being seeded; "zOrder" is document order, not look; the transition rows are deliberately
         /// shared by every tier (see AddTransitionRows) and re-writing them would churn the base.
         /// Everything else is safe: a row that is not actually tier-aware simply writes the same
-        /// value back to the same base storage — a no-op round trip.</summary>
+        /// value back to the same base storage — a no-op round trip.
+        ///
+        /// "styleSourceAll" is the Phase 3 MASTER follow row and must be skipped for a different
+        /// reason: it is a derived convenience, not state. Its getter reports `false` for a MIXED
+        /// element, and replaying that into a fresh fork would unfollow all five categories on an
+        /// element that only owned one. The five per-category checkboxes ("styleSrc0".."styleSrc6")
+        /// are NOT skipped — they carry the real per-slot follow state across the fork, which is
+        /// what makes a Bare fork able to follow a family the Suited base owns.</summary>
         private static readonly HashSet<string> SeedSkip = BuildSeedSkip();
 
         private static HashSet<string> BuildSeedSkip()
@@ -1906,6 +2080,7 @@ namespace StationeersUIMod.UI.Hud
             var s = new HashSet<string>(System.StringComparer.Ordinal)
             {
                 "elAnchor", "elX", "elY", "elW", "elH", "elWPct", "elHPct", "zOrder", "tiers",
+                "styleSourceAll",
             };
             for (int i = 0; i < HudTransitionFx.All.Length; i++)
             {
@@ -2021,144 +2196,264 @@ namespace StationeersUIMod.UI.Hud
             }
         }
 
-        /// <summary>Freeze the element's currently rendered theme/effect values into a complete
-        /// custom snapshot before changing its source mode. The reads happen while the OLD mode
-        /// is still active, so Global -> Custom, Custom -> Custom and Legacy -> Custom are all
-        /// visually continuous.
+        // ================= PER-CATEGORY SOURCE WRITES + SEEDING (Phase 3) ====================
+
+        /// <summary>Write one slot's packed source word, keeping the pre-Phase-3 field in step.
         ///
-        /// Since Phase 0a this runs on EVERY Global -> Custom flip, not just the first one, so it
-        /// must stay VALUE-PRESERVING BY CONSTRUCTION: every write below is a `...For()` resolver
-        /// read, which means re-seeding an element that is already showing these values simply
-        /// writes them down again. Keep it that way — a literal default sneaked in here becomes a
-        /// visible jump on every separation.
-        ///
-        /// Re-following (Custom -> Global) does NOT delete the stored keys (FlorpyDorp's decision
-        /// 5): they stay dormant and are overwritten by the next seed.</summary>
-        private void SeedCustomStyleFromEffective(HudElementDef d, HudStyleSlot slot)
+        /// The legacy "styleSource" write is DOWNGRADE COMPAT and nothing else (plan §4.2): a
+        /// 0.9.2.x build reads only that field, so a profile saved here must still describe itself
+        /// in its vocabulary — 1 when every category follows, 2 otherwise, which is the closest
+        /// honest two-state summary of a five-state word. Phase 5 drops the write.</summary>
+        private static void WriteSourceBits(HudElementDef d, HudStyleSlot slot, int packed)
         {
             if (d == null) return;
+            d.SetIFor(slot, HudStyleFx.SourceParamKey, packed);
+            d.SetIFor(slot, HudStyleFx.LegacySourceParamKey,
+                HudStyleFx.AllFollow(packed) ? StyleGlobal : StyleCustom);
+        }
 
-            // The snapshot defines the TARGET SLOT's style, so force the slot-aware resolvers below
-            // onto that slot — a snapshot taken while previewing BARE must land in the bare slot,
-            // never in the shared base every tier inherits. Restored in finally so a mid-frame flip
-            // can't strand the render slot.
-            var _prevLayoutSlot = LayoutSlot;
+        /// <summary>Tick or untick ONE category's follow box — the whole of requirement 3 and
+        /// requirement 4, in five lines.
+        ///
+        /// UNTICKING SEEDS FIRST, while the old source is still live, so every row on the page
+        /// opens at exactly the value the element is already rendering and not a single pixel moves
+        /// (Phase 0a's value-preserving contract, now per category).
+        ///
+        /// TICKING only flips the bits. The seeded keys stay on disk, dormant and unread — that is
+        /// FlorpyDorp's decision 5: nothing is deleted, and unticking again re-seeds from whatever
+        /// is on screen at that moment rather than resurrecting a stale snapshot.
+        ///
+        /// Per SLOT: separating while the BARE tab is up writes the bare fork, not the shared base
+        /// every tier inherits (the silent leak the Wave C audit found) — EXCEPT Transitions, whose
+        /// bits live on Base whatever tab is up, because the rows it governs do
+        /// (<see cref="HudStyleFx.SlotFor"/>). Writing it per-slot desynced the checkbox from its
+        /// own rows on a bare-forked element: untick a transition and the box sprang back.</summary>
+        internal void SetCategoryFollow(HudFxCategory cat, bool follow)
+        {
+            var d = Def;
+            if (d == null || !HudStyleFx.IsFollowable(cat)) return;
+            var slot = HudStyleFx.SlotFor(cat, EditSlot(d));
+            // Seed only on a REAL Global -> Own transition. For the four steady families re-seeding
+            // an already-Own category is idempotent (every write is that category's own value read
+            // back), so the gate changes nothing there — but SeedTransitions is NOT idempotent: it
+            // writes Inherit over stored On/Off by design, and the per-tier fork seed replays every
+            // checkbox at its current value, so an unguarded call would wipe an already-separated
+            // element's motion design just because the author ticked "Separate BARE style".
+            if (!follow && HudStyleFx.SourceOf(d, cat, slot) != HudFxSource.Own)
+                SeedCategory(d, slot, cat);
+            int packed = HudStyleFx.WithSource(HudStyleFx.PackedOf(d, slot), cat,
+                follow ? HudFxSource.Global : HudFxSource.Own);
+            WriteSourceBits(d, slot, packed);
+        }
+
+        /// <summary>Freeze ONE category's currently resolved values into the element, by walking
+        /// <see cref="HudStyleFx.All"/> — the registry loop that replaced ~40 hand-written writes.
+        /// A knob added to the table is seeded for free; there is no second list to forget.
+        ///
+        /// VALUE-PRESERVING BY CONSTRUCTION and it must stay that way: every write in
+        /// <see cref="SeedFxRow"/> is a live resolver read taken while the OLD source is still
+        /// active, so seeding a category that is already showing these values writes them down
+        /// again. A literal default sneaked in there becomes a visible jump on every unfollow.
+        ///
+        /// TRANSITIONS seed one thing and one thing only — see <see cref="SeedTransitions"/>. They
+        /// deliberately do NOT write a mode or a strength for an untouched effect: the key stays
+        /// ABSENT so the row goes on tracking the global master and strength live, which is how
+        /// this phase avoids the granularity loss plan §3.7 predicted.</summary>
+        private void SeedCategory(HudElementDef d, HudStyleSlot slot, HudFxCategory cat)
+        {
+            if (d == null) return;
+            if (cat == HudFxCategory.Transitions) { SeedTransitions(d); return; }
+            // The snapshot defines the TARGET SLOT's style, so force the slot-aware resolvers onto
+            // that slot. Restored in finally so a mid-frame flip can't strand the render slot.
+            var prevLayoutSlot = LayoutSlot;
             LayoutSlot = slot;
             try
             {
-
-            // Colours are deliberately NOT snapshotted: refs resolve identically in both states
-            // (see GlobalOr), so separation must not hex-freeze a palette-name ref that the
-            // author wants tracking the F9 palette.
-            d.SetBorderWidthFor(slot, BorderWidthFor());
-            d.SetRTLFor(slot, Radius(d.RTLFor(slot)));
-            d.SetRTRFor(slot, Radius(d.RTRFor(slot)));
-            d.SetRBRFor(slot, Radius(d.RBRFor(slot)));
-            d.SetRBLFor(slot, Radius(d.RBLFor(slot)));
-            d.SetFFor(slot, "feather", EffectiveFeatherFor());
-            d.SetFFor(slot, "sheen", GlassSheenFor());
-
-            // Custom stores the final visible edge-light strength. This includes the current
-            // global Tier-A boost when Global/Legacy was the source, then stops tracking it.
-            d.SetFFor(slot, "spec", GlassEdgeFor());
-
-            d.SetFFor(slot, "squircle", SdfSquircleFor());
-            d.SetBFor(slot, "gaussianHalo", SdfGaussianFor());
-            // CORNER STYLE (added to the seed 2026-07-26). Deliberately copied in its STORED
-            // encoding, not resolved: 0 = "Follow global" is this key's own live-tracking sentinel,
-            // the exact analogue of a palette-name ColorRef, and CornerCutFor already maps it to
-            // the -1 the panel wants in BOTH states. Freezing it to the global's concrete value
-            // here would silently stop a separated element tracking the F9 corner-style combo.
-            d.SetIFor(slot, "cornerStyle",
-                Mathf.Clamp(d.GetIFor(slot, "cornerStyle", CornerStyleFollow), 0, 2));
-            d.SetBFor(slot, "customBorderFadeOn", StyleFeatureOn("customBorderFadeOn", HudConfig.FxBorderFadeOn));
-            d.SetBFor(slot, "customSoftEdgeOn", StyleFeatureOn("customSoftEdgeOn", HudConfig.FxSoftEdgeOn));
-            d.SetBFor(slot, "customGlowOn", StyleFeatureOn("customGlowOn", HudConfig.FxGlowOn));
-            d.SetBFor(slot, "customRippleOn", StyleFeatureOn("customRippleOn", HudConfig.FxEdgeLightOn));
-            d.SetBFor(slot, "customGlowBreathOn", NewSdfFeatureOn("customGlowBreathOn", HudConfig.FxGlowBreathOn));
-            d.SetBFor(slot, "customGlowUnevenOn", NewSdfFeatureOn("customGlowUnevenOn", HudConfig.FxGlowUnevenOn));
-            d.SetBFor(slot, "customGlowFlowOn", NewSdfFeatureOn("customGlowFlowOn", HudConfig.FxGlowFlowAuraOn));
-            d.SetFFor(slot, "bfade", OwnOrGlobal("bfade", HudConfig.FxBorderFade));
-            d.SetFFor(slot, "softEdge", OwnOrGlobal("softEdge", HudConfig.FxSoftEdge));
-            d.SetFFor(slot, "glow", OwnOrGlobal("glow", HudConfig.FxGlow));
-            d.SetFFor(slot, "glowIn", OwnOrGlobal("glowIn", HudConfig.FxGlowInner));
-            d.SetFFor(slot, "glowWidth", OwnOrGlobal("glowWidth", HudConfig.FxGlowWidth));
-            d.SetFFor(slot, "glowDiffuse", OwnOrGlobal("glowDiffuse", HudConfig.FxGlowDiffuse));
-            d.SetFFor(slot, "glowExtraDiffuse", NewSdfOwnOrGlobal("glowExtraDiffuse", HudConfig.FxGlowExtraDiffuse));
-            d.SetFFor(slot, "glowHaze", NewSdfOwnOrGlobal("glowHaze", HudConfig.FxGlowHaze));
-            d.SetFFor(slot, "glowBreath", NewSdfOwnOrGlobal("glowBreath", HudConfig.FxGlowBreath));
-            d.SetFFor(slot, "glowUneven", NewSdfOwnOrGlobal("glowUneven", HudConfig.FxGlowUneven));
-            d.SetFFor(slot, "glowOrganicScale", NewSdfOwnOrGlobal("glowOrganicScale", HudConfig.FxGlowOrganicScale));
-            d.SetFFor(slot, "glowFlowAura", NewSdfOwnOrGlobal("glowFlowAura", HudConfig.FxGlowFlowAura));
-            d.SetFFor(slot, "ripple", OwnOrGlobal("ripple", HudConfig.FxEdgeRipple));
-            d.SetFFor(slot, "rippleFreq", OwnOrGlobal("rippleFreq", HudConfig.FxEdgeRippleFreq));
-            d.SetFFor(slot, "rippleSmooth", UsesGlobalStyle ? 0f : d.GetFFor(slot, "rippleSmooth", 0f));
-            d.SetFFor(slot, "edgeFlow", EdgeFlowFor());
-            d.SetFFor(slot, "frostDepth", FrostDepthFor());
-
-            // BOX END FADE (added to the seed 2026-07-26). These two are element GEOMETRY, editable
-            // in both states and un-gated by the style source, so writing them back is a value-
-            // preserving no-op — but it COMPLETES the slot's copy, which is what stops a later base
-            // edit leaking into a per-tier fork (HudElementDef's copy-on-write only protects keys
-            // that exist).
-            d.SetFFor(slot, "edgeFadeX", d.GetFFor(slot, "edgeFadeX", 0f));
-            d.SetFFor(slot, "edgeFadeY", d.GetFFor(slot, "edgeFadeY", 0f));
-
-            // THE PORTRAIT-STYLE RING (added to the seed 2026-07-26). Only border-only chrome reads
-            // these, so a panel element is left alone rather than gaining two dead keys.
-            if (SupportsBorderOnlyChrome)
-            {
-                // Custom's ringGlow defaults to 0 = no halo band, but a FOLLOWING ring derives its
-                // halo from the panel recipe — so separation used to delete the ring's halo. Freeze
-                // what it is actually showing.
-                d.SetFFor(slot, "ringGlow", Mathf.Clamp(RingGlowFor(), 0f, 2f));
-                // The COLOUR is copied as a REF, never as a resolved hex: an empty ref means "derive
-                // from the rim" and a palette name must keep live-tracking the F9 palette — the same
-                // deliberate non-snapshot rule the Fill/Border/Text refs follow above.
-                string ringRef = d.GetSFor(slot, "ringGlowColor", null);
-                d.SetSFor(slot, "ringGlowColor", string.IsNullOrEmpty(ringRef) ? null : ringRef);
+                var all = HudStyleFx.All;
+                for (int i = 0; i < all.Length; i++)
+                {
+                    var def = all[i];
+                    if (def == null || def.Category != cat) continue;
+                    // The capability predicate is the gate that used to be hand-written ("only a
+                    // Polyline gets edgeLight", "only border-only chrome gets ringGlow"): an
+                    // element never gains a key for a surface it does not have.
+                    if (!FxApplies(def)) continue;
+                    try { SeedFxRow(d, slot, def); }
+                    catch (System.Exception e)
+                    {
+                        Core.UIALog.Warn("HudElementView: seeding '" + (def.Key ?? "?") + "' on '"
+                            + (d.Id ?? "?") + "' failed (" + e.Message + ") — it keeps following.");
+                    }
+                }
+                d.Set("followGlobal", null);            // extinct legacy flag — never re-written
+                d.SetBFor(slot, "customStyleReady", true);
             }
-
-            bool globalShineOn = HudConfig.FxShineOn != null && HudConfig.FxShineOn.Value;
-            float globalShine = HudConfig.FxShine != null ? HudConfig.FxShine.Value : 0f;
-            bool globalIridOn = HudConfig.FxIridOn != null && HudConfig.FxIridOn.Value;
-            float globalIrid = HudConfig.FxIridescence != null ? HudConfig.FxIridescence.Value : 0f;
-            bool globalChromaOn = HudConfig.FxChromaOn != null && HudConfig.FxChromaOn.Value;
-            float globalChroma = HudConfig.FxChroma != null ? HudConfig.FxChroma.Value : 0f;
-            float globalFrost = HudConfig.FrostStrength != null ? HudConfig.FrostStrength.Value : 1f;
-            bool fromCustom = UsesCustomStyle;
-
-            d.SetBFor(slot, "customShineOn", fromCustom ? d.GetBFor(slot, "customShineOn", globalShineOn) : globalShineOn);
-            d.SetFFor(slot, "customShine", Mathf.Clamp(fromCustom
-                ? d.GetFFor(slot, "customShine", globalShine) : globalShine, 0f, 2f));
-            d.SetBFor(slot, "customIridOn", fromCustom ? d.GetBFor(slot, "customIridOn", globalIridOn) : globalIridOn);
-            d.SetFFor(slot, "customIrid", Mathf.Clamp01(fromCustom
-                ? d.GetFFor(slot, "customIrid", globalIrid) : globalIrid));
-            d.SetBFor(slot, "customChromaOn", fromCustom ? d.GetBFor(slot, "customChromaOn", globalChromaOn) : globalChromaOn);
-            d.SetFFor(slot, "customChroma", Mathf.Clamp01(fromCustom
-                ? d.GetFFor(slot, "customChroma", globalChroma) : globalChroma));
-            d.SetBFor(slot, "customFrostOn", fromCustom ? d.GetBFor(slot, "customFrostOn", true) : true);
-            d.SetFFor(slot, "customFrost", Mathf.Clamp01(fromCustom
-                ? d.GetFFor(slot, "customFrost", globalFrost) : globalFrost));
-            // MOTION IS NOT SNAPSHOTTED. It used to be: this block wrote customDissolve plus a
-            // hard 1f into every fx*Amt whenever an element was seeded into Custom. Two bugs came
-            // out of that — (a) it destroyed an authored per-effect strength ("TV off = 1.8" became
-            // 1.0) purely because the user flipped an UNRELATED appearance setting, and (b) writing
-            // customDissolve=false when the global master happened to be off was later read back by
-            // the tri-state's legacy fallback as an explicit "Off", permanently pinning the element
-            // and re-creating the inherit-vs-explicit conflation this refactor exists to remove.
-            // Transitions are deliberately independent of the style source now (see
-            // AddUnifiedEffectProps) and default to Inherit, so seeding must leave them alone.
-
-            // The line's edge-light strength key (panels collapse theirs into `spec`).
-            if (d.Type == HudElementType.Polyline)
-                d.SetFFor(slot, "edgeLight", OwnOrGlobal("edgeLight", HudConfig.FxEdgeLight));
-
-            d.Set("followGlobal", null); // extinct legacy flag — never re-written
-            d.SetBFor(slot, "customStyleReady", true);
-            }
-            finally { LayoutSlot = _prevLayoutSlot; }
+            finally { LayoutSlot = prevLayoutSlot; }
         }
+
+        /// <summary>The Transitions half of the unfollow seed, and it is the SAME contract as every
+        /// other category: freeze what the element is CURRENTLY RESOLVING.
+        ///
+        /// While Transitions follows, <c>HudTransitionFx.ModeOf</c> returns Inherit for all seven
+        /// effects whatever is stored — so Inherit IS the value being rendered, and Inherit is what
+        /// the seed must write down. Without this, unfollowing REVEALED a dormant stored On/Off and
+        /// changed a pixel, which fails the gating test. (13 elements in the shipped Stationeers
+        /// Blue carry <c>fxCollapseMode=2</c>, so this was not hypothetical.)
+        ///
+        /// Yes, this overwrites a dormant motion design — exactly as re-seeding overwrites the
+        /// dormant floats in every other category. That is decision 5's approved unfollow rule, not
+        /// an exception to it.
+        ///
+        /// Writing Inherit REMOVES the mode key rather than storing a 0, so the row goes straight
+        /// back to tracking the global live, and the profile does not grow. Legacy "b_" overrides
+        /// are cleared too, but only where one is actually stored: the renderer still honours a bare
+        /// override (<c>Resolve(def, key, LayoutBare)</c>), so leaving one behind would be the same
+        /// reveal one tier over.</summary>
+        private static void SeedTransitions(HudElementDef d)
+        {
+            if (d == null) return;
+            var all = HudTransitionFx.All;
+            for (int i = 0; i < all.Length; i++)
+            {
+                var fx = all[i];
+                if (fx == null) continue;
+                if (HudTransitionFx.RawModeOf(d, fx, HudStyleSlot.Base) != HudFxMode.Inherit)
+                    HudTransitionFx.SetMode(d, fx, false, HudFxMode.Inherit);
+                if (d.HasSlotOverride(HudStyleSlot.Bare, fx.ModeKey)
+                    || d.HasSlotOverride(HudStyleSlot.Bare, fx.LegacyKey))
+                    HudTransitionFx.SetMode(d, fx, true, HudFxMode.Inherit);
+            }
+        }
+
+        /// <summary>Freeze ONE registry row's currently resolved value. The special cases below are
+        /// exactly the rows whose storage is not "a param holding the resolved number": the three
+        /// first-class def FIELDS, the two keys whose stored form is a live-tracking SENTINEL
+        /// (cornerStyle 0, an empty colour ref), and the four null-global keys. Everything else
+        /// falls through to the generic branch, which IS plan §3.2's one rule — so a row added to
+        /// the table is seeded correctly without touching this function.</summary>
+        private void SeedFxRow(HudElementDef d, HudStyleSlot slot, HudStyleFxDef def)
+        {
+            if (d == null || def == null || def.SharedOnly) return;
+            switch (def.Key)
+            {
+                // ---- first-class HudElementDef fields ----
+                case "cornerRadius":
+                    d.SetRTLFor(slot, Radius(d.RTLFor(slot)));
+                    d.SetRTRFor(slot, Radius(d.RTRFor(slot)));
+                    d.SetRBRFor(slot, Radius(d.RBRFor(slot)));
+                    d.SetRBLFor(slot, Radius(d.RBLFor(slot)));
+                    return;
+                case "borderWidth": d.SetBorderWidthFor(slot, BorderWidthFor()); return;
+                // The element font scale MULTIPLIES the shared one and is read in both states, so
+                // it never follows; writing it back merely completes the slot's copy.
+                case "elFontScale": d.SetFontScaleFor(slot, d.FontScaleFor(slot)); return;
+
+                // ---- stored form is a live-tracking sentinel, so copy it VERBATIM ----
+                // 0 = "Follow global" is cornerStyle's own analogue of a palette-name ColorRef, and
+                // CornerCutFor maps it to -1 in both states. Freezing it to the global's concrete
+                // value would silently stop a separated element tracking the F9 combo.
+                case "cornerStyle":
+                    d.SetIFor(slot, "cornerStyle",
+                        Mathf.Clamp(d.GetIFor(slot, "cornerStyle", CornerStyleFollow), 0, 2));
+                    return;
+                // Empty = "derive from the rim"; a palette name must keep live-tracking F9. Same
+                // deliberate non-snapshot rule the Fill/Border/Text refs follow.
+                case "ringGlowColor":
+                {
+                    string ringRef = d.GetSFor(slot, "ringGlowColor", null);
+                    d.SetSFor(slot, "ringGlowColor", string.IsNullOrEmpty(ringRef) ? null : ringRef);
+                    return;
+                }
+
+                // ---- resolvers that are not a plain own-or-global read ----
+                case "feather": d.SetFFor(slot, "feather", EffectiveFeatherFor()); return;
+                case "sheen": d.SetFFor(slot, "sheen", GlassSheenFor()); return;
+                // Own stores the FINAL visible edge-light strength, global Tier-A boost included,
+                // and then stops tracking it (see GlassEdgeFor).
+                case "spec": d.SetFFor(slot, "spec", GlassEdgeFor()); return;
+                case "squircle": d.SetFFor(slot, "squircle", SdfSquircleFor()); return;
+                case "gaussianHalo": d.SetBFor(slot, "gaussianHalo", SdfGaussianFor()); return;
+
+                // ---- the four null-global keys ----
+                // A following ring derives its halo from the panel recipe while an owning one
+                // stores 0 by default, so separation used to DELETE the ring's halo. Freeze what it
+                // is actually showing.
+                case "ringGlow": d.SetFFor(slot, "ringGlow", Mathf.Clamp(RingGlowFor(), 0f, 2f)); return;
+                case "customFrostOn": d.SetBFor(slot, "customFrostOn", FrostFeatureOn()); return;
+                case "rippleSmooth":
+                    d.SetFFor(slot, "rippleSmooth",
+                        Owns(HudFxCategory.Edges) ? d.GetFFor(slot, "rippleSmooth", 0f) : 0f);
+                    return;
+            }
+
+            string key = def.ParamKey;
+            if (string.IsNullOrEmpty(key)) return;
+
+            // Element GEOMETRY (box-end fades, trapezoid insets): un-gated by the style source, so
+            // writing them back is a value-preserving no-op — but it COMPLETES the slot's copy,
+            // which is what stops a later base edit leaking into a per-tier fork (HudElementDef's
+            // copy-on-write only protects keys that already exist).
+            if (def.StateIndependent)
+            {
+                d.SetFFor(slot, key, d.GetFFor(slot, key, 0f));
+                return;
+            }
+
+            // THE GENERIC BRANCH = plan §3.2's one rule. Following ⇒ the global; Own ⇒ the stored
+            // value with the global as its default. Colour refs are deliberately never snapshotted.
+            switch (def.Kind)
+            {
+                case HudFxKind.Bool:
+                    d.SetBFor(slot, key, Owns(def.Category)
+                        ? d.GetBFor(slot, key, def.GlobalBool) : def.GlobalBool);
+                    break;
+                case HudFxKind.Color:
+                    break;
+                case HudFxKind.Int:
+                case HudFxKind.Combo:
+                    d.SetIFor(slot, key, Owns(def.Category)
+                        ? d.GetIFor(slot, key, def.GlobalInt) : def.GlobalInt);
+                    break;
+                default:
+                    d.SetFFor(slot, key, Owns(def.Category)
+                        ? d.GetFFor(slot, key, def.GlobalFloat) : def.GlobalFloat);
+                    break;
+            }
+        }
+
+        /// <summary>Freeze every STEADY-STATE category — the snapshot the F9 BULK buttons take.
+        ///
+        /// MOTION IS DELIBERATELY EXCLUDED, and this is the 2026-07-19 bulk-ops/motion independence
+        /// rule restated: a bulk style operation must never rewrite an element's transitions. It
+        /// used to destroy an authored per-effect strength and pin an element's dissolve to Off;
+        /// under Phase 3 the equivalent mistake would be seeding Inherit over an explicit Off that
+        /// the author set on purpose (13 elements in the shipped Stationeers Blue carry one).
+        ///
+        /// The per-element MASTER checkbox is the opposite case and does NOT come through here: it
+        /// loops <see cref="SetCategoryFollow"/> over all five categories, Transitions included,
+        /// because that is an explicit local action on one element with an immediately visible
+        /// result.
+        ///
+        /// Re-following does NOT delete the stored keys (decision 5): they stay dormant and are
+        /// overwritten by the next seed.</summary>
+        private void SeedCustomStyleFromEffective(HudElementDef d, HudStyleSlot slot)
+        {
+            if (d == null) return;
+            for (int i = 0; i < HudStyleFx.Followable.Length; i++)
+            {
+                var cat = HudStyleFx.Followable[i];
+                if (cat == HudFxCategory.Transitions) continue;
+                SeedCategory(d, slot, cat);
+            }
+        }
+
+        /// <summary>The packed word a BULK style operation should write: all four steady-state
+        /// families moved to <paramref name="followGlobal"/>, and the element's existing Transitions
+        /// bit PRESERVED (see <see cref="SeedCustomStyleFromEffective"/> for why).</summary>
+        private static int BulkPackedFor(HudElementDef d, bool followGlobal)
+            => HudStyleFx.WithSource(
+                followGlobal ? HudStyleFx.AllGlobalPacked : HudStyleFx.AllOwnPacked,
+                HudFxCategory.Transitions, HudStyleMigration.TransitionSourceForBase(d));
 
         /// <summary>One-click bulk style-source operation used by F9. Customisation freezes each
         /// element's own currently effective look through the same path as the inspector, rather
@@ -2181,7 +2476,10 @@ namespace StationeersUIMod.UI.Hud
             // bare and leaves the suited design alone (and, with per-tier off, still writes base).
             var slot = EditSlot(Def);
             if (!followGlobal) SeedCustomStyleFromEffective(Def, slot);
-            Def.SetIFor(slot, "styleSource", followGlobal ? StyleGlobal : StyleCustom);
+            // Phase 3: the bulk buttons move the four STEADY-STATE families through the same
+            // seed-first / dormant-on-refollow semantics as the per-page checkboxes, and leave
+            // motion exactly where the author put it — BulkPackedFor preserves the Transitions bit.
+            WriteSourceBits(Def, slot, BulkPackedFor(Def, followGlobal));
         }
 
         /// <summary>Document-level counterpart for elements whose view is unavailable (different
@@ -2199,18 +2497,79 @@ namespace StationeersUIMod.UI.Hud
             if (d == null) return;
             if (followGlobal)
             {
-                d.SetI("styleSource", StyleGlobal);
+                WriteSourceBits(d, HudStyleSlot.Base, BulkPackedFor(d, true));
                 return;
             }
 
-            int source = Mathf.Clamp(d.GetI("styleSource", StyleLegacy), StyleLegacy, StyleCustom);
-            if (!forceCustomSnapshot && source != StyleCustom && d.GetB("customStyleReady", false))
+            int legacySource = Mathf.Clamp(d.GetI(HudStyleFx.LegacySourceParamKey, StyleLegacy),
+                StyleLegacy, StyleCustom);
+            if (!forceCustomSnapshot && legacySource != StyleCustom && d.GetB("customStyleReady", false))
             {
-                d.SetI("styleSource", StyleCustom);
+                WriteSourceBits(d, HudStyleSlot.Base, BulkPackedFor(d, false));
                 return;
             }
-            if (!forceCustomSnapshot && source == StyleCustom) return;
+            // Already Own everywhere it matters — leave the packed word alone rather than
+            // flattening a MIXED element that only wanted one family separated. (Unreachable
+            // today: every caller passes forceCustomSnapshot when followGlobal is false.)
+            if (!forceCustomSnapshot && legacySource == StyleCustom) return;
 
+            // PHASE 3: the ~40 hand-written writes that used to sit here are a REGISTRY LOOP. The
+            // per-key rules are unchanged (SnapshotDefRow still honours a stored 0's full legacy
+            // semantics, which HudStyleMigration depends on) — what changed is that the table drives
+            // them, so a knob added to HudStyleFx can no longer be silently missed by this path
+            // while the live seed picks it up. That divergence was real: Phase 1's audit found this
+            // function missing cornerStyle, edgeFadeX/Y and the portrait ring pair, so "Make flat"
+            // and a legacy-profile migration could still delete a ring's halo after Phase 0a had
+            // fixed the interactive path. All five are covered now, by construction.
+            var all = HudStyleFx.All;
+            for (int i = 0; i < all.Length; i++)
+            {
+                var def = all[i];
+                if (def == null || def.SharedOnly) continue;
+                if (!HudStyleFx.IsFollowable(def.Category)) continue;   // Bloom / Alerts own nothing
+                if (def.Category == HudFxCategory.Transitions) continue;
+                try { SnapshotDefRow(d, def, legacySource); }
+                catch (System.Exception e)
+                {
+                    Core.UIALog.Warn("HudElementView: def-only snapshot of '" + (def.Key ?? "?")
+                        + "' on '" + (d.Id ?? "?") + "' failed (" + e.Message + ").");
+                }
+            }
+            // Motion deliberately NOT snapshotted — same reasoning as SeedCustomStyleFromEffective:
+            // a bulk style flip must not rewrite an element's transitions, and BulkPackedFor keeps
+            // its follow bit exactly where the author left it.
+
+            d.Set("followGlobal", null); // extinct legacy flag — never re-written
+            d.SetB("customStyleReady", true);
+            WriteSourceBits(d, HudStyleSlot.Base, BulkPackedFor(d, false));
+        }
+
+        /// <summary>Border-only chrome, answered from a raw def (no live view) — the same static-map
+        /// precedent <see cref="SupportsPanelAppearanceFor"/> sets for the def-only call sites. The
+        /// LIVE path must still go through the virtual <see cref="SupportsBorderOnlyChrome"/>.</summary>
+        internal static bool SupportsBorderOnlyChromeFor(HudElementDef d)
+            => d != null && (d.Type == HudElementType.Portrait || d.Type == HudElementType.BodyDoll);
+
+        /// <summary>Snapshot ONE registry row into a raw def. Each case is the rule that key
+        /// already had — including the legacy (stored 0) semantics: the followGlobal colour/glass
+        /// gate, the -1 sentinels and the extinct fx* multipliers. The DEFAULT branch is the
+        /// conservative one (SnapshotFloat's -1 sentinel / the plain global for a bool), so a row
+        /// added to the table later behaves sanely here without a code change.
+        ///
+        /// THE SOURCE IS RESOLVED PER ROW, from the row's own CATEGORY. Deriving one element-wide
+        /// Global/Custom from the legacy field was a real bug on a MIXED element: an element that
+        /// had unfollowed only Glow read as "Custom" for every family, so the Surface rows took the
+        /// Custom branch even though Surface was FOLLOWING — which wrote <c>ringGlow</c> from the
+        /// stored 0 (deleting a portrait's halo, the exact Phase-0a defect) and froze <c>spec</c>
+        /// without the Tier-A edge-light boost it was actually rendering. The legacy state (a stored
+        /// 0) is the one case that stays element-wide, because it IS an element-wide condition:
+        /// there are no per-category bits on a profile that predates them.</summary>
+        private static void SnapshotDefRow(HudElementDef d, HudStyleFxDef def, int legacySource)
+        {
+            int source = legacySource == StyleLegacy
+                ? StyleLegacy
+                : (HudStyleFx.SourceOf(d, def.Category, HudStyleSlot.Base) == HudFxSource.Own
+                    ? StyleCustom : StyleGlobal);
             bool sourceGlobal = source == StyleGlobal;
             bool sourceCustom = source == StyleCustom;
             // Colour refs are deliberately left untouched: they resolve identically in both
@@ -2219,132 +2578,168 @@ namespace StationeersUIMod.UI.Hud
             // so the element keeps tracking the F9 palette it was showing.
             bool followsColours = sourceGlobal || (!sourceCustom && d.GetB("followGlobal", false));
 
-            float borderGlobal = HudConfig.BorderWidth != null ? HudConfig.BorderWidth.Value : 1.4f;
-            d.BorderWidth = sourceGlobal || d.BorderWidth < 0f ? borderGlobal : d.BorderWidth;
-            float radiusGlobal = HudConfig.CornerRadius != null ? HudConfig.CornerRadius.Value : 10f;
-            d.RTL = sourceGlobal || d.RTL < 0f ? radiusGlobal : d.RTL;
-            d.RTR = sourceGlobal || d.RTR < 0f ? radiusGlobal : d.RTR;
-            d.RBR = sourceGlobal || d.RBR < 0f ? radiusGlobal : d.RBR;
-            d.RBL = sourceGlobal || d.RBL < 0f ? radiusGlobal : d.RBL;
-            d.SetF("feather", SnapshotFloat(d, source, "feather",
-                HudConfig.EdgeFeather != null ? HudConfig.EdgeFeather.Value : 1.25f));
+            switch (def.Key)
+            {
+                // ---- first-class fields ----
+                case "borderWidth":
+                {
+                    float g = HudConfig.BorderWidth != null ? HudConfig.BorderWidth.Value : 1.4f;
+                    d.BorderWidth = sourceGlobal || d.BorderWidth < 0f ? g : d.BorderWidth;
+                    return;
+                }
+                case "cornerRadius":
+                {
+                    float g = HudConfig.CornerRadius != null ? HudConfig.CornerRadius.Value : 10f;
+                    d.RTL = sourceGlobal || d.RTL < 0f ? g : d.RTL;
+                    d.RTR = sourceGlobal || d.RTR < 0f ? g : d.RTR;
+                    d.RBR = sourceGlobal || d.RBR < 0f ? g : d.RBR;
+                    d.RBL = sourceGlobal || d.RBL < 0f ? g : d.RBL;
+                    return;
+                }
+                case "elFontScale": return;   // the element's own multiplier: never follows
 
-            float sheenGlobal = HudConfig.GlassSheen != null ? HudConfig.GlassSheen.Value : 0f;
-            float edgeGlobal = HudConfig.GlassEdge != null ? HudConfig.GlassEdge.Value : 0f;
-            float ownSheen = d.GetF("sheen", -1f);
-            float ownEdge = d.GetF("spec", -1f);
-            d.SetF("sheen", sourceGlobal || followsColours || ownSheen < 0f ? sheenGlobal : ownSheen);
-            float resolvedEdge = sourceGlobal || followsColours || ownEdge < 0f
-                ? edgeGlobal : ownEdge;
-            bool optedOut = !followsColours && ownEdge == 0f;
-            if (!sourceCustom && !optedOut
-                && HudConfig.FxTierA != null && HudConfig.FxTierA.Value
-                && HudConfig.FxEdgeLightOn != null && HudConfig.FxEdgeLightOn.Value
-                && HudConfig.FxEdgeLight != null && HudConfig.FxEdgeLight.Value > 0f)
-                resolvedEdge = Mathf.Clamp01(resolvedEdge + HudConfig.FxEdgeLight.Value * 0.45f);
-            d.SetF("spec", Mathf.Clamp01(resolvedEdge));
+                // ---- ADDED IN PHASE 3 (Phase 1 audit, discrepancy 1: this path had none of them
+                //      even after Phase 0a added them to the interactive seed) ----
+                case "cornerStyle":
+                    d.SetI("cornerStyle",
+                        Mathf.Clamp(d.GetI("cornerStyle", CornerStyleFollow), 0, 2));
+                    return;
+                case "ringGlow":
+                {
+                    if (!SupportsBorderOnlyChromeFor(d)) return;
+                    if (sourceCustom) { d.SetF("ringGlow", Mathf.Max(0f, d.GetF("ringGlow", 0f))); return; }
+                    // Following: the ring derives its halo from the panel recipe (see RingGlowFor),
+                    // so freeze THAT — separating a portrait used to delete its halo entirely.
+                    bool tierA = HudConfig.FxTierA != null && HudConfig.FxTierA.Value;
+                    bool glowOn = tierA && (HudConfig.FxGlowOn != null && HudConfig.FxGlowOn.Value);
+                    float glowNow = SnapshotFloat(d, source, "glow",
+                        HudConfig.FxGlow != null ? HudConfig.FxGlow.Value : 0f);
+                    d.SetF("ringGlow", glowOn ? Mathf.Clamp(Mathf.Max(0f, glowNow), 0f, 2f) : 0f);
+                    return;
+                }
+                case "ringGlowColor":
+                {
+                    if (!SupportsBorderOnlyChromeFor(d)) return;
+                    string r = d.GetS("ringGlowColor", null);
+                    d.Set("ringGlowColor", string.IsNullOrEmpty(r) ? null : r);
+                    return;
+                }
 
-            float squircleGlobal = HudConfig.SdfSquircle != null ? HudConfig.SdfSquircle.Value : 2f;
-            float ownSquircle = d.GetF("squircle", -1f);
-            d.SetF("squircle", sourceGlobal || ownSquircle < 2f ? squircleGlobal
-                : Mathf.Clamp(ownSquircle, 2f, 8f));
-            bool gaussianGlobal = HudConfig.SdfGaussianHalo != null && HudConfig.SdfGaussianHalo.Value;
-            d.SetB("gaussianHalo", sourceCustom ? d.GetB("gaussianHalo", gaussianGlobal) : gaussianGlobal);
+                // ---- the glass/edge pair with the legacy followGlobal gate ----
+                case "sheen":
+                {
+                    float g = HudConfig.GlassSheen != null ? HudConfig.GlassSheen.Value : 0f;
+                    float own = d.GetF("sheen", -1f);
+                    d.SetF("sheen", sourceGlobal || followsColours || own < 0f ? g : own);
+                    return;
+                }
+                case "spec":
+                {
+                    float g = HudConfig.GlassEdge != null ? HudConfig.GlassEdge.Value : 0f;
+                    float own = d.GetF("spec", -1f);
+                    float resolved = sourceGlobal || followsColours || own < 0f ? g : own;
+                    bool optedOut = !followsColours && own == 0f;
+                    if (!sourceCustom && !optedOut
+                        && HudConfig.FxTierA != null && HudConfig.FxTierA.Value
+                        && HudConfig.FxEdgeLightOn != null && HudConfig.FxEdgeLightOn.Value
+                        && HudConfig.FxEdgeLight != null && HudConfig.FxEdgeLight.Value > 0f)
+                        resolved = Mathf.Clamp01(resolved + HudConfig.FxEdgeLight.Value * 0.45f);
+                    d.SetF("spec", Mathf.Clamp01(resolved));
+                    return;
+                }
+                case "squircle":
+                {
+                    float g = HudConfig.SdfSquircle != null ? HudConfig.SdfSquircle.Value : 2f;
+                    float own = d.GetF("squircle", -1f);   // this sentinel is "< 2", not "< 0"
+                    d.SetF("squircle", sourceGlobal || own < 2f ? g : Mathf.Clamp(own, 2f, 8f));
+                    return;
+                }
 
-            bool borderFadeGlobal = HudConfig.FxBorderFadeOn != null && HudConfig.FxBorderFadeOn.Value;
-            bool softEdgeGlobal = HudConfig.FxSoftEdgeOn != null && HudConfig.FxSoftEdgeOn.Value;
-            bool glowGlobal = HudConfig.FxGlowOn != null && HudConfig.FxGlowOn.Value;
-            bool rippleGlobal = HudConfig.FxEdgeLightOn != null && HudConfig.FxEdgeLightOn.Value;
-            bool glowBreathGlobal = HudConfig.FxGlowBreathOn != null && HudConfig.FxGlowBreathOn.Value;
-            bool glowUnevenGlobal = HudConfig.FxGlowUnevenOn != null && HudConfig.FxGlowUnevenOn.Value;
-            bool glowFlowGlobal = HudConfig.FxGlowFlowAuraOn != null && HudConfig.FxGlowFlowAuraOn.Value;
-            d.SetB("customBorderFadeOn", sourceCustom
-                ? d.GetB("customBorderFadeOn", borderFadeGlobal) : borderFadeGlobal);
-            d.SetB("customSoftEdgeOn", sourceCustom
-                ? d.GetB("customSoftEdgeOn", softEdgeGlobal) : softEdgeGlobal);
-            d.SetB("customGlowOn", sourceCustom ? d.GetB("customGlowOn", glowGlobal) : glowGlobal);
-            d.SetB("customRippleOn", sourceCustom ? d.GetB("customRippleOn", rippleGlobal) : rippleGlobal);
-            // ONE MISSING-KEY CONVENTION (Phase 0b): these three used to snapshot a literal `false`
-            // for an already-Custom element, so the def-only path silently switched the SDF halo
-            // family OFF for every element whose stored snapshot predated the keys. The stored
-            // value still wins when present — only the ABSENT case changed, and it now reads the
-            // current global, matching NewSdfFeatureOn and the three lines above.
-            d.SetB("customGlowBreathOn", sourceCustom
-                ? d.GetB("customGlowBreathOn", glowBreathGlobal) : glowBreathGlobal);
-            d.SetB("customGlowUnevenOn", sourceCustom
-                ? d.GetB("customGlowUnevenOn", glowUnevenGlobal) : glowUnevenGlobal);
-            d.SetB("customGlowFlowOn", sourceCustom
-                ? d.GetB("customGlowFlowOn", glowFlowGlobal) : glowFlowGlobal);
-            d.SetF("bfade", SnapshotFloat(d, source, "bfade",
-                HudConfig.FxBorderFade != null ? HudConfig.FxBorderFade.Value : 0f));
-            d.SetF("softEdge", SnapshotFloat(d, source, "softEdge",
-                HudConfig.FxSoftEdge != null ? HudConfig.FxSoftEdge.Value : 0f));
-            d.SetF("glow", SnapshotFloat(d, source, "glow",
-                HudConfig.FxGlow != null ? HudConfig.FxGlow.Value : 0f));
-            d.SetF("glowIn", SnapshotFloat(d, source, "glowIn",
-                HudConfig.FxGlowInner != null ? HudConfig.FxGlowInner.Value : 0f));
-            d.SetF("glowWidth", SnapshotFloat(d, source, "glowWidth",
-                HudConfig.FxGlowWidth != null ? HudConfig.FxGlowWidth.Value : 24f));
-            d.SetF("glowDiffuse", SnapshotFloat(d, source, "glowDiffuse",
-                HudConfig.FxGlowDiffuse != null ? HudConfig.FxGlowDiffuse.Value : 0f));
-            d.SetF("glowExtraDiffuse", SnapshotNewFloat(d, source, "glowExtraDiffuse",
-                HudConfig.FxGlowExtraDiffuse != null ? HudConfig.FxGlowExtraDiffuse.Value : 0f));
-            d.SetF("glowHaze", SnapshotNewFloat(d, source, "glowHaze",
-                HudConfig.FxGlowHaze != null ? HudConfig.FxGlowHaze.Value : 0f));
-            d.SetF("glowBreath", SnapshotNewFloat(d, source, "glowBreath",
-                HudConfig.FxGlowBreath != null ? HudConfig.FxGlowBreath.Value : 0f));
-            d.SetF("glowUneven", SnapshotNewFloat(d, source, "glowUneven",
-                HudConfig.FxGlowUneven != null ? HudConfig.FxGlowUneven.Value : 0f));
-            d.SetF("glowOrganicScale", SnapshotNewFloat(d, source, "glowOrganicScale",
-                HudConfig.FxGlowOrganicScale != null ? HudConfig.FxGlowOrganicScale.Value : 1f));
-            d.SetF("glowFlowAura", SnapshotNewFloat(d, source, "glowFlowAura",
-                HudConfig.FxGlowFlowAura != null ? HudConfig.FxGlowFlowAura.Value : 0f));
-            d.SetF("ripple", SnapshotFloat(d, source, "ripple",
-                HudConfig.FxEdgeRipple != null ? HudConfig.FxEdgeRipple.Value : 0f));
-            d.SetF("rippleFreq", SnapshotFloat(d, source, "rippleFreq",
-                HudConfig.FxEdgeRippleFreq != null ? HudConfig.FxEdgeRippleFreq.Value : 2f));
-            d.SetF("rippleSmooth", sourceGlobal ? 0f : d.GetF("rippleSmooth", 0f));
-            d.SetF("edgeFlow", SnapshotFloat(d, source, "edgeFlow",
-                HudConfig.FxEdgeFlowSpeed != null ? HudConfig.FxEdgeFlowSpeed.Value : 0.22f));
-            d.SetF("frostDepth", SnapshotFloat(d, source, "frostDepth",
-                HudConfig.FrostDepth != null ? HudConfig.FrostDepth.Value : 1f));
+                // ---- the SDF family: a stored value wins even when negative (no -1 sentinel) ----
+                case "glowExtraDiffuse":
+                case "glowHaze":
+                case "glowBreath":
+                case "glowUneven":
+                case "glowOrganicScale":
+                case "glowFlowAura":
+                    d.SetF(def.ParamKey,
+                        SnapshotNewFloat(d, source, def.ParamKey, def.GlobalFloat));
+                    return;
 
-            bool shineOn = HudConfig.FxShineOn != null && HudConfig.FxShineOn.Value;
-            bool iridOn = HudConfig.FxIridOn != null && HudConfig.FxIridOn.Value;
-            bool chromaOn = HudConfig.FxChromaOn != null && HudConfig.FxChromaOn.Value;
-            float shine = HudConfig.FxShine != null ? HudConfig.FxShine.Value : 0f;
-            float irid = HudConfig.FxIridescence != null ? HudConfig.FxIridescence.Value : 0f;
-            float chroma = HudConfig.FxChroma != null ? HudConfig.FxChroma.Value : 0f;
-            float frost = HudConfig.FrostStrength != null ? HudConfig.FrostStrength.Value : 1f;
-            bool dissolve = HudConfig.FxDissolveBoot != null && HudConfig.FxDissolveBoot.Value;
-            d.SetB("customShineOn", sourceCustom ? d.GetB("customShineOn", shineOn)
-                : shineOn && (sourceGlobal || d.GetB("fxShine", true)));
-            d.SetF("customShine", sourceCustom ? Mathf.Clamp(d.GetF("customShine", shine), 0f, 2f)
-                : Mathf.Clamp(shine * (sourceGlobal ? 1f : Mathf.Clamp01(d.GetF("fxShineAmt", 1f))), 0f, 2f));
-            d.SetB("customIridOn", sourceCustom ? d.GetB("customIridOn", iridOn)
-                : iridOn && (sourceGlobal || d.GetB("fxIrid", true)));
-            d.SetF("customIrid", sourceCustom ? Mathf.Clamp01(d.GetF("customIrid", irid))
-                : Mathf.Clamp01(irid * (sourceGlobal ? 1f : Mathf.Clamp01(d.GetF("fxIridAmt", 1f)))));
-            d.SetB("customChromaOn", sourceCustom ? d.GetB("customChromaOn", chromaOn)
-                : chromaOn && (sourceGlobal || d.GetB("fxChroma", true)));
-            d.SetF("customChroma", sourceCustom ? Mathf.Clamp01(d.GetF("customChroma", chroma))
-                : Mathf.Clamp01(chroma * (sourceGlobal ? 1f : Mathf.Clamp01(d.GetF("fxChromaAmt", 1f)))));
-            d.SetB("customFrostOn", sourceCustom ? d.GetB("customFrostOn", true)
-                : sourceGlobal || d.GetB("fxFrost", true));
-            d.SetF("customFrost", sourceCustom ? Mathf.Clamp01(d.GetF("customFrost", frost))
-                : Mathf.Clamp01(frost * (sourceGlobal ? 1f : Mathf.Clamp01(d.GetF("fxFrostAmt", 1f)))));
-            // Motion deliberately NOT snapshotted here either — same reasoning as
-            // SeedCustomStyleFromEffective: a style-source flip must not rewrite an element's
-            // transitions or flatten an authored per-effect strength back to 1.
+                // ---- the four animated-glass pairs, with their extinct fx* multipliers ----
+                case "shine":
+                    d.SetF("customShine", sourceCustom
+                        ? Mathf.Clamp(d.GetF("customShine", def.GlobalFloat), 0f, 2f)
+                        : Mathf.Clamp(def.GlobalFloat * (sourceGlobal ? 1f
+                            : Mathf.Clamp01(d.GetF("fxShineAmt", 1f))), 0f, 2f));
+                    return;
+                case "irid":
+                    d.SetF("customIrid", Mathf.Clamp01(sourceCustom
+                        ? d.GetF("customIrid", def.GlobalFloat)
+                        : def.GlobalFloat * (sourceGlobal ? 1f
+                            : Mathf.Clamp01(d.GetF("fxIridAmt", 1f)))));
+                    return;
+                case "chroma":
+                    d.SetF("customChroma", Mathf.Clamp01(sourceCustom
+                        ? d.GetF("customChroma", def.GlobalFloat)
+                        : def.GlobalFloat * (sourceGlobal ? 1f
+                            : Mathf.Clamp01(d.GetF("fxChromaAmt", 1f)))));
+                    return;
+                case "frost":
+                    d.SetF("customFrost", Mathf.Clamp01(sourceCustom
+                        ? d.GetF("customFrost", def.GlobalFloat)
+                        : def.GlobalFloat * (sourceGlobal ? 1f
+                            : Mathf.Clamp01(d.GetF("fxFrostAmt", 1f)))));
+                    return;
+                case "shineOn":
+                    d.SetB("customShineOn", sourceCustom ? d.GetB("customShineOn", def.GlobalBool)
+                        : def.GlobalBool && (sourceGlobal || d.GetB("fxShine", true)));
+                    return;
+                case "iridOn":
+                    d.SetB("customIridOn", sourceCustom ? d.GetB("customIridOn", def.GlobalBool)
+                        : def.GlobalBool && (sourceGlobal || d.GetB("fxIrid", true)));
+                    return;
+                case "chromaOn":
+                    d.SetB("customChromaOn", sourceCustom ? d.GetB("customChromaOn", def.GlobalBool)
+                        : def.GlobalBool && (sourceGlobal || d.GetB("fxChroma", true)));
+                    return;
+                case "customFrostOn":
+                    d.SetB("customFrostOn", sourceCustom ? d.GetB("customFrostOn", true)
+                        : sourceGlobal || d.GetB("fxFrost", true));
+                    return;
 
-            // The line's edge-light strength key (panels collapse theirs into `spec`).
-            if (d.Type == HudElementType.Polyline)
-                d.SetF("edgeLight", SnapshotFloat(d, source, "edgeLight",
-                    HudConfig.FxEdgeLight != null ? HudConfig.FxEdgeLight.Value : 0f));
+                // ---- null-global odds and ends ----
+                case "rippleSmooth":
+                    d.SetF("rippleSmooth", sourceGlobal ? 0f : d.GetF("rippleSmooth", 0f));
+                    return;
+                case "edgeLight":
+                    // The line's own edge-light key; panels collapse theirs into `spec`.
+                    if (d.Type != HudElementType.Polyline) return;
+                    break;
+            }
 
-            d.Set("followGlobal", null); // extinct legacy flag — never re-written
-            d.SetB("customStyleReady", true);
-            d.SetI("styleSource", StyleCustom);
+            string key = def.ParamKey;
+            if (string.IsNullOrEmpty(key)) return;
+
+            // Element GEOMETRY (box-end fades, trapezoid insets) — write the stored value back so
+            // the snapshot is COMPLETE, which is what stops a later base edit leaking into a fork.
+            if (def.StateIndependent) { d.SetF(key, d.GetF(key, 0f)); return; }
+
+            switch (def.Kind)
+            {
+                case HudFxKind.Bool:
+                    d.SetB(key, sourceCustom ? d.GetB(key, def.GlobalBool) : def.GlobalBool);
+                    break;
+                case HudFxKind.Color:
+                    break;                                   // refs are never snapshotted
+                case HudFxKind.Int:
+                case HudFxKind.Combo:
+                    d.SetI(key, sourceCustom ? d.GetI(key, def.GlobalInt) : def.GlobalInt);
+                    break;
+                default:
+                    d.SetF(key, SnapshotFloat(d, source, key, def.GlobalFloat));
+                    break;
+            }
         }
 
         private static float SnapshotFloat(HudElementDef d, int source, string key, float global)

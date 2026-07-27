@@ -149,24 +149,148 @@ namespace StationeersUIMod.UI.Hud
 
         private static int BackfillSlot(HudElementDef el, HudStyleSlot slot)
         {
-            if (el.GetIFor(slot, "styleSource", HudElementView.StyleLegacy) != HudElementView.StyleCustom)
-                return 0;
             int written = 0;
             for (int i = 0; i < SdfFloatKeys.Length; i++)
             {
                 string k = SdfFloatKeys[i];
-                if (StoresKey(el, slot, k)) continue;
+                if (!BackfillWanted(el, slot, k)) continue;
                 el.SetFFor(slot, k, SdfResolvedFloat(el, slot, i));
                 written++;
             }
             for (int i = 0; i < SdfBoolKeys.Length; i++)
             {
                 string k = SdfBoolKeys[i];
-                if (StoresKey(el, slot, k)) continue;
+                if (!BackfillWanted(el, slot, k)) continue;
                 el.SetBFor(slot, k, SdfResolvedBool(el, slot, k));
                 written++;
             }
             return written;
+        }
+
+        /// <summary>Does this slot still need the Phase 0b freeze for one key?
+        ///
+        /// The gate was "is this slot's <c>styleSource</c> Custom" — ONE element-wide flag. Under
+        /// Phase 3 that answers "yes" for a MIXED element (any category unfollowed writes 2), so it
+        /// would back-fill Glow keys into an element that FOLLOWS Glow: unread, but profile bloat
+        /// and a stale value the next unfollow has to overwrite. Ask the key's OWN category instead
+        /// — five of these are Glow rows and <c>glowFlowAura</c> / <c>customGlowFlowOn</c> are Edges
+        /// rows. On a pre-Phase-3 profile <c>styleSrc</c> is absent, so <c>PackedOf</c> falls back to
+        /// the legacy field and this is bit-identical to the old test, which is what keeps Phase 0b's
+        /// guarantee intact for the profiles it was written for.</summary>
+        private static bool BackfillWanted(HudElementDef el, HudStyleSlot slot, string key)
+        {
+            if (StoresKey(el, slot, key)) return false;   // already frozen — never touch it again
+            var def = HudStyleFx.FindByParam(key);
+            var cat = def != null ? def.Category : HudFxCategory.Glow;
+            return HudStyleFx.SourceOf(el, cat, slot) == HudFxSource.Own;
+        }
+
+        // ---- Phase 3 (2026-07-27): the two-state field -> the per-category packed word ---------
+        //
+        // Plan §4.2's mapping table, implemented literally:
+        //
+        //   stored styleSource == 1 (Global)  ->  styleSrc = every category Global. Nothing else is
+        //                                        written; the element's dormant custom keys stay on
+        //                                        disk, unread (FlorpyDorp's decision 5).
+        //   stored styleSource == 2 (Custom)  ->  styleSrc = every category Own. Values are kept
+        //                                        VERBATIM and nothing is seeded, because since
+        //                                        Phase 0b an absent key already resolves to the
+        //                                        global — that one convention is precisely what
+        //                                        makes a seed unnecessary here.
+        //   stored styleSource == 0 (legacy)  ->  Migrate() above has already regressed it to 1 or
+        //                                        2 (it runs first, unchanged), so it lands in one
+        //                                        of the two rows above.
+        //
+        //   Transitions is decided SEPARATELY, from the stored tri-states rather than from
+        //   styleSource, because the transitions family was never gated on the style source at all
+        //   (the deliberate 2026-07-19 fix). Any stored On/Off => Own, so the element keeps
+        //   rendering exactly what it rendered; all-Inherit => Global.
+        //
+        // NO LIVE GLOBAL IS READ ANYWHERE IN HERE. Profile load is parse -> Sanitize -> SetActive
+        // -> HudTheme.Apply, so a global read inside Sanitize sees the OUTGOING profile's look
+        // (the load-order hazard Phase 0 recorded). This mapping needs no globals at all: it is a
+        // pure re-encoding of state the element already stores.
+        //
+        // Self-gating on the ABSENCE of "styleSrc" per slot — the same discipline as the SDF
+        // back-fill above and as HudTransitionFx.MigrateOne — so the second pass writes nothing.
+        //
+        // IT DELIBERATELY DOES NOT TOUCH THE LEGACY "styleSource" FIELD. Leaving a follower's stored
+        // 1 exactly as it is means a downgrade to 0.9.2.x still reads that profile as fully
+        // following, which is the truth; rewriting it here would buy nothing and could only make
+        // that reading worse. The field is only ever re-written by an actual source CHANGE, through
+        // HudElementView.WriteSourceBits.
+
+        /// <summary>Map one element's stored style source onto the packed per-category word, per
+        /// slot. Returns how many slots were written (0 when everything was already mapped).</summary>
+        internal static int MapStyleSource(HudElementDef el)
+        {
+            if (el == null) return 0;
+            int written = 0;
+            // BASE LAST, for the same reason BackfillSdfKeys visits forks first: SetIFor on the
+            // base runs HudElementDef's copy-on-write, which would otherwise hand a fork the value
+            // the base is about to become.
+            if (el.ForksSlot(HudStyleSlot.Bare)) written += MapSourceSlot(el, HudStyleSlot.Bare);
+            if (el.ForksSlot(HudStyleSlot.Robot)) written += MapSourceSlot(el, HudStyleSlot.Robot);
+            written += MapSourceSlot(el, HudStyleSlot.Base);
+            return written;
+        }
+
+        private static int MapSourceSlot(HudElementDef el, HudStyleSlot slot)
+        {
+            if (StoresKey(el, slot, HudStyleFx.SourceParamKey)) return 0;   // already mapped
+            // A fork that does not store its OWN styleSource inherits the base's decision, and so
+            // must inherit the base's styleSrc too — writing one here would freeze the fork's
+            // follow state against later base edits.
+            if (slot != HudStyleSlot.Base && !StoresKey(el, slot, HudStyleFx.LegacySourceParamKey))
+                return 0;
+
+            int src = el.GetIFor(slot, HudStyleFx.LegacySourceParamKey, HudElementView.StyleGlobal);
+            var steady = src == HudElementView.StyleCustom ? HudFxSource.Own : HudFxSource.Global;
+
+            int packed = HudStyleFx.AllGlobalPacked;
+            packed = HudStyleFx.WithSource(packed, HudFxCategory.Surface, steady);
+            packed = HudStyleFx.WithSource(packed, HudFxCategory.Glass, steady);
+            packed = HudStyleFx.WithSource(packed, HudFxCategory.Edges, steady);
+            packed = HudStyleFx.WithSource(packed, HudFxCategory.Glow, steady);
+            packed = HudStyleFx.WithSource(packed, HudFxCategory.Transitions,
+                HasStoredTransition(el, slot) ? HudFxSource.Own : HudFxSource.Global);
+
+            el.SetIFor(slot, HudStyleFx.SourceParamKey, packed);
+            return 1;
+        }
+
+        /// <summary>The Transitions source an element SHOULD carry, without changing its motion:
+        /// its stored bit when the packed word exists, else the migration's own rule (any stored
+        /// On/Off ⇒ Own). The def-only snapshot and the F9 bulk buttons both use this to PRESERVE
+        /// motion while they rewrite the four steady-state families — see
+        /// <c>HudElementView.SetUnifiedStyleSourceWithoutView</c>.
+        ///
+        /// The "else" branch is what stops the legacy fold from silently re-enabling a transition
+        /// the author turned off: at that point <c>styleSrc</c> does not exist yet, so reading it
+        /// would fall back to the legacy two-state field and answer Global for an element that
+        /// <c>HudTransitionFx.MigrateElement</c> had just given an explicit Off.</summary>
+        internal static HudFxSource TransitionSourceForBase(HudElementDef el)
+        {
+            if (el == null) return HudFxSource.Global;
+            if (el.GetS(HudStyleFx.SourceParamKey, null) != null)
+                return HudStyleFx.SourceIn(el.GetI(HudStyleFx.SourceParamKey, 0),
+                    HudFxCategory.Transitions);
+            return HasStoredTransition(el, HudStyleSlot.Base) ? HudFxSource.Own : HudFxSource.Global;
+        }
+
+        /// <summary>Does this slot carry an explicit On/Off for ANY of the seven transitions?
+        /// Reads the RAW stored mode (<see cref="HudTransitionFx.RawModeOf"/>) — the gated
+        /// <c>ModeOf</c> would answer "Inherit" for everything precisely because the word this
+        /// function exists to compute has not been written yet.</summary>
+        private static bool HasStoredTransition(HudElementDef el, HudStyleSlot slot)
+        {
+            var all = HudTransitionFx.All;
+            for (int i = 0; i < all.Length; i++)
+            {
+                if (all[i] == null) continue;
+                if (HudTransitionFx.RawModeOf(el, all[i], slot) != HudFxMode.Inherit) return true;
+            }
+            return false;
         }
 
         /// <summary>Regress every legacy-styled element in <paramref name="doc"/> to the

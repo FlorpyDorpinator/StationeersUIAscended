@@ -1267,13 +1267,6 @@ namespace StationeersUIMod.Windows
                 "fxShine", "fxShineAmt", "fxIrid", "fxIridAmt",
                 "fxDissolve", "fxFrost", "fxFrostAmt", "fxChroma", "fxChromaAmt",
             };
-            string[] inheritedEffectKeys =
-            {
-                "bfade", "softEdge", "glow", "glowIn", "glowWidth", "glowDiffuse",
-                "glowExtraDiffuse", "glowHaze", "glowBreath", "glowUneven", "glowOrganicScale",
-                "glowFlowAura", "ripple", "rippleFreq", "rippleSmooth", "edgeFlow", "frostDepth",
-                "edgeLight",
-            };
             foreach (var e in doc.Elements)
             {
                 if (e == null) continue;
@@ -1297,64 +1290,131 @@ namespace StationeersUIMod.Windows
                     e.Set("b_" + fx.LegacyKey, null);
                 }
 
-                // Custom is a complete explicit snapshot, so never remove its keys and let the
-                // runtime silently fall through to globals while the inspector shows defaults.
-                // Conversely, Reset is allowed to discard a DORMANT Custom design while Global
-                // or Legacy is active, but it must invalidate the snapshot as one unit. The next
-                // switch to Custom will then seed a fresh, complete snapshot instead of restoring
-                // a half-cleared mixture of stale flags and global fall-through values.
-                if (!HudElementView.IsCustomStyleDefinition(e))
+                // PHASE 3: the hand-written key list is a REGISTRY LOOP, and the decision is now
+                // per CATEGORY rather than per element. A family this element OWNS receives an
+                // explicit global snapshot (Own promises a complete local contract, so its keys
+                // must never be deleted and left silently falling through); a family it FOLLOWS has
+                // its dormant keys cleared as one unit, so the next unfollow seeds a fresh complete
+                // snapshot instead of a half-cleared mixture.
+                //
+                // The loop closes two gaps the old list had (Phase 1 audit, discrepancies 2 and 3):
+                // the portrait ring's halo is reset now, and so is `spec`. `spec` is the deliberate
+                // call — the button's subtitle promises "effect values receive a coherent global
+                // snapshot" and the popup offers `spec` as this element's edge-light STRENGTH one
+                // screen away, so treating it as untouchable "appearance" was the odd one out. It
+                // resets to the global glass edge light WITH the Tier-A boost folded in, i.e. to
+                // exactly what a fresh separation would seed.
+                var fxAll = UI.Hud.HudStyleFx.All;
+                for (int i = 0; i < fxAll.Length; i++)
                 {
-                    if (e.GetB("customStyleReady", false))
-                        e.SetB("customStyleReady", false);
-                    for (int i = 0; i < inheritedEffectKeys.Length; i++)
-                        e.Set(inheritedEffectKeys[i], null);
-                    // (transitions already cleared above, for every element)
-                    continue;
+                    var def = fxAll[i];
+                    if (!ResetCoversRow(def)) continue;
+                    if (!ResetRowApplies(e, def)) continue;
+                    bool own = UI.Hud.HudStyleFx.SourceOf(e, def.Category, UI.Hud.HudStyleSlot.Base)
+                               == UI.Hud.HudFxSource.Own;
+                    if (own) ResetRowToGlobal(e, def);
+                    else ClearBaseKey(e, def.ParamKey);
                 }
-                e.SetB("customBorderFadeOn", HudConfig.FxBorderFadeOn != null && HudConfig.FxBorderFadeOn.Value);
-                e.SetB("customSoftEdgeOn", HudConfig.FxSoftEdgeOn != null && HudConfig.FxSoftEdgeOn.Value);
-                e.SetB("customGlowOn", HudConfig.FxGlowOn != null && HudConfig.FxGlowOn.Value);
-                e.SetB("customRippleOn", HudConfig.FxEdgeLightOn != null && HudConfig.FxEdgeLightOn.Value);
-                e.SetB("customGlowBreathOn", HudConfig.FxGlowBreathOn != null && HudConfig.FxGlowBreathOn.Value);
-                e.SetB("customGlowUnevenOn", HudConfig.FxGlowUnevenOn != null && HudConfig.FxGlowUnevenOn.Value);
-                e.SetB("customGlowFlowOn", HudConfig.FxGlowFlowAuraOn != null && HudConfig.FxGlowFlowAuraOn.Value);
-                e.SetF("bfade", HudConfig.FxBorderFade != null ? HudConfig.FxBorderFade.Value : 0f);
-                e.SetF("softEdge", HudConfig.FxSoftEdge != null ? HudConfig.FxSoftEdge.Value : 0f);
-                e.SetF("glow", HudConfig.FxGlow != null ? HudConfig.FxGlow.Value : 0f);
-                e.SetF("glowIn", HudConfig.FxGlowInner != null ? HudConfig.FxGlowInner.Value : 0f);
-                e.SetF("glowWidth", HudConfig.FxGlowWidth != null ? HudConfig.FxGlowWidth.Value : 24f);
-                e.SetF("glowDiffuse", HudConfig.FxGlowDiffuse != null ? HudConfig.FxGlowDiffuse.Value : 0f);
-                e.SetF("glowExtraDiffuse", HudConfig.FxGlowExtraDiffuse != null ? HudConfig.FxGlowExtraDiffuse.Value : 0f);
-                e.SetF("glowHaze", HudConfig.FxGlowHaze != null ? HudConfig.FxGlowHaze.Value : 0f);
-                e.SetF("glowBreath", HudConfig.FxGlowBreath != null ? HudConfig.FxGlowBreath.Value : 0f);
-                e.SetF("glowUneven", HudConfig.FxGlowUneven != null ? HudConfig.FxGlowUneven.Value : 0f);
-                e.SetF("glowOrganicScale", HudConfig.FxGlowOrganicScale != null ? HudConfig.FxGlowOrganicScale.Value : 1f);
-                e.SetF("glowFlowAura", HudConfig.FxGlowFlowAura != null ? HudConfig.FxGlowFlowAura.Value : 0f);
-                e.SetF("ripple", HudConfig.FxEdgeRipple != null ? HudConfig.FxEdgeRipple.Value : 0f);
-                e.SetF("rippleFreq", HudConfig.FxEdgeRippleFreq != null ? HudConfig.FxEdgeRippleFreq.Value : 2f);
-                // The line's own edge-light strength key resets with its family (review 2026-07-17:
-                // it was the one Custom effect value this button silently skipped).
-                if (e.Type == UI.Hud.HudElementType.Polyline)
-                    e.SetF("edgeLight", HudConfig.FxEdgeLight != null ? HudConfig.FxEdgeLight.Value : 0f);
-                e.SetF("rippleSmooth", 0f);
-                e.SetF("edgeFlow", HudConfig.FxEdgeFlowSpeed != null ? HudConfig.FxEdgeFlowSpeed.Value : 0.22f);
-                e.SetF("frostDepth", HudConfig.FrostDepth != null ? HudConfig.FrostDepth.Value : 1f);
-                e.SetB("customShineOn", HudConfig.FxShineOn != null && HudConfig.FxShineOn.Value);
-                e.SetF("customShine", HudConfig.FxShine != null ? HudConfig.FxShine.Value : 0f);
-                e.SetB("customIridOn", HudConfig.FxIridOn != null && HudConfig.FxIridOn.Value);
-                e.SetF("customIrid", HudConfig.FxIridescence != null ? HudConfig.FxIridescence.Value : 0f);
-                e.SetB("customChromaOn", HudConfig.FxChromaOn != null && HudConfig.FxChromaOn.Value);
-                e.SetF("customChroma", HudConfig.FxChroma != null ? HudConfig.FxChroma.Value : 0f);
-                e.SetB("customFrostOn", true);
-                e.SetF("customFrost", HudConfig.FrostStrength != null ? HudConfig.FrostStrength.Value : 1f);
                 // Reset-to-Inherit for transitions (dissolve/collapse/glitch/warp/pulse) is fully
                 // expressed by the registry loop above. Legacy keys must NOT be re-seeded here —
                 // that would pin each effect's momentary master value as an explicit per-element
                 // override, exactly the master-vs-element conflation the tri-state refactor removed.
-                e.SetB("customStyleReady", true);
+                bool anyOwn = HudElementView.IsCustomStyleDefinition(e);
+                if (anyOwn) e.SetB("customStyleReady", true);
+                else if (e.GetB("customStyleReady", false)) e.SetB("customStyleReady", false);
             }
             CommitDocumentMutation(before);
+        }
+
+        /// <summary>Which registry rows "Reset active per-element effects to current globals"
+        /// covers. EFFECTS, not sizing or typography: the Glass / Edges / Glow families in full,
+        /// plus the three Surface rows that are effect values rather than geometry (`spec` and the
+        /// portrait ring's halo pair). Deliberately excluded, and this is the whole list:
+        ///   • SharedOnly rows — physically one value for the HUD, nothing per-element to reset;
+        ///   • StateIndependent rows — the box-end fades, the trapezoid insets and the element font
+        ///     scale are element GEOMETRY, and resetting them would move the author's design;
+        ///   • the rest of Surface (corner radii, corner style, line thickness, edge softness,
+        ///     sheen, squircle, gaussian falloff) — sizing and box shape, which this button has
+        ///     never touched and must not start touching;
+        ///   • Bloom / Alerts — shared; Transitions — handled by their own loop above.</summary>
+        private static bool ResetCoversRow(UI.Hud.HudStyleFxDef def)
+        {
+            if (def == null || def.SharedOnly || string.IsNullOrEmpty(def.ParamKey)) return false;
+            if (def.StateIndependent) return false;
+            switch (def.Category)
+            {
+                case UI.Hud.HudFxCategory.Glass:
+                case UI.Hud.HudFxCategory.Edges:
+                case UI.Hud.HudFxCategory.Glow:
+                    return true;
+                case UI.Hud.HudFxCategory.Surface:
+                    return def.Key == "spec" || def.Key == "ringGlow" || def.Key == "ringGlowColor";
+                default:
+                    return false;
+            }
+        }
+
+        /// <summary>Does this element's TYPE even own the surface a covered row belongs to? Without
+        /// this, resetting handed every Box a dead <c>ringGlow="0"</c> param. The def-only ring test
+        /// mirrors <c>HudElementView.SupportsBorderOnlyChrome</c>, which no raw def can ask.</summary>
+        private static bool ResetRowApplies(UI.Hud.HudElementDef e, UI.Hud.HudStyleFxDef def)
+        {
+            if (def.Key == "ringGlow" || def.Key == "ringGlowColor")
+                return HudElementView.SupportsBorderOnlyChromeFor(e);
+            return true;
+        }
+
+        /// <summary>Delete a BASE key through the slot writer, so <c>ProtectForks</c> runs first and
+        /// every per-tier fork that was merely INHERITING this value keeps it. A raw
+        /// <c>e.Set(key, null)</c> bypasses the copy-on-write and silently reverts a Bare fork to
+        /// whatever the base falls back to — the exact leak Wave C exists to prevent, and the
+        /// null-delete branch above widened the exposure to every covered row.</summary>
+        private static void ClearBaseKey(UI.Hud.HudElementDef e, string key)
+        {
+            if (string.IsNullOrEmpty(key) || e.GetS(key, null) == null) return;
+            e.SetSFor(UI.Hud.HudStyleSlot.Base, key, null);
+        }
+
+        /// <summary>Write ONE covered row's current global into an element that owns its family.
+        /// The special cases are the rows with no global of their own, plus `spec`'s Tier-A boost
+        /// and the line-only edge-light key.
+        ///
+        /// Every write goes through the SLOT writers (<c>SetFFor(Base, …)</c>), not the raw ones, so
+        /// the copy-on-write hands a forked slot its inherited value before the base changes.</summary>
+        private static void ResetRowToGlobal(UI.Hud.HudElementDef e, UI.Hud.HudStyleFxDef def)
+        {
+            var b = UI.Hud.HudStyleSlot.Base;
+            switch (def.Key)
+            {
+                case "spec":
+                {
+                    float g = HudConfig.GlassEdge != null ? HudConfig.GlassEdge.Value : 0f;
+                    if (HudConfig.FxTierA != null && HudConfig.FxTierA.Value
+                        && HudConfig.FxEdgeLightOn != null && HudConfig.FxEdgeLightOn.Value
+                        && HudConfig.FxEdgeLight != null && HudConfig.FxEdgeLight.Value > 0f)
+                        g += HudConfig.FxEdgeLight.Value * 0.45f;
+                    e.SetFFor(b, "spec", Mathf.Clamp01(g));
+                    return;
+                }
+                case "ringGlow": e.SetFFor(b, "ringGlow", 0f); return;
+                case "ringGlowColor": ClearBaseKey(e, "ringGlowColor"); return;  // derive from the rim
+                case "customFrostOn": e.SetBFor(b, "customFrostOn", true); return;  // honest default
+                case "rippleSmooth": e.SetFFor(b, "rippleSmooth", 0f); return;      // no global exists
+                case "edgeLight":
+                    // The line's own edge-light strength key resets with its family (review
+                    // 2026-07-17); on a panel the key is dead weight, so it goes.
+                    if (e.Type == UI.Hud.HudElementType.Polyline) e.SetFFor(b, "edgeLight", def.GlobalFloat);
+                    else ClearBaseKey(e, "edgeLight");
+                    return;
+            }
+            switch (def.Kind)
+            {
+                case UI.Hud.HudFxKind.Bool: e.SetBFor(b, def.ParamKey, def.GlobalBool); break;
+                case UI.Hud.HudFxKind.Color: ClearBaseKey(e, def.ParamKey); break;
+                case UI.Hud.HudFxKind.Int:
+                case UI.Hud.HudFxKind.Combo: e.SetIFor(b, def.ParamKey, def.GlobalInt); break;
+                default: e.SetFFor(b, def.ParamKey, def.GlobalFloat); break;
+            }
         }
 
         /// <summary>Strip the "glassy" look from one element: zero its sheen (milky fill), edge
@@ -1500,6 +1560,11 @@ namespace StationeersUIMod.Windows
             // them: coherent from birth, never the extinct legacy state.
             if (e.GetI("styleSource", 0) == 0)
                 e.SetI("styleSource", UI.Hud.HudElementView.StyleGlobal);
+            // ...and stamp the Phase 3 per-category word explicitly rather than leaning on
+            // PackedOf's legacy fallback, so a per-tier fork opened before the next Sanitize has a
+            // real base value to copy-on-write from.
+            if (e.GetS(UI.Hud.HudStyleFx.SourceParamKey, null) == null)
+                e.SetI(UI.Hud.HudStyleFx.SourceParamKey, UI.Hud.HudStyleFx.AllGlobalPacked);
             doc.Elements.Add(e);
             _pendingSelectId = e.Id;
             Features.HudProfileStore.MarkChanged();
@@ -1728,6 +1793,11 @@ namespace StationeersUIMod.Windows
             // Coherent from birth — never the extinct legacy state.
             if (e.GetI("styleSource", 0) == 0)
                 e.SetI("styleSource", UI.Hud.HudElementView.StyleGlobal);
+            // ...and stamp the Phase 3 per-category word explicitly rather than leaning on
+            // PackedOf's legacy fallback, so a per-tier fork opened before the next Sanitize has a
+            // real base value to copy-on-write from.
+            if (e.GetS(UI.Hud.HudStyleFx.SourceParamKey, null) == null)
+                e.SetI(UI.Hud.HudStyleFx.SourceParamKey, UI.Hud.HudStyleFx.AllGlobalPacked);
         }
 
         /// <summary>Inverse of the screen warp — shared with the radial drop zones.</summary>

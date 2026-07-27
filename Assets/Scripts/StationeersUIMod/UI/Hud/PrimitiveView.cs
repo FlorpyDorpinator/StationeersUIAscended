@@ -269,22 +269,32 @@ namespace StationeersUIMod.UI.Hud
                 // blind to styleSource, which is why a "separated" polyline kept rendering the
                 // global halo it could not turn off). Global = pure F9 values; Custom = the
                 // seeded snapshot, gated by the same custom*On checkboxes as every panel.
+                // PHASE 3: each key resolves through the CATEGORY the registry files it under —
+                // the edge-energy family under Edges, the halo family under Glow — so a line can
+                // own its shimmer while still following the global halo, exactly like a panel.
                 bool tierA = HudConfig.FxTierA != null && HudConfig.FxTierA.Value;
-                bool rippleOn = tierA && StyleFeatureOn("customRippleOn", HudConfig.FxEdgeLightOn);
-                _line.EdgeLight = rippleOn ? OwnOrGlobal("edgeLight", HudConfig.FxEdgeLight) : 0f;
+                bool rippleOn = tierA
+                    && StyleFeatureOn(HudFxCategory.Edges, "customRippleOn", HudConfig.FxEdgeLightOn);
+                _line.EdgeLight = rippleOn
+                    ? OwnOrGlobal(HudFxCategory.Edges, "edgeLight", HudConfig.FxEdgeLight) : 0f;
                 // Track the configurable key-light DIRECTION so lines catch light from the same
                 // angle as the borders (the default reproduces the old upper-left direction).
                 _line.EdgeLightDir = new Vector2(PanelGraphic.LightX, PanelGraphic.LightY);
-                _line.EdgeRipple = rippleOn ? OwnOrGlobal("ripple", HudConfig.FxEdgeRipple) : 0f;
-                _line.EdgeRippleFreq = RippleFreqFor(OwnOrGlobal("rippleFreq", HudConfig.FxEdgeRippleFreq));
-                _line.RippleSmooth = UsesGlobalStyle ? 0f : Def.GetFFor(LayoutBare, "rippleSmooth", 0f);
-                bool glowOn = tierA && StyleFeatureOn("customGlowOn", HudConfig.FxGlowOn);
+                _line.EdgeRipple = rippleOn
+                    ? OwnOrGlobal(HudFxCategory.Edges, "ripple", HudConfig.FxEdgeRipple) : 0f;
+                _line.EdgeRippleFreq = RippleFreqFor(
+                    OwnOrGlobal(HudFxCategory.Edges, "rippleFreq", HudConfig.FxEdgeRippleFreq));
+                _line.RippleSmooth = Owns(HudFxCategory.Edges)
+                    ? Def.GetFFor(LayoutBare, "rippleSmooth", 0f) : 0f;
+                bool glowOn = tierA
+                    && StyleFeatureOn(HudFxCategory.Glow, "customGlowOn", HudConfig.FxGlowOn);
                 // Same Tier-A-gated constant floor as the panels (see ApplyMeshFx).
-                _line.Glow = tierA ? HudAlertPulse.Glow(glowOn ? OwnOrGlobal("glow", HudConfig.FxGlow) : 0f, AlertSeed) : 0f;
-                _line.GlowWidth = OwnOrGlobal("glowWidth", HudConfig.FxGlowWidth);
-                _line.GlowDiffuse = OwnOrGlobal("glowDiffuse", HudConfig.FxGlowDiffuse);
+                _line.Glow = tierA ? HudAlertPulse.Glow(
+                    glowOn ? OwnOrGlobal(HudFxCategory.Glow, "glow", HudConfig.FxGlow) : 0f, AlertSeed) : 0f;
+                _line.GlowWidth = OwnOrGlobal(HudFxCategory.Glow, "glowWidth", HudConfig.FxGlowWidth);
+                _line.GlowDiffuse = OwnOrGlobal(HudFxCategory.Glow, "glowDiffuse", HudConfig.FxGlowDiffuse);
                 _line.GlowExtraDiffuse = Mathf.Clamp01(
-                    NewSdfOwnOrGlobal("glowExtraDiffuse", HudConfig.FxGlowExtraDiffuse));
+                    NewSdfOwnOrGlobal(HudFxCategory.Glow, "glowExtraDiffuse", HudConfig.FxGlowExtraDiffuse));
                 _line.FxStrength = FxStrengthFor();
                 // Moving flow (Tier B): the travelling edge-energy wave. Gated on the PROVEN
                 // flow ABI — an old resident bundle after F6 ignores uv1 — AND the ripple gate
@@ -293,7 +303,8 @@ namespace StationeersUIMod.UI.Hud
                 // inert, so this fails soft to the static ripple bake. Mirrors the Shape path
                 // (HudElementView.ApplyFx meshFlow) since a line is not an IGlassSurface.
                 bool flowWanted = rippleOn && Core.HudShaderStore.FlowAbiAvailable;
-                _line.FlowSpeed = flowWanted ? RippleFlowSpeedFor(OwnOrGlobal("edgeFlow", HudConfig.FxEdgeFlowSpeed)) : 0f;
+                _line.FlowSpeed = flowWanted ? RippleFlowSpeedFor(
+                    OwnOrGlobal(HudFxCategory.Edges, "edgeFlow", HudConfig.FxEdgeFlowSpeed)) : 0f;
                 bool meshFlow = _line.FlowSpeed > 0.004f && _line.EdgeRipple > 0.004f;
                 if (meshFlow)
                 {

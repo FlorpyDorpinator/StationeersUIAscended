@@ -315,7 +315,7 @@ namespace StationeersUIMod.Core
                         var slot = e.ResolveSlot(UI.Hud.HudElementView.LayoutSlot);
                         ConsoleWindow.Print(
                             string.Format("  {0,-38} {1,-18} {2}", e.Id ?? "(no id)", e.Type,
-                                IsCustom(e, slot) ? "custom" : "global"),
+                                SourceLine(e, slot)),
                             ConsoleColor.White);
                     }
                     ConsoleWindow.Print(
@@ -353,8 +353,21 @@ namespace StationeersUIMod.Core
                     string.Format("hudfx: {0} ({1})  slot {2}{3}  style {4}",
                         target.Id, target.Type, s,
                         target.ForksSlot(s) ? " [forked]" : " [shared base]",
-                        custom ? "CUSTOM" : "GLOBAL"),
+                        custom ? "MIXED/OWN" : "ALL-GLOBAL"),
                     ConsoleColor.Cyan);
+                // Phase 3: the per-category follow word, for the rendering slot AND for every slot
+                // this element forks — a Bare fork can follow a family the Suited base owns.
+                ConsoleWindow.Print("  styleSrc [" + s + "]  " + SourceLine(target, s),
+                    ConsoleColor.Cyan);
+                if (target.ForksSlot(UI.Hud.HudStyleSlot.Bare) && s != UI.Hud.HudStyleSlot.Bare)
+                    ConsoleWindow.Print("  styleSrc [Bare]  "
+                        + SourceLine(target, UI.Hud.HudStyleSlot.Bare), ConsoleColor.White);
+                if (target.ForksSlot(UI.Hud.HudStyleSlot.Robot) && s != UI.Hud.HudStyleSlot.Robot)
+                    ConsoleWindow.Print("  styleSrc [Robot]  "
+                        + SourceLine(target, UI.Hud.HudStyleSlot.Robot), ConsoleColor.White);
+                if (s != UI.Hud.HudStyleSlot.Base)
+                    ConsoleWindow.Print("  styleSrc [Base]  "
+                        + SourceLine(target, UI.Hud.HudStyleSlot.Base), ConsoleColor.White);
                 ConsoleWindow.Print(
                     "  source: global = follows the F9 slider, own = this element stores it, "
                     + "shared = physically one value for every panel.", ConsoleColor.White);
@@ -371,11 +384,16 @@ namespace StationeersUIMod.Core
                         ConsoleWindow.Print("  -- " + def.Category, ConsoleColor.Cyan);
                     }
 
+                    // PER-ROW EFFECTIVE SOURCE, from this row's own CATEGORY rather than from one
+                    // element-wide flag — the point of Phase 3, and what makes a mixed element
+                    // legible in the dump.
+                    bool rowOwn = UI.Hud.HudStyleFx.SourceOf(target, def.Category, s)
+                                  == UI.Hud.HudFxSource.Own;
                     string source;
                     if (def.SharedOnly) source = "shared";
-                    else if (!def.HasGlobal) source = "own-only";
-                    else if (custom && def.HasOwnValue(target, s)) source = "own";
-                    else if (custom) source = "own(=global)";
+                    else if (!def.HasGlobal) source = rowOwn ? "own-only" : "own-only(off)";
+                    else if (rowOwn && def.HasOwnValue(target, s)) source = "own";
+                    else if (rowOwn) source = "own(=global)";
                     else source = "global";
 
                     string flags = "";
@@ -386,24 +404,38 @@ namespace StationeersUIMod.Core
                     else if (!def.MasterOn) flags += " off";
 
                     ConsoleWindow.Print(
-                        string.Format("     {0,-20} {1,-12} {2,-10} (global {3}){4}",
-                            def.Key, source, def.ResolveText(target, s, custom), def.GlobalText, flags),
+                        string.Format("     {0,-20} {1,-14} {2,-10} (global {3}){4}",
+                            def.Key, source, def.ResolveText(target, s, rowOwn), def.GlobalText, flags),
                         ConsoleColor.White);
                 }
 
                 // The seven power transitions are NOT in the style table (HudTransitionFx stays
                 // their sole authority - see HudStyleFx's type comment), so they are dumped from
                 // their own registry rather than duplicated into this one.
-                ConsoleWindow.Print("  -- Transitions (HudTransitionFx)", ConsoleColor.Cyan);
+                // THE WHOLE TRANSITIONS BLOCK IS BASE-SLOT, header/mode/raw alike. The seven power
+                // transitions are deliberately not per-tier: SetMode/SetAmount write raw base keys,
+                // so their follow bit lives on Base too (HudStyleFx.SlotFor). Reading the header
+                // from one slot and the modes from another is exactly the desync this dump exists
+                // to catch, so it must not commit it itself.
+                bool trOwn = UI.Hud.HudStyleFx.SourceOf(target, UI.Hud.HudFxCategory.Transitions,
+                    UI.Hud.HudStyleSlot.Base) == UI.Hud.HudFxSource.Own;
+                ConsoleWindow.Print("  -- Transitions (HudTransitionFx, slot Base - shared by every tier)  "
+                    + (trOwn ? "own" : "global - stored modes are DORMANT"), ConsoleColor.Cyan);
                 var fxs = UI.Hud.HudStyleFx.Transitions;
                 for (int i = 0; i < fxs.Length; i++)
                 {
                     var fx = fxs[i];
                     if (fx == null) continue;
+                    // Both the EFFECTIVE mode (gated by the Transitions follow state) and the RAW
+                    // stored one, so a dormant On/Off left behind by decision 5 is visible rather
+                    // than silently absent.
                     var mode = UI.Hud.HudTransitionFx.ModeOf(target, fx, false);
+                    var raw = UI.Hud.HudTransitionFx.RawModeOf(target, fx, UI.Hud.HudStyleSlot.Base);
+                    string src = mode.ToString().ToLowerInvariant()
+                        + (raw != mode ? " (stored " + raw.ToString().ToLowerInvariant() + ")" : "");
                     ConsoleWindow.Print(
-                        string.Format("     {0,-20} {1,-12} {2,-10} (global {3})",
-                            fx.Key, mode.ToString().ToLowerInvariant(),
+                        string.Format("     {0,-20} {1,-14} {2,-10} (global {3})",
+                            fx.Key, src,
                             UI.Hud.HudTransitionFx.Resolve(target, fx, false).ToString("0.###"),
                             fx.GlobalOn ? fx.GlobalAmt.ToString("0.###") : "OFF"),
                         ConsoleColor.White);
@@ -415,12 +447,31 @@ namespace StationeersUIMod.Core
             }
         }
 
-        /// <summary>Same clamp rule as the live resolvers: anything that is not an explicit 2 reads
-        /// as "follows the globals" (HudStyleMigration regresses every legacy element at load).</summary>
+        /// <summary>Does this slot own ANY style family of its own? Phase 3's successor to the
+        /// two-state test — it goes through HudStyleFx's packed word, so it can never drift from
+        /// what the resolvers do.</summary>
         private static bool IsCustom(UI.Hud.HudElementDef d, UI.Hud.HudStyleSlot slot)
-            => d != null
-               && d.GetIFor(slot, "styleSource", UI.Hud.HudElementView.StyleGlobal)
-                  == UI.Hud.HudElementView.StyleCustom;
+            => d != null && !UI.Hud.HudStyleFx.AllFollow(d, slot);
+
+        /// <summary>"Surface=O Glass=G Edges=G Glow=O Transitions=G" — the per-category source
+        /// letters for one slot (G global / D donor / O own).
+        ///
+        /// Goes through <c>HudStyleFx.SourceOf</c>, NOT through a raw unpack of this slot's word, so
+        /// Transitions reports the Base bit the resolvers actually read. A fork's word can carry
+        /// stale Transitions bits that nothing reads; printing them would make the dump disagree
+        /// with the popup and with the renderer.</summary>
+        private static string SourceLine(UI.Hud.HudElementDef d, UI.Hud.HudStyleSlot slot)
+        {
+            var sb = new System.Text.StringBuilder();
+            var cats = UI.Hud.HudStyleFx.Followable;
+            for (int i = 0; i < cats.Length; i++)
+            {
+                if (i > 0) sb.Append("  ");
+                sb.Append(cats[i]).Append('=')
+                  .Append(UI.Hud.HudStyleFx.SourceLetter(UI.Hud.HudStyleFx.SourceOf(d, cats[i], slot)));
+            }
+            return sb.ToString();
+        }
 
         private static string SafeName(Thing t)
         {

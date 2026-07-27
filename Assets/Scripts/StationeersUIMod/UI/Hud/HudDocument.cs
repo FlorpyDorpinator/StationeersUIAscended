@@ -309,7 +309,30 @@ namespace StationeersUIMod.UI.Hud
             }
             if (sdfBackfilled > 0) RepairedOnLoad = true;
 
+            // Style-parity Phase 3 (2026-07-27): re-encode the two-state "styleSource" as the
+            // packed PER-CATEGORY word "styleSrc" (plan §4.2). Runs LAST of the style passes, so it
+            // sees the values HudStyleMigration and the back-fill have already settled. Reads no
+            // live global — it is a pure re-encoding of what the element already stores, which is
+            // what keeps it clear of the parse -> Sanitize -> Apply load-order hazard Phase 0
+            // recorded. Self-gating on the absence of "styleSrc" per slot; fail-soft per element.
+            // Schema stays 16: the gate is the param, not the schema.
+            int srcMapped = 0;
+            for (int i = 0; i < Elements.Count; i++)
+            {
+                var el = Elements[i];
+                if (el == null) continue;
+                try { srcMapped += HudStyleMigration.MapStyleSource(el); }
+                catch (Exception e)
+                {
+                    UIALog.Warn("HudDocument: per-category style mapping failed on element '"
+                        + el.Id + "' (" + e.Message + ") — left on the two-state fallback.");
+                }
+            }
+            if (srcMapped > 0) RepairedOnLoad = true;
+
             string label = string.IsNullOrEmpty(Name) ? "HudDocument" : "HudDocument '" + Name + "'";
+            if (srcMapped > 0)
+                UIALog.Warn($"{label}: mapped {srcMapped} style slot(s) onto the per-category follow model.");
             if (sdfBackfilled > 0)
                 UIALog.Warn($"{label}: back-filled {sdfBackfilled} missing halo key(s) on {sdfElements} custom-styled element(s) from the current globals.");
             if (styleMigrated > 0)

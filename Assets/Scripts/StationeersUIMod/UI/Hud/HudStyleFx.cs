@@ -30,6 +30,17 @@ namespace StationeersUIMod.UI.Hud
     /// in F9 a row is drawn; Category decides which follow checkbox will own it.</summary>
     internal enum HudFxCategory { Surface, Glass, Edges, Glow, Bloom, Alerts, Transitions }
 
+    /// <summary>Where ONE category of an element's style comes from (plan §3.2/§3.5). Exactly one
+    /// of the three per category, which is why it is a packed radio rather than three flag sets —
+    /// the illegal states are unrepresentable, the same reasoning that produced
+    /// <see cref="HudFxMode"/> for the transitions family.
+    ///
+    /// <see cref="Donor"/> is Phase 4 (inherit-from-another-element). It is already legal in the
+    /// packing so a Phase 4 profile round-trips through Phase 3 code, but nothing offers it in the
+    /// UI yet and <see cref="HudStyleFx.SourceOf"/> resolves it as <see cref="Global"/> — fail-soft,
+    /// never as a blank element.</summary>
+    internal enum HudFxSource { Global = 0, Donor = 1, Own = 2 }
+
     /// <summary>ONE steady-state style knob: its per-element param key, its display label, its
     /// range, lazy accessors for the global <see cref="ConfigEntry"/> that backs it, and the honest
     /// capability flags (shared-only / SDF-only / legacy-approximate / does-not-travel).
@@ -683,7 +694,10 @@ namespace StationeersUIMod.UI.Hud
                 () => HudConfig.FxEdgeRippleFreq, 0.05f, 8f, paramKey: "rippleFreq",
                 tier: () => HudConfig.FxTierA, tip: "Shimmer cycles per ~100 px of edge.",
                 applies: v => v.FxHasEdgeEnergy),
-            Own("rippleSmooth", HudFxCategory.Edges, "  energy smoothness (per-element only)", 0f, 1f,
+            // The "(per-element only…)" suffix is appended by the popup from HasGlobal +
+            // StateIndependent, so it is NOT baked into the caption here — one rule, one place.
+            // F9 never draws this row (no global to draw), so the caption change is invisible there.
+            Own("rippleSmooth", HudFxCategory.Edges, "  energy smoothness", 0f, 1f,
                 "rippleSmooth",
                 "THE one control that genuinely has no global (plan §1.3). Hard-zeroed while the "
                 + "element follows, so it is neutral there rather than silently inherited.",
@@ -1015,6 +1029,180 @@ namespace StationeersUIMod.UI.Hud
                     return true;
             }
         }
+
+        // ---- PER-CATEGORY FOLLOW: storage + resolution (Phase 3, plan §3.2 / §3.5) -----------
+        //
+        // ONE packed int per element PER STYLE SLOT, two bits per followable category, in the
+        // fixed order Surface | Glass | Edges | Glow | Transitions. Default 0 = follow everything =
+        // exactly today's Global element, so an absent key costs nothing and means nothing new.
+        //
+        // Written through HudElementDef.SetIFor so it rides the existing copy-on-write fork
+        // protection: a Bare fork can follow a category the Suited base owns, and vice versa.
+        //
+        // ALLOCATION-FREE BY CONSTRUCTION. Resolution is one param-bag read (the same linear scan
+        // + int.Parse the old single "styleSource" read already cost on this path) plus a shift and
+        // a mask. No dictionary, no string built, no boxing — these run per element per frame
+        // inside ApplyGlass / ApplyMeshFx / ApplyFx. Deliberately NOT cached on the view: the F9
+        // popup writes and reads the same value within one frame, and a frame-keyed cache would
+        // make a freshly-ticked checkbox disagree with the rows underneath it for a frame.
+
+        /// <summary>Param key holding the packed per-category source. Slot-aware
+        /// (<c>SetIFor</c>), so "b_styleSrc" is the bare fork's own copy.</summary>
+        internal const string SourceParamKey = "styleSrc";
+
+        /// <summary>The pre-Phase-3 two-state field. Still WRITTEN alongside
+        /// <see cref="SourceParamKey"/> for one release so a downgrade to 0.9.2.x still renders
+        /// correctly (plan §4.2, "hide never destroy" applied to a schema field); the write is
+        /// dropped in Phase 5. Also the fail-soft fallback for a def that <c>Sanitize</c> has not
+        /// mapped yet (an element built in memory this session).</summary>
+        internal const string LegacySourceParamKey = "styleSource";
+
+        /// <summary>Every category that owns a follow checkbox, in PACKING ORDER. Bloom and Alerts
+        /// are absent on purpose: they are physically one full-screen pass and one set of shared
+        /// uniforms, so there is nothing per-element to follow (plan §1.6, §3.4).</summary>
+        internal static readonly HudFxCategory[] Followable =
+        {
+            HudFxCategory.Surface, HudFxCategory.Glass, HudFxCategory.Edges,
+            HudFxCategory.Glow, HudFxCategory.Transitions,
+        };
+
+        /// <summary>Follow everything — the default for every element that stores nothing.</summary>
+        internal const int AllGlobalPacked = 0;
+
+        /// <summary>Own everything: <see cref="HudFxSource.Own"/> (2) in all five two-bit fields,
+        /// i.e. 0b10_10_10_10_10. This is what a pre-Phase-3 <c>styleSource == 2</c> maps to.</summary>
+        internal const int AllOwnPacked = 0x2AA;
+
+        /// <summary>Bit offset of a category's two-bit field, or -1 when the category has no
+        /// follow state at all (Bloom / Alerts).</summary>
+        internal static int ShiftFor(HudFxCategory cat)
+        {
+            switch (cat)
+            {
+                case HudFxCategory.Surface: return 0;
+                case HudFxCategory.Glass: return 2;
+                case HudFxCategory.Edges: return 4;
+                case HudFxCategory.Glow: return 6;
+                case HudFxCategory.Transitions: return 8;
+                default: return -1;
+            }
+        }
+
+        internal static bool IsFollowable(HudFxCategory cat) => ShiftFor(cat) >= 0;
+
+        /// <summary>The page/checkbox caption for a category. Surface is called "Theme" everywhere
+        /// the player sees it, because that is the F9 tab it mirrors.</summary>
+        internal static string CategoryName(HudFxCategory cat)
+        {
+            switch (cat)
+            {
+                case HudFxCategory.Surface: return "Theme";
+                case HudFxCategory.Glass: return "Glass";
+                case HudFxCategory.Edges: return "Edges";
+                case HudFxCategory.Glow: return "Glow";
+                case HudFxCategory.Bloom: return "Bloom";
+                case HudFxCategory.Alerts: return "Alerts";
+                default: return "Transitions";
+            }
+        }
+
+        /// <summary>This slot's packed source word, with the pre-Phase-3 fallback.
+        /// Fail-soft: a def with neither key reads as "follow everything".</summary>
+        internal static int PackedOf(HudElementDef d, HudStyleSlot slot)
+        {
+            if (d == null) return AllGlobalPacked;
+            int v = d.GetIFor(slot, SourceParamKey, -1);
+            if (v >= 0) return v;
+            // Not mapped yet (a brand-new in-memory element, or a document that somehow skipped
+            // Sanitize): read the legacy two-state field so behaviour is unchanged until the
+            // migration runs. Custom => own everything, anything else => follow everything.
+            return d.GetIFor(slot, LegacySourceParamKey, HudElementView.StyleGlobal)
+                   == HudElementView.StyleCustom ? AllOwnPacked : AllGlobalPacked;
+        }
+
+        /// <summary>Unpack ONE category out of an already-read word. Two bit ops, no allocation.</summary>
+        internal static HudFxSource SourceIn(int packed, HudFxCategory cat)
+        {
+            int shift = ShiftFor(cat);
+            if (shift < 0) return HudFxSource.Global;
+            int v = (packed >> shift) & 3;
+            // Donor (1) is Phase 4 and 3 is illegal: both degrade to Global, never to a neutral.
+            return v == (int)HudFxSource.Own ? HudFxSource.Own : HudFxSource.Global;
+        }
+
+        /// <summary>THE resolution rule (plan §3.2), asked once per resolver: Global => the global
+        /// value; Own => the element's stored param with THE GLOBAL as its default (the one
+        /// missing-key convention Phase 0b established); Donor => Global until Phase 4.
+        ///
+        /// TRANSITIONS ALWAYS RESOLVE AGAINST <see cref="HudStyleSlot.Base"/>, whatever slot the
+        /// caller asks for. The seven power transitions are deliberately NOT per-tier
+        /// (<c>PerTierCapable = false</c>): forking them would let the suit and bare layouts
+        /// disagree about whether an element dies at all, so <c>HudTransitionFx.SetMode/SetAmount</c>
+        /// write raw base keys. Their FOLLOW state has to live in the same place or the popup's
+        /// checkbox and the rows underneath it desync on a bare-forked element — the checkbox would
+        /// write "b_styleSrc" while every row it governs reads the base.</summary>
+        internal static HudFxSource SourceOf(HudElementDef d, HudFxCategory cat, HudStyleSlot slot)
+        {
+            if (ShiftFor(cat) < 0) return HudFxSource.Global;
+            return SourceIn(PackedOf(d, SlotFor(cat, slot)), cat);
+        }
+
+        /// <summary>The slot a category's follow state actually lives in: Base for Transitions
+        /// (see <see cref="SourceOf"/>), the caller's slot for everything else. Every reader AND
+        /// every writer must go through this, or they will disagree.</summary>
+        internal static HudStyleSlot SlotFor(HudFxCategory cat, HudStyleSlot slot)
+            => cat == HudFxCategory.Transitions ? HudStyleSlot.Base : slot;
+
+        /// <summary>Replace one category's two bits. Returns the word unchanged for a category
+        /// with no follow state.</summary>
+        internal static int WithSource(int packed, HudFxCategory cat, HudFxSource src)
+        {
+            int shift = ShiftFor(cat);
+            if (shift < 0) return packed;
+            return (packed & ~(3 << shift)) | (((int)src & 3) << shift);
+        }
+
+        /// <summary>True when EVERY followable category follows the globals — the state the legacy
+        /// <see cref="LegacySourceParamKey"/> records as 1, and what the master checkbox shows
+        /// ticked. Word-only overload: callers that have an ELEMENT must use the overload below,
+        /// which routes Transitions through its own slot (see <see cref="SlotFor"/>).</summary>
+        internal static bool AllFollow(int packed)
+        {
+            for (int i = 0; i < Followable.Length; i++)
+                if (SourceIn(packed, Followable[i]) == HudFxSource.Own) return false;
+            return true;
+        }
+
+        /// <summary>True when NO followable category follows — the master checkbox shows unticked
+        /// (anything between the two is "(mixed)").</summary>
+        internal static bool NoneFollow(int packed)
+        {
+            for (int i = 0; i < Followable.Length; i++)
+                if (SourceIn(packed, Followable[i]) != HudFxSource.Own) return false;
+            return true;
+        }
+
+        /// <summary>Element-aware "does every family follow?" — asks <see cref="SourceOf"/> per
+        /// category so Transitions is read from Base even when <paramref name="slot"/> is a fork.
+        /// The word-only overloads would report a fork's stale Transitions bits, which nothing
+        /// reads.</summary>
+        internal static bool AllFollow(HudElementDef d, HudStyleSlot slot)
+        {
+            for (int i = 0; i < Followable.Length; i++)
+                if (SourceOf(d, Followable[i], slot) == HudFxSource.Own) return false;
+            return true;
+        }
+
+        internal static bool NoneFollow(HudElementDef d, HudStyleSlot slot)
+        {
+            for (int i = 0; i < Followable.Length; i++)
+                if (SourceOf(d, Followable[i], slot) != HudFxSource.Own) return false;
+            return true;
+        }
+
+        /// <summary>One letter per category for the `hudfx` dump: G(lobal) / D(onor) / O(wn).</summary>
+        internal static char SourceLetter(HudFxSource s)
+            => s == HudFxSource.Own ? 'O' : s == HudFxSource.Donor ? 'D' : 'G';
 
         /// <summary>How many rows a category owns. Diagnostics only.</summary>
         internal static int CountIn(HudFxCategory cat)
