@@ -1,7 +1,7 @@
 # Per-Element Style Parity — bug root causes, the `HudStyleFx` registry, and inherit-from-element
 
-**Status:** PLAN ONLY — nothing in this document has been implemented. Written for FlorpyDorp to
-review and approve before any code is written.
+**Status:** APPROVED by FlorpyDorp 2026-07-26 — in implementation. His decisions on the open
+questions are recorded at the top of §7.
 **Author:** investigation pass, 2026-07-26. No code, config or profile was modified.
 **Companion reading:** `Documentation/Config-and-Theme-Migration.md` (the migration disciplines this
 plan obeys), `Documentation/Release Prep Reports/03-F9-Editor-and-Knob-Parity.md` (the audit that
@@ -764,9 +764,23 @@ Every cell is: screenshot before → act → screenshot after → compare.
 
 ---
 
-## 7. Open questions for FlorpyDorp
+## 7. Open questions for FlorpyDorp — ANSWERED 2026-07-26
 
-Only where taste decides. Everything else is settled by the findings above.
+> **Decisions (FlorpyDorp):**
+> 1. **Depth 1** donors — approved as recommended.
+> 2. **No** per-element View & Behavior category.
+> 3. **Tri-state fully retired, no Advanced escape hatch.** His reasoning: once a category is
+>    unfollowed, the element shows the same options as F9 and each transition is a plain
+>    on/off (+ strength) for that element alone — an "Inherit" third state is redundant there.
+>    Migration per §3.7's table; the granularity loss for mixed elements is accepted.
+> 4. **Categories = the F9 sub-tabs exactly** — Theme/Effects with Glass / Edges / Glow /
+>    Bloom / Alerts / Transitions as sub-tabs (Bloom/Alerts as read-only shared pages since
+>    they are physically global). No separate halo-envelope group; envelope rows stay in Glow
+>    to match F9.
+> 5. **Option (a)**: keep custom values dormant on re-follow, always re-seed on unfollow —
+>    nothing is lost, and unchecking never changes a pixel.
+
+The original questions, kept for the record:
 
 1. **Donor chains.** I recommend **depth 1** (§5.4): you can inherit from an element, but not from
    an element that is itself inheriting. Cheap, no cycle detection, legible failure. Do you want

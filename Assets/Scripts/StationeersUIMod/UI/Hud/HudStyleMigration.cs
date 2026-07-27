@@ -65,6 +65,110 @@ namespace StationeersUIMod.UI.Hud
             "fxPulse", "fxPulseAmt", "customStyleReady",
         };
 
+        // ---- Schema 16 (2026-07-26): the SDF-family back-fill --------------------------------
+        //
+        // Phase 0b of the per-element style parity plan made a MISSING per-element key mean "the
+        // global" for the SDF halo family, where it used to mean "a fixed neutral / off". That is
+        // the right rule going forward, but on its own it would have handed a feature to already-
+        // stored Custom elements that never asked for one: an element snapshotted before these
+        // keys existed would suddenly start breathing because the GLOBAL master happens to be on.
+        //
+        // So the rule change is paired with this one-time back-fill: every element that is already
+        // Custom (per style slot) and LACKS one of these keys gets the current global written in,
+        // freezing what it renders today. After that its stored value wins and nothing drifts.
+        //
+        // Self-gating exactly like HudTransitionFx.MigrateOne: the gate IS the absence of the key,
+        // so the second pass finds nothing to do. No marker key, no schema read, no profile bloat
+        // for elements that already carry the keys (which is every element separated since 0a).
+
+        private static readonly string[] SdfFloatKeys =
+        {
+            "glowExtraDiffuse", "glowHaze", "glowBreath",
+            "glowUneven", "glowOrganicScale", "glowFlowAura",
+        };
+
+        private static readonly string[] SdfBoolKeys =
+        {
+            "customGlowBreathOn", "customGlowUnevenOn", "customGlowFlowOn",
+        };
+
+        /// <summary>The OLD resolver's fallback for each float key — the "fixed neutral" the
+        /// pre-0b <c>NewSdfOwnOrGlobal</c> used when a Custom element stored nothing. Parallel to
+        /// <see cref="SdfFloatKeys"/>.</summary>
+        private static readonly float[] SdfFloatNeutrals = { 0f, 0f, 0.35f, 0.5f, 1f, 0.6f };
+
+        /// <summary>WHAT THIS SLOT RENDERS TODAY, under the pre-0b convention — deliberately NOT
+        /// "the current global".
+        ///
+        /// The plan's §2 wording says to write the global in. Implemented literally that turns
+        /// features ON: verified against FlorpyDorp's own installed profiles, where Stationeers
+        /// Blue / Pure HUD / Zirillian Red each carry three BARE forks (b_g2-hands, b_g2-eqleft,
+        /// b_g2-eqright) that store none of these keys — b_g2-hands resolves
+        /// customGlowBreathOn/UnevenOn/FlowOn to the BASE's explicit `false`, while every one of
+        /// those themes has the matching global master ON. Writing the global would have switched
+        /// halo breathing, unevenness and the flowing aura on in bare mode for those elements, and
+        /// re-created the exact suited-leaks-into-bare defect the Wave C fork exists to prevent.
+        ///
+        /// So the back-fill freezes the value the slot ALREADY resolves — the stored base value for
+        /// a fork that inherits it, the old neutral where nothing is stored at all. That is
+        /// pixel-identical by construction, which is Phase 0's gating test, and it still fully
+        /// serves the stated purpose of the mitigation: once written, the key exists, so the new
+        /// "absent means the global" rule can never change what this element renders.
+        ///
+        /// It also removes a load-order hazard: profile load is parse -> Sanitize -> SetActive ->
+        /// HudTheme.Apply, so ANY live-global read inside Sanitize sees the OUTGOING profile's
+        /// look. Reading nothing but the element's own stored values sidesteps that entirely.</summary>
+        private static float SdfResolvedFloat(HudElementDef el, HudStyleSlot slot, int keyIndex)
+            => el.GetFFor(slot, SdfFloatKeys[keyIndex], SdfFloatNeutrals[keyIndex]);
+
+        private static bool SdfResolvedBool(HudElementDef el, HudStyleSlot slot, string key)
+            => el.GetBFor(slot, key, false);
+
+        /// <summary>RAW presence of <paramref name="key"/> in one slot — never resolved, because a
+        /// forked slot that merely INHERITS the base still needs its own copy written.</summary>
+        private static bool StoresKey(HudElementDef el, HudStyleSlot slot, string key)
+            => slot == HudStyleSlot.Base
+                ? el.GetS(key, null) != null
+                : el.HasSlotOverride(slot, key);
+
+        /// <summary>Back-fill one element's Custom slots. Returns the number of keys written.
+        /// Idempotent and fail-soft; a slot that is NOT Custom is skipped entirely, so a following
+        /// element gains nothing (its dormant keys stay dormant — decision 5).</summary>
+        internal static int BackfillSdfKeys(HudElementDef el)
+        {
+            if (el == null) return 0;
+            int written = 0;
+            // BASE LAST. SetFFor/SetBFor on the base runs HudElementDef's copy-on-write, which
+            // hands every forked slot the base's CURRENT value first — so doing the forks first
+            // means each fork records what IT resolves, not what the base is about to become.
+            if (el.ForksSlot(HudStyleSlot.Bare)) written += BackfillSlot(el, HudStyleSlot.Bare);
+            if (el.ForksSlot(HudStyleSlot.Robot)) written += BackfillSlot(el, HudStyleSlot.Robot);
+            written += BackfillSlot(el, HudStyleSlot.Base);
+            return written;
+        }
+
+        private static int BackfillSlot(HudElementDef el, HudStyleSlot slot)
+        {
+            if (el.GetIFor(slot, "styleSource", HudElementView.StyleLegacy) != HudElementView.StyleCustom)
+                return 0;
+            int written = 0;
+            for (int i = 0; i < SdfFloatKeys.Length; i++)
+            {
+                string k = SdfFloatKeys[i];
+                if (StoresKey(el, slot, k)) continue;
+                el.SetFFor(slot, k, SdfResolvedFloat(el, slot, i));
+                written++;
+            }
+            for (int i = 0; i < SdfBoolKeys.Length; i++)
+            {
+                string k = SdfBoolKeys[i];
+                if (StoresKey(el, slot, k)) continue;
+                el.SetBFor(slot, k, SdfResolvedBool(el, slot, k));
+                written++;
+            }
+            return written;
+        }
+
         /// <summary>Regress every legacy-styled element in <paramref name="doc"/> to the
         /// two-state contract. Returns how many elements were rewritten.</summary>
         internal static int Migrate(HudDocument doc)

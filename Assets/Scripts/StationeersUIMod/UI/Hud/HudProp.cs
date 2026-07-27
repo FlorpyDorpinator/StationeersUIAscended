@@ -18,6 +18,15 @@ namespace StationeersUIMod.UI.Hud
         /// caption and <see cref="HudProp.Children"/> are the props shown while it is selected.
         /// Never drawn on its own — only inside a TabGroup.</summary>
         TabPage,
+        /// <summary>A dimmed, non-interactive line of text. Unlike <see cref="Header"/> it draws
+        /// no separator and no accent colour, so it reads as a FOOTNOTE to the row above rather
+        /// than as the start of a new section — which is what a "shared global" pointer or a
+        /// read-only live value is.</summary>
+        Note,
+        /// <summary>A clickable action row. Carries no value at all: it invokes
+        /// <see cref="HudProp.Action"/> and is skipped by every value path (seeding, per-tier
+        /// forking, undo bracketing).</summary>
+        Button,
     }
 
     /// <summary>Inspector destination for a property. Widget-specific descriptors default to
@@ -70,6 +79,11 @@ namespace StationeersUIMod.UI.Hud
         /// <summary>Runtime fallback for an empty colour reference. Without this, the inspector
         /// cannot know that (for example) an empty warning-bar ref means HudWarn rather than white.</summary>
         public Func<UnityEngine.Color> ColorFallback;
+
+        /// <summary>What a <see cref="HudPropKind.Button"/> row does when clicked. Null for every
+        /// other kind. Deliberately NOT routed through Get/Set: a button has no value, so the
+        /// undo bracketing and the per-tier seeding walk both skip it.</summary>
+        public Action Action;
 
         /// <summary>Nested props, for the container kinds only (<see cref="HudPropKind.TabGroup"/>
         /// and <see cref="HudPropKind.TabPage"/>). Null for every leaf kind. Children are drawn by
@@ -178,6 +192,28 @@ namespace StationeersUIMod.UI.Hud
         public static HudProp Header(string label)
         {
             return new HudProp { Label = label, Kind = HudPropKind.Header };
+        }
+
+        /// <summary>A dimmed footnote line: a shared-global pointer, a read-only live value, a
+        /// gating caveat. Draws under the row it annotates with no separator, so it does not read
+        /// as a new section the way <see cref="Header"/> does.</summary>
+        public static HudProp Note(string label, string help = null)
+        {
+            return new HudProp { Label = label, Kind = HudPropKind.Note, Help = help };
+        }
+
+        /// <summary>A clickable action row (no value, no undo bracket). <paramref name="id"/> must
+        /// be unique within the element's prop list — several rows share the same caption.</summary>
+        public static HudProp Button(string label, string id, Action action, string help = null)
+        {
+            return new HudProp
+            {
+                Label = label,
+                Kind = HudPropKind.Button,
+                StableId = id,
+                Action = action,
+                Help = help,
+            };
         }
 
         /// <summary>One page of a nested tab bar. <paramref name="label"/> is the tab caption.</summary>

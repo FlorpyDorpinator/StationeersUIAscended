@@ -82,7 +82,7 @@ namespace StationeersUIMod.Windows
             // PushTabStyle, so a sub-tab is as easy to read as a top-level one.
             PushTabStyle();
             if (!ImGui.BeginTabBar("##UIAHudEditorTabs")) { PopTabStyle(); return; }
-            if (ImGui.BeginTabItem("Build"))
+            if (ImGui.BeginTabItem("Build", TopTabFlags("Build")))
             {
                 ActivateEditorTab("Build");
                 ImGui.BeginChild("##UIAHudBuildTab", new Vector2(0f, 0f), false, ImGuiWindowFlags.None);
@@ -90,7 +90,7 @@ namespace StationeersUIMod.Windows
                 ImGui.EndChild();
                 ImGui.EndTabItem();
             }
-            if (ImGui.BeginTabItem("Theme"))
+            if (ImGui.BeginTabItem("Theme", TopTabFlags("Theme")))
             {
                 ActivateEditorTab("Theme");
                 ImGui.BeginChild("##UIAHudThemeTab", new Vector2(0f, 0f), false, ImGuiWindowFlags.None);
@@ -98,7 +98,7 @@ namespace StationeersUIMod.Windows
                 ImGui.EndChild();
                 ImGui.EndTabItem();
             }
-            if (ImGui.BeginTabItem("Effects"))
+            if (ImGui.BeginTabItem("Effects", TopTabFlags("Effects")))
             {
                 ActivateEditorTab("Effects");
                 ImGui.BeginChild("##UIAHudEffectsTab", new Vector2(0f, 0f), false, ImGuiWindowFlags.None);
@@ -106,7 +106,7 @@ namespace StationeersUIMod.Windows
                 ImGui.EndChild();
                 ImGui.EndTabItem();
             }
-            if (ImGui.BeginTabItem("View & Behavior"))
+            if (ImGui.BeginTabItem("View & Behavior", TopTabFlags("View & Behavior")))
             {
                 ActivateEditorTab("View & Behavior");
                 ImGui.BeginChild("##UIAHudViewTab", new Vector2(0f, 0f), false, ImGuiWindowFlags.None);
@@ -114,7 +114,7 @@ namespace StationeersUIMod.Windows
                 ImGui.EndChild();
                 ImGui.EndTabItem();
             }
-            if (ImGui.BeginTabItem("Diagnostics"))
+            if (ImGui.BeginTabItem("Diagnostics", TopTabFlags("Diagnostics")))
             {
                 ActivateEditorTab("Diagnostics");
                 ImGui.BeginChild("##UIAHudDiagnosticsTab", new Vector2(0f, 0f), false, ImGuiWindowFlags.None);
@@ -148,6 +148,48 @@ namespace StationeersUIMod.Windows
             _activeEditorSubTab = tab;
         }
 
+        // ---- jump-to-tab (0d) ---------------------------------------------------------------
+        //
+        // ActivateEditorSubTab only RECORDS which sub-tab is up; it cannot open one. The standard
+        // ImGui way is a one-frame ImGuiTabItemFlags.SetSelected on BeginTabItem, and the game's
+        // binding does expose it — verified 2026-07-26 by reflecting
+        // rocketstation_Data/Managed/RG.ImGui.dll: ImGuiNET.ImGuiTabItemFlags.SetSelected = 2, and
+        // both `BeginTabItem(string, ImGuiTabItemFlags)` and `BeginTabItem(string, ref bool,
+        // ImGuiTabItemFlags)` exist.
+        //
+        // The request is consumed by the tab item it names, not by a frame counter, so a click in
+        // the element popup while this window happens to be CLOSED still lands the moment the
+        // window is next drawn. SetSelected makes BeginTabItem return true on the same frame, so
+        // the top-level tab and its sub-tab resolve in one pass, outermost first.
+
+        private static string _jumpTab;
+        private static string _jumpSubTab;
+
+        /// <summary>Ask the F9 window to open on <paramref name="tab"/> (and optionally the sub-tab
+        /// registered under <paramref name="subTabId"/>). Called by the element popup's
+        /// "Open F9 &gt; ..." rows. Holds no scene or document state, so it needs no hot-reload
+        /// teardown beyond the window's own statics.</summary>
+        internal static void RequestEditorTab(string tab, string subTabId)
+        {
+            _jumpTab = tab;
+            _jumpSubTab = subTabId;
+        }
+
+        /// <summary>SetSelected exactly once, on the tab item that was asked for.</summary>
+        private static ImGuiTabItemFlags JumpFlagsFor(ref string pending, string id)
+        {
+            if (pending == null || !string.Equals(pending, id, System.StringComparison.Ordinal))
+                return ImGuiTabItemFlags.None;
+            pending = null;
+            return ImGuiTabItemFlags.SetSelected;
+        }
+
+        private static ImGuiTabItemFlags TopTabFlags(string tab)
+            => JumpFlagsFor(ref _jumpTab, tab);
+
+        private static ImGuiTabItemFlags SubTabFlags(string id)
+            => JumpFlagsFor(ref _jumpSubTab, id);
+
         /// <summary>The tab colours shared by the top-level bar and every nested sub-tab bar.</summary>
         private static void PushTabStyle()
         {
@@ -163,7 +205,7 @@ namespace StationeersUIMod.Windows
         /// Returns false when the sub-tab is not the active one (nothing to draw, nothing to end).</summary>
         private static bool BeginSubTab(string title, string id)
         {
-            if (!ImGui.BeginTabItem(title)) return false;
+            if (!ImGui.BeginTabItem(title, SubTabFlags(id))) return false;
             ActivateEditorSubTab(id);
             ImGui.BeginChild(id + "Scroll", new Vector2(0f, 0f), false, ImGuiWindowFlags.None);
             return true;

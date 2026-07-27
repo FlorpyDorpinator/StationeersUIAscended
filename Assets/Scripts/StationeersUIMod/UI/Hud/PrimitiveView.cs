@@ -284,7 +284,7 @@ namespace StationeersUIMod.UI.Hud
                 _line.GlowWidth = OwnOrGlobal("glowWidth", HudConfig.FxGlowWidth);
                 _line.GlowDiffuse = OwnOrGlobal("glowDiffuse", HudConfig.FxGlowDiffuse);
                 _line.GlowExtraDiffuse = Mathf.Clamp01(
-                    NewSdfOwnOrGlobal("glowExtraDiffuse", HudConfig.FxGlowExtraDiffuse, 0f));
+                    NewSdfOwnOrGlobal("glowExtraDiffuse", HudConfig.FxGlowExtraDiffuse));
                 _line.FxStrength = FxStrengthFor();
                 // Moving flow (Tier B): the travelling edge-energy wave. Gated on the PROVEN
                 // flow ABI — an old resident bundle after F6 ignores uv1 — AND the ripple gate

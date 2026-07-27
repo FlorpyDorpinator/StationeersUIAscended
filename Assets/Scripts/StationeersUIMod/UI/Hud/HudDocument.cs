@@ -86,12 +86,15 @@ namespace StationeersUIMod.UI.Hud
     public class HudDocument
     {
         /// <summary>The schema the CURRENT code writes. 15 = the 0.9.2.5 (Wave C) opt-in per-tier
-        /// style slots. Deliberately NOT stamped onto every loaded profile by
-        /// <see cref="Sanitize"/>: the shipped-default replacement gates in
-        /// <c>HudSystem.EnsureActiveDocument</c> read the stored value, and every Wave C repair is
-        /// self-gating (the adoption below keys on the ABSENCE of "tierStyle"), so stamping would
-        /// buy nothing and silently disable those gates.</summary>
-        public const int CurrentSchema = 15;
+        /// style slots; 16 = the 2026-07-26 style-parity Phase 0 (ONE missing-key convention for
+        /// the SDF halo family, plus the back-fill that freezes what existing Custom elements
+        /// render today — see <c>HudStyleMigration.BackfillSdfKeys</c>). Deliberately NOT stamped
+        /// onto every loaded profile by <see cref="Sanitize"/>: the shipped-default replacement
+        /// gates in <c>HudSystem.EnsureActiveDocument</c> read the stored value, and every repair
+        /// is self-gating (the Wave C adoption keys on the ABSENCE of "tierStyle"; the Phase 0b
+        /// back-fill keys on the absence of each SDF key), so stamping would buy nothing and
+        /// silently disable those gates.</summary>
+        public const int CurrentSchema = 16;
 
         /// <summary>Bumped when the on-disk shape changes incompatibly; lets a future load
         /// path migrate old profiles instead of silently mis-reading them.</summary>
@@ -282,7 +285,33 @@ namespace StationeersUIMod.UI.Hud
             catch (Exception e) { UIALog.Warn("HudDocument: style migration failed (" + e.Message + ")."); }
             if (styleMigrated > 0) RepairedOnLoad = true;
 
+            // Schema 16 (2026-07-26, style-parity Phase 0b): the SDF halo family now resolves an
+            // ABSENT per-element key to the GLOBAL instead of to a fixed neutral — one convention
+            // for every knob. Freeze what already-Custom elements render TODAY before that rule
+            // can hand them a feature they never asked for. Runs AFTER the legacy migration above,
+            // which may itself have just written a complete Custom snapshot. Self-gating on the
+            // absence of each key, per style slot; fail-soft per element.
+            int sdfBackfilled = 0, sdfElements = 0;
+            for (int i = 0; i < Elements.Count; i++)
+            {
+                var el = Elements[i];
+                if (el == null) continue;
+                try
+                {
+                    int n = HudStyleMigration.BackfillSdfKeys(el);
+                    if (n > 0) { sdfBackfilled += n; sdfElements++; }
+                }
+                catch (Exception e)
+                {
+                    UIALog.Warn("HudDocument: SDF back-fill failed on element '"
+                        + el.Id + "' (" + e.Message + ") — left on the resolver fallback.");
+                }
+            }
+            if (sdfBackfilled > 0) RepairedOnLoad = true;
+
             string label = string.IsNullOrEmpty(Name) ? "HudDocument" : "HudDocument '" + Name + "'";
+            if (sdfBackfilled > 0)
+                UIALog.Warn($"{label}: back-filled {sdfBackfilled} missing halo key(s) on {sdfElements} custom-styled element(s) from the current globals.");
             if (styleMigrated > 0)
                 UIALog.Warn($"{label}: migrated {styleMigrated} legacy-styled element(s) to the two-state style contract.");
             if (fxModes > 0)

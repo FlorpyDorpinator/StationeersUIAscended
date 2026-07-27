@@ -95,6 +95,17 @@ namespace StationeersUIMod.Windows
                         ImGui.Separator();
                         ImGui.TextColored(new Vector4(0.25f, 0.85f, 0.93f, 1f), p.Label);
                         break;
+                    // A footnote to the row above: no separator, no accent, no value.
+                    case HudPropKind.Note:
+                        ImGui.TextDisabled(p.Label);
+                        Tooltip(p);
+                        break;
+                    // No undo bracket on purpose — a button carries no property to snapshot, and
+                    // whatever it does is responsible for its own bracketing.
+                    case HudPropKind.Button:
+                        if (ImGui.Button(p.Label + sfx) && p.Action != null) p.Action();
+                        Tooltip(p);
+                        break;
                 }
             }
         }
