@@ -206,6 +206,43 @@ namespace StationeersUIMod.Core
             }
         }
 
+        /// <summary>`uiatutorial [edit|reset]` — the first-run tutorial coach, on demand.
+        /// Bare: replay the tutorial (manual replays never auto-pause; the F10 header pause
+        /// button is the affordance for stillness). `edit`: open it in the DEV TEXT EDITOR —
+        /// headings/bodies become editable fields and Save writes per-step overrides to
+        /// config/StationeersUIMod/Tutorial/TutorialText.xml, which win over the built-in copy.
+        /// `reset`: delete every saved text override. Opens UI only — mutates no game state.
+        /// Note: the coach opens under the console; close the console to use it.</summary>
+        public static void UiaTutorial(string input)
+        {
+            try
+            {
+                var parts = (input ?? "").Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+                string sub = parts.Length >= 2 ? parts[1].ToLowerInvariant() : "";
+                if (sub == "reset")
+                {
+                    UI.Menu.Tutorial.TutorialTextStore.ResetAll();
+                    ConsoleWindow.Print("uiatutorial: all step-text overrides deleted (built-in copy restored).", ConsoleColor.Green);
+                    return;
+                }
+                if (!Guards.CanDraw())
+                {
+                    ConsoleWindow.Print("uiatutorial: not in a world (or the mod is disabled) - nothing to show.", ConsoleColor.Yellow);
+                    return;
+                }
+                bool edit = sub == "edit";
+                UI.Menu.Tutorial.TutorialCoach.Open(edit);
+                ConsoleWindow.Print(edit
+                    ? "uiatutorial: DEV EDIT mode open (close the console to use it). Save writes to config/StationeersUIMod/Tutorial."
+                    : "uiatutorial: tutorial opened (close the console to use it). Subcommands: edit, reset.",
+                    ConsoleColor.Cyan);
+            }
+            catch (Exception e)
+            {
+                ConsoleWindow.Print("uiatutorial failed: " + e.Message, ConsoleColor.Red);
+            }
+        }
+
         // "uiareset" — see Patch_CommandLine_Process. A full nuke of every UIA on-disk file: the
         // whole config/StationeersUIMod tree (every HUD profile, bag profile, HUD icon, profiler
         // snapshot — everything under it) plus BOTH possible .cfg names (the live SLP one and the
@@ -553,6 +590,7 @@ namespace StationeersUIMod.Core
                 if (Matches(cmd, "uiaflash")) { FinderCommands.FlashTest(cmd); return false; }
                 if (Matches(cmd, "stowtrace")) { FinderCommands.StowTrace(cmd); return false; }
                 if (Matches(cmd, "uiareset")) { FinderCommands.UiaReset(cmd); return false; }
+                if (Matches(cmd, "uiatutorial")) { FinderCommands.UiaTutorial(cmd); return false; }
                 if (Matches(cmd, "hudfx")) { FinderCommands.HudFx(cmd); return false; }
                 if (Matches(cmd, "uiadiag"))
                 {

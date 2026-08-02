@@ -15,6 +15,12 @@ namespace StationeersUIMod.Core
     {
         public static Human LocalHuman => InventoryManager.ParentHuman;
 
+        /// <summary>True while the world is paused by US (<see cref="GamePause"/> is the ONLY writer).
+        /// A pause we hold must not read as "a vanilla menu wants the front": that check demotes the
+        /// HUD's sort order, hides the Universal Inventory and closes open radials — i.e. our own
+        /// pause would tear down the very UI it was taken to hold still.</summary>
+        internal static bool SelfPauseHeld;
+
         /// <summary>True when it is safe and sensible to draw gameplay UI this frame.</summary>
         public static bool CanDraw()
         {
@@ -87,7 +93,9 @@ namespace StationeersUIMod.Core
         /// (F9/F10 editors) are not included.</summary>
         public static bool VanillaMenuWantsFront()
         {
-            if (WorldManager.IsGamePaused) return true;       // escape / start / options menu (single-player: pauses)
+            // Escape / start / options menu (single-player: pauses). EXCEPT when the pause is ours —
+            // see SelfPauseHeld: a mod pause has no vanilla menu behind it to give the front to.
+            if (WorldManager.IsGamePaused && !SelfPauseHeld) return true;
             if (ConsoleWindow.IsOpen) return true;
             if (InputWindowBase.IsInputWindow) return true;   // IC/logic editor, naming windows, dialogs
             if (Stationpedia.IsOpenAndLocked) return true;

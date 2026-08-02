@@ -75,6 +75,13 @@ namespace StationeersUIMod.UI.Grid
         private const float ChipPad = 8f;        // horizontal text padding inside the chip
         private const float CapBtnW = 56f;       // the CAPTURE button
 
+        // Device control buttons (on/off, lock/arm, valve, mode) — vanilla's InventoryWindow interaction
+        // row, in our theme. A full-width row per control, stacked under the cells; a button-only device
+        // (no cells) shows ONLY these. Labels poll at CtrlPollInterval so "On" -> "Off" follows the device.
+        private const float CtrlH = 20f;
+        private const float CtrlGap = 4f;
+        private const float CtrlPollInterval = 0.25f;
+
         /// <summary>The region box's fill is a faint TINT of the inherited panel fill so stacked
         /// regions group their cells without over-darkening. A relative scale on the theme's alpha —
         /// not a hardcoded colour: a translucent global fill stays translucent, an opaque one still
@@ -159,6 +166,17 @@ namespace StationeersUIMod.UI.Grid
         private PanelGraphic _capBg;
         private RegionClickable _capClick;
         private TextMeshProUGUI _capLabel;
+
+        // Device control-button pool (grown on demand, idled when unused). One themed RegionClickable per
+        // device interaction, wired to ItemActions.PressInteractable (the MP-safe funnel).
+        private readonly List<GameObject> _ctrlGos = new List<GameObject>(2);
+        private readonly List<PanelGraphic> _ctrlBgs = new List<PanelGraphic>(2);
+        private readonly List<RegionClickable> _ctrlClicks = new List<RegionClickable>(2);
+        private readonly List<TextMeshProUGUI> _ctrlLabels = new List<TextMeshProUGUI>(2);
+        private readonly List<DeviceControls.FlatControl> _ctrlControls = new List<DeviceControls.FlatControl>(2);
+        private int _activeCtrls;
+        private float _nextCtrlPoll;
+
         private bool _stripVisible;
         private bool _chipAssigned;
         private float _chipPrefW;     // label-fitting chip width, measured at Bind
@@ -437,6 +455,10 @@ namespace StationeersUIMod.UI.Grid
             for (int i = childCount; i < _childViews.Count; i++) _childViews[i].Recycle();
             _activeChildren = childCount;
 
+            // Device control buttons (on/off, lock/arm, valve…) for this node's container, if it is an
+            // interactive device. Empty for a plain bag — the enumeration returns nothing, so no strip.
+            BuildControls();
+
             // Hide the region box entirely when collapsed (just the tab shows), and always for the root.
             _regionGo.SetActive(!_collapsed && node != null && !_isRoot);
 
@@ -472,6 +494,56 @@ namespace StationeersUIMod.UI.Grid
         private void EnsureChildViews(int n)
         {
             while (_childViews.Count < n) _childViews.Add(Create(_rect));
+        }
+
+        private void EnsureCtrlPool(int n)
+        {
+            while (_ctrlGos.Count < n)
+            {
+                var go = new GameObject("Ctrl", typeof(RectTransform));
+                go.transform.SetParent(_rect, false);
+                var rt = (RectTransform)go.transform;
+                rt.anchorMin = rt.anchorMax = new Vector2(0f, 1f);   // top-left anchor, centre pivot (PanelGraphic draws centred)
+                rt.pivot = new Vector2(0.5f, 0.5f);
+                var bg = go.AddComponent<PanelGraphic>();
+                bg.raycastTarget = true;
+                var click = go.AddComponent<RegionClickable>();
+                var label = HudText.Make(rt, "CtrlLabel", HudText.Size(9f), TextAlignmentOptions.Center, warp: false);
+                label.overflowMode = TextOverflowModes.Truncate;   // never "..." — the ellipsis glyph tofus
+                var lr = label.rectTransform;
+                lr.anchorMin = Vector2.zero; lr.anchorMax = Vector2.one;
+                lr.pivot = new Vector2(0.5f, 0.5f);
+                lr.offsetMin = new Vector2(4f, 0f); lr.offsetMax = new Vector2(-4f, 0f);
+                go.SetActive(false);
+                _ctrlGos.Add(go); _ctrlBgs.Add(bg); _ctrlClicks.Add(click); _ctrlLabels.Add(label);
+            }
+        }
+
+        /// <summary>Build the device-control buttons for this region's container (structural rebuild only).
+        /// Enumerates the thing's real key interactions (<see cref="DeviceControls.BuildFlat"/>) and wires
+        /// one themed button per one to <see cref="ItemActions.PressInteractable"/> — the SAME gated funnel
+        /// the radial uses (server-authoritative, occupant/interactable re-verified at execute time). An
+        /// empty list (a plain bag, or a device with nothing to change) leaves no buttons.</summary>
+        private void BuildControls()
+        {
+            _ctrlControls.Clear();
+            var thing = (!_isRoot && !_collapsed && _node != null) ? _node.Container : null;
+            if (thing != null) DeviceControls.BuildFlat(thing, _ctrlControls);
+
+            int n = _ctrlControls.Count;
+            EnsureCtrlPool(n);
+            for (int i = 0; i < n; i++)
+            {
+                var go = _ctrlGos[i];
+                if (!go.activeSelf) go.SetActive(true);
+                var t = _ctrlControls[i].Thing;
+                var ia = _ctrlControls[i].Interactable;
+                HudText.Set(_ctrlLabels[i], _ctrlControls[i].Label ?? "");
+                _ctrlClicks[i].Clicked = () => ItemActions.PressInteractable(t, ia);
+            }
+            for (int i = n; i < _ctrlGos.Count; i++) if (_ctrlGos[i].activeSelf) _ctrlGos[i].SetActive(false);
+            _activeCtrls = n;
+            _nextCtrlPoll = 0f;   // force a fresh label/enabled read on the next refresh
         }
 
         /// <summary>Place the tab, the region box, the wrapped cell grid, and the inset nested regions
@@ -652,6 +724,21 @@ namespace StationeersUIMod.UI.Grid
                 hadContent = true;
             }
 
+            // Device controls: a full-width themed button per interaction, stacked under the cells/regions.
+            if (_activeCtrls > 0)
+            {
+                if (hadContent) y += SectionGap;
+                for (int i = 0; i < _activeCtrls; i++)
+                {
+                    var crt = (RectTransform)_ctrlGos[i].transform;
+                    crt.sizeDelta = new Vector2(contentW, CtrlH);
+                    crt.anchoredPosition = new Vector2(innerLeft + contentW * 0.5f, -y - CtrlH * 0.5f); // centre pivot
+                    y += CtrlH + CtrlGap;
+                }
+                y -= CtrlGap;   // strip the trailing gap
+                hadContent = true;
+            }
+
             y += inset;
 
             if (!root)
@@ -686,6 +773,43 @@ namespace StationeersUIMod.UI.Grid
                 c.RefreshIfDirty();
             }
             for (int i = 0; i < _activeChildren; i++) _childViews[i].RefreshIfDirty();
+            RefreshControls();
+        }
+
+        /// <summary>Per-frame device-control upkeep: poll each button's live state-baked label + enabled
+        /// (on→off, armed→disarmed) at a light cadence — the interactable set is fixed by the last Bind, so
+        /// the count never changes here — and paint each button to the live theme + hover. ApplyBox is
+        /// dirty-guarded downstream, so an unchanged button costs only float compares. No-op with no
+        /// controls (the common case: every plain cell/bag region).</summary>
+        private void RefreshControls()
+        {
+            if (_activeCtrls == 0) return;
+
+            if (Time.unscaledTime >= _nextCtrlPoll)
+            {
+                _nextCtrlPoll = Time.unscaledTime + CtrlPollInterval;
+                for (int i = 0; i < _activeCtrls && i < _ctrlControls.Count; i++)
+                {
+                    var ctrl = _ctrlControls[i];
+                    string label; bool enabled;
+                    DeviceControls.ReadControl(ctrl.Thing, ctrl.Interactable, out label, out enabled);
+                    if (!string.IsNullOrEmpty(label)) HudText.Set(_ctrlLabels[i], label);
+                    ctrl.Enabled = enabled;
+                    _ctrlControls[i] = ctrl;   // struct write-back so the styling below sees fresh enabled
+                }
+            }
+
+            Color accent = HudPalette.LineAccent != null ? HudPalette.LineAccent.Value : GridTheme.Border;
+            Color txt = HudPalette.TextLabel != null ? HudPalette.TextLabel.Value : GridTheme.Text;
+            Color dim = txt; dim.a *= 0.45f;
+            for (int i = 0; i < _activeCtrls; i++)
+            {
+                bool hov = _ctrlClicks[i].Hover;
+                var crt = (RectTransform)_ctrlGos[i].transform;
+                GridTheme.ApplyBox(_ctrlBgs[i], crt.sizeDelta.x, crt.sizeDelta.y, GridTheme.GridSurface.Button, hov);
+                bool en = i < _ctrlControls.Count ? _ctrlControls[i].Enabled : true;
+                _ctrlLabels[i].color = hov ? accent : (en ? txt : dim);
+            }
         }
 
         /// <summary>Append this region's navigable targets to <paramref name="list"/> in DISPLAY order
@@ -896,6 +1020,9 @@ namespace StationeersUIMod.UI.Grid
             _collapsed = false;
             for (int i = 0; i < _cells.Count; i++) _cells[i].Idle();
             _activeCells = 0;
+            for (int i = 0; i < _ctrlGos.Count; i++) if (_ctrlGos[i].activeSelf) _ctrlGos[i].SetActive(false);
+            _activeCtrls = 0;
+            _ctrlControls.Clear();
             for (int i = 0; i < _childViews.Count; i++) _childViews[i].Recycle();
             _activeChildren = 0;
             if (_tab != null) _tab.Idle();

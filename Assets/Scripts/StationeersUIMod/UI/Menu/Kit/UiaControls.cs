@@ -424,6 +424,27 @@ namespace StationeersUIMod.UI.Menu.Kit
             return btn;
         }
 
+        /// <summary>Swap a button's text label for a sprite icon (e.g. vanilla's PauseIcon).
+        /// The label is emptied, not removed, so the button's repaint path stays untouched.
+        /// Null-tolerant: a missing sprite leaves the text fallback in place.</summary>
+        public static void SetButtonIcon(UiaButton btn, Sprite sprite, float size)
+        {
+            if (btn == null || sprite == null) return;
+            var label = btn.GetComponentInChildren<TextMeshProUGUI>();
+            if (label != null) label.text = "";
+            var go = UiaUi.Go("icon", btn.transform);
+            var rt = (RectTransform)go.transform;
+            rt.anchorMin = rt.anchorMax = new Vector2(0.5f, 0.5f);
+            rt.pivot = new Vector2(0.5f, 0.5f);
+            rt.sizeDelta = new Vector2(size, size);
+            rt.anchoredPosition = Vector2.zero;
+            var img = go.AddComponent<Image>();
+            img.sprite = sprite;
+            img.preserveAspect = true;
+            img.raycastTarget = false;
+            img.color = UiaTheme.Text;   // themed tint, like every glyph the kit draws
+        }
+
         public enum ButtonStyle { Panel, Primary, Danger }
     }
 }

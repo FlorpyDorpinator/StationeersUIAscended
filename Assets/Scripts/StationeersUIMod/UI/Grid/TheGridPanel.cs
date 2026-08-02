@@ -559,7 +559,12 @@ namespace StationeersUIMod.UI.Grid
             // deferred-release Typing input state (see BeginEscSwallow) so one press can never
             // both close our UI and open the pause menu on top. With nothing to consume, vanilla
             // sees Esc completely untouched.
-            if (Input.GetKeyDown(KeyCode.Escape))
+            //
+            // Skipped entirely while the tutorial coach or the Handbook viewer is open: either one
+            // sits ABOVE this panel and owns Escape itself while modal, so letting this chain also
+            // react would let a single press act on both layers at once.
+            if (Input.GetKeyDown(KeyCode.Escape)
+                && !Menu.Tutorial.TutorialCoach.IsOpen && !Menu.HandbookViewer.IsOpen)
             {
                 if (GridCapturePanel.IsNameInputFocused)
                 {

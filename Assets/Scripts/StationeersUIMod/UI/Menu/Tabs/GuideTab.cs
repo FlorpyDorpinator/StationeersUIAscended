@@ -22,28 +22,54 @@ namespace StationeersUIMod.UI.Menu.Tabs
             UiaControls.Header(col, "Two halves - use either, or both");
             UiaControls.Note(col,
                 "UI Ascended is two independent parts. The RADIAL half replaces menu-diving with " +
-                "hold-a-key wheels for your tools, belt, bags and equipment. The VISOR HUD half is a " +
-                "clean, curved heads-up display you can restyle or design yourself. Turn either on or " +
+                "wheels for your tools, belt, bags and equipment. The VISOR HUD half is a clean, " +
+                "curved heads-up display you can restyle or design yourself. Turn either on or " +
                 "off with the two switches at the top of this window - they never depend on each other.");
 
-            UiaControls.Header(col, "The radial menus");
+            // Guided pass vs reference card: the coach walks it, this tab looks it up.
+            var btnRow = UiaUi.Go("guidebtns", col);
+            UiaUi.Size(btnRow, 32f);
+            UiaUi.HLayout((RectTransform)btnRow.transform, UiaTheme.Gap, 6, 6, 0, 0, TextAnchor.MiddleLeft);
+            UiaControls.Button(btnRow.transform, "Replay the tutorial",
+                () => Tutorial.TutorialCoach.Open(false), 190f, 28f, UiaControls.ButtonStyle.Panel);
+            UiaControls.Button(btnRow.transform, "Designer Handbook",
+                () => HandbookViewer.Open(), 190f, 28f, UiaControls.ButtonStyle.Panel);
+
+            UiaControls.Header(col, "The wheels");
             UiaControls.Note(col,
-                "Tap a key to open a wheel; use your cursor from there. Move over a wedge and " +
-                "click act. Holding the same key instead does the quick vanilla action, like putting the item in your hand.");
-            KeyRow(col, "Open the tool / device wheel (hold)", UiaKeybinds.Glyph("UIA_ToolRadial"));
-            KeyRow(col, "Open the toolbelt wheel (hold)", UiaKeybinds.Glyph("UIA_ToolbeltRadial"));
-            KeyRow(col, "Open the bag / backpack wheel", UiaKeybinds.Glyph("UIA_BagRadial"));
-            KeyRow(col, "Equipment wheels (tap opens, hold equips)", "1 - 6");
+                "TAP a wheel key: the wheel opens and STAYS - point and LEFT-CLICK to act, " +
+                "RIGHT-CLICK to back out, Esc (or the key again) closes. HOLD the key instead for " +
+                "the quick version: the belt and tool wheels become sweep-and-release, the number " +
+                "keys equip, Tab shows the scoreboard. A wedge with a chevron holds more: push OUT " +
+                "through it past the rim and hold still a moment - a child wheel opens (Take / " +
+                "Replace / settings). Replace is how you swap a battery or canister in one step.");
+            KeyRow(col, "Tool / device wheel (item in hand)", UiaKeybinds.Glyph("UIA_ToolRadial"));
+            KeyRow(col, "Toolbelt wheel (top wedge = The Hub)", UiaKeybinds.Glyph("UIA_ToolbeltRadial"));
+            KeyRow(col, "Bag / backpack wheel", UiaKeybinds.Glyph("UIA_BagRadial"));
+            KeyRow(col, "Equipment wheels (tap = wheel, hold = equip)", "1 - 6");
             KeyRow(col, "Select / drag a wedge", "LMB");
             KeyRow(col, "Back / close", "RMB");
+            KeyRow(col, "Keep the wheel open after an action", "Shift");
             KeyRow(col, "Reach into the world (grab items)", "Alt");
             KeyRow(col, "Swap active hand", UiaKeybinds.Glyph("UIA_HandSwap"));
-            KeyRow(col, "Page a crowded wheel", UiaKeybinds.Glyph("UIA_Page"));
+            KeyRow(col, "Page a crowded wheel / swap worn belt", UiaKeybinds.Glyph("UIA_Page"));
             KeyRow(col, "Swap toolbelt / backpack (wheel open)", "Tab");
             KeyRow(col, "Open a bound bag", "Ctrl + 1 - 0");
             UiaControls.Note(col,
-                "Bind a bag: with a wheel open, hover a bag and press a number key. It's remembered " +
-                "per save. Drag an item off a wheel onto the screen to park it, then drop it anywhere.");
+                "Bind a bag: with a wheel open, hover the bag and press a number key - remembered " +
+                "per save. Drag an item off a wheel onto open screen to PARK it while you sort; the " +
+                "wheel's bottom Close band drops parked items on the ground, Esc just cancels.");
+
+            UiaControls.Header(col, "The Universal Inventory");
+            KeyRow(col, "Open it (tap = stays, hold = peek)", UiaKeybinds.Glyph("UIA_Grid"));
+            UiaControls.Note(col,
+                "One window for every container you wear or hold. Free the mouse to click inside: " +
+                "hold Alt, or DOUBLE-TAP Alt to keep it free. Bags are folder tabs - click one to " +
+                "open it, DRAG the tab out to pin the bag as its own window (Shift + 1 - 6, or a " +
+                "plain click on a 1 - 6 HUD box in mouse mode, pins a worn container too). While " +
+                "the mouse is captured the SCROLL WHEEL moves a highlight and F takes - or places - " +
+                "the item; with the mouse free, scroll pans, LEFT-CLICK takes to your hand, " +
+                "RIGHT-CLICK opens the item's wheel, and you can drag anything anywhere.");
 
             UiaControls.Header(col, "Smart storage");
             KeyRow(col, "Smart Stow the held item", "G");
@@ -52,19 +78,21 @@ namespace StationeersUIMod.UI.Menu.Tabs
                 + "until the hand is empty), sends components to their sockets (canisters to tanks, "
                 + "batteries to battery slots), routes to the bag whose profile matches, then remembers "
                 + "where that type went. Loose walls and kits get one steady general-storage bag. "
-                + "Set up bag profiles under the Storage tab.");
+                + "It works with a wheel open, too. Set up bag profiles under the Storage tab.");
 
             UiaControls.Header(col, "The visor HUD");
             UiaControls.Note(col,
                 "Pick a ready-made look on the Profiles tab, or open the HUD Designer (F9) to build " +
                 "your own - every element can be moved, resized, recoloured and restyled. Profiles are " +
-                "plain files you can share with a friend.");
+                "plain files you can share with a friend. The Designer Handbook (button above) is the " +
+                "full deep-dive.");
             KeyRow(col, "Open the HUD Designer", UiaKeybinds.Glyph("UIA_HudDesigner"));
             KeyRow(col, "Open this menu", UiaKeybinds.Glyph("UIA_Menu"));
 
             UiaControls.Note(col,
-                "Rebind any of these under the Controls tab, or in the game's own Controls screen " +
-                "(single-key actions appear there under \"UI Ascended\").");
+                "Rebind any of these under the Controls tab. (Only the menu key also appears in the " +
+                "game's own Controls screen, under \"UI Ascended\" - the rest live here to avoid " +
+                "false conflict warnings.)");
         }
 
         private static void KeyRow(Transform parent, string label, string key)

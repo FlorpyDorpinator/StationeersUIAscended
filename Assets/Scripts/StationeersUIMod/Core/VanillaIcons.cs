@@ -76,6 +76,33 @@ namespace StationeersUIMod.Core
             _leakIcon = null;
             _fireIcon = null;
             _shrinkIcon = null;
+            _pause = null;
+            _pauseSearched = false;
+        }
+
+        private static Sprite _pause;
+        private static bool _pauseSearched;   // one-shot: the global sprite sweep is not free
+
+        /// <summary>Vanilla's pause glyph (the two bars the Esc-menu pause button uses; the
+        /// AssetRipper export names it "PauseIcon"). Grabbed at RUNTIME from the loaded sprite
+        /// set - never shipped from the rip - and cached; searched at most once per session
+        /// (theme restyles rebuild title bars ~7x/s and must not pay a global sweep each time).
+        /// Null when the game build renames it; callers keep their ASCII fallback.</summary>
+        public static Sprite PauseIcon()
+        {
+            if (_pause != null || _pauseSearched) return _pause;
+            _pauseSearched = true;
+            try
+            {
+                var all = Resources.FindObjectsOfTypeAll<Sprite>();
+                for (int i = 0; i < all.Length; i++)
+                {
+                    var s = all[i];
+                    if (s != null && s.name == "PauseIcon") { _pause = s; break; }
+                }
+            }
+            catch { }
+            return _pause;
         }
 
         // ---- the game's own window SHRINK glyph (Stationpedia resize button) ----

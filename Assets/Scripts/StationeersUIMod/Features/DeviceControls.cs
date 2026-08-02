@@ -72,6 +72,63 @@ namespace StationeersUIMod.Features
             return entries;
         }
 
+        /// <summary>One device control for the pinned-window strip: a single interactable rendered as one
+        /// themed button (the vanilla InventoryWindow interaction row, our UI). Unlike
+        /// <see cref="BuildEntries"/> (radial) this does NOT collapse +/- pairs into a scroll wedge — a
+        /// window shows each button, like vanilla.</summary>
+        public struct FlatControl
+        {
+            public string Label;
+            public bool Enabled;
+            public DynamicThing Thing;
+            public Interactable Interactable;
+        }
+
+        /// <summary>Every real, key-interactable control on <paramref name="thing"/> as a flat list —
+        /// on/off, lock/arm, valve +/- , mode — each a button. Same enumeration + label/disabled read
+        /// vanilla's InventoryWindow.SetInteractions uses. Reused list; cleared first (no steady-state
+        /// alloc beyond the adds).</summary>
+        public static void BuildFlat(DynamicThing thing, List<FlatControl> into)
+        {
+            if (into == null) return;
+            into.Clear();
+            if (thing == null || thing.Interactables == null) return;
+
+            Interactable lastRead = null;
+            foreach (var interactable in thing.Interactables)
+            {
+                if (interactable == null || !ItemMenuBuilder.IsRealControl(interactable)) continue;
+                PrimeLabelCache(thing, interactable, lastRead);
+                lastRead = interactable;
+
+                string label; bool disabled; string stateLine;
+                ReadInteractable(thing, interactable, out label, out disabled, out stateLine);
+                into.Add(new FlatControl
+                {
+                    Label = label,
+                    Enabled = !disabled,
+                    Thing = thing,
+                    Interactable = interactable,
+                });
+            }
+        }
+
+        /// <summary>Re-read ONE control's live, state-baked label + enabled — for a window that already
+        /// built the button and just needs the "Stabilizer On" → "Stabilizer Off" text/disabled to
+        /// follow the device. Same read <see cref="BuildFlat"/> uses; the interactable set is fixed by
+        /// the last BuildFlat, so this never changes the button count.</summary>
+        public static void ReadControl(DynamicThing thing, Interactable interactable, out string label, out bool enabled)
+        {
+            label = null;
+            enabled = true;
+            if (thing == null || interactable == null) return;
+            PrimeLabelCache(thing, interactable, null);
+            string l; bool disabled; string stateLine;
+            ReadInteractable(thing, interactable, out l, out disabled, out stateLine);
+            label = l;
+            enabled = !disabled;
+        }
+
         private static void PrimeLabelCache(DynamicThing thing, Interactable next, Interactable lastRead)
         {
             try

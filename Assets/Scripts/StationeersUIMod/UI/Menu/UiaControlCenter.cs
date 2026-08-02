@@ -31,7 +31,8 @@ namespace StationeersUIMod.UI.Menu
     {
         private sealed class Modal : IModal { public bool UnlockCursor => true; }
 
-        private const string InputStateKey = "UIA_ControlCenter";
+        internal const string InputStateKey = "UIA_ControlCenter";   // ModalInputChain reasserts by this name
+        private const string PauseReason = "f10";   // our name in the shared GamePause latch
 
         private static GameObject _root;
         private static RectTransform _window;          // the centred window panel (hit-test target)
@@ -47,12 +48,21 @@ namespace StationeersUIMod.UI.Menu
         private static bool _advanced;
         private static bool _open;
         private static bool _modalHeld;
+        /// <summary>True while this window holds the game modal (false in F9 edit-preview) -
+        /// ModalInputChain uses it to decide whether to hand the Typing state back here.</summary>
+        internal static bool ModalHeld => _modalHeld;
         private static bool _editPreview;              // open behind the active F9 editor = click-to-edit
         private static int _builtThemeHash;            // UiaMenuTheme.StyleHash at last (re)build
         private static float _lastRestyle;             // unscaled time of the last live restyle
         private const float RestyleMinInterval = 0.14f; // throttle: a live palette drag can't rebuild every frame
 
-        private static UiaControls.UiaButton _simpleBtn, _advancedBtn;
+        private static UiaControls.UiaButton _simpleBtn, _advancedBtn, _pauseBtn;
+
+        // The pause relay is a VANILLA-rooted static event (WorldManager.OnPaused, via GamePause), so
+        // the handler lives in a field and is unsubscribed on Close/Shutdown — a lambda subscribed
+        // inline would keep a hot-reloaded assembly's method alive forever.
+        private static readonly System.Action<bool> _onPauseChanged = OnPauseChanged;
+        private static bool _pauseHooked;
 
         public static bool IsOpen => _open;
 
@@ -73,6 +83,8 @@ namespace StationeersUIMod.UI.Menu
             if (_root == null) return;
             _open = true;
             _root.SetActive(true);
+            HookPause();       // repaint the pause button from vanilla's own OnPaused, while we're up
+            RefreshPauseButton();
             // Opened behind the active HUD editor = "edit preview": the menu becomes a live-themed
             // static surface the F9 editor can click to edit, so it must not grab input/cursor or
             // absorb clicks through its own raycaster.
@@ -110,7 +122,14 @@ namespace StationeersUIMod.UI.Menu
         {
             _editPreview = on;
             if (_raycaster != null) _raycaster.enabled = !on;
-            if (on) ReleaseModal();   // F9 already owns cursor + input for editing
+            if (on)
+            {
+                // Drop a held pause BEFORE releasing the modal: removing our Typing key while the
+                // game is paused would pop KeyManager onto vanilla's "WorldManager"/Paused state
+                // and strand the freeze with no button left to clear it.
+                Core.GamePause.Release(PauseReason);
+                ReleaseModal();   // F9 already owns cursor + input for editing
+            }
             else AcquireModal();
         }
 
@@ -136,6 +155,10 @@ namespace StationeersUIMod.UI.Menu
                 for (int i = _popupLayer.childCount - 1; i >= 0; i--)
                     Object.Destroy(_popupLayer.GetChild(i).gameObject);
             if (_root != null) _root.SetActive(false);
+            // Un-pause BEFORE ReleaseModal: vanilla's un-pause pops KeyManager's input-state map, so
+            // dropping our own Typing key first would land us in whatever state sorts last.
+            GamePause.Release(PauseReason);
+            UnhookPause();
             ReleaseModal();
         }
 
@@ -156,6 +179,9 @@ namespace StationeersUIMod.UI.Menu
             // The window is live HUD glass — push this frame's theme colour + F9 global effects
             // (glow, edge light, ripple, frost) onto it, exactly like a HUD box updates each frame.
             StyleWindowPanel();
+            // Keep the pause button honest even when no event fires (a client connecting while
+            // F10 is open flips CanOwnPause with no PausedChanged) - two cheap setters.
+            RefreshPauseButton();
             // Keep edit-preview in lock-step with the F9 editor: entering/leaving the editor while
             // the menu is open flips it between "editable surface" and normal modal window.
             if (_editPreview != Windows.HudEditorMode.Active)
@@ -172,8 +198,18 @@ namespace StationeersUIMod.UI.Menu
             // the window).
             if (UiaRebindCapture.Active) { UiaRebindCapture.Tick(); return; }
             // In edit-preview the F9 editor owns Escape (and F10 re-press closes the menu); outside
-            // it, Escape closes the window as usual.
-            if (!_editPreview && Input.GetKeyDown(KeyCode.Escape)) { Close(); return; }
+            // it, Escape closes the window as usual. When the Handbook viewer or the tutorial coach
+            // is stacked ABOVE this window, Escape belongs to them — both read the same raw key
+            // state this same frame, and without the yield one press would close every layer.
+            if (!_editPreview && Input.GetKeyDown(KeyCode.Escape)
+                && !HandbookViewer.IsOpen && !Tutorial.TutorialCoach.IsOpen)
+            {
+                // Vanilla's Escape binding fires on key-UP - starve it until the key is released,
+                // so closing F10 with Esc can never open the vanilla pause menu on the same press.
+                Core.ModalInputChain.BeginEscSwallow();
+                Close();
+                return;
+            }
             // If the world goes away (menu/loading), never leave the window stranded.
             if (!Guards.CanDraw()) Close();
         }
@@ -224,11 +260,13 @@ namespace StationeersUIMod.UI.Menu
             _tabButtons = null;
             _simpleBtn = null;
             _advancedBtn = null;
+            _pauseBtn = null;
             UiaControls.PopupLayer = null;
             EnsureBuilt();
             _active = Mathf.Clamp(active, 0, _tabs != null ? _tabs.Count - 1 : 0);
             _advanced = advanced;
             RefreshDensityButtons();
+            RefreshPauseButton();
             if (wasOpen && _root != null)
             {
                 _open = true;
@@ -350,8 +388,56 @@ namespace StationeersUIMod.UI.Menu
             _simpleBtn = UiaControls.Button(barGo.transform, "Simple", () => SetAdvanced(false), 96f, 30f, UiaControls.ButtonStyle.Panel);
             _advancedBtn = UiaControls.Button(barGo.transform, "Advanced", () => SetAdvanced(true), 108f, 30f, UiaControls.ButtonStyle.Panel);
 
+            // Pause. Vanilla's own PauseIcon sprite when the runtime grab finds it (ASCII "||"
+            // fallback - the TMP font has no pause glyph). Lit while WE hold the freeze; greyed
+            // in multiplayer, where there is no pause to take (see GamePause.CanOwnPause).
+            _pauseBtn = UiaControls.Button(barGo.transform, "||", TogglePause, 34f, 30f, UiaControls.ButtonStyle.Panel);
+            UiaControls.SetButtonIcon(_pauseBtn, Core.VanillaIcons.PauseIcon(), 13f);
+
             UiaControls.Button(barGo.transform, "X", Close, 34f, 30f, UiaControls.ButtonStyle.Panel);
             RefreshDensityButtons();
+            RefreshPauseButton();
+        }
+
+        // ---------- pause ----------
+
+        /// <summary>Header "||": take or drop the shared single-player freeze. Our modal input-state key
+        /// rides along so <c>GamePause</c> can put it back on top of the <c>Paused</c> state that
+        /// <c>SetGamePause(true)</c> stomps it with — otherwise Esc opens the vanilla menu over us.</summary>
+        private static void TogglePause()
+        {
+            if (GamePause.Held) GamePause.Release(PauseReason);
+            else GamePause.Hold(PauseReason, InputStateKey);
+            RefreshPauseButton();
+        }
+
+        /// <summary>Paint the pause button from the live world state. Disabled (and honestly so) when a
+        /// pause cannot be owned — multiplayer, or a vanilla menu already holding it — unless the
+        /// freeze is already ours, which must always stay releasable.</summary>
+        private static void RefreshPauseButton()
+        {
+            if (_pauseBtn == null) return;
+            bool held = GamePause.Held;
+            _pauseBtn.SetSelected(held);
+            // A vanilla-owned pause (Esc menu closed via prompt, console `pause`, joining client)
+            // is NOT clickable-through: Hold would decline and the click would look broken.
+            _pauseBtn.SetEnabled(held || (GamePause.CanOwnPause() && !WorldManager.IsGamePaused));
+        }
+
+        private static void OnPauseChanged(bool paused) { RefreshPauseButton(); }
+
+        private static void HookPause()
+        {
+            if (_pauseHooked) return;
+            _pauseHooked = true;
+            GamePause.PausedChanged += _onPauseChanged;
+        }
+
+        private static void UnhookPause()
+        {
+            if (!_pauseHooked) return;
+            _pauseHooked = false;
+            GamePause.PausedChanged -= _onPauseChanged;
         }
 
         private static void BuildMasterStrip(RectTransform parent)
@@ -434,6 +520,7 @@ namespace StationeersUIMod.UI.Menu
             if (_advanced == adv) return;
             _advanced = adv;
             RefreshDensityButtons();
+            RefreshPauseButton();
             BuildActiveTab(true);
         }
 
@@ -496,6 +583,10 @@ namespace StationeersUIMod.UI.Menu
 
         public static void Shutdown()
         {
+            // Pause first, modal second (KeyManager unwind order) — and never leave a hot-reloaded
+            // assembly's handler on vanilla's OnPaused, nor the world frozen by a dead window.
+            GamePause.Release(PauseReason);
+            UnhookPause();
             ReleaseModal();
             _open = false;
             _editPreview = false;
@@ -516,6 +607,7 @@ namespace StationeersUIMod.UI.Menu
             _tabButtons = null;
             _simpleBtn = null;
             _advancedBtn = null;
+            _pauseBtn = null;
             _active = 0;
             _advanced = false;
             Kit.UiaItemPicker.Reset();

@@ -36,8 +36,8 @@ namespace StationeersUIMod.UI.Grid
     ///
     /// <para>MP-SAFETY. This is a VIEW/LAYOUT system. The only state mutations it can reach are F's
     /// equip and G's stow, and both route through the SAME gated funnel the click/drag paths already
-    /// use — <see cref="BagGridCell.ActivateFromKeyboard"/> → <c>ItemActions.EquipToActiveHand</c> and
-    /// <see cref="BagGridCell.StowHereFromKeyboard"/> → <c>ItemActions.StowActiveHandTo</c>, each
+    /// use — <see cref="BagGridCell.ActivateFromKeyboard"/>, which covers take-or-place, resolving
+    /// to <c>ItemActions.EquipToActiveHand</c> or <c>ItemActions.StowActiveHandTo</c>, each
     /// re-verified at execute time — never a new mutation path. F on a tab is a per-save collapse-flag
     /// write only.</para>
     ///
@@ -324,10 +324,52 @@ namespace StationeersUIMod.UI.Grid
             // would double-fire (stow into the highlighted cell AND smart-route). See Core.InventoryNavPatches.
             bool f = false;
             try { f = KeyManager.GetButtonDown(KeyMap.InventorySelect); } catch { }
-            if (!f) return;
+            KeyCode rk = DeviceWindowKey;
+            bool r = rk != KeyCode.None && Input.GetKeyDown(rk);
+            if (!f && !r) return;
 
             if (_cursor < 0 || _cursor >= _items.Count) return;
-            DoSelect(_items[_cursor]);
+            NavItem it = _items[_cursor];
+
+            // R opens the highlighted DEVICE's vanilla internals window (its own window, not in-grid) —
+            // the scroll-nav twin of clicking a device. Only a CELL can be a device (a tab has no Slot);
+            // RadialController yields R to us this frame via OwnsDeviceWindowKey so the Tool Radial (same
+            // key) does not also open. Falls through to F when the highlight is not an openable device.
+            if (r && it.Slot != null)
+            {
+                DynamicThing occ = null;
+                try { occ = it.Slot.Get(); } catch { }
+                if (occ != null && Core.DeviceWindow.CanOpen(occ) && Core.DeviceWindow.Open(occ)) return;
+            }
+            if (f) DoSelect(it);
+        }
+
+        /// <summary>The key that opens a highlighted device's internals window in scroll-nav — the Tool
+        /// Radial key (R by default). Shared with <see cref="OwnsDeviceWindowKey"/> so RadialController
+        /// stands its radial down on exactly the frame the grid consumes it.</summary>
+        public static KeyCode DeviceWindowKey
+        {
+            get { try { return UIAConfig.ToolRadialKey != null ? UIAConfig.ToolRadialKey.Value : KeyCode.R; } catch { return KeyCode.R; } }
+        }
+
+        /// <summary>True while the scroll-select cursor sits on an openable DEVICE and the grid owns the
+        /// device-window key: RadialController skips opening the Tool Radial (same key) this frame so R
+        /// opens the device's internals window instead. Pure function of live state (no cached flag).</summary>
+        public static bool OwnsDeviceWindowKey
+        {
+            get
+            {
+                try
+                {
+                    if (!Enabled || !TheGridPanel.IsOpen || MouseFreed() || RadialController.AnyRadialOpen) return false;
+                    if (_cursor < 0 || _cursor >= _items.Count) return false;
+                    NavItem it = _items[_cursor];
+                    if (it.Slot == null) return false;                 // a tab, not a device cell
+                    DynamicThing occ = it.Slot.Get();
+                    return occ != null && Core.DeviceWindow.CanOpen(occ);
+                }
+                catch { return false; }
+            }
         }
 
         /// <summary>F on the cursor: a CELL equips its occupant to the active hand (the same funnel

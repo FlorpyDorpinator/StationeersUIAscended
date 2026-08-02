@@ -888,7 +888,7 @@ namespace StationeersUIMod.Overlay
         /// <summary>Hub drag: grab the centre circle (off the CLOSE band, no satellite open) and
         /// hold LMB to move the whole radial; clicking the CLOSE band closes. Returns true when it
         /// owns the mouse this frame (dragging, just started, or closed), so the caller stops.
-        /// Shared by sticky mode and hold mode.</summary>
+        /// Reachable in STICKY mode only (UpdateHoldB never calls it).</summary>
         private bool UpdateHubDrag()
         {
             var hubMouse = DrawUtil.MousePos();

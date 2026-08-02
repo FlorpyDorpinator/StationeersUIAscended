@@ -33,8 +33,12 @@ namespace StationeersUIMod
         public static ConfigEntry<KeyCode> RadialFineAdjustKey;
         public static ConfigEntry<bool> RadialMovementEnabled;
         public static ConfigEntry<bool> RadialHintBar;
-        /// <summary>Set true once the first-run guide has been shown (so it only auto-opens once).</summary>
+        /// <summary>Set true once the first-run tutorial has been shown (so it only auto-opens once).</summary>
         public static ConfigEntry<bool> GuideShown;
+        /// <summary>Set true when the tutorial was FINISHED (last step's "start playing"), not skipped.</summary>
+        public static ConfigEntry<bool> TutorialCompleted;
+        /// <summary>Pause the game (SP only, via Core.GamePause) while the first-run tutorial is open.</summary>
+        public static ConfigEntry<bool> TutorialAutoPause;
         public static ConfigEntry<bool> CursorLatchEnabled;
         public static ConfigEntry<int> CursorLatchMs;
 
@@ -135,7 +139,7 @@ namespace StationeersUIMod
         /// <summary>Key that toggles / peeks The Grid. Default B. NOTE: KeyCode.B is vanilla's
         /// KeyMap.InstantStop (rover/vehicle instant-stop) default — a soft collision; the mod's
         /// hold/tap handler only fires while a human player is the active pilot, and B is
-        /// rebindable from the game's Controls screen (UIA group).</summary>
+        /// rebindable from the F10 Controls tab.</summary>
         public static ConfigEntry<KeyCode> GridKey;
         /// <summary>Hold-to-peek: holding the key shows The Grid only while held (momentary peek),
         /// a quick tap toggles it open/closed. Off = tap-only toggle.</summary>
@@ -201,10 +205,7 @@ namespace StationeersUIMod
         /// <summary>O4d ghost routing hints: while dragging an item in profile mode, the bag the
         /// Smart Stow router would pick glows (throttled dry-run; preview only, nothing moves).</summary>
         public static ConfigEntry<bool> GridGhostHints;
-        /// <summary>#4 scroll-select + keyboard navigation: while the Universal Inventory is open and
-        /// the mouse is freed, the wheel moves a selection cursor (auto-scrolling to keep it in view),
-        /// F acts on it (equip a cell, open/close a bag) and G stows the active hand into the cursor's
-        /// empty cell. Off = the wheel free-pans the list as before and F/G stay vanilla-only.</summary>
+        /// <summary>#4 scroll-select + keyboard navigation: Mouse wheel drives a highlight cursor through the Universal Inventory while your cursor is CAPTURED (normal aiming play); F takes the highlighted item - or places your held item into an empty highlighted cell. Free the mouse and the wheel free-pans the window instead.</summary>
         public static ConfigEntry<bool> GridKeyboardNav;
 
         // --- HUD ---
@@ -311,7 +312,14 @@ namespace StationeersUIMod
                 "Show a slim, contextual key-hint bar just below an open radial (LMB select, RMB " +
                 "back, Alt reach, swap hand, page…). Follows your rebinds. Turn off for a cleaner wheel.");
             GuideShown = cfg.Bind("1. General", "GuideShown", false,
-                "Internal: set once the first-run how-to guide has been shown. Reset to false to see it again.");
+                "Internal: set once the first-run tutorial has been shown. Reset to false to see it again " +
+                "on the next world entry (or run 'uiatutorial' in the console any time).");
+            TutorialCompleted = cfg.Bind("1. General", "TutorialCompleted", false,
+                "Internal: set once the first-run tutorial was finished (not skipped). Informational only.");
+            TutorialAutoPause = cfg.Bind("1. General", "TutorialAutoPause", true,
+                "Pause the game (single-player only) while the FIRST-RUN tutorial is open, so a fresh " +
+                "spawn isn't burning oxygen while reading. Manual replays never auto-pause; use the " +
+                "pause button in the F10 menu header instead.");
             CursorLatchEnabled = cfg.Bind("1. General", "CursorLatchOnDoubleTap", true,
                 "Double-tap the mouse-modifier key (the one you normally HOLD to free the cursor) to " +
                 "LATCH the cursor up, so you can click around hands-free. Press the same key once more " +
@@ -345,7 +353,7 @@ namespace StationeersUIMod
                 "shifts, and show a dim grey label on an empty slot that has a tool type bound to it.");
 
             ToolRadialKey = cfg.Bind("3. Tool Radial", "Key", KeyCode.R,
-                "Radial key. Default R: tap keeps the vanilla open-hand-slot-window action, hold opens the radial.");
+                "Key that opens the wheel for the item in your ACTIVE hand. Tap and hold BOTH open it: tap = the wheel stays (click a wedge to act), hold = sweep and release. Vanilla's own R action is suppressed while the mod owns this key.");
             ToolRadialTakeOverVanillaKey = cfg.Bind("3. Tool Radial", "TakeOverVanillaKey", true,
                 "When the radial key is R, suppress the vanilla handler and re-dispatch taps ourselves so hold can open the radial. Disable if you rebound the radial to a free key.");
 
@@ -365,8 +373,7 @@ namespace StationeersUIMod
                 "StowAndEmptySlots: one aggregate STOW wedge plus the empty slots. StowOnly: just the " +
                 "aggregate STOW wedge and the items.");
             RadialMaxWedges = cfg.Bind("4. Bag Radial", "MaxWedges", 14,
-                new ConfigDescription("Maximum wedges a radial shows at once; overflow goes into a MORE " +
-                    "wedge that opens the rest. (Biggest vanilla bag is 28 slots.)",
+                new ConfigDescription("Maximum wedges a radial shows at once; extra entries go to additional pages - press the page key (default Q) to flip. (Biggest vanilla bag is 28 slots.)",
                     new AcceptableValueRange<int>(6, 32)));
 
             ScanDepth = cfg.Bind("5. Slot Finder", "ScanDepth", 3,
@@ -434,9 +441,7 @@ namespace StationeersUIMod
                 "container inside them. Left-click a cell to take/equip it to the active hand; sort " +
                 "per container. Off = the key does nothing and the panel never opens.");
             GridKey = cfg.Bind("9. The Grid", "Key", KeyCode.B,
-                "Key that opens The Grid. Default B. Note: B is vanilla's rover instant-stop " +
-                "binding — rebind from the game's Controls screen (UI Ascended group) if that " +
-                "clashes with how you drive.");
+                "Key that opens the Universal Inventory. Rebind it in the F10 menu's Controls tab - it deliberately has NO row in the game's own Controls screen (a native row would raise a permanent conflict warning against vanilla's B binding).");
             GridHoldPeek = cfg.Bind("9. The Grid", "HoldToPeek", true,
                 "Hold the key to peek The Grid only while held (it hides on release); a quick tap " +
                 "toggles it open so it stays. Off = tap-only toggle, no momentary peek.");
@@ -525,13 +530,7 @@ namespace StationeersUIMod
                 "Stow (G) WOULD route it to glows with the accent border - see the routing before " +
                 "it happens. Preview only; nothing moves until you actually press G.");
             GridKeyboardNav = cfg.Bind("9. The Grid", "KeyboardNav", true,
-                "Scroll-select + keyboard navigation: while the Universal Inventory is open and the " +
-                "mouse is freed (hold the mouse-control key), the mouse wheel moves a selection " +
-                "cursor through the grid (the list auto-scrolls to follow it), F acts on the cursor " +
-                "(equip a cell's item to your active hand, or open/close a bag) and G stows your " +
-                "active-hand item into the cursor's empty cell. These reuse your vanilla " +
-                "InventorySelect (F) / SmartStow (G) binds. Off = the wheel free-pans the list as " +
-                "before and F/G act only on the vanilla inventory.");
+                "Mouse wheel drives a highlight cursor through the Universal Inventory while your cursor is CAPTURED (normal aiming play); F takes the highlighted item - or places your held item into an empty highlighted cell. Free the mouse and the wheel free-pans the window instead. Follows the game's invert-inventory-wheel setting.");
 
             HideVanillaHands = cfg.Bind("7. HUD", "HideVanillaHands", true,
                 "Hide the vanilla hand slots panel while the UI Ascended hand boxes are shown " +

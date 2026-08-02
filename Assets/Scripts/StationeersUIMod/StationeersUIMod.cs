@@ -256,6 +256,11 @@ namespace StationeersUIMod
             if (Instance != null && Instance != this) return;
         }
 
+        // First-run tutorial gate: -1 = gate not currently satisfied; else the unscaled time the
+        // gate FIRST passed. The coach only opens after the gate has held for the settle window.
+        private float _firstRunGateSince = -1f;
+        private const float FirstRunSettleSec = 1.0f;
+
         private void Update()
         {
             if (Instance != this || _radials == null) return;
@@ -269,6 +274,13 @@ namespace StationeersUIMod
                 if (Time.unscaledTime < _updateBreakerUntil) return;
                 _updateBreakerUntil = 0f; // cooldown elapsed — attempt recovery this frame
             }
+
+            // OUTSIDE the main try, deliberately: a throw earlier in the body must never starve
+            // these two — the pause latch (a frozen world with nobody servicing the latch is
+            // unrecoverable without a restart) and the Esc swallow (a stuck Typing state starves
+            // every vanilla key). Both are internally fail-soft, so they cannot re-trip the breaker.
+            Core.GamePause.Tick();
+            Core.ModalInputChain.Pump();
 
             try
             {
@@ -320,7 +332,13 @@ namespace StationeersUIMod
                 // bound number in the same frame); the key is held from here on, so no later frame
                 // sees a GetKeyDown and nothing is stranded. The MOUSE half never claims — a click
                 // is no radial key — so it cannot stall the controller.
-                bool pinClaimed = UIAConfig.GridEnabled.Value && HandleGridPinShortcuts();
+                // Never while the tutorial coach or the Handbook viewer is modal: both leave the
+                // cursor free, and the click-to-pin half hit-tests HUD zones directly (HudSystem.
+                // ZoneAt), which the modal scrim cannot block — a click on the card could pin a
+                // window underneath it.
+                bool pinClaimed = UIAConfig.GridEnabled.Value
+                    && !UI.Menu.Tutorial.TutorialCoach.IsOpen && !UI.Menu.HandbookViewer.IsOpen
+                    && HandleGridPinShortcuts();
 
                 if (UIAConfig.RadialEnabled.Value)
                 {
@@ -371,25 +389,48 @@ namespace StationeersUIMod
                 // The UGUI Control Center (F10) is the player-facing front door. Pump it every
                 // frame (it owns its own Escape/close and rebind capture) and toggle on the key.
                 UI.Menu.UiaControlCenter.Update();
+                UI.Menu.Tutorial.TutorialCoach.Update();
+                UI.Menu.HandbookViewer.Update();
 
-                // First run: show the how-to guide once, the moment we are safely in-game.
-                if (!UIAConfig.GuideShown.Value && Guards.CanToggleMenus()
-                    && !UI.Menu.UiaControlCenter.IsOpen && !_radials.IsRadialOpen)
+                // First run: open the tutorial coach once, the moment the player is safely in-game
+                // WITH control. Stricter than CanToggleMenus alone: never over a pause or a vanilla
+                // menu (an MP client's Esc menu doesn't pause, so CanToggleMenus can't see it), never
+                // for an unresponsive body, and only after the gate has held for a short settle so it
+                // can't pop on the world's fade-in frame.
+                if (!UIAConfig.GuideShown.Value)
                 {
-                    UIAConfig.GuideShown.Value = true;
-                    UI.Menu.UiaControlCenter.OpenGuide();
+                    bool firstRunGate = Guards.CanToggleMenus()
+                        && !UI.Menu.UiaControlCenter.IsOpen && !_radials.IsRadialOpen
+                        && !Windows.HudEditorMode.Active && !Windows.RadialEditorMode.Active
+                        && !UI.Grid.TheGridPanel.IsOpen
+                        && KeyManager.InputState == KeyInputState.Game
+                        && !WorldManager.IsGamePaused && !Guards.VanillaMenuWantsFront()
+                        && Assets.Scripts.Inventory.InventoryManager.ParentHuman != null
+                        && !Assets.Scripts.Inventory.InventoryManager.ParentHuman.IsUnresponsive;
+                    if (!firstRunGate) _firstRunGateSince = -1f;
+                    else if (_firstRunGateSince < 0f) _firstRunGateSince = Time.unscaledTime;
+                    else if (Time.unscaledTime - _firstRunGateSince >= FirstRunSettleSec)
+                    {
+                        UI.Menu.Tutorial.TutorialCoach.OpenFirstRun();
+                        // Consume the one-shot only when the coach genuinely opened — a transient
+                        // build failure must not burn the auto-tutorial forever.
+                        if (UI.Menu.Tutorial.TutorialCoach.IsOpen) UIAConfig.GuideShown.Value = true;
+                        else _firstRunGateSince = -1f;   // re-settle before the retry
+                    }
                 }
 
                 // F10 opens even while the F9 HUD editor is active: the menu then becomes a
                 // live-themed EDITABLE surface (click it in the editor to theme it). It refuses
                 // only during a radial.
                 if (Input.GetKeyDown(UIAConfig.SettingsWindowKey.Value) && Guards.CanToggleMenus()
-                    && !_radials.IsRadialOpen)
+                    && !_radials.IsRadialOpen
+                    && !UI.Menu.Tutorial.TutorialCoach.IsOpen && !UI.Menu.HandbookViewer.IsOpen)
                     UI.Menu.UiaControlCenter.Toggle();
 
                 if (Input.GetKeyDown(UI.Hud.HudConfig.HudEditorKey.Value) && Guards.CanToggleMenus()
                     && !_radials.IsRadialOpen && !Windows.RadialEditorMode.Active
-                    && !UI.Menu.UiaControlCenter.IsOpen)
+                    && !UI.Menu.UiaControlCenter.IsOpen
+                    && !UI.Menu.Tutorial.TutorialCoach.IsOpen && !UI.Menu.HandbookViewer.IsOpen)
                     ToggleHudEditor();
 
                 // The Grid — its own master switch (independent of the radial/HUD halves).
@@ -405,7 +446,11 @@ namespace StationeersUIMod
                 // the next open; only a pin's own X / shrink button truly unpins.
                 if (UIAConfig.GridEnabled.Value && Guards.CanDraw())
                 {
-                    HandleGridInput();
+                    // The Grid key stays quiet while the tutorial coach / Handbook viewer is modal
+                    // (raw Input reads would otherwise still fire; Tick keeps running so pinned
+                    // windows stay alive behind the scrim).
+                    if (!UI.Menu.Tutorial.TutorialCoach.IsOpen && !UI.Menu.HandbookViewer.IsOpen)
+                        HandleGridInput();
                     UI.Grid.TheGridPanel.Tick();
                 }
                 else
@@ -1066,6 +1111,24 @@ namespace StationeersUIMod
                 // capture that dead wrapper as its "original" — unrecoverable without a game
                 // restart), and un-unpatched Harmony patches keep running dead detours. Each is
                 // independently guarded so one failing cannot skip the others.
+                // The tutorial/handbook/pause trio hold GAME statics too: a latched pause is
+                // Time.timeScale = 0 with nobody left to clear it, GamePause subscribes
+                // WorldManager.OnPaused (a plain static event the game never clears — the
+                // reloaded assembly's Unhook removes only its OWN delegate, so a skip here is
+                // unrecoverable without a game restart), and the modals hold KeyManager input
+                // states + MouseModeController modals + the Esc-swallow Typing state.
+                try { UI.Menu.Tutorial.TutorialCoach.Shutdown(); }
+                catch (Exception e) { UIALog.Error("TutorialCoach.Shutdown failed: " + e); }
+                try { UI.Menu.Tutorial.TutorialTextStore.Shutdown(); }
+                catch (Exception e) { UIALog.Error("TutorialTextStore.Shutdown failed: " + e); }
+                try { UI.Menu.HandbookViewer.Shutdown(); }
+                catch (Exception e) { UIALog.Error("HandbookViewer.Shutdown failed: " + e); }
+                try { Core.ModalInputChain.Release(); }
+                catch (Exception e) { UIALog.Error("ModalInputChain.Release failed: " + e); }
+                try { Core.GamePause.ReleaseAll(); }
+                catch (Exception e) { UIALog.Error("GamePause.ReleaseAll failed: " + e); }
+                try { Core.GamePause.Unhook(); }
+                catch (Exception e) { UIALog.Error("GamePause.Unhook failed: " + e); }
                 try { Features.ProfileSort.Reset(); }
                 catch (Exception e) { UIALog.Error("ProfileSort.Reset failed: " + e); }
                 try { Core.UiaKeybinds.Unhook(); }

@@ -288,6 +288,14 @@ namespace StationeersUIMod.UI.Grid
         /// </summary>
         private static bool ShouldRecurse(DynamicThing occ, GridDisplayMode mode)
         {
+            // A PINNED interactive item must build a node even when Grid mode would keep it a leaf cell
+            // (a tool/device): that node is what PinContainer tears out into a themed pinned window, so
+            // "open device internals" opens OUR window, not vanilla's. Includes button-ONLY things (a demo
+            // charge, a canister valve — HasSlots false but HasKeyInteractions true): their window is just
+            // the controls strip, no cells. The cheap slot/interaction checks short-circuit before the
+            // pin-set probe, so a plain (inert) item never pays for it. The item stays a leaf cell too —
+            // the node is pruned into its own window (PrunePinned), exactly like a pinned bag.
+            if ((HasSlots(occ) || HasKeyInteractions(occ)) && GridPinStore.IsPinnedLoaded(occ.ReferenceId)) return true;
             return mode == GridDisplayMode.Grid ? IsStorageContainer(occ) : HasSlots(occ);
         }
 
@@ -342,6 +350,13 @@ namespace StationeersUIMod.UI.Grid
         private static bool HasSlots(DynamicThing thing)
         {
             return thing != null && thing.Slots != null && thing.Slots.Count > 0;
+        }
+
+        /// <summary>Has at least one key interaction/button (on-off, lock/arm, valve) with no slot — the
+        /// other half of "worth a pinned window". Wrapped because the vanilla getter walks Interactables.</summary>
+        private static bool HasKeyInteractions(DynamicThing thing)
+        {
+            try { return thing != null && thing.HasKeyInteractions; } catch { return false; }
         }
 
         private static bool IsOrganSlot(Slot slot)

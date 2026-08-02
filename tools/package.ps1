@@ -47,6 +47,7 @@ $DllPath    = Join-Path $RepoRoot "Dev\bin\$Configuration\StationeersUIMod.dll"
 $Bundle     = Join-Path $RepoRoot 'Dev\UiaEffectsBundle\Build\uia_effects.bundle'
 $AboutSrc   = Join-Path $RepoRoot 'Assets\About'
 $ProfSrc    = Join-Path $RepoRoot 'HudProfiles'
+$HandbookSrc = Join-Path $RepoRoot 'Handbook'
 $AboutXml   = Join-Path $AboutSrc 'About.xml'
 $ModSrcFile = Join-Path $RepoRoot 'Assets\Scripts\StationeersUIMod\StationeersUIMod.cs'
 
@@ -139,6 +140,37 @@ Copy-Item (Join-Path $ProfSrc '*.xml') (Join-Path $Stage 'HudProfiles') -Force
 Copy-Item (Join-Path $ProfSrc '*.png') (Join-Path $Stage 'HudProfiles') -Force -ErrorAction SilentlyContinue
 $readme = Join-Path $ProfSrc 'README.md'
 if (Test-Path $readme) { Copy-Item $readme (Join-Path $Stage 'HudProfiles') -Force }
+
+# Handbook: fail-soft, built separately by tools\render-handbook.ps1 (PDF + per-page PNGs from
+# Documentation\HUD-Designer-Handbook.md). Missing/empty = ship without it rather than fail the
+# whole package, matching the uia_effects.bundle pattern above. Staged EXPLICITLY by exact file
+# name/pattern (never a blind Handbook\* copy), so a stray test HTML or temp file left next to
+# the render output can never ride along into the Workshop package.
+$hasHandbook = Test-Path -LiteralPath $HandbookSrc -PathType Container
+if ($hasHandbook) {
+    $handbookPdfSrc   = Join-Path $HandbookSrc 'HUD-Designer-Handbook.pdf'
+    $handbookPagesSrc = Join-Path $HandbookSrc 'pages'
+
+    if (Test-Path -LiteralPath $handbookPdfSrc -PathType Leaf) {
+        New-Item -ItemType Directory -Path (Join-Path $Stage 'Handbook') -Force | Out-Null
+        Copy-Item $handbookPdfSrc (Join-Path $Stage 'Handbook') -Force
+    } else {
+        Write-Warning "Handbook\HUD-Designer-Handbook.pdf NOT found. The package will ship WITHOUT the Designer Handbook PDF."
+    }
+
+    $pagePngs = @(Get-ChildItem $handbookPagesSrc -Filter 'page-*.png' -ErrorAction SilentlyContinue)
+    $pageJpgs = @(Get-ChildItem $handbookPagesSrc -Filter 'page-*.jpg' -ErrorAction SilentlyContinue)
+    if ($pagePngs.Count -gt 0 -or $pageJpgs.Count -gt 0) {
+        $stagedPagesDir = Join-Path $Stage 'Handbook\pages'
+        New-Item -ItemType Directory -Path $stagedPagesDir -Force | Out-Null
+        foreach ($f in ($pagePngs + $pageJpgs)) { Copy-Item $f.FullName $stagedPagesDir -Force }
+    } else {
+        Write-Warning "Handbook\pages\page-*.png/.jpg NOT found. The package will ship WITHOUT the Designer Handbook page images."
+    }
+} else {
+    Write-Warning "Handbook\ NOT found at $HandbookSrc."
+    Write-Warning "The package will ship WITHOUT the Designer Handbook. Run tools\render-handbook.ps1 first if you want it."
+}
 
 # ---- content audit (post-stage) ----
 # Hard failures: things that would ship a broken or mis-versioned mod.

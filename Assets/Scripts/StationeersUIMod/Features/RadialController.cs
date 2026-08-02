@@ -209,6 +209,11 @@ namespace StationeersUIMod.Features
             foreach (var feature in _features)
             {
                 if (!feature.Enabled || feature.Key == KeyCode.None) continue;
+                // The Universal Inventory's scroll-nav owns the device-window key (R) on the frame its
+                // highlight is on a device: yield it so R opens that device's internals window instead of
+                // this radial. Same-key features only; everything else opens normally.
+                if (feature.Key == global::StationeersUIMod.UI.Grid.GridSelection.DeviceWindowKey
+                    && global::StationeersUIMod.UI.Grid.GridSelection.OwnsDeviceWindowKey) continue;
                 if (Input.GetKeyDown(feature.Key))
                 {
                     // R3 double-tap repeat: a fast second tap of the SAME feature re-runs the
