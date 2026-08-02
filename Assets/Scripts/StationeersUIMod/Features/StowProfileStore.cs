@@ -72,6 +72,11 @@ namespace StationeersUIMod.Features
         public const string DefaultStowProfileName = "My Stow Profile";
 
         private const string ActiveMarkerFile = ".active";
+        /// <summary>The SHIPPED-PRESET marker (B4). One line per shipped set name we have ever
+        /// handed this player, <c>&lt;name&gt;|&lt;revision&gt;</c>. Its presence — not the folder's
+        /// contents — is the seed gate, which is what makes "delete it and it STAYS deleted" true.
+        /// Not a .xml, so it is never enumerated as a document.</summary>
+        private const string ShippedMarkerFile = ".shipped";
         /// <summary>The migration stamp. Its EXISTENCE is the run-once gate — a FACT written on
         /// disk, never an inference from what the folder currently contains. Inferring the gate
         /// from "the folder holds a document" is re-openable: anything that removes the last
@@ -136,6 +141,16 @@ namespace StationeersUIMod.Features
                 if (!ok) return false;
 
                 if (EnsureMigrated(files))
+                {
+                    files = DocFiles(out ok);
+                    if (!ok) return false;
+                }
+                // Shipped presets are seeded AFTER migration, never before: EnsureMigrated decides
+                // "is this a first run?" from whether the folder holds a document, so seeding first
+                // would make every legacy player look already-migrated and strand their old
+                // Profiles/ folder. Seeding never touches the ACTIVE marker either — a returning
+                // player stays on the Stow Profile they were using.
+                if (SeedShipped() > 0)
                 {
                     files = DocFiles(out ok);
                     if (!ok) return false;
@@ -208,6 +223,82 @@ namespace StationeersUIMod.Features
             return names;
         }
 
+        /// <summary>One row of the B4 manager list: everything the set list shows without having to
+        /// re-open the document per cell.</summary>
+        public sealed class StowSetInfo
+        {
+            public string Name;
+            public string Description;
+            public int ProfileCount;
+            public int RuleCount;
+            public bool IsActive;
+            public bool IsShipped;
+        }
+
+        /// <summary>Every Stow Profile on disk with the counts the manager renders. Deserializes each
+        /// document, so this is a GESTURE-frequency call — the F10 tab caches the result and skips it
+        /// entirely on a theme-restyle build, exactly like its worn-bag scan.
+        ///
+        /// <para>The ACTIVE set reports from <see cref="BagProfileStore.Profiles"/> (the live list)
+        /// rather than from its file, so an unsaved-to-disk edit can never make the manager disagree
+        /// with the editor one tab over.</para></summary>
+        public static List<StowSetInfo> ListSets()
+        {
+            var rows = new List<StowSetInfo>();
+            bool ok;
+            List<string> files = DocFiles(out ok);
+            string active = ActiveName;
+            for (int i = 0; i < files.Count; i++)
+            {
+                StowProfileDoc doc = LoadDocFile(files[i], false);
+                if (doc == null || string.IsNullOrEmpty(doc.Name)) continue;
+                if (IndexOfName(rows, doc.Name) >= 0) continue;   // case-insensitive dedupe, as ListNames
+                bool isActive = Available && string.Equals(doc.Name, active, StringComparison.OrdinalIgnoreCase);
+                var row = new StowSetInfo
+                {
+                    Name = doc.Name,
+                    Description = doc.Description,
+                    IsActive = isActive,
+                    IsShipped = IsShippedName(doc.Name),
+                };
+                List<BagProfile> list = isActive ? BagProfileStore.Profiles : doc.Profiles;
+                row.ProfileCount = list != null ? list.Count : 0;
+                if (list != null)
+                    for (int p = 0; p < list.Count; p++)
+                        if (list[p] != null) row.RuleCount += list[p].RuleCount;
+                rows.Add(row);
+            }
+            return rows;
+        }
+
+        /// <summary>The Bag Profiles inside one Stow Profile — the ACTIVE one served live from
+        /// <see cref="BagProfileStore.Profiles"/>, any other read from its file. Returns an empty
+        /// list (never null) for an unknown/unreadable name.</summary>
+        public static List<BagProfile> ProfilesOf(string setName)
+        {
+            if (string.IsNullOrEmpty(setName)) return new List<BagProfile>();
+            if (Available && string.Equals(setName, ActiveName, StringComparison.OrdinalIgnoreCase))
+                return new List<BagProfile>(BagProfileStore.Profiles);
+            bool ok;
+            StowProfileDoc doc = LoadByName(DocFiles(out ok), setName, false);
+            if (doc == null || doc.Profiles == null) return new List<BagProfile>();
+            return new List<BagProfile>(doc.Profiles);
+        }
+
+        /// <summary>Is there a Stow Profile with this display name on disk?</summary>
+        public static bool Exists(string name)
+        {
+            if (string.IsNullOrEmpty(name)) return false;
+            return ContainsName(ListNames(), name);
+        }
+
+        private static int IndexOfName(List<StowSetInfo> rows, string name)
+        {
+            for (int i = 0; i < rows.Count; i++)
+                if (string.Equals(rows[i].Name, name, StringComparison.OrdinalIgnoreCase)) return i;
+            return -1;
+        }
+
         /// <summary>Point the ACTIVE marker at <paramref name="name"/>. Does NOT swap the in-memory
         /// profile list — the caller follows with <see cref="BagProfileStore.LoadProfiles"/>, which
         /// re-resolves everything from disk (one code path for launch and for switching).</summary>
@@ -249,6 +340,118 @@ namespace StationeersUIMod.Features
             }
         }
 
+        /// <summary>Rename a Stow Profile (B4). The FILE keeps its old name; only the
+        /// <c>&lt;StowProfile name=".."&gt;</c> attribute changes, because the display name is the
+        /// authority everywhere (<see cref="LoadByName"/> falls through to a by-name scan for exactly
+        /// this case) and renaming files is the one part of this that can lose a document. A later
+        /// "Restore shipped Stow Profiles" therefore lands in a FRESH file rather than clobbering the
+        /// renamed one — <see cref="FreeFilePath"/> probes for a free slot.
+        ///
+        /// <para>Bag-profile ASSIGNMENTS are untouched: they name Bag Profiles, not Stow Profiles.
+        /// Only the ACTIVE marker points at a Stow Profile by name, and it is re-pointed here.</para>
+        /// Returns the final (sanitised) name, or null when nothing was renamed.</summary>
+        public static string RenameSet(string oldName, string newName)
+        {
+            if (string.IsNullOrEmpty(oldName)) return null;
+            string wanted = ProfileCapture.SanitizeName(newName);
+            if (string.IsNullOrEmpty(wanted)) return null;
+            if (string.Equals(wanted, oldName, StringComparison.Ordinal)) return null;
+            try
+            {
+                bool ok;
+                List<string> files = DocFiles(out ok);
+                if (!ok) return null;
+                // Collision check must ignore the document we are renaming (a case-only rename —
+                // "starter" -> "Starter" — is legitimate and must not trip its own name).
+                List<string> taken = ListNames();
+                for (int i = taken.Count - 1; i >= 0; i--)
+                    if (string.Equals(taken[i], oldName, StringComparison.OrdinalIgnoreCase)) taken.RemoveAt(i);
+                if (ContainsName(taken, wanted)) return null;
+
+                StowProfileDoc doc = LoadByName(files, oldName, false);
+                if (doc == null) return null;
+                doc.Name = wanted;
+                if (!SaveDoc(doc)) return null;
+                bool wasActive = string.Equals(oldName, ReadActiveMarker(), StringComparison.OrdinalIgnoreCase);
+                if (wasActive) WriteActiveMarker(wanted);
+                if (_active != null && string.Equals(_active.Name, oldName, StringComparison.OrdinalIgnoreCase)
+                    && string.Equals(_active.SourceFile, doc.SourceFile, StringComparison.OrdinalIgnoreCase))
+                    _active.Name = wanted;   // keep the in-memory active document in step
+                UIALog.Info("Renamed Stow Profile '" + oldName + "' -> '" + wanted + "'.");
+                return wanted;
+            }
+            catch (Exception e)
+            {
+                UIALog.Warn("Stow Profile rename failed: " + e.Message);
+                return null;
+            }
+        }
+
+        /// <summary>Delete a Stow Profile FILE (B4). Refuses to delete the last one — a folder with no
+        /// documents is the state the migration stamp exists to keep harmless, and there is no reason
+        /// to walk a player into it from a button.
+        ///
+        /// <para>Deleting the ACTIVE set re-points the marker at another document; the caller must
+        /// follow with <see cref="BagProfileStore.LoadProfiles"/> (one load path, as with a switch).
+        /// A shipped set deleted here STAYS deleted: the <c>.shipped</c> marker already records that
+        /// we gave it to this player, and seeding only ever consults the marker.</para>
+        /// Returns true when a file was removed.</summary>
+        public static bool DeleteSet(string name)
+        {
+            if (string.IsNullOrEmpty(name)) return false;
+            try
+            {
+                bool ok;
+                List<string> files = DocFiles(out ok);
+                if (!ok) return false;
+                StowProfileDoc doc = LoadByName(files, name, false);
+                if (doc == null || string.IsNullOrEmpty(doc.SourceFile)) return false;
+                if (ListNames().Count <= 1) return false;   // never leave the folder empty
+
+                bool wasActive = Available && string.Equals(doc.Name, ActiveName, StringComparison.OrdinalIgnoreCase);
+                File.Delete(doc.SourceFile);
+                UIALog.Info("Deleted Stow Profile '" + doc.Name + "'.");
+                if (wasActive)
+                {
+                    _active = null;
+                    _available = false;
+                    List<string> left = ListNames();
+                    if (left.Count > 0) WriteActiveMarker(left[0]);
+                }
+                return true;
+            }
+            catch (Exception e)
+            {
+                UIALog.Warn("Stow Profile delete failed: " + e.Message);
+                return false;
+            }
+        }
+
+        /// <summary>Write a document that came from OUTSIDE (a pasted share code, B4) as a brand new
+        /// Stow Profile. Never overwrites and never switches the active set — import always lands as
+        /// an inert new file the player then chooses to use (plan SS9.4). Returns the de-collided name
+        /// it landed under, or null.</summary>
+        public static string ImportDoc(StowProfileDoc doc)
+        {
+            if (doc == null) return null;
+            try
+            {
+                doc.SourceFile = null;                    // force a fresh file, never an overwrite
+                Sanitize(doc, null);
+                doc.Name = UniqueStowName(doc.Name);
+                doc.Schema = CurrentSchema;
+                if (!SaveDoc(doc)) return null;
+                UIALog.Info("Imported Stow Profile '" + doc.Name + "' (" + doc.Profiles.Count
+                    + " bag profile(s)).");
+                return doc.Name;
+            }
+            catch (Exception e)
+            {
+                UIALog.Warn("Stow Profile import failed: " + e.Message);
+                return null;
+            }
+        }
+
         // ---------- cross-set transfers (FlorpyDorp Q3: "mix and match") ----------
 
         /// <summary>COPY a Bag Profile out of the ACTIVE Stow Profile into another one. The source
@@ -257,7 +460,7 @@ namespace StationeersUIMod.Features
         /// drives this is B4; the model op exists now so the two can be built and tested apart.</summary>
         public static string CopyProfileTo(string profileName, string targetStowName)
         {
-            return TransferProfile(profileName, targetStowName, false);
+            return TransferProfile(null, profileName, targetStowName, false);
         }
 
         /// <summary>MOVE a Bag Profile out of the ACTIVE Stow Profile into another one.
@@ -270,38 +473,98 @@ namespace StationeersUIMod.Features
         /// those same assignments resolve again. Hide, never destroy.</para></summary>
         public static string MoveProfileTo(string profileName, string targetStowName)
         {
-            return TransferProfile(profileName, targetStowName, true);
+            return TransferProfile(null, profileName, targetStowName, true);
         }
 
-        private static string TransferProfile(string profileName, string targetStowName, bool move)
+        /// <summary>
+        /// The general cross-set transfer B4's manager drives: copy/move ONE Bag Profile from any
+        /// Stow Profile to any other. <paramref name="sourceStowName"/> null/empty means the ACTIVE
+        /// one (which is what B2's <see cref="CopyProfileTo"/>/<see cref="MoveProfileTo"/> pass).
+        ///
+        /// <para><b>Either end may be the ACTIVE set, and that changes which store owns the write.</b>
+        /// The active set's Bag Profiles live in <see cref="BagProfileStore.Profiles"/>, NOT in a
+        /// document we may re-read: loading its file into a second <see cref="StowProfileDoc"/> and
+        /// saving that would leave <c>_active</c> stale, and the next in-editor save would silently
+        /// throw the transfer away. So the active end always goes through
+        /// <see cref="BagProfileStore.SaveProfiles"/> and every other end through
+        /// <see cref="SaveDoc"/>.</para>
+        ///
+        /// <para>MOVE deliberately does NOT run the rename/delete cascade (see
+        /// <see cref="MoveProfileTo"/>): a moved profile is not a deleted one.</para>
+        /// Returns the name the profile landed under in the target ("Ores (2)" on a collision), or
+        /// null when nothing was transferred.</summary>
+        public static string TransferProfile(string sourceStowName, string profileName,
+            string targetStowName, bool move)
         {
-            if (!Available || string.IsNullOrEmpty(profileName) || string.IsNullOrEmpty(targetStowName))
-                return null;
-            if (string.Equals(targetStowName, ActiveName, StringComparison.OrdinalIgnoreCase))
+            if (string.IsNullOrEmpty(profileName) || string.IsNullOrEmpty(targetStowName)) return null;
+            string source = string.IsNullOrEmpty(sourceStowName) ? ActiveName : sourceStowName;
+            if (string.IsNullOrEmpty(source)) return null;
+            if (string.Equals(source, targetStowName, StringComparison.OrdinalIgnoreCase))
                 return null;   // same folder: nothing to do (and a "(2)" duplicate would be a bug, not a feature)
             try
             {
-                BagProfile source = BagProfileStore.FindProfile(profileName);
-                if (source == null) return null;
-
                 bool ok;
-                StowProfileDoc target = LoadByName(DocFiles(out ok), targetStowName, false);
-                if (target == null) return null;
+                List<string> files = DocFiles(out ok);
+                if (!ok) return null;
 
-                string newName = UniqueNameIn(target, profileName);
-                BagProfile copy = CloneProfile(source);
+                bool sourceIsActive = Available && string.Equals(source, ActiveName, StringComparison.OrdinalIgnoreCase);
+                bool targetIsActive = Available && string.Equals(targetStowName, ActiveName, StringComparison.OrdinalIgnoreCase);
+
+                StowProfileDoc sourceDoc = null;
+                BagProfile from;
+                if (sourceIsActive)
+                {
+                    from = BagProfileStore.FindProfile(profileName);
+                }
+                else
+                {
+                    sourceDoc = LoadByName(files, source, false);
+                    if (sourceDoc == null) return null;
+                    from = FindProfileIn(sourceDoc, profileName);
+                }
+                if (from == null) return null;
+
+                BagProfile copy = CloneProfile(from);
                 if (copy == null) return null;
-                copy.Name = newName;
-                target.Profiles.Add(copy);
-                if (!SaveDoc(target)) return null;
+
+                string newName;
+                if (targetIsActive)
+                {
+                    newName = UniqueNameInList(BagProfileStore.Profiles, profileName);
+                    copy.Name = newName;
+                    BagProfileStore.Profiles.Add(copy);
+                    if (!BagProfileStore.SaveProfiles())
+                    {
+                        BagProfileStore.Profiles.Remove(copy);   // do not leave a half-done transfer in memory
+                        return null;
+                    }
+                }
+                else
+                {
+                    StowProfileDoc target = LoadByName(files, targetStowName, false);
+                    if (target == null) return null;
+                    newName = UniqueNameIn(target, profileName);
+                    copy.Name = newName;
+                    target.Profiles.Add(copy);
+                    if (!SaveDoc(target)) return null;
+                }
 
                 if (move)
                 {
-                    BagProfileStore.Profiles.Remove(source);
-                    BagProfileStore.SaveProfiles();
+                    if (sourceIsActive)
+                    {
+                        BagProfileStore.Profiles.Remove(from);
+                        BagProfileStore.SaveProfiles();
+                    }
+                    else
+                    {
+                        sourceDoc.Profiles.Remove(from);
+                        SaveDoc(sourceDoc);
+                    }
                 }
-                UIALog.Info((move ? "Moved" : "Copied") + " bag profile '" + profileName + "' to Stow Profile '"
-                    + target.Name + "'" + (newName == profileName ? "." : " as '" + newName + "'."));
+                UIALog.Info((move ? "Moved" : "Copied") + " bag profile '" + profileName + "' from Stow Profile '"
+                    + source + "' to '" + targetStowName + "'"
+                    + (newName == profileName ? "." : " as '" + newName + "'."));
                 return newName;
             }
             catch (Exception e)
@@ -311,6 +574,17 @@ namespace StationeersUIMod.Features
             }
         }
 
+        private static BagProfile FindProfileIn(StowProfileDoc doc, string name)
+        {
+            if (doc == null || doc.Profiles == null || string.IsNullOrEmpty(name)) return null;
+            for (int i = 0; i < doc.Profiles.Count; i++)
+            {
+                BagProfile p = doc.Profiles[i];
+                if (p != null && string.Equals(p.Name, name, StringComparison.Ordinal)) return p;
+            }
+            return null;
+        }
+
         /// <summary>"Ores" -> "Ores (2)" -> "Ores (3)"... first name free inside one document.
         /// (The in-set collider, <see cref="BagProfileStore.UniqueProfileName"/>, uses "Ores 2"
         /// instead — deliberately a different shape, so a name that gained a suffix by CROSSING sets
@@ -318,20 +592,28 @@ namespace StationeersUIMod.Features
         private static string UniqueNameIn(StowProfileDoc doc, string baseName)
         {
             if (doc == null || doc.Profiles == null) return baseName;
-            if (!HasProfileNamed(doc, baseName)) return baseName;
+            return UniqueNameInList(doc.Profiles, baseName);
+        }
+
+        /// <summary>The set-CROSSING collider, over any Bag Profile list (a document's, or the active
+        /// in-memory one).</summary>
+        private static string UniqueNameInList(List<BagProfile> list, string baseName)
+        {
+            if (list == null) return baseName;
+            if (!HasProfileNamed(list, baseName)) return baseName;
             for (int n = 2; n < 1000; n++)
             {
                 string candidate = baseName + " (" + n + ")";
-                if (!HasProfileNamed(doc, candidate)) return candidate;
+                if (!HasProfileNamed(list, candidate)) return candidate;
             }
             return baseName + " (" + DateTime.UtcNow.Ticks + ")";
         }
 
-        private static bool HasProfileNamed(StowProfileDoc doc, string name)
+        private static bool HasProfileNamed(List<BagProfile> list, string name)
         {
-            for (int i = 0; i < doc.Profiles.Count; i++)
+            for (int i = 0; i < list.Count; i++)
             {
-                BagProfile p = doc.Profiles[i];
+                BagProfile p = list[i];
                 if (p != null && string.Equals(p.Name, name, StringComparison.Ordinal)) return true;
             }
             return false;
@@ -497,6 +779,192 @@ namespace StationeersUIMod.Features
                     ? " carried over from the Profiles folder (which is left untouched)."
                     : " (starter set)."));
             return true;
+        }
+
+        // ---------- shipped presets (B4) ----------
+
+        /// <summary>
+        /// SEED-IF-ABSENT delivery of the four shipped preset Stow Profiles
+        /// (<see cref="ShippedStowProfiles"/>). Runs once per set, ever.
+        ///
+        /// <para><b>The gate is the <c>.shipped</c> marker, not the folder's contents.</b> A set whose
+        /// name appears in that file is never written again — so a player who deletes "By Printer"
+        /// keeps it deleted, and one who edits "Starter" keeps their edit. That is the whole
+        /// difference between this and <c>HudProfileStore.SyncShipped</c>, which hashes every file so
+        /// it can also REFRESH and PRUNE. The simpler scheme is a deliberate tradeoff: a Stow Profile
+        /// that is missing or edited degrades gracefully (the router just falls through to affinity
+        /// and bag defaults), whereas a missing HUD theme leaves a player with no HUD. The cost is
+        /// that shipped content never updates itself — the explicit
+        /// <see cref="RestoreShipped"/> button is the only way a player takes a newer vintage.</para>
+        ///
+        /// <para>A name that is ALREADY on disk when we first look (the player made their own
+        /// "Starter", or an older build seeded it) is ADOPTED into the marker rather than overwritten
+        /// — recorded at revision 0 so it reads as "not ours" in a bug report.</para>
+        /// </summary>
+        /// <returns>How many documents were written (the caller must re-enumerate when &gt; 0).</returns>
+        internal static int SeedShipped()
+        {
+            int seeded = 0;
+            try
+            {
+                Dictionary<string, int> marker = ReadShippedMarker();
+                bool ok;
+                List<string> files = DocFiles(out ok);
+                if (!ok) return 0;
+                List<string> present = null;
+                bool dirty = false;
+
+                for (int i = 0; i < ShippedStowProfiles.Names.Length; i++)
+                {
+                    string name = ShippedStowProfiles.Names[i];
+                    if (marker.ContainsKey(name)) continue;   // handed over before: never again
+
+                    if (present == null)
+                    {
+                        present = new List<string>();
+                        for (int f = 0; f < files.Count; f++)
+                        {
+                            StowProfileDoc existing = LoadDocFile(files[f], false);
+                            if (existing != null && !string.IsNullOrEmpty(existing.Name)) present.Add(existing.Name);
+                        }
+                    }
+                    if (ContainsName(present, name))
+                    {
+                        marker[name] = 0;                     // adopt: it is theirs, not ours
+                        dirty = true;
+                        continue;
+                    }
+
+                    StowProfileDoc doc = ShippedStowProfiles.Build(name);
+                    if (doc == null) continue;
+                    if (!SaveDoc(doc)) continue;              // write failed: retry next launch
+                    marker[name] = ShippedStowProfiles.Revision;
+                    present.Add(name);
+                    dirty = true;
+                    seeded++;
+                }
+                if (dirty) WriteShippedMarker(marker);
+                if (seeded > 0)
+                    UIALog.Info("Seeded " + seeded + " shipped Stow Profile(s). Delete any of them and they stay deleted.");
+            }
+            catch (Exception e)
+            {
+                UIALog.Warn("Shipped Stow Profile seeding failed: " + e.Message);
+            }
+            return seeded;
+        }
+
+        /// <summary>The maintenance affordance (F10 -> Storage -> Stow Profiles): re-write ALL four
+        /// shipped sets from code, OVERWRITING a player's edits to those names and re-creating any
+        /// they deleted. Deliberately destructive and therefore arm-confirmed in the UI — this is the
+        /// only path by which shipped content ever changes on an existing install.
+        ///
+        /// <para>If the ACTIVE set is one of the four, the in-memory document is now stale — and a
+        /// stale <c>_active</c> is not a cosmetic problem: <see cref="Available"/> would still be
+        /// true while <c>SaveActive</c> wrote the OLD content back over the restore. So this method
+        /// drops the loaded document AND re-runs <see cref="BagProfileStore.LoadProfiles"/> itself,
+        /// rather than leaving the store in a state only a well-behaved caller can survive.</para></summary>
+        /// <returns>How many sets were written.</returns>
+        public static int RestoreShipped()
+        {
+            int written = 0;
+            try
+            {
+                Dictionary<string, int> marker = ReadShippedMarker();
+                bool ok;
+                List<string> files = DocFiles(out ok);
+                if (!ok) return 0;
+                for (int i = 0; i < ShippedStowProfiles.Names.Length; i++)
+                {
+                    string name = ShippedStowProfiles.Names[i];
+                    StowProfileDoc doc = ShippedStowProfiles.Build(name);
+                    if (doc == null) continue;
+                    StowProfileDoc existing = LoadByName(files, name, false);
+                    // Overwrite IN PLACE when the name is already on disk (even under a hand-renamed
+                    // file), so restoring does not leave a second copy behind.
+                    if (existing != null) doc.SourceFile = existing.SourceFile;
+                    if (!SaveDoc(doc)) continue;
+                    marker[name] = ShippedStowProfiles.Revision;
+                    written++;
+                }
+                WriteShippedMarker(marker);
+                _active = null;
+                _available = false;
+                UIALog.Info("Restored " + written + " shipped Stow Profile(s).");
+            }
+            catch (Exception e)
+            {
+                UIALog.Warn("Restore of the shipped Stow Profiles failed: " + e.Message);
+            }
+            try
+            {
+                // Re-resolve from disk in the same call, so there is no window in which Available is
+                // false and a save would silently fall back to the legacy Profiles/ folder.
+                BagProfileStore.LoadProfiles();
+            }
+            catch (Exception e)
+            {
+                UIALog.Warn("Could not reload bag profiles after the restore: " + e.Message);
+            }
+            return written;
+        }
+
+        /// <summary>Is this one of the four names we ship? (Used only to label the manager list.)</summary>
+        internal static bool IsShippedName(string name)
+        {
+            if (string.IsNullOrEmpty(name)) return false;
+            for (int i = 0; i < ShippedStowProfiles.Names.Length; i++)
+                if (string.Equals(ShippedStowProfiles.Names[i], name, StringComparison.OrdinalIgnoreCase)) return true;
+            return false;
+        }
+
+        private static string ShippedMarkerPath { get { return Path.Combine(Dir, ShippedMarkerFile); } }
+
+        /// <summary>name -> revision, case-insensitive. A missing/garbled marker reads as EMPTY,
+        /// which re-seeds — the safe direction: a duplicate shipped set is a nuisance, a player who
+        /// silently never receives the presets is a support ticket.</summary>
+        private static Dictionary<string, int> ReadShippedMarker()
+        {
+            var map = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            try
+            {
+                string path = ShippedMarkerPath;
+                if (!File.Exists(path)) return map;
+                string[] lines = File.ReadAllLines(path);
+                for (int i = 0; i < lines.Length; i++)
+                {
+                    string line = (lines[i] ?? string.Empty).Trim();
+                    if (line.Length == 0 || line[0] == '#') continue;
+                    int bar = line.LastIndexOf('|');
+                    string name = bar > 0 ? line.Substring(0, bar) : line;
+                    int rev = 0;
+                    if (bar > 0) int.TryParse(line.Substring(bar + 1), out rev);
+                    if (name.Length > 0) map[name] = rev;
+                }
+            }
+            catch (Exception e)
+            {
+                UIALog.Warn("Could not read the shipped Stow Profile marker: " + e.Message);
+            }
+            return map;
+        }
+
+        private static void WriteShippedMarker(Dictionary<string, int> map)
+        {
+            try
+            {
+                Directory.CreateDirectory(Dir);
+                var sb = new System.Text.StringBuilder();
+                sb.Append("# Shipped Stow Profiles this install has handed over. Presence = do not seed again.")
+                  .Append(Environment.NewLine);
+                foreach (var kv in map)
+                    sb.Append(kv.Key).Append('|').Append(kv.Value).Append(Environment.NewLine);
+                File.WriteAllText(ShippedMarkerPath, sb.ToString());
+            }
+            catch (Exception e)
+            {
+                UIALog.Warn("Could not record the shipped Stow Profiles: " + e.Message);
+            }
         }
 
         private static string StampPath { get { return Path.Combine(Dir, MigrationStampFile); } }

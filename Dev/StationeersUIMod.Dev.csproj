@@ -78,6 +78,13 @@
     <Reference Include="UnityEngine.AssetBundleModule" Private="false">
       <HintPath>$(Managed)\UnityEngine.AssetBundleModule.dll</HintPath>
     </Reference>
+    <!-- GUIUtility.systemCopyBuffer — the clipboard for SmartStow share codes (F10 > Storage >
+         Stow Profiles). UnityEngine.dll only type-FORWARDS GUIUtility, so the module that defines
+         it must be referenced explicitly here. Unity's own asmdef build needs no change:
+         noEngineReferences is false, so the editor auto-references every engine module. -->
+    <Reference Include="UnityEngine.IMGUIModule" Private="false">
+      <HintPath>$(Managed)\UnityEngine.IMGUIModule.dll</HintPath>
+    </Reference>
     <!-- Procedural UGUI radial: MaskableGraphic / Image / Canvas + TMP labels -->
     <Reference Include="UnityEngine.UI" Private="false">
       <HintPath>$(Managed)\UnityEngine.UI.dll</HintPath>

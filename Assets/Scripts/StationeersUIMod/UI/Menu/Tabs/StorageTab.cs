@@ -68,16 +68,28 @@ namespace StationeersUIMod.UI.Menu.Tabs
         // and an armed confirm alike) — the ProfilesTab confirm idiom, adapted.
         private string _renameField;
         private bool _confirmDeleteProfile;
-        // Stow Profile name listing + worn-bag scratch. STATIC (tab instances are recreated by a
+        // B4 Stow Profile manager scratch. Same transient lifetime as the notes above: they survive
+        // a Refresh (tab instances persist) and reset on a theme Restyle.
+        private string _setRenameField;
+        private bool _confirmDeleteSet;
+        private bool _confirmRestoreShipped;
+        private string _shareCode;          // last exported UIAP1 code (shown in the read-only field)
+        private string _shareFingerprint;
+        private string _importField;
+        // Stow Profile listing + worn-bag scratch. STATIC (tab instances are recreated by a
         // theme Restyle) so a restyle-driven Build can reuse the last gesture-built data instead of
         // re-reading StowProfiles/*.xml from disk and re-scanning the inventory up to ~7x/s during
         // an F9 colour-wheel drag (verified perf finding, 2026-07-20). Every NON-restyle Build
         // refills both from the source of truth, so user gestures always see fresh data.
         // ResetCaches (called from UiaControlCenter.Shutdown) drops the Thing refs on teardown.
-        private static readonly List<string> _stowScratch = new List<string>();
+        private static readonly List<StowProfileStore.StowSetInfo> _stowScratch =
+            new List<StowProfileStore.StowSetInfo>();
         private static bool _stowScratchValid;
         private static readonly List<DynamicThing> _bagScratch = new List<DynamicThing>();
         private static bool _bagScratchValid;
+        // B4 manager: which Stow Profile the manager is BROWSING (not necessarily the active one).
+        // Static so it survives a theme Restyle, like _subTab.
+        private static string _browsedSet;
 
         // Bag-card thumbnails, keyed on ReferenceId (per bag, so two differently painted backpacks
         // never share one sprite — plan §6). Cleared at the start of every NON-restyle Bags build,
@@ -99,6 +111,7 @@ namespace StationeersUIMod.UI.Menu.Tabs
             _thumbs.Clear();
             _renameFields.Clear();
             _subTab = SubBags;
+            _browsedSet = null;
             // B3's config key is bound lazily from a static in Features; this is the only
             // mod-teardown path that reaches it (UiaControlCenter.Shutdown is called exactly once,
             // from the plugin's own teardown), so drop the entry reference here. Re-binding is
@@ -605,6 +618,34 @@ namespace StationeersUIMod.UI.Menu.Tabs
             BuildStowProfileBlock(col);
         }
 
+        /// <summary>Gesture-frequency listing of every Stow Profile on disk, with the counts the
+        /// manager renders. A theme Restyle reuses the last one (disk IO at ~7 Hz during an F9 colour
+        /// drag is the verified 2026-07-20 perf trap).</summary>
+        private static List<StowProfileStore.StowSetInfo> StowSets()
+        {
+            if (!(UiaControlCenter.IsRestyling && _stowScratchValid))
+            {
+                _stowScratch.Clear();
+                _stowScratch.AddRange(StowProfileStore.ListSets());
+                _stowScratchValid = true;
+            }
+            return _stowScratch;
+        }
+
+        /// <summary>Which Stow Profile the manager is showing. Defaults to (and falls back to) the
+        /// ACTIVE one, so a browsed set that was just renamed or deleted can never leave the page
+        /// pointing at nothing.</summary>
+        private static string BrowsedSet(List<StowProfileStore.StowSetInfo> sets)
+        {
+            for (int i = 0; i < sets.Count; i++)
+                if (string.Equals(sets[i].Name, _browsedSet, StringComparison.OrdinalIgnoreCase))
+                    return sets[i].Name;
+            for (int i = 0; i < sets.Count; i++)
+                if (sets[i].IsActive) { _browsedSet = sets[i].Name; return _browsedSet; }
+            _browsedSet = sets.Count > 0 ? sets[0].Name : null;
+            return _browsedSet;
+        }
+
         // ---------- page 4: SETTINGS ----------
 
         /// <summary>Everything that is a knob rather than a thing: the Universal Inventory options,
@@ -676,12 +717,15 @@ namespace StationeersUIMod.UI.Menu.Tabs
 
         // ---------- Stow Profiles (SmartStow B2) ----------
 
-        /// <summary>The MINIMAL surface for the new model, in the existing row idiom: which Stow
-        /// Profile is active, a dropdown to switch, and two ways to make another one. The card-based
-        /// manager (browse an inactive set, copy/move Bag Profiles between sets, rename/delete) is
-        /// B4 — the model operations it will call
-        /// (<see cref="StowProfileStore.CopyProfileTo"/>/<see cref="StowProfileStore.MoveProfileTo"/>)
-        /// already exist and are covered by the `stowprofiles` console dump in the meantime.
+        /// <summary>The B4 MANAGER (redesign plan §8): the set list with the active one marked, the
+        /// per-set gestures (Set active / Rename / Duplicate / Delete), a shelf of the BROWSED set's
+        /// Bag Profiles with Copy to... / Move to... across sets, and the share-code in/out pair.
+        ///
+        /// <para>Plan §8's recommended option is cards + a shelf; this ships the same information as
+        /// the §8.3 two-column list because the brief asked for a list and because a row can carry
+        /// the four per-set verbs a 298px card cannot. The one thing NOT built is drag-and-drop
+        /// (plan §10 explicitly ships the context-menu/pick-a-target twin first, drag later as an
+        /// accelerator on top).</para>
         ///
         /// <para>Switching writes the marker file and re-runs <see cref="BagProfileStore.LoadProfiles"/>
         /// — one load path for launch and for switching. Per-save ASSIGNMENTS are untouched by a
@@ -689,42 +733,188 @@ namespace StationeersUIMod.UI.Menu.Tabs
         /// not have reads as unassigned until you switch back (nothing is deleted).</para></summary>
         private void BuildStowProfileBlock(Transform col)
         {
-            UiaControls.Header(col, "Stow Profile");
+            UiaControls.Header(col, "Stow Profiles");
             UiaControls.Note(col, "A Stow Profile is a named folder of bag profiles. One is active at a time - only its profiles can be mapped to your containers. Switching keeps every mapping you made: a name the new Stow Profile also has keeps working, one it does not have simply goes quiet until you switch back.");
 
-            // Disk IO only on gesture-driven builds; a theme Restyle reuses the last listing.
-            if (!(UiaControlCenter.IsRestyling && _stowScratchValid))
-            {
-                _stowScratch.Clear();
-                _stowScratch.AddRange(StowProfileStore.ListNames());
-                _stowScratchValid = true;
-            }
-
-            string active = StowProfileStore.ActiveName;
-            if (!StowProfileStore.Available || _stowScratch.Count == 0)
+            var sets = StowSets();
+            if (!StowProfileStore.Available || sets.Count == 0)
             {
                 UiaControls.Note(col, "Stow Profiles are not available right now - bag profiles are coming from the old Profiles folder instead. Check the log; nothing was lost.");
                 return;
             }
 
-            int idx = Mathf.Max(0, _stowScratch.IndexOf(active));
-            var row = UiaUi.Go("stowpick", col);
-            UiaUi.Size(row, UiaTheme.RowH);
-            UiaUi.HLayout((RectTransform)row.transform, UiaTheme.Gap);
-            var ddHost = UiaUi.Go("ddh", row.transform);
-            UiaUi.Size(ddHost, UiaTheme.RowH, flexW: 1f);
-            UiaUi.HLayout((RectTransform)ddHost.transform, 0f, 0, 0, 0, 0, TextAnchor.MiddleLeft, true);
-            UiaControls.DropdownRow(ddHost.transform, "Active", _stowScratch, idx, i => SwitchStowProfile(i));
-            UiaControls.Button(row.transform, "New", () => NewStowProfile(false), 70f, UiaTheme.RowH);
-            UiaControls.Button(row.transform, "Duplicate", () => NewStowProfile(true), 100f, UiaTheme.RowH);
+            string browsed = BrowsedSet(sets);
+            BuildSetList(col, sets, browsed);
+            BuildSetActions(col, sets, browsed);
             if (!string.IsNullOrEmpty(_stowNote)) SubNote(col, _stowNote);
-            UiaControls.Note(col, "Browsing an inactive Stow Profile, and copying or moving single bag profiles between them, is the next step (B4). Until then the console command 'stowprofiles' prints what every Stow Profile contains.");
+            BuildProfileShelf(col, sets, browsed);
+            BuildShareBlock(col, browsed);
+            BuildMaintenanceBlock(col);
         }
 
-        private void SwitchStowProfile(int index)
+        /// <summary>One row per Stow Profile: click the name to BROWSE it (the shelf below follows),
+        /// press Use to make it active. The two are deliberately separate gestures — plan §3.1's whole
+        /// point is that you can window-shop an inactive set, and copy one bag profile out of it,
+        /// without switching.</summary>
+        private void BuildSetList(Transform col, List<StowProfileStore.StowSetInfo> sets, string browsed)
         {
-            if (index < 0 || index >= _stowScratch.Count) return;
-            string want = _stowScratch[index];
+            for (int i = 0; i < sets.Count; i++)
+            {
+                var set = sets[i];
+                string name = set.Name;
+                var row = UiaUi.Go("setrow", col);
+                UiaUi.Size(row, UiaTheme.RowH);
+                UiaUi.HLayout((RectTransform)row.transform, UiaTheme.Gap);
+
+                // ASCII only: "*" marks the active set, "(shipped)" marks one of the four presets.
+                string label = (set.IsActive ? "* " : "  ") + name
+                    + (set.IsShipped ? "   (shipped)" : "");
+                var pick = UiaControls.Button(row.transform, label, () => BrowseSet(name), -1f, UiaTheme.RowH);
+                pick.SetSelected(string.Equals(name, browsed, StringComparison.OrdinalIgnoreCase));
+
+                var counts = UiaUi.Text(row.transform,
+                    set.ProfileCount + (set.ProfileCount == 1 ? " profile" : " profiles")
+                        + " - " + set.RuleCount + " rules",
+                    11f, UiaTheme.TextMute, TextAlignmentOptions.Right);
+                UiaUi.Size(counts.gameObject, UiaTheme.RowH, 170f, flexW: 0f);
+
+                if (set.IsActive)
+                {
+                    var inUse = UiaUi.Text(row.transform, "in use", 11f, UiaTheme.Good, TextAlignmentOptions.Center);
+                    UiaUi.Size(inUse.gameObject, UiaTheme.RowH, 90f, flexW: 0f);
+                }
+                else
+                {
+                    UiaControls.Button(row.transform, "Use", () => SetActiveStowProfile(name), 90f, UiaTheme.RowH);
+                }
+            }
+        }
+
+        /// <summary>The gestures for the BROWSED set. Delete is arm/confirm (the ProfilesTab idiom)
+        /// and the confirm line spells out what survives — nothing about a container mapping is lost
+        /// by deleting a Stow Profile, which is not obvious and is the reason people hesitate.</summary>
+        private void BuildSetActions(Transform col, List<StowProfileStore.StowSetInfo> sets, string browsed)
+        {
+            StowProfileStore.StowSetInfo info = null;
+            for (int i = 0; i < sets.Count; i++)
+                if (string.Equals(sets[i].Name, browsed, StringComparison.OrdinalIgnoreCase)) info = sets[i];
+            if (info != null && !string.IsNullOrEmpty(info.Description)) SubNote(col, info.Description);
+
+            if (_confirmDeleteSet)
+            {
+                var confirm = UiaUi.Go("setdel", col);
+                UiaUi.Size(confirm, UiaTheme.RowH);
+                UiaUi.HLayout((RectTransform)confirm.transform, UiaTheme.Gap);
+                UiaControls.Button(confirm.transform, "Yes, delete it", () => DeleteStowProfile(browsed), 170f,
+                    UiaTheme.RowH, UiaControls.ButtonStyle.Danger);
+                UiaControls.Button(confirm.transform, "Cancel",
+                    () => { _confirmDeleteSet = false; UiaControlCenter.Refresh(); }, 110f, UiaTheme.RowH);
+                UiaControls.Note(col, "Delete the Stow Profile \"" + browsed + "\" and every bag profile inside it? Your container mappings are NOT deleted - they name bag profiles, so they simply go quiet until a Stow Profile with those names is active again. The file is removed from disk; this cannot be undone.");
+                return;
+            }
+
+            var row = UiaUi.Go("setact", col);
+            UiaUi.Size(row, UiaTheme.RowH);
+            UiaUi.HLayout((RectTransform)row.transform, UiaTheme.Gap);
+
+            var fieldGo = UiaUi.Go("setrenamehost", row.transform);
+            UiaUi.Size(fieldGo, UiaTheme.RowH, flexW: 1f, minW: 120f);
+            UiaUi.HLayout((RectTransform)fieldGo.transform, 0f, 0, 0, 0, 0, TextAnchor.MiddleLeft, true);
+            var input = UiaUi.InputField(fieldGo.transform, "New name for \"" + browsed + "\"...",
+                v => _setRenameField = v);
+            if (!string.IsNullOrEmpty(_setRenameField)) input.text = _setRenameField;
+
+            UiaControls.Button(row.transform, "Rename", () => RenameStowProfile(browsed), 90f, UiaTheme.RowH);
+            UiaControls.Button(row.transform, "Duplicate", () => DuplicateStowProfile(browsed), 100f, UiaTheme.RowH);
+            UiaControls.Button(row.transform, "New", () => NewStowProfile(false), 70f, UiaTheme.RowH);
+            if (sets.Count > 1)
+                UiaControls.Button(row.transform, "Delete",
+                    () => { _confirmDeleteSet = true; UiaControlCenter.Refresh(); },
+                    90f, UiaTheme.RowH, UiaControls.ButtonStyle.Danger);
+        }
+
+        /// <summary>The browsed set's Bag Profiles, each with a Copy to... / Move to... target picker.
+        /// Both go through <see cref="StowProfileStore.TransferProfile"/>, which knows that the ACTIVE
+        /// set's profiles live in memory rather than in a re-readable file.</summary>
+        private void BuildProfileShelf(Transform col, List<StowProfileStore.StowSetInfo> sets, string browsed)
+        {
+            UiaControls.Header(col, "Bag profiles in \"" + browsed + "\"");
+
+            List<BagProfile> profiles = null;
+            try { profiles = StowProfileStore.ProfilesOf(browsed); }
+            catch (Exception e) { UIALog.Warn("Could not read Stow Profile '" + browsed + "': " + e.Message); }
+            if (profiles == null || profiles.Count == 0)
+            {
+                UiaControls.Note(col, "This Stow Profile has no bag profiles yet. Switch to it and use the Bag Profiles tab, or copy one in from another Stow Profile below.");
+                return;
+            }
+
+            // The target picker's option list: every OTHER set, with a sentinel row 0 (the same
+            // "a dropdown that is really a button" idiom the rule editor uses for its enum adds).
+            var targets = new List<string>();
+            for (int i = 0; i < sets.Count; i++)
+                if (!string.Equals(sets[i].Name, browsed, StringComparison.OrdinalIgnoreCase))
+                    targets.Add(sets[i].Name);
+
+            var copyOpts = new List<string> { "Copy to..." };
+            copyOpts.AddRange(targets);
+            var moveOpts = new List<string> { "Move to..." };
+            moveOpts.AddRange(targets);
+
+            for (int i = 0; i < profiles.Count; i++)
+            {
+                BagProfile p = profiles[i];
+                if (p == null || string.IsNullOrEmpty(p.Name)) continue;
+                string pname = p.Name;
+
+                var row = UiaUi.Go("shelfrow", col);
+                UiaUi.Size(row, 26f);
+                UiaUi.HLayout((RectTransform)row.transform, UiaTheme.Gap, 6, 6, 0, 0, TextAnchor.MiddleLeft);
+
+                var label = UiaUi.Text(row.transform, pname, UiaTheme.SmallSize, UiaTheme.Text, TextAlignmentOptions.Left);
+                label.overflowMode = TextOverflowModes.Ellipsis;
+                label.enableWordWrapping = false;
+                var lle = label.gameObject.AddComponent<LayoutElement>();
+                lle.flexibleWidth = 1f;
+                lle.minWidth = 90f;
+
+                var counts = UiaUi.Text(row.transform,
+                    p.RuleCount + (p.RuleCount == 1 ? " rule" : " rules"),
+                    11f, UiaTheme.TextMute, TextAlignmentOptions.Right);
+                UiaUi.Size(counts.gameObject, 26f, 80f, flexW: 0f);
+
+                if (targets.Count == 0)
+                {
+                    var only = UiaUi.Text(row.transform, "(the only Stow Profile)", 11f, UiaTheme.TextMute,
+                        TextAlignmentOptions.Right);
+                    UiaUi.Size(only.gameObject, 26f, 320f, flexW: 0f);
+                    continue;
+                }
+                InlineDropdown(row.transform, copyOpts, 0,
+                    idx => { if (idx > 0) TransferProfile(browsed, pname, copyOpts[idx], false); }, 150f);
+                InlineDropdown(row.transform, moveOpts, 0,
+                    idx => { if (idx > 0) TransferProfile(browsed, pname, moveOpts[idx], true); }, 150f);
+            }
+            UiaControls.Note(col, "Copy leaves the original where it is; Move takes it out of this Stow Profile. A name the target already uses gets a \"(2)\" suffix rather than replacing anything. Moving a bag profile does NOT clear container mappings that name it - they resolve again as soon as a Stow Profile holding that name is active.");
+        }
+
+        // ---------- B4 gestures ----------
+
+        private void BrowseSet(string name)
+        {
+            if (string.Equals(name, _browsedSet, StringComparison.OrdinalIgnoreCase)) return;
+            _browsedSet = name;
+            _setRenameField = null;
+            _confirmDeleteSet = false;
+            _shareCode = null;
+            _shareFingerprint = null;
+            _stowNote = null;
+            UiaControlCenter.Refresh();
+        }
+
+        private void SetActiveStowProfile(string want)
+        {
+            if (string.IsNullOrEmpty(want)) return;
             if (string.Equals(want, StowProfileStore.ActiveName, StringComparison.Ordinal)) return;
             if (!StowProfileStore.SetActive(want))
             {
@@ -737,6 +927,7 @@ namespace StationeersUIMod.UI.Menu.Tabs
             _renameField = null;
             _confirmDeleteProfile = false;
             _stowScratchValid = false;
+            _browsedSet = StowProfileStore.ActiveName;
             _stowNote = "Now using \"" + StowProfileStore.ActiveName + "\" ("
                 + BagProfileStore.Profiles.Count + " bag profile(s)).";
             BumpGridChrome();                 // chips/badges follow the new profile set
@@ -751,8 +942,374 @@ namespace StationeersUIMod.UI.Menu.Tabs
             string made = StowProfileStore.Create(baseName, duplicate);
             _stowNote = made == null
                 ? "Could not create a new Stow Profile (see the log)."
-                : "Created \"" + made + "\". Pick it above to switch to it.";
+                : "Created \"" + made + "\". Press Use on its row to switch to it.";
+            if (made != null) _browsedSet = made;
             _stowScratchValid = false;
+            UiaControlCenter.Refresh();
+        }
+
+        /// <summary>Duplicate the BROWSED set. <see cref="StowProfileStore.Create"/> can only copy the
+        /// ACTIVE one, so a browsed inactive set is duplicated by making an empty one and copying its
+        /// bag profiles across — the same transfer path the shelf uses, so there is one implementation
+        /// of "a profile moved between sets" rather than two.</summary>
+        private void DuplicateStowProfile(string source)
+        {
+            if (string.IsNullOrEmpty(source)) return;
+            bool sourceIsActive = string.Equals(source, StowProfileStore.ActiveName, StringComparison.OrdinalIgnoreCase);
+            string made = StowProfileStore.Create(source + " copy", sourceIsActive);
+            if (made == null)
+            {
+                _stowNote = "Could not duplicate \"" + source + "\" (see the log).";
+                UiaControlCenter.Refresh();
+                return;
+            }
+            int copied = 0;
+            if (!sourceIsActive)
+            {
+                List<BagProfile> profiles = StowProfileStore.ProfilesOf(source);
+                for (int i = 0; i < profiles.Count; i++)
+                {
+                    if (profiles[i] == null || string.IsNullOrEmpty(profiles[i].Name)) continue;
+                    if (StowProfileStore.TransferProfile(source, profiles[i].Name, made, false) != null) copied++;
+                }
+            }
+            else
+            {
+                copied = BagProfileStore.Profiles.Count;
+            }
+            _stowNote = "Created \"" + made + "\" with " + copied + " bag profile(s).";
+            _browsedSet = made;
+            _setRenameField = null;
+            _stowScratchValid = false;
+            UiaControlCenter.Refresh();
+        }
+
+        private void RenameStowProfile(string oldName)
+        {
+            string wanted = ProfileCapture.SanitizeName(_setRenameField);
+            if (string.IsNullOrEmpty(wanted))
+            {
+                _stowNote = "Type a new name first.";
+                UiaControlCenter.Refresh();
+                return;
+            }
+            string made = StowProfileStore.RenameSet(oldName, wanted);
+            if (made == null)
+            {
+                _stowNote = "Could not rename \"" + oldName + "\" to \"" + wanted + "\" - that name may already be taken (see the log).";
+                UiaControlCenter.Refresh();
+                return;
+            }
+            _stowNote = "Renamed \"" + oldName + "\" to \"" + made + "\".";
+            _browsedSet = made;
+            _setRenameField = null;
+            _stowScratchValid = false;
+            UiaControlCenter.Refresh();
+        }
+
+        private void DeleteStowProfile(string name)
+        {
+            _confirmDeleteSet = false;
+            bool wasActive = string.Equals(name, StowProfileStore.ActiveName, StringComparison.OrdinalIgnoreCase);
+            if (!StowProfileStore.DeleteSet(name))
+            {
+                _stowNote = "Could not delete \"" + name + "\" (the last Stow Profile cannot be deleted - see the log).";
+                UiaControlCenter.Refresh();
+                return;
+            }
+            _browsedSet = null;
+            _setRenameField = null;
+            _stowScratchValid = false;
+            if (wasActive)
+            {
+                BagProfileStore.LoadProfiles();   // the store re-pointed the marker; re-resolve once
+                _selected = 0;
+                _renameField = null;
+                _confirmDeleteProfile = false;
+                BumpGridChrome();
+                _stowNote = "Deleted \"" + name + "\". Now using \"" + (StowProfileStore.ActiveName ?? "?") + "\".";
+            }
+            else
+            {
+                _stowNote = "Deleted \"" + name + "\".";
+            }
+            UiaControlCenter.Refresh();
+        }
+
+        private void TransferProfile(string source, string profileName, string target, bool move)
+        {
+            string landed = null;
+            try { landed = StowProfileStore.TransferProfile(source, profileName, target, move); }
+            catch (Exception e) { UIALog.Warn("Bag profile transfer failed: " + e.Message); }
+            if (landed == null)
+            {
+                _stowNote = "Could not " + (move ? "move" : "copy") + " \"" + profileName + "\" to \"" + target + "\" (see the log).";
+            }
+            else
+            {
+                _stowNote = (move ? "Moved \"" : "Copied \"") + profileName + "\" to \"" + target + "\""
+                    + (string.Equals(landed, profileName, StringComparison.Ordinal)
+                        ? "." : " as \"" + landed + "\" (that name was taken).");
+            }
+            _stowScratchValid = false;
+            BumpGridChrome();   // the active set may have gained or lost a profile
+            UiaControlCenter.Refresh();
+        }
+
+        // ---------- B4: share codes (plan §9, FlorpyDorp Q7) ----------
+
+        /// <summary>Export / import a whole Stow Profile as a <c>UIAP1-F-</c> string.
+        ///
+        /// <para><b>The clipboard is the transport, not this text box.</b> A full code runs to
+        /// thousands of characters; putting all of it into a single-line <c>TMP_InputField</c> would
+        /// build a mesh for every one of those glyphs for no benefit, so Export copies straight to the
+        /// clipboard, writes a <c>StowProfiles/Export/&lt;name&gt;.txt</c> copy (clipboards do not
+        /// survive every remote-desktop/VM setup) and shows only a short preview plus the fingerprint.
+        /// Import reads the box, and falls back to the CLIPBOARD when the box is empty — so the normal
+        /// gesture is copy-then-press-Import with nothing pasted anywhere.</para>
+        ///
+        /// <para>The third transport needs no UI at all: a <c>.xml</c> document dropped into
+        /// <c>StowProfiles/</c> is picked up by the folder enumeration, so it appears in the list above
+        /// as soon as the page is rebuilt (that is what Refresh is for — the listing is cached per
+        /// gesture, never per frame).</para></summary>
+        private void BuildShareBlock(Transform col, string browsed)
+        {
+            UiaControls.Header(col, "Share");
+
+            var row = UiaUi.Go("sharerow", col);
+            UiaUi.Size(row, UiaTheme.RowH);
+            UiaUi.HLayout((RectTransform)row.transform, UiaTheme.Gap);
+            UiaControls.Button(row.transform, "Export \"" + Shorten(browsed, 18) + "\" as a code",
+                () => ExportStowCode(browsed), 260f, UiaTheme.RowH, UiaControls.ButtonStyle.Primary);
+            if (!string.IsNullOrEmpty(_shareCode))
+                UiaControls.Button(row.transform, "Copy again", () => CopyShareCode(), 120f, UiaTheme.RowH);
+            UiaControls.Button(row.transform, "Refresh list", RefreshStowList, 130f, UiaTheme.RowH);
+
+            if (!string.IsNullOrEmpty(_shareCode))
+            {
+                var preview = UiaUi.Go("codepreview", col);
+                UiaUi.Size(preview, 24f);
+                UiaUi.HLayout((RectTransform)preview.transform, UiaTheme.Gap);
+                var fp = UiaUi.Text(preview.transform,
+                    "Fingerprint " + (_shareFingerprint ?? "?") + "  -  say this out loud to check the code arrived whole",
+                    11f, UiaTheme.Good, TextAlignmentOptions.Left);
+                UiaUi.Size(fp.gameObject, 24f, 420f, flexW: 0f);
+                var host = UiaUi.Go("codehost", preview.transform);
+                UiaUi.Size(host, 24f, flexW: 1f, minW: 120f);
+                UiaUi.HLayout((RectTransform)host.transform, 0f, 0, 0, 0, 0, TextAnchor.MiddleLeft, true);
+                var field = UiaUi.InputField(host.transform, "", null);
+                field.readOnly = true;
+                field.text = Shorten(_shareCode, 46);
+            }
+
+            var importRow = UiaUi.Go("importrow", col);
+            UiaUi.Size(importRow, UiaTheme.RowH);
+            UiaUi.HLayout((RectTransform)importRow.transform, UiaTheme.Gap);
+            var fieldGo = UiaUi.Go("importhost", importRow.transform);
+            UiaUi.Size(fieldGo, UiaTheme.RowH, flexW: 1f, minW: 140f);
+            UiaUi.HLayout((RectTransform)fieldGo.transform, 0f, 0, 0, 0, 0, TextAnchor.MiddleLeft, true);
+            var importInput = UiaUi.InputField(fieldGo.transform, "Paste a UIAP1-F- code, or just press Import...",
+                v => _importField = v);
+            if (!string.IsNullOrEmpty(_importField)) importInput.text = _importField;
+            UiaControls.Button(importRow.transform, "Import code", ImportStowCode, 140f, UiaTheme.RowH,
+                UiaControls.ButtonStyle.Primary);
+
+            UiaControls.Note(col, "Export copies the code to your clipboard AND writes it to StowProfiles/Export/ as a text file. Import reads the box above, or your clipboard when the box is empty, and always creates a NEW Stow Profile - it never overwrites one you already have. You can also just drop a Stow Profile .xml file into the StowProfiles folder and press Refresh list.");
+        }
+
+        private void ExportStowCode(string setName)
+        {
+            _shareCode = null;
+            _shareFingerprint = null;
+            StowProfileDoc doc = BuildDocFor(setName);
+            if (doc == null)
+            {
+                _stowNote = "Could not read \"" + setName + "\" to export it.";
+                UiaControlCenter.Refresh();
+                return;
+            }
+            string fingerprint;
+            string code = StowShareCodec.Encode(doc, out fingerprint);
+            if (code == null)
+            {
+                _stowNote = "Could not build a share code for \"" + setName + "\" (see the log).";
+                UiaControlCenter.Refresh();
+                return;
+            }
+            _shareCode = code;
+            _shareFingerprint = fingerprint;
+            bool copied = CopyToClipboard(code);
+            string file = StowShareCodec.WriteExportFile(doc.Name, code, fingerprint);
+            _stowNote = "Fingerprint " + fingerprint + " - " + code.Length + " characters"
+                + (copied ? ", copied to the clipboard" : ", clipboard unavailable")
+                + (file != null ? ". Also saved to " + file : ". The file copy could not be written.");
+            UiaControlCenter.Refresh();
+        }
+
+        private void CopyShareCode()
+        {
+            bool ok = CopyToClipboard(_shareCode);
+            _stowNote = ok ? "Copied the code to your clipboard." : "Could not reach the clipboard (see the log).";
+            UiaControlCenter.Refresh();
+        }
+
+        private void ImportStowCode()
+        {
+            string text = _importField;
+            bool fromClipboard = false;
+            if (string.IsNullOrEmpty(text))
+            {
+                text = ReadClipboard();
+                fromClipboard = !string.IsNullOrEmpty(text);
+            }
+            if (string.IsNullOrEmpty(text))
+            {
+                _stowNote = "Paste a code into the box first (or copy one and press Import again).";
+                UiaControlCenter.Refresh();
+                return;
+            }
+
+            string fingerprint, error;
+            int unknown;
+            StowProfileDoc doc = StowShareCodec.Decode(text, out fingerprint, out error, out unknown);
+            if (doc == null)
+            {
+                _stowNote = error + (fromClipboard ? " (read from your clipboard)" : "");
+                UiaControlCenter.Refresh();
+                return;
+            }
+            string landed = StowProfileStore.ImportDoc(doc);
+            if (landed == null)
+            {
+                _stowNote = "That code decoded, but the Stow Profile could not be written (see the log).";
+                UiaControlCenter.Refresh();
+                return;
+            }
+            _importField = null;
+            _browsedSet = landed;
+            _stowScratchValid = false;
+            _stowNote = "Imported \"" + landed + "\" (" + doc.Profiles.Count + " bag profile(s), fingerprint "
+                + fingerprint + ")"
+                + (unknown > 0
+                    ? ". " + unknown + " rule(s) name something this game version does not have - they were KEPT, in case they belong to a mod or a newer build."
+                    : ".")
+                + " It is not active yet - press Use on its row.";
+            UiaControlCenter.Refresh();
+        }
+
+        /// <summary>The document to encode. The ACTIVE set is taken from the live in-memory list so an
+        /// edit made one tab over is in the code; anything else is read from its file.</summary>
+        private static StowProfileDoc BuildDocFor(string setName)
+        {
+            if (string.IsNullOrEmpty(setName)) return null;
+            try
+            {
+                bool isActive = StowProfileStore.Available
+                    && string.Equals(setName, StowProfileStore.ActiveName, StringComparison.OrdinalIgnoreCase);
+                return new StowProfileDoc
+                {
+                    Name = isActive ? StowProfileStore.ActiveName : setName,
+                    Description = isActive && StowProfileStore.Active != null
+                        ? StowProfileStore.Active.Description : DescriptionOf(setName),
+                    Profiles = isActive
+                        ? new List<BagProfile>(BagProfileStore.Profiles)
+                        : StowProfileStore.ProfilesOf(setName),
+                };
+            }
+            catch (Exception e)
+            {
+                UIALog.Warn("Could not assemble '" + setName + "' for export: " + e.Message);
+                return null;
+            }
+        }
+
+        private static string DescriptionOf(string setName)
+        {
+            for (int i = 0; i < _stowScratch.Count; i++)
+                if (string.Equals(_stowScratch[i].Name, setName, StringComparison.OrdinalIgnoreCase))
+                    return _stowScratch[i].Description;
+            return null;
+        }
+
+        private void RefreshStowList()
+        {
+            _stowScratchValid = false;
+            _stowNote = null;
+            UiaControlCenter.Refresh();
+        }
+
+        /// <summary>Head + tail of a long string with an ASCII ellipsis in the middle (TMP renders
+        /// Basic Latin only, so "..." rather than a real ellipsis glyph).</summary>
+        private static string Shorten(string s, int max)
+        {
+            if (string.IsNullOrEmpty(s) || s.Length <= max) return s ?? "";
+            if (max <= 5) return s.Substring(0, Math.Max(1, max));
+            int head = (max - 3) * 2 / 3;
+            int tail = max - 3 - head;
+            return s.Substring(0, head) + "..." + s.Substring(s.Length - tail);
+        }
+
+        /// <summary>Unity's system clipboard. Fail-soft: if the property is unavailable for any
+        /// reason the export still wrote its .txt file, and the UI says which of the two worked.</summary>
+        private static bool CopyToClipboard(string text)
+        {
+            if (string.IsNullOrEmpty(text)) return false;
+            try { GUIUtility.systemCopyBuffer = text; return true; }
+            catch (Exception e) { UIALog.Warn("Clipboard write failed: " + e.Message); return false; }
+        }
+
+        private static string ReadClipboard()
+        {
+            try { return GUIUtility.systemCopyBuffer; }
+            catch (Exception e) { UIALog.Warn("Clipboard read failed: " + e.Message); return null; }
+        }
+
+        // ---------- B4: maintenance ----------
+
+        /// <summary>"Restore shipped Stow Profiles" — the narrow, explicit counterpart to the HUD tab's
+        /// "Restore shipped themes". Shipped sets are SEEDED ONCE and never refreshed
+        /// (<see cref="StowProfileStore.SeedShipped"/>), so this button is the only way an existing
+        /// install ever takes a newer version of them — and it is destructive to edits under those
+        /// four names, hence the arm/confirm.</summary>
+        private void BuildMaintenanceBlock(Transform col)
+        {
+            UiaControls.Header(col, "Maintenance");
+            if (_confirmRestoreShipped)
+            {
+                var row = UiaUi.Go("restore", col);
+                UiaUi.Size(row, UiaTheme.RowH);
+                UiaUi.HLayout((RectTransform)row.transform, UiaTheme.Gap);
+                UiaControls.Button(row.transform, "Yes, restore all four", RestoreShipped, 220f, UiaTheme.RowH,
+                    UiaControls.ButtonStyle.Danger);
+                UiaControls.Button(row.transform, "Cancel",
+                    () => { _confirmRestoreShipped = false; UiaControlCenter.Refresh(); }, 110f, UiaTheme.RowH);
+                UiaControls.Note(col, "This rewrites By Printer, By Category, Stationpedia Ascended and Starter from the mod, OVERWRITING any changes you made to those four names and re-creating any you deleted. Every other Stow Profile is untouched. Your container mappings are untouched.");
+                return;
+            }
+            var btnRow = UiaUi.Go("maint", col);
+            UiaUi.Size(btnRow, UiaTheme.RowH);
+            UiaUi.HLayout((RectTransform)btnRow.transform, UiaTheme.Gap);
+            UiaControls.Button(btnRow.transform, "Restore shipped Stow Profiles",
+                () => { _confirmRestoreShipped = true; UiaControlCenter.Refresh(); }, 260f, UiaTheme.RowH);
+            UiaControls.Note(col, "The four shipped sets - By Printer, By Category, Stationpedia Ascended and Starter - are put on your disk once, the first time this build runs. After that they are yours: edit them freely, and a deleted one stays deleted. Use this button to get the originals back.");
+        }
+
+        private void RestoreShipped()
+        {
+            _confirmRestoreShipped = false;
+            int written = 0;
+            // RestoreShipped re-runs LoadProfiles itself (the active document may have just been
+            // overwritten on disk, and a stale one would write the old content straight back).
+            try { written = StowProfileStore.RestoreShipped(); }
+            catch (Exception e) { UIALog.Warn("Restore shipped Stow Profiles failed: " + e.Message); }
+            _selected = 0;
+            _renameField = null;
+            _confirmDeleteProfile = false;
+            _stowScratchValid = false;
+            _stowNote = written > 0
+                ? "Restored " + written + " shipped Stow Profile(s)."
+                : "Nothing was restored (see the log).";
+            BumpGridChrome();
             UiaControlCenter.Refresh();
         }
 
