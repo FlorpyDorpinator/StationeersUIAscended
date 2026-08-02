@@ -753,16 +753,49 @@ namespace StationeersUIMod.UI.Hud
             return v >= 0f ? v : global;
         }
 
+        /// <summary>True while the shared Tier-A edge-light BOOST exists at all — the
+        /// +FxEdgeLight*0.45 that <see cref="GlassEdgeFor"/>'s global branch,
+        /// <see cref="HudGlobalGlass.Apply"/> and <c>GridTheme.EdgeLightBoost</c> all add on top of
+        /// the theme's GlassEdge base. It is a MASTER-GATED contribution: Tier A off, "Edge energy"
+        /// off, or a zero strength and it does not exist.</summary>
+        protected static bool EdgeLightBoostActive
+            => HudConfig.FxTierA != null && HudConfig.FxTierA.Value
+            && HudConfig.FxEdgeLightOn != null && HudConfig.FxEdgeLightOn.Value
+            && HudConfig.FxEdgeLight != null && HudConfig.FxEdgeLight.Value > 0f;
+
         /// <summary>The element's effective glass edge light.
         /// Custom: `spec` is the FINAL per-element strength — the separation snapshot froze any
         /// global Tier-A boost into it, so applying the boost again would make Custom neither
         /// independent nor visually continuous, and spec 0 simply means no edge light.
         /// Global: the GlassEdge base plus the Tier-A edge-light boost. That knob lights the
         /// PANEL border run too (play-test: the slider only drove drawn lines otherwise) — every
-        /// widget flows through here, so one slider lights the whole following HUD's edges.</summary>
+        /// widget flows through here, so one slider lights the whole following HUD's edges.
+        ///
+        /// THE MASTER STILL WINS OVER A FROZEN BOOST (2026-08-01, FlorpyDorp: "I've turned off the
+        /// edge glass effects but they are still there — not moving, but they don't turn off").
+        /// Because separation freezes `spec` as base+boost, the boost — which the global branch
+        /// three lines below gates on Tier A and "Edge energy" — becomes ungated the moment it is
+        /// baked into this unmastered Surface param. Turning both masters off then collapses every
+        /// OTHER Tier-A effect to 0 (border fade, soft edge, halo, ripple, flow, and LightTint's
+        /// colour) while a static white specular rim survives on any element that owns Surface:
+        /// exactly "still there, but not moving". His Pure HUD stores spec 0.689399958 on five
+        /// elements, which is GlassEdge(0) + FxEdgeLight(1.532)*0.45 to the last digit — a frozen
+        /// boost and nothing else.
+        ///
+        /// So while the boost is OFF, an owned `spec` is CAPPED at the theme's GlassEdge base: the
+        /// most edge light any element may show is what the global branch itself would produce.
+        /// This is the same rule the Grid reached on 2026-07-20 (`GridTheme.EdgeLightBoost`, whose
+        /// comment names the identical "un-removable ~FxEdgeLight*0.45 floor"), expressed as a cap
+        /// rather than a re-derivation because the HUD's stored value is already baked and cannot
+        /// be un-baked without knowing the globals in force when it was written.
+        ///
+        /// Deliberately a MIN, not a zero: an author who set a per-element edge light BELOW the
+        /// theme base keeps it, and nothing changes at all while the masters are on — the shipped
+        /// state — so this is inert for every profile that has not turned the edge family off.</summary>
         protected float GlassEdgeFor()
         {
             float global = HudConfig.GlassEdge != null ? HudConfig.GlassEdge.Value : 0f;
+            bool boost = EdgeLightBoostActive;
             HudStyleSlot slot;
             var src = StyleSrc(HudFxCategory.Surface, out slot);
             if (src != null)
@@ -770,12 +803,11 @@ namespace StationeersUIMod.UI.Hud
                 // Own OR a donor that owns Surface: `spec` is a FINAL strength on both, so the
                 // Tier-A boost must not be applied a second time on top of it.
                 float own = src.GetFFor(slot, "spec", -1f);
-                return Mathf.Clamp01(own >= 0f ? own : global);
+                float v = Mathf.Clamp01(own >= 0f ? own : global);
+                return boost ? v : Mathf.Min(v, Mathf.Clamp01(global));
             }
             float baseSpec = global;
-            if (HudConfig.FxTierA != null && HudConfig.FxTierA.Value
-                && HudConfig.FxEdgeLightOn != null && HudConfig.FxEdgeLightOn.Value
-                && HudConfig.FxEdgeLight != null && HudConfig.FxEdgeLight.Value > 0f)
+            if (boost)
                 baseSpec = Mathf.Clamp01(baseSpec + HudConfig.FxEdgeLight.Value * 0.45f);
             return baseSpec;
         }
@@ -3311,11 +3343,14 @@ namespace StationeersUIMod.UI.Hud
                     float own = d.GetF("spec", -1f);
                     float resolved = sourceGlobal || followsColours || own < 0f ? g : own;
                     bool optedOut = !followsColours && own == 0f;
-                    if (!sourceCustom && !optedOut
-                        && HudConfig.FxTierA != null && HudConfig.FxTierA.Value
-                        && HudConfig.FxEdgeLightOn != null && HudConfig.FxEdgeLightOn.Value
-                        && HudConfig.FxEdgeLight != null && HudConfig.FxEdgeLight.Value > 0f)
+                    if (!sourceCustom && !optedOut && EdgeLightBoostActive)
                         resolved = Mathf.Clamp01(resolved + HudConfig.FxEdgeLight.Value * 0.45f);
+                    // The snapshot must freeze what the RENDERER shows, and GlassEdgeFor now caps
+                    // an owned `spec` at the GlassEdge base while the boost's masters are off (see
+                    // its remarks). Without this the def-only snapshot would re-bake a frozen boost
+                    // the live HUD is no longer drawing. A no-op when `resolved` is already the
+                    // global, and inert whenever the masters are on.
+                    else if (!EdgeLightBoostActive) resolved = Mathf.Min(resolved, g);
                     d.SetF("spec", Mathf.Clamp01(resolved));
                     return;
                 }
