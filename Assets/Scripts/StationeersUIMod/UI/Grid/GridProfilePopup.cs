@@ -85,12 +85,22 @@ namespace StationeersUIMod.UI.Grid
             // Rows: "(no profile)" first, then every loaded profile in store order.
             AddRow(null, "(no profile)", string.IsNullOrEmpty(current));
             var profiles = BagProfileStore.Profiles;
+            bool currentListed = false;
             for (int i = 0; i < profiles.Count; i++)
             {
                 var p = profiles[i];
                 if (p == null || string.IsNullOrEmpty(p.Name)) continue;
-                AddRow(p.Name, p.Name, p.Name == current);
+                bool isCurrent = p.Name == current;
+                if (isCurrent) currentListed = true;
+                AddRow(p.Name, p.Name, isCurrent);
             }
+            // The bag is mapped to a bag profile that lives in a DIFFERENT Stow Profile (only the
+            // active one is loaded). Without this row the list would show "(no profile)" as the
+            // selection — and every row in it would then overwrite a mapping the model promised to
+            // keep. Show the truth, mark it current, and make it INERT: clicking it closes the
+            // popup and writes nothing.
+            if (!string.IsNullOrEmpty(current) && !currentListed)
+                AddRow(current, current + " (not in this Stow Profile)", true, true);
 
             // Measure the widest label, then size + place everything (rows already exist, so the
             // TMP metrics come from the real font).
@@ -282,7 +292,7 @@ namespace StationeersUIMod.UI.Grid
             scroll.inertia = false;
         }
 
-        private static void AddRow(string profileName, string label, bool isCurrent)
+        private static void AddRow(string profileName, string label, bool isCurrent, bool inert = false)
         {
             var row = new Row();
             row.IsCurrent = isCurrent;
@@ -299,6 +309,7 @@ namespace StationeersUIMod.UI.Grid
             img.raycastTarget = true;
             row.Click = rGo.AddComponent<RowClick>();
             row.Click.ProfileName = profileName;
+            row.Click.Inert = inert;
 
             row.Label = HudText.Make(row.Rect, "Label", HudText.Size(11f),
                 TextAlignmentOptions.Left, warp: false);
@@ -344,11 +355,16 @@ namespace StationeersUIMod.UI.Grid
             IPointerClickHandler, IPointerEnterHandler, IPointerExitHandler
         {
             public string ProfileName;
+            /// <summary>A row that only REPORTS state (the "not in this Stow Profile" mapping):
+            /// clicking it closes the popup and writes nothing, so the kept cross-set mapping
+            /// cannot be destroyed by clicking the thing that describes it.</summary>
+            public bool Inert;
             public bool Hover;
 
             public void OnPointerClick(PointerEventData e)
             {
                 if (e == null || e.button != PointerEventData.InputButton.Left) return;
+                if (Inert) { Close(); return; }
                 RowClicked(ProfileName);
             }
 

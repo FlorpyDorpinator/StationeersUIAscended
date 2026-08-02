@@ -10,12 +10,17 @@ using UnityEngine.UI;
 
 namespace StationeersUIMod.UI.Menu.Tabs
 {
-    /// <summary>Smart storage: the SmartStow+ chain, assigning profiles to your worn bags, a
-    /// one-click recommended setup, and a rule editor (add items via the searchable picker, or whole
-    /// categories / slot classes). Profiles are global; assignments are per save. Per design O6 this
-    /// tab is the POWER ROOM: per-rule priority tri-state (High/Normal/Low), per-bag "all of this
-    /// type" prefab defaults, and a read-only TEST BOX that dry-runs the StowRouter to show where a
-    /// picked item WOULD go and why (nothing ever moves).</summary>
+    /// <summary>Smart storage: the active Stow Profile, the SmartStow+ chain, mapping bag profiles
+    /// to your containers, a one-click recommended setup, and a rule editor (add items via the
+    /// searchable picker, or whole categories / UIA classes / slot classes). Bag profiles live
+    /// inside the ACTIVE Stow Profile; assignments are per save. Per design O6 this tab is the
+    /// POWER ROOM: per-rule priority tri-state (High/Normal/Low) and a read-only TEST BOX that
+    /// dry-runs the StowRouter to show where a picked item WOULD go and why (nothing ever moves).
+    ///
+    /// <para>SmartStow B2 retired two things from this tab per FlorpyDorp Q4 — the Loadouts section
+    /// and every auto-assignment affordance ("Auto-assign to my bags", the per-bag "All &lt;bag&gt;s"
+    /// prefab default). Their data files stay on disk; only the UI and the automatic behaviour are
+    /// gone.</para></summary>
     public sealed class StorageTab : IUiaTab
     {
         public string Title => "Storage";
@@ -24,11 +29,11 @@ namespace StationeersUIMod.UI.Menu.Tabs
         // The test box's picked item (PrefabName). Survives Refresh (tab instances persist);
         // resets on a theme Restyle, which is fine — it is a transient diagnostic, not state.
         private string _testPrefab;
-        // One-line result notes shown under their sections after a gesture (apply/save/delete a
-        // loadout, export/reload profiles). Same lifetime story as _testPrefab: they survive
+        // One-line result notes shown under their sections after a gesture (export/reload/import
+        // profiles, switch Stow Profile). Same lifetime story as _testPrefab: they survive
         // Refresh, reset on a theme Restyle — transient feedback, not state.
-        private string _loadoutNote;
         private string _profileNote;
+        private string _stowNote;
         // Assignment feedback (typed-pack validation warning / "that bag went away"). Same
         // transient lifetime as the notes above.
         private string _assignNote;
@@ -37,14 +42,14 @@ namespace StationeersUIMod.UI.Menu.Tabs
         // and an armed confirm alike) — the ProfilesTab confirm idiom, adapted.
         private string _renameField;
         private bool _confirmDeleteProfile;
-        // Loadout listing + worn-bag scratch. STATIC (tab instances are recreated by a theme
-        // Restyle) so a restyle-driven Build can reuse the last gesture-built data instead of
-        // re-reading Loadouts/*.xml from disk and re-scanning the inventory up to ~7x/s during
+        // Stow Profile name listing + worn-bag scratch. STATIC (tab instances are recreated by a
+        // theme Restyle) so a restyle-driven Build can reuse the last gesture-built data instead of
+        // re-reading StowProfiles/*.xml from disk and re-scanning the inventory up to ~7x/s during
         // an F9 colour-wheel drag (verified perf finding, 2026-07-20). Every NON-restyle Build
         // refills both from the source of truth, so user gestures always see fresh data.
         // ResetCaches (called from UiaControlCenter.Shutdown) drops the Thing refs on teardown.
-        private static readonly List<Loadout> _loadoutScratch = new List<Loadout>();
-        private static bool _loadoutScratchValid;
+        private static readonly List<string> _stowScratch = new List<string>();
+        private static bool _stowScratchValid;
         private static readonly List<DynamicThing> _bagScratch = new List<DynamicThing>();
         private static bool _bagScratchValid;
 
@@ -52,8 +57,8 @@ namespace StationeersUIMod.UI.Menu.Tabs
         /// DynamicThing references into the live world).</summary>
         public static void ResetCaches()
         {
-            _loadoutScratch.Clear();
-            _loadoutScratchValid = false;
+            _stowScratch.Clear();
+            _stowScratchValid = false;
             _bagScratch.Clear();
             _bagScratchValid = false;
         }
@@ -119,14 +124,16 @@ namespace StationeersUIMod.UI.Menu.Tabs
                 UiaControls.ToggleRow(col, "Show where items were stowed (and why)", UIAConfig.StowToastEnabled.Value, v => UIAConfig.StowToastEnabled.Value = v);
             }
 
+            // ---- the active Stow Profile (SmartStow B2) ----
+            BuildStowProfileBlock(col);
+
             // ---- one-click setup ----
             UiaControls.Header(col, "Quick setup");
-            UiaControls.Note(col, "Create a ready-made set of category profiles (Tools, Resources, Food...), then let Smart Stow route loot to the right bag. Assign them below, or auto-fill your worn bags in one click.");
+            UiaControls.Note(col, "Create a ready-made set of category profiles (Tools, Resources, Food...) inside the active Stow Profile, then map them to your containers below. Mapping is always a choice you make - nothing is assigned for you.");
             var qsGo = UiaUi.Go("qs", col);
             UiaUi.Size(qsGo, UiaTheme.RowH);
             UiaUi.HLayout((RectTransform)qsGo.transform, UiaTheme.Gap);
             UiaControls.Button(qsGo.transform, "Create recommended profiles", () => { EnsureRecommended(); Save(); }, 240f, UiaTheme.RowH, UiaControls.ButtonStyle.Primary);
-            UiaControls.Button(qsGo.transform, "Auto-assign to my bags", AutoAssign, 200f, UiaTheme.RowH);
 
             // ---- worn bags ----
             UiaControls.Header(col, "Your bags");
@@ -140,20 +147,53 @@ namespace StationeersUIMod.UI.Menu.Tabs
             {
                 var options = new List<string> { "(no profile)" };
                 options.AddRange(profNames);
+                bool anyForeign = false;
                 foreach (var bag in bags)
                 {
                     var b = bag;
                     string cur = BagProfileStore.GetAssignedProfileName(b);
-                    int idx = string.IsNullOrEmpty(cur) ? 0 : Mathf.Max(0, profNames.IndexOf(cur) + 1);
-                    UiaControls.DropdownRow(col, SafeName(b), options, idx,
-                        i => AssignToBag(b, i <= 0 ? null : profNames[i - 1]));
+                    List<string> opts = options;
+                    int idx = 0;
+                    int foreign = -1;
+                    if (!string.IsNullOrEmpty(cur))
+                    {
+                        int at = profNames.IndexOf(cur);
+                        if (at >= 0)
+                        {
+                            idx = at + 1;
+                        }
+                        else
+                        {
+                            // The mapping points at a bag profile that lives in ANOTHER Stow
+                            // Profile. Showing "(no profile)" here would be a lie the player then
+                            // acts on: picking any row rewrites the assignment and destroys the
+                            // cross-set mapping the model promised to keep. Show it, select it, and
+                            // make choosing it a no-op.
+                            opts = new List<string>(options);
+                            opts.Add(cur + " (not in this Stow Profile)");
+                            foreign = opts.Count - 1;
+                            idx = foreign;
+                            anyForeign = true;
+                        }
+                    }
+                    int foreignIdx = foreign;
+                    UiaControls.DropdownRow(col, SafeName(b), opts, idx,
+                        i =>
+                        {
+                            if (i == foreignIdx) return;   // re-selecting the kept mapping changes nothing
+                            AssignToBag(b, i <= 0 ? null : profNames[i - 1]);
+                        });
                     BagSubRows(col, b, cur);
                 }
+                if (anyForeign)
+                    SubNote(col, "A container above is mapped to a bag profile from another Stow Profile. It is kept, not routed - switch back to that Stow Profile to use it, or pick a new profile here to replace it.");
             }
             if (!string.IsNullOrEmpty(_assignNote)) SubNote(col, _assignNote);
 
-            // ---- loadouts (design O5a: cross-save portability; apply is ALWAYS manual, Q4) ----
-            BuildLoadouts(col);
+            // Loadouts retired here (FlorpyDorp Q4): a Stow Profile IS "a saved group of bags", so
+            // the second concept went away rather than sitting beside it. The Loadouts/*.xml files
+            // stay on disk and LoadoutStore still compiles and still receives the profile-rename
+            // cascade — only the UI and the apply gesture are gone (hide, never destroy).
 
             // ---- profile editor ----
             UiaControls.Header(col, "Edit a profile");
@@ -204,7 +244,8 @@ namespace StationeersUIMod.UI.Menu.Tabs
             UiaUi.Size(shGo, UiaTheme.RowH);
             UiaUi.HLayout((RectTransform)shGo.transform, UiaTheme.Gap);
             UiaControls.Button(shGo.transform, "Reload profiles", ReloadProfiles, 150f, UiaTheme.RowH);
-            UiaControls.Note(col, "Share: Export writes the selected profile to its own file in the Profiles folder. Drop a received profile file in the same folder and hit Reload profiles.");
+            UiaControls.Button(shGo.transform, "Import shared profiles", ImportShared, 200f, UiaTheme.RowH);
+            UiaControls.Note(col, "Share: Export writes the selected profile to its own file in the Profiles folder. Drop a received profile file in that same folder, then press Import shared profiles to add it to the active Stow Profile (a name you already have is replaced).");
 
             // ---- test box (design O6): the router dry-run, read-only by construction ----
             UiaControls.Header(col, "Test box");
@@ -221,77 +262,84 @@ namespace StationeersUIMod.UI.Menu.Tabs
                 TestResults(col);
         }
 
-        // ---------- loadouts (design O5a) ----------
+        // ---------- Stow Profiles (SmartStow B2) ----------
 
-        /// <summary>The Loadouts section: save the current worn arrangement as a new auto-named
-        /// loadout, list every saved loadout with [Apply] [Delete], and show the last action's
-        /// result note. Everything here is CONFIG state — a loadout apply writes per-save
-        /// assignments through <see cref="BagProfileStore.Assign"/> and nothing else; applying is
-        /// always this explicit button press (design Q4 — no auto-apply, ever).</summary>
-        private void BuildLoadouts(Transform col)
+        /// <summary>The MINIMAL surface for the new model, in the existing row idiom: which Stow
+        /// Profile is active, a dropdown to switch, and two ways to make another one. The card-based
+        /// manager (browse an inactive set, copy/move Bag Profiles between sets, rename/delete) is
+        /// B4 — the model operations it will call
+        /// (<see cref="StowProfileStore.CopyProfileTo"/>/<see cref="StowProfileStore.MoveProfileTo"/>)
+        /// already exist and are covered by the `stowprofiles` console dump in the meantime.
+        ///
+        /// <para>Switching writes the marker file and re-runs <see cref="BagProfileStore.LoadProfiles"/>
+        /// — one load path for launch and for switching. Per-save ASSIGNMENTS are untouched by a
+        /// switch: they name profiles, so a name the new set also has keeps working, and one it does
+        /// not have reads as unassigned until you switch back (nothing is deleted).</para></summary>
+        private void BuildStowProfileBlock(Transform col)
         {
-            UiaControls.Header(col, "Loadouts");
-            UiaControls.Note(col, "A loadout remembers which profile each worn bag uses - by bag type and worn order, not by save - so one click re-applies your setup on a fresh save or a replaced bag. Applying is always manual.");
-
-            var saveGo = UiaUi.Go("losave", col);
-            UiaUi.Size(saveGo, UiaTheme.RowH);
-            UiaUi.HLayout((RectTransform)saveGo.transform, UiaTheme.Gap);
-            UiaControls.Button(saveGo.transform, "Save current as loadout", SaveLoadout, 220f, UiaTheme.RowH, UiaControls.ButtonStyle.Primary);
+            UiaControls.Header(col, "Stow Profile");
+            UiaControls.Note(col, "A Stow Profile is a named folder of bag profiles. One is active at a time - only its profiles can be mapped to your containers. Switching keeps every mapping you made: a name the new Stow Profile also has keeps working, one it does not have simply goes quiet until you switch back.");
 
             // Disk IO only on gesture-driven builds; a theme Restyle reuses the last listing.
-            if (!(UiaControlCenter.IsRestyling && _loadoutScratchValid))
+            if (!(UiaControlCenter.IsRestyling && _stowScratchValid))
             {
-                LoadoutStore.LoadAll(_loadoutScratch);
-                _loadoutScratchValid = true;
+                _stowScratch.Clear();
+                _stowScratch.AddRange(StowProfileStore.ListNames());
+                _stowScratchValid = true;
             }
-            if (_loadoutScratch.Count == 0)
+
+            string active = StowProfileStore.ActiveName;
+            if (!StowProfileStore.Available || _stowScratch.Count == 0)
             {
-                UiaControls.Note(col, "No loadouts yet. Assign profiles to your bags above, then save the arrangement here.");
+                UiaControls.Note(col, "Stow Profiles are not available right now - bag profiles are coming from the old Profiles folder instead. Check the log; nothing was lost.");
+                return;
             }
-            else
-            {
-                foreach (var lo in _loadoutScratch)
-                {
-                    var l = lo;
-                    var row = UiaUi.Go("loadout", col);
-                    UiaUi.Size(row, 26f);
-                    UiaUi.HLayout((RectTransform)row.transform, UiaTheme.Gap, 6, 6, 0, 0, TextAnchor.MiddleLeft);
-                    string label = l.Name + "  (" + l.Entries.Count + (l.Entries.Count == 1 ? " bag)" : " bags)");
-                    var name = UiaUi.Text(row.transform, label, UiaTheme.SmallSize, UiaTheme.Text, TextAlignmentOptions.Left);
-                    name.overflowMode = TextOverflowModes.Ellipsis;
-                    name.gameObject.AddComponent<LayoutElement>().flexibleWidth = 1f;
-                    UiaControls.Button(row.transform, "Apply", () => ApplyLoadout(l), 70f, 24f, UiaControls.ButtonStyle.Primary);
-                    UiaControls.Button(row.transform, "Delete", () => DeleteLoadout(l), 70f, 24f, UiaControls.ButtonStyle.Danger);
-                }
-            }
-            if (!string.IsNullOrEmpty(_loadoutNote)) SubNote(col, _loadoutNote);
+
+            int idx = Mathf.Max(0, _stowScratch.IndexOf(active));
+            var row = UiaUi.Go("stowpick", col);
+            UiaUi.Size(row, UiaTheme.RowH);
+            UiaUi.HLayout((RectTransform)row.transform, UiaTheme.Gap);
+            var ddHost = UiaUi.Go("ddh", row.transform);
+            UiaUi.Size(ddHost, UiaTheme.RowH, flexW: 1f);
+            UiaUi.HLayout((RectTransform)ddHost.transform, 0f, 0, 0, 0, 0, TextAnchor.MiddleLeft, true);
+            UiaControls.DropdownRow(ddHost.transform, "Active", _stowScratch, idx, i => SwitchStowProfile(i));
+            UiaControls.Button(row.transform, "New", () => NewStowProfile(false), 70f, UiaTheme.RowH);
+            UiaControls.Button(row.transform, "Duplicate", () => NewStowProfile(true), 100f, UiaTheme.RowH);
+            if (!string.IsNullOrEmpty(_stowNote)) SubNote(col, _stowNote);
         }
 
-        private void SaveLoadout()
+        private void SwitchStowProfile(int index)
         {
-            Loadout lo = LoadoutStore.SaveCurrentAsNew();
-            _loadoutNote = lo == null
-                ? "Nothing to save - no worn bag has a profile assigned."
-                : "Saved \"" + lo.Name + "\" (" + lo.Entries.Count + (lo.Entries.Count == 1 ? " bag)." : " bags).");
+            if (index < 0 || index >= _stowScratch.Count) return;
+            string want = _stowScratch[index];
+            if (string.Equals(want, StowProfileStore.ActiveName, StringComparison.Ordinal)) return;
+            if (!StowProfileStore.SetActive(want))
+            {
+                _stowNote = "Could not switch to \"" + want + "\" (see the log).";
+                UiaControlCenter.Refresh();
+                return;
+            }
+            BagProfileStore.LoadProfiles();   // one load path: re-resolve everything from disk
+            _selected = 0;
+            _renameField = null;
+            _confirmDeleteProfile = false;
+            _stowScratchValid = false;
+            _stowNote = "Now using \"" + StowProfileStore.ActiveName + "\" ("
+                + BagProfileStore.Profiles.Count + " bag profile(s)).";
+            BumpGridChrome();                 // chips/badges follow the new profile set
             UiaControlCenter.Refresh();
         }
 
-        private void ApplyLoadout(Loadout lo)
+        private void NewStowProfile(bool duplicate)
         {
-            LoadoutApplyResult r = LoadoutStore.Apply(lo);
-            string note = "Applied \"" + lo.Name + "\": " + r.Applied + " assigned";
-            if (r.MissingBags > 0) note += ", " + r.MissingBags + " bag(s) not worn";
-            if (r.MissingProfiles > 0) note += ", " + r.MissingProfiles + " profile(s) missing";
-            _loadoutNote = note + ".";
-            BumpGridChrome();   // assignments changed → chips/badges on an open Grid refresh
-            UiaControlCenter.Refresh();
-        }
-
-        private void DeleteLoadout(Loadout lo)
-        {
-            _loadoutNote = LoadoutStore.Delete(lo)
-                ? "Deleted \"" + lo.Name + "\"."
-                : "Could not delete \"" + lo.Name + "\".";
+            string baseName = duplicate
+                ? ((StowProfileStore.ActiveName ?? "Stow Profile") + " copy")
+                : "Stow Profile";
+            string made = StowProfileStore.Create(baseName, duplicate);
+            _stowNote = made == null
+                ? "Could not create a new Stow Profile (see the log)."
+                : "Created \"" + made + "\". Pick it above to switch to it.";
+            _stowScratchValid = false;
             UiaControlCenter.Refresh();
         }
 
@@ -308,9 +356,45 @@ namespace StationeersUIMod.UI.Menu.Tabs
 
         private void ReloadProfiles()
         {
-            BagProfileStore.LoadProfiles();   // re-merges every Profiles/*.xml (drop-in imports included)
+            BagProfileStore.LoadProfiles();   // re-reads the ACTIVE Stow Profile from disk
             _profileNote = "Profiles reloaded (" + BagProfileStore.Profiles.Count + " loaded).";
+            _stowScratchValid = false;
             BumpGridChrome();                 // names/badges may have changed on an open Grid
+            UiaControlCenter.Refresh();
+        }
+
+        /// <summary>Pull any stand-alone profile file sitting in the Profiles folder into the ACTIVE
+        /// Stow Profile. This is the receiving half of the share flow: that folder is no longer
+        /// loaded at launch (the Stow Profile is), so importing is now a deliberate gesture instead
+        /// of a silent side effect of every start-up.</summary>
+        private void ImportShared()
+        {
+            var added = new List<string>();
+            var replaced = new List<string>();
+            int stale;
+            int files = BagProfileStore.ImportSharedProfiles(added, replaced, out stale);
+            if (files == 0)
+            {
+                _profileNote = "No shared profile files found in the Profiles folder.";
+            }
+            else if (added.Count == 0 && replaced.Count == 0)
+            {
+                _profileNote = stale > 0
+                    ? "Nothing imported: " + stale + " file(s) in the Profiles folder are older than what you already have."
+                    : "Nothing to import (" + files + " file(s) read, no profiles in them).";
+            }
+            else
+            {
+                // NAME what changed. "2 updated" is not something a player can check; "replaced:
+                // Ores, Tools" is - and an import that overwrites a profile is exactly the moment
+                // they need to be able to check it.
+                string note = "";
+                if (added.Count > 0) note += "Added: " + string.Join(", ", added.ToArray()) + ". ";
+                if (replaced.Count > 0) note += "Replaced: " + string.Join(", ", replaced.ToArray()) + ". ";
+                if (stale > 0) note += stale + " older copy/copies skipped. ";
+                _profileNote = note + "(into \"" + (StowProfileStore.ActiveName ?? "?") + "\")";
+            }
+            BumpGridChrome();
             UiaControlCenter.Refresh();
         }
 
@@ -323,45 +407,19 @@ namespace StationeersUIMod.UI.Menu.Tabs
             try { global::StationeersUIMod.UI.Grid.GridProfileMode.BumpVersion(); } catch { }
         }
 
-        // ---------- worn-bag sub-rows (prefab defaults + the implicit-profile hint) ----------
+        // ---------- worn-bag sub-rows ----------
 
-        /// <summary>Under each bag row: the "All &lt;bag name&gt;s" prefab-default toggle (design
-        /// O5b — extend THIS bag's assigned profile to every bag of the same prefab; the instance
-        /// assignment always wins over the type default in the router), or — for a profile-less
-        /// bag — a hint that the zero-setup tier is doing the routing.</summary>
+        /// <summary>Under each bag row: for a container with no profile, a hint that the zero-setup
+        /// tier is doing the routing.
+        ///
+        /// <para>The "All &lt;bag name&gt;s" prefab-default switch that used to live here is RETIRED
+        /// (FlorpyDorp Q4 — bag profiles are always mapped by hand, one container at a time). Its
+        /// file (<c>prefab-defaults.xml</c>) is left on disk and the store still reads and cascades
+        /// it, but nothing writes it and the router no longer consults it, so no container can
+        /// acquire a profile the player did not personally give it.</para></summary>
         private static void BagSubRows(Transform col, DynamicThing b, string assigned)
         {
-            string prefabName = null;
-            try { prefabName = b.PrefabName; } catch { }
-            string typeDefault = BagProfileStore.GetPrefabDefaultProfileName(prefabName);
-
-            if (!string.IsNullOrEmpty(assigned) && !string.IsNullOrEmpty(prefabName))
-            {
-                // Toggle is ON only when the type default IS this bag's profile; a differing
-                // default shows OFF (plus the note below) and toggling ON overwrites it.
-                bool on = typeDefault == assigned;
-                var row = UiaUi.Go("alltype", col);
-                UiaUi.Size(row, 24f);
-                UiaUi.HLayout((RectTransform)row.transform, UiaTheme.Gap, 18, 0, 0, 0, TextAnchor.MiddleLeft);
-                var lbl = UiaUi.Text(row.transform, "All " + SafeName(b) + "s", UiaTheme.SmallSize, UiaTheme.TextDim, TextAlignmentOptions.Left);
-                lbl.overflowMode = TextOverflowModes.Ellipsis;
-                lbl.gameObject.AddComponent<LayoutElement>().flexibleWidth = 1f;
-                string prefabCopy = prefabName;
-                string assignedCopy = assigned;
-                UiaControls.Switch(row.transform, on, v =>
-                {
-                    if (v) BagProfileStore.SetPrefabDefault(prefabCopy, assignedCopy);
-                    else BagProfileStore.ClearPrefabDefault(prefabCopy);
-                    UiaControlCenter.Refresh();
-                });
-                if (!string.IsNullOrEmpty(typeDefault) && typeDefault != assigned)
-                    SubNote(col, "(type default is: " + typeDefault + ")");
-            }
-            else if (!string.IsNullOrEmpty(typeDefault))
-            {
-                SubNote(col, "(all " + SafeName(b) + "s default to: " + typeDefault + ")");
-            }
-            else if (UIAConfig.StowUseAffinity.Value)
+            if (string.IsNullOrEmpty(assigned) && UIAConfig.StowUseAffinity.Value)
             {
                 // Design O6: make the zero-setup tier discoverable instead of magic.
                 SubNote(col, "(implicit - routes by contents)");
@@ -762,29 +820,10 @@ namespace StationeersUIMod.UI.Menu.Tabs
             }
         }
 
-        private void AutoAssign()
-        {
-            EnsureRecommended();
-            var bags = WornBags();
-            var used = new HashSet<string>();
-            foreach (var b in bags)
-            {
-                string cur = BagProfileStore.GetAssignedProfileName(b);
-                if (!string.IsNullOrEmpty(cur)) { used.Add(cur); }
-            }
-            int pi = 0;
-            foreach (var b in bags)
-            {
-                if (!string.IsNullOrEmpty(BagProfileStore.GetAssignedProfileName(b))) continue;
-                while (pi < BagProfileStore.Profiles.Count && used.Contains(BagProfileStore.Profiles[pi].Name)) pi++;
-                if (pi >= BagProfileStore.Profiles.Count) break;
-                var prof = BagProfileStore.Profiles[pi++];
-                BagProfileStore.Assign(b, prof.Name);
-                used.Add(prof.Name);
-            }
-            BumpGridChrome();   // assignments changed — same refresh ApplyLoadout already does
-            Save();
-        }
+        // "Auto-assign to my bags" is RETIRED (FlorpyDorp Q4: bag profiles are always mapped by
+        // hand). It walked the worn-bag list and assigned profiles in list order, which is exactly
+        // how tool belts and suits ended up owning profiles they should never have had (see the B1
+        // report). Nothing replaces it: the bag list above is the mapping surface.
 
         // ---------- helpers ----------
 
@@ -795,10 +834,11 @@ namespace StationeersUIMod.UI.Menu.Tabs
             return list;
         }
 
-        /// <summary>The worn-bag list — delegates to <see cref="LoadoutStore.CollectWornBags"/>,
-        /// the ONE canonical enumeration, so the order shown here is exactly the order loadout
-        /// occurrence indices are counted in (they can never diverge). A theme-Restyle build
-        /// reuses the last gesture-built list instead of re-running the inventory scan.</summary>
+        /// <summary>The worn-bag list — still delegates to <see cref="LoadoutStore.CollectWornBags"/>,
+        /// which remains the ONE canonical, gate-filtered enumeration every surface shares (the
+        /// Loadouts FEATURE is retired, the scan it happens to live in is not; moving it is a B3/B4
+        /// tidy-up, not a B2 one). A theme-Restyle build reuses the last gesture-built list instead
+        /// of re-running the inventory scan.</summary>
         private static List<DynamicThing> WornBags()
         {
             if (!(UiaControlCenter.IsRestyling && _bagScratchValid))
@@ -814,9 +854,15 @@ namespace StationeersUIMod.UI.Menu.Tabs
             try { return t.DisplayName; } catch { return t != null ? t.PrefabName : "bag"; }
         }
 
+        /// <summary>Persist the rule/profile edit that just happened — and SAY SO when it failed.
+        /// A silent failure here (read-only config folder, a locked file) used to look exactly like
+        /// a successful save: the UI refreshed showing the edit, which then vanished at the next
+        /// launch with no explanation.</summary>
         private void Save()
         {
-            try { BagProfileStore.SaveProfiles(); } catch { }
+            bool ok = false;
+            try { ok = BagProfileStore.SaveProfiles(); } catch { }
+            if (!ok) _profileNote = "Could not save - your change is only in memory. See the log.";
             UiaControlCenter.Refresh();
         }
     }

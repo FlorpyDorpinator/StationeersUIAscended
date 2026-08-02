@@ -294,16 +294,69 @@ namespace StationeersUIMod.Features
         public static string ProfilesDir => Path.Combine(ConfigDir, "Profiles");
         public static string AssignmentsDir => Path.Combine(ConfigDir, "Assignments");
 
+        /// <summary>
+        /// Fill <see cref="Profiles"/> from the ACTIVE Stow Profile (SmartStow B2) — or, when that
+        /// model is unavailable for any reason, from the legacy <c>Profiles/</c> folder exactly as
+        /// pre-B2 builds did.
+        ///
+        /// <para>This is the ONE entry point for both launch and a Stow Profile switch: switching
+        /// writes the marker and calls back in here, so there is a single load path to reason about.
+        /// The legacy folder is never read once a Stow Profile exists — no double-loading.</para>
+        /// </summary>
         public static void LoadProfiles()
         {
             Profiles.Clear();
             _tagCache.Clear();
+            // The `stowprofiles` console diagnostic self-installs here because this is the one
+            // init entry point this subsystem owns; see StowCommands for the wiring note.
+            try { Core.StowCommands.Install(); } catch { }
+            try
+            {
+                if (!StowProfileStore.LoadActiveInto(Profiles))
+                {
+                    bool readFailure;
+                    LoadLegacyInto(Profiles, true, false, out readFailure);
+                    UIALog.Info($"Loaded {Profiles.Count} bag profile(s) from the legacy Profiles folder.");
+                }
+            }
+            catch (Exception e)
+            {
+                UIALog.Error("LoadProfiles failed: " + e);
+            }
+            LoadPrefabDefaults(); // clear + reload alongside profiles (hot-reload self-heal)
+            // A different set of profile names is now live: let the router re-report any assignment
+            // that names a profile this Stow Profile does not have.
+            try { Core.StowRouter.ForgetAssignmentWarnings(); } catch { }
+        }
+
+        /// <summary>
+        /// The pre-B2 loader, kept whole: merge every <c>Profiles/*.xml</c> into
+        /// <paramref name="into"/>. Used for two things now — the fail-soft fallback when the Stow
+        /// Profile model is unusable (<paramref name="seedStarters"/> true, matching old behaviour
+        /// exactly) and the one-shot read that MIGRATION carries into the first Stow Profile
+        /// (<paramref name="seedStarters"/> false so migration never writes a legacy file, and
+        /// <paramref name="quarantine"/> true so a corrupt legacy file is preserved as
+        /// <c>&lt;name&gt;.broken.xml</c> rather than silently vanishing from the new document).
+        /// Returns how many profiles were read.
+        ///
+        /// <para><paramref name="readFailure"/> reports that a file could not be OPENED (an IO or
+        /// permission problem) as opposed to being malformed. Migration is a one-shot, stamped
+        /// operation, so it must not carry a partial set forward and then declare itself done: a
+        /// transient lock on one legacy file would silently drop those profiles from the new
+        /// document forever. The caller aborts and retries next launch instead.</para>
+        /// </summary>
+        internal static int LoadLegacyInto(List<BagProfile> into, bool seedStarters, bool quarantine,
+            out bool readFailure)
+        {
+            readFailure = false;
+            if (into == null) return 0;
             try
             {
                 Directory.CreateDirectory(ProfilesDir);
                 var files = Directory.GetFiles(ProfilesDir, "*.xml");
                 if (files.Length == 0)
                 {
+                    if (!seedStarters) return 0;
                     WriteStarterProfiles();
                     files = Directory.GetFiles(ProfilesDir, "*.xml");
                 }
@@ -324,6 +377,9 @@ namespace StationeersUIMod.Features
                 var sourceTimes = new Dictionary<string, DateTime>(); // profile name -> mtime of the file it came from
                 foreach (var file in files)
                 {
+                    // A quarantined copy is not a profile file (it is the unreadable original,
+                    // kept for the player) — never try to parse one back in.
+                    if (StowProfileStore.IsBrokenBackupName(Path.GetFileNameWithoutExtension(file))) continue;
                     try
                     {
                         bool canonical = string.Equals(Path.GetFileName(file), "profiles.xml", StringComparison.OrdinalIgnoreCase);
@@ -336,21 +392,30 @@ namespace StationeersUIMod.Features
                             if (parsed?.Profiles == null) continue;
                             foreach (var p in parsed.Profiles)
                                 if (p != null && !string.IsNullOrEmpty(p.Name))
-                                    AddOrReplaceProfile(p, canonical, mtime, sourceTimes);
+                                    AddOrReplaceProfile(into, p, canonical, mtime, sourceTimes);
                         }
                     }
                     catch (Exception e)
                     {
-                        UIALog.Warn($"Bag profile file '{Path.GetFileName(file)}' failed to parse: {e.Message}");
+                        // Same discipline as the Stow Profile loader: a MALFORMED file is preserved
+                        // as a .broken.xml copy and skipped; a file that would not OPEN is reported
+                        // to the caller instead, because acting on it (quarantining it, or carrying
+                        // a set that is missing it into a stamped migration) turns a two-second lock
+                        // into permanent divergence.
+                        bool broken = SaveScopedXmlStore.IsParseFailure(e);
+                        UIALog.Warn($"Bag profile file '{Path.GetFileName(file)}' could not be read"
+                            + (broken ? " (bad XML): " : " (skipped): ") + e.Message);
+                        if (!broken) readFailure = true;
+                        else if (quarantine) StowProfileStore.QuarantineFile(file, false);
                     }
                 }
-                UIALog.Info($"Loaded {Profiles.Count} bag profile(s).");
             }
             catch (Exception e)
             {
-                UIALog.Error("LoadProfiles failed: " + e);
+                readFailure = true;
+                UIALog.Error("Legacy bag profile read failed: " + e);
             }
-            LoadPrefabDefaults(); // clear + reload alongside profiles (hot-reload self-heal)
+            return into.Count;
         }
 
         private static int CompareProfileFiles(string a, string b)
@@ -365,12 +430,12 @@ namespace StationeersUIMod.Features
         /// same-name earlier ones (list order stays stable) — EXCEPT the canonical profiles.xml,
         /// which only replaces a drop-in copy that is NOT newer than itself: a freshly received
         /// drop-in (mtime after the last save) is an IMPORT and survives the canonical pass.</summary>
-        private static void AddOrReplaceProfile(BagProfile profile, bool canonical, DateTime mtime,
-            Dictionary<string, DateTime> sourceTimes)
+        private static void AddOrReplaceProfile(List<BagProfile> into, BagProfile profile, bool canonical,
+            DateTime mtime, Dictionary<string, DateTime> sourceTimes)
         {
-            for (int i = 0; i < Profiles.Count; i++)
+            for (int i = 0; i < into.Count; i++)
             {
-                var existing = Profiles[i];
+                var existing = into[i];
                 if (existing != null && existing.Name == profile.Name)
                 {
                     DateTime prev;
@@ -380,38 +445,159 @@ namespace StationeersUIMod.Features
                         UIALog.Info($"Profile '{profile.Name}': drop-in copy is newer than profiles.xml - using the import (the next save makes it canonical).");
                         return;
                     }
-                    Profiles[i] = profile; // later file wins; list order stays stable
+                    into[i] = profile; // later file wins; list order stays stable
                     sourceTimes[profile.Name] = mtime;
                     return;
                 }
             }
-            Profiles.Add(profile);
+            into.Add(profile);
             sourceTimes[profile.Name] = mtime;
         }
 
-        public static void SaveProfiles()
+        /// <summary>Persist every loaded Bag Profile. Post-B2 this writes the ACTIVE Stow Profile
+        /// document; the legacy <c>profiles.xml</c> write survives only for the degraded path (no
+        /// usable <c>StowProfiles/</c> folder), so a player who somehow loses that folder still gets
+        /// their edits saved somewhere they will be read back from.
+        ///
+        /// <para>Returns FALSE when the write did not happen. Callers that show the player a result
+        /// must say so rather than refreshing as if it had — a read-only config folder used to look
+        /// exactly like a successful save until the next launch threw the edit away.</para></summary>
+        public static bool SaveProfiles()
         {
             _tagCache.Clear(); // names/badges may have changed; tags re-derive lazily
             try
             {
+                if (StowProfileStore.Available)
+                {
+                    if (!StowProfileStore.SaveActive(Profiles)) return false;
+                    UIALog.Info("Saved " + Profiles.Count + " bag profile(s) to Stow Profile '"
+                        + StowProfileStore.ActiveName + "'.");
+                    return true;
+                }
                 Directory.CreateDirectory(ProfilesDir);
                 var serializer = new XmlSerializer(typeof(BagProfileFile));
                 var path = Path.Combine(ProfilesDir, "profiles.xml");
                 using (var stream = File.Create(path))
                     serializer.Serialize(stream, new BagProfileFile { Profiles = Profiles.ToList() });
                 UIALog.Info("Saved bag profiles to " + path);
+                return true;
             }
             catch (Exception e)
             {
                 UIALog.Error("SaveProfiles failed: " + e);
+                return false;
             }
         }
 
+        /// <summary>
+        /// The SHARING import path, post-B2. Exporting a Bag Profile still writes a stand-alone
+        /// <c>Profiles/&lt;name&gt;.xml</c> (see <see cref="ExportProfile"/>) and receiving one is
+        /// still "drop the file in that folder" — but that folder is no longer LOADED, so the import
+        /// is now an explicit gesture instead of a side effect of every launch. Each
+        /// <c>&lt;BagProfile&gt;</c> found is merged into the ACTIVE Stow Profile: a new name is
+        /// added, an existing name is REPLACED (the same "the drop-in you just received wins"
+        /// semantics the old loader had).
+        ///
+        /// <para>The canonical legacy <c>profiles.xml</c> is deliberately skipped — it is the
+        /// dormant old store, not a shared file, and pulling it in would flood a curated Stow
+        /// Profile with a copy of everything the player ever had.</para>
+        ///
+        /// <para><b>Newer-wins on collision</b>, the pre-B2 <c>AddOrReplaceProfile</c> rule, kept
+        /// verbatim because dropping it is a silent data-loss bug: <see cref="ExportProfile"/>
+        /// leaves its file in that folder forever, so a self-export from last month would otherwise
+        /// REVERT every edit made since, on a button press that reports it as an "update". A profile
+        /// whose name is NOT in the active set is still added regardless of age (an old shared file
+        /// is still a new profile to you); a name that IS present is replaced only by a file written
+        /// after the active document.</para>
+        /// </summary>
+        public static int ImportSharedProfiles(List<string> addedNames, List<string> replacedNames,
+            out int skippedStale)
+        {
+            skippedStale = 0;
+            if (addedNames != null) addedNames.Clear();
+            if (replacedNames != null) replacedNames.Clear();
+            int filesRead = 0;
+            try
+            {
+                if (!Directory.Exists(ProfilesDir)) return 0;
+
+                // The active document's write time is the "how current is what I already have"
+                // reference the old loader took from profiles.xml.
+                DateTime activeStamp = DateTime.MinValue;
+                try
+                {
+                    string activeFile = StowProfileStore.ActiveFile;
+                    if (!string.IsNullOrEmpty(activeFile) && File.Exists(activeFile))
+                        activeStamp = File.GetLastWriteTimeUtc(activeFile);
+                }
+                catch { }
+
+                var serializer = new XmlSerializer(typeof(BagProfileFile));
+                foreach (string file in Directory.GetFiles(ProfilesDir, "*.xml"))
+                {
+                    if (string.Equals(Path.GetFileName(file), "profiles.xml", StringComparison.OrdinalIgnoreCase)) continue;
+                    if (StowProfileStore.IsBrokenBackupName(Path.GetFileNameWithoutExtension(file))) continue;
+                    try
+                    {
+                        DateTime mtime;
+                        try { mtime = File.GetLastWriteTimeUtc(file); }
+                        catch { mtime = DateTime.MinValue; }
+
+                        BagProfileFile parsed;
+                        using (var stream = File.OpenRead(file))
+                            parsed = (BagProfileFile)serializer.Deserialize(stream);
+                        if (parsed?.Profiles == null) continue;
+                        filesRead++;
+                        foreach (var p in parsed.Profiles)
+                        {
+                            if (p == null || string.IsNullOrEmpty(p.Name)) continue;
+                            int at = -1;
+                            for (int i = 0; i < Profiles.Count; i++)
+                                if (Profiles[i] != null && Profiles[i].Name == p.Name) { at = i; break; }
+                            if (at < 0)
+                            {
+                                Profiles.Add(p);
+                                if (addedNames != null) addedNames.Add(p.Name);
+                                continue;
+                            }
+                            if (mtime <= activeStamp) { skippedStale++; continue; }   // yours is newer: keep it
+                            Profiles[at] = p;
+                            if (replacedNames != null) replacedNames.Add(p.Name);
+                        }
+                    }
+                    catch (Exception e)
+                    {
+                        UIALog.Warn("Shared profile file '" + Path.GetFileName(file) + "' failed to parse: " + e.Message);
+                    }
+                }
+                int added = addedNames != null ? addedNames.Count : 0;
+                int replaced = replacedNames != null ? replacedNames.Count : 0;
+                if (added > 0 || replaced > 0)
+                {
+                    SaveProfiles();
+                    UIALog.Info("Imported " + added + " new and " + replaced + " updated bag profile(s) into Stow Profile '"
+                        + (StowProfileStore.ActiveName ?? "?") + "'"
+                        + (skippedStale > 0 ? " (" + skippedStale + " older copy/copies skipped)." : "."));
+                }
+                else if (skippedStale > 0)
+                {
+                    UIALog.Info("Nothing imported: " + skippedStale
+                        + " shared file(s) are older than what you already have.");
+                }
+            }
+            catch (Exception e)
+            {
+                UIALog.Warn("Shared profile import failed: " + e.Message);
+            }
+            return filesRead;
+        }
+
         /// <summary>O5c share: write ONE profile as its own drop-in file
-        /// <c>Profiles/&lt;safe-name&gt;.xml</c> — the multi-file loader already reads it back, and
-        /// the dedupe-by-name merge means re-importing an export of a profile you still have never
-        /// duplicates it (whichever copy wins by the canonical/newer rule, there is one per name;
-        /// a stale export loses to profiles.xml, a fresh one is content-identical). Guard: an
+        /// <c>Profiles/&lt;safe-name&gt;.xml</c>. Post-B2 that folder is no longer LOADED (the
+        /// active Stow Profile is), so the round trip is export -> send the file -> the recipient
+        /// drops it in the same folder and presses <b>Import shared profiles</b>
+        /// (<see cref="ImportSharedProfiles"/>), which merges it into their active Stow Profile with
+        /// the same replace-by-name semantics the old loader had. Guard: an
         /// export may NEVER land on the canonical
         /// profiles.xml itself (a profile literally named "profiles" would overwrite the whole
         /// store). Returns the written file NAME, or null on failure/unknown profile.</summary>
@@ -493,11 +679,14 @@ namespace StationeersUIMod.Features
 
         /// <summary>Delete a profile and clear every reference to it, so nothing is left pointing
         /// at a name that no longer exists: assignments (current save AND every other save's file)
-        /// fall back to UNASSIGNED, prefab defaults naming it are removed, loadout entries naming
-        /// it are dropped, and any drop-in <c>Profiles/*.xml</c> copy is purged (a file left
-        /// holding only the deleted profile is removed) — without that last step the profile
-        /// simply reappears on the next launch, which is not a delete. False when the name is not
-        /// loaded.</summary>
+        /// fall back to UNASSIGNED, prefab defaults naming it are removed, and loadout entries
+        /// naming it are dropped.
+        ///
+        /// <para>Any exported copy in <c>Profiles/</c> is deliberately LEFT ALONE (it is the
+        /// player's own backup and the share drop-box, not our bookkeeping). It cannot resurrect the
+        /// profile: that folder is not loaded at launch, and an explicit import only replaces a name
+        /// you still have from a file newer than your active document.</para>
+        /// False when the name is not loaded.</summary>
         public static bool DeleteProfile(string name)
         {
             if (string.IsNullOrEmpty(name)) return false;
@@ -555,8 +744,16 @@ namespace StationeersUIMod.Features
             try { LoadoutStore.CascadeProfileName(oldName, newName); }
             catch (Exception e) { UIALog.Warn("Loadout profile-name cascade failed: " + e.Message); }
 
-            // 5) drop-in Profiles/*.xml copies (a stale old-named copy would be re-loaded next launch)
-            CascadeDropInFiles(oldName, newName);
+            // 5) drop-in Profiles/*.xml copies — RENAME ONLY.
+            //
+            // A delete deliberately does NOT touch that folder any more. Post-B2 it is the share
+            // drop-box AND the only backup a player has ("Export it first, then delete it" is the
+            // obvious way to try a change) — and the old cascade deleted the exported file along
+            // with the profile, so both copies vanished on one click. It was there to stop a stale
+            // copy resurrecting the profile at the next launch; that folder is no longer loaded at
+            // launch at all, and ImportSharedProfiles only replaces an existing name from a file
+            // NEWER than the active document, so the resurrection path it guarded is closed.
+            if (newName != null) CascadeDropInFiles(oldName, newName);
         }
 
         /// <summary>Rewrite the profile name inside every assignment file that is NOT the currently
@@ -603,10 +800,12 @@ namespace StationeersUIMod.Features
             }
         }
 
-        /// <summary>Rename/remove the profile inside every drop-in <c>Profiles/*.xml</c> (never
-        /// profiles.xml, which <see cref="SaveProfiles"/> rewrites wholesale). A drop-in left with
-        /// zero profiles is deleted — otherwise a deleted profile silently returns on the next
-        /// <see cref="LoadProfiles"/>. Fail-soft per file.</summary>
+        /// <summary>RENAME the profile inside every drop-in <c>Profiles/*.xml</c> (never
+        /// profiles.xml, which the legacy <see cref="SaveProfiles"/> path rewrites wholesale), so a
+        /// later import of your own export does not re-introduce the OLD name as a second profile.
+        /// Only ever called with a non-null target — a delete leaves that folder untouched (see
+        /// <see cref="DeleteProfile"/>). The empty-file branch below therefore no longer fires in
+        /// practice and is kept only as a guard. Fail-soft per file.</summary>
         private static void CascadeDropInFiles(string oldName, string newName)
         {
             try
@@ -750,6 +949,19 @@ namespace StationeersUIMod.Features
             if (string.IsNullOrEmpty(profileName)) Assignments.Remove(bag.ReferenceId);
             else Assignments[bag.ReferenceId] = profileName;
             SaveAssignments();
+        }
+
+        /// <summary>Copy this save's <c>bagRef -&gt; profileName</c> table into
+        /// <paramref name="into"/> (cleared first) for read-only diagnostics — the
+        /// <c>stowprofiles</c> console dump uses it to count assignments that name a profile the
+        /// ACTIVE Stow Profile does not contain, including ones on containers that are not reachable
+        /// right now. The internal dictionary is never handed out.</summary>
+        public static void GetAssignments(IDictionary<long, string> into)
+        {
+            if (into == null) return;
+            EnsureSaveLoaded();
+            into.Clear();
+            foreach (var kv in Assignments) into[kv.Key] = kv.Value;
         }
 
         // --- per-container stow exclusion (design Q5: "never smart-stow into this") ---
@@ -977,13 +1189,17 @@ namespace StationeersUIMod.Features
             _tagCache.Clear();
             _prefabDefaults.Clear();
             _prefabDefaultsLoaded = false;
+            StowProfileStore.Reset();          // drop the loaded Stow Profile document
+            try { Core.StowCommands.Uninstall(); } catch { }  // unpatch our own console hook
         }
 
-        private static void WriteStarterProfiles()
+        /// <summary>The four legacy starter Bag Profiles, as data. Split out from
+        /// <see cref="WriteStarterProfiles"/> so a FRESH install can seed the first Stow Profile
+        /// with them directly, without first writing a legacy <c>profiles.xml</c> the new model
+        /// would never read.</summary>
+        internal static List<BagProfile> BuildStarterProfiles()
         {
-            var starters = new BagProfileFile
-            {
-                Profiles = new List<BagProfile>
+            return new List<BagProfile>
                 {
                     new BagProfile
                     {
@@ -1051,8 +1267,15 @@ namespace StationeersUIMod.Features
                             new CategoryRule { Name = "Food", Priority = 50 },
                         },
                     },
-                },
-            };
+                };
+        }
+
+        /// <summary>Legacy-path seed only (an empty <c>Profiles/</c> folder on the degraded loader).
+        /// The Stow Profile model seeds a fresh install from <see cref="BuildStarterProfiles"/>
+        /// directly and never writes this file.</summary>
+        private static void WriteStarterProfiles()
+        {
+            var starters = new BagProfileFile { Profiles = BuildStarterProfiles() };
             try
             {
                 var serializer = new XmlSerializer(typeof(BagProfileFile));

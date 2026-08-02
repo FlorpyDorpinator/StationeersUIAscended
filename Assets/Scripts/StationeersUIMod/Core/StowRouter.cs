@@ -146,6 +146,16 @@ namespace StationeersUIMod.Core
         /// (hot-reload rule) — the set holds longs only, never Thing references.</summary>
         private static readonly HashSet<long> _ineligibleLogged = new HashSet<long>();
 
+        /// <summary>Containers whose stored assignment we have already RESOLVED against the active
+        /// Stow Profile once this session (SmartStow B2). With one active Stow Profile, an
+        /// assignment can legitimately name a Bag Profile that lives only in an INACTIVE one; that
+        /// reads as "unassigned" everywhere (same fail-soft as an ineligible container) and must say
+        /// so exactly once, not four times a second. Membership means "checked", so the extra
+        /// FindProfile walk happens once per container rather than per stage per resolve. Cleared by
+        /// <see cref="Reset"/> and by <see cref="ForgetAssignmentWarnings"/> (a Stow Profile switch
+        /// changes the answer). Holds longs only, never Thing references.</summary>
+        private static readonly HashSet<long> _assignmentChecked = new HashSet<long>();
+
         // One-entry caches for the winner Reason strings, so a repeated winning resolve during
         // a drag ("profile: Ores" 4x/sec) composes the concat once, not per resolve.
         private static string _profileReasonName, _profileReason;
@@ -204,11 +214,23 @@ namespace StationeersUIMod.Core
             _genBags.Clear();
             _bagMemos.Clear();
             _ineligibleLogged.Clear();
+            _assignmentChecked.Clear();
             _profileReasonName = null;
             _profileReason = null;
             _defaultReasonName = null;
             _defaultReason = null;
             InventoryScanner.ResetPool();
+        }
+
+        /// <summary>Forget the once-per-container assignment diagnostics (called by
+        /// <c>BagProfileStore.LoadProfiles</c>). Switching Stow Profiles changes which names
+        /// resolve, so both "not assignable" and "not in this Stow Profile" must be able to speak
+        /// again — and a switch that FIXES a dangling name must not leave the old warning as the
+        /// last word in the log.</summary>
+        public static void ForgetAssignmentWarnings()
+        {
+            _ineligibleLogged.Clear();
+            _assignmentChecked.Clear();
         }
 
         // ------------------------------------------------------------------ the chain ----
@@ -539,6 +561,8 @@ namespace StationeersUIMod.Core
         /// <summary>Stage 4 — NEW (spec O2b), bag-type defaults: a profile-LESS bag whose prefab
         /// appears in <see cref="BagTypeDefaults"/> behaves as if the named recommended profile
         /// were assigned — but only when that profile actually exists and matches the item.
+        /// Post-B2 the SHIPPED table is the only source here; the user prefab-default file is
+        /// retired (FlorpyDorp Q4 — see the note inside).
         /// Matters mostly for empty bags fresh from the printer (affinity needs contents).
         /// Winner selection mirrors the profile stage (priority, then shallow beats nested).</summary>
         private static bool TryBagDefault(Human human, DynamicThing held, Slot selectedSlot, ref List<ScannedSlot> slots, int depth, out StowCandidate c)
@@ -567,12 +591,18 @@ namespace StationeersUIMod.Core
                 {
                     BagMemo m = new BagMemo();
                     m.Bag = bag;
-                    // User-set prefab defaults (BagProfileStore, prefab-defaults.xml) override the
-                    // shipped table — including standing on their own when the named profile is
-                    // missing (explicit user choice never silently falls back to a shipped guess;
-                    // the prof == null gate below just declines for that bag).
-                    string profName = BagProfileStore.GetPrefabDefaultProfileName(bag.PrefabName);
-                    if (profName != null || (bag.PrefabName != null && BagTypeDefaults.TryGetValue(bag.PrefabName, out profName)))
+                    // SmartStow B2 (FlorpyDorp Q4): the USER prefab-default table
+                    // (prefab-defaults.xml, "All Mining Belts") is retired — Bag Profiles are
+                    // mapped to a container by hand, one container at a time, and nothing derives a
+                    // mapping for a whole prefab any more. The file and its accessors survive
+                    // (hide, never destroy: BagProfileStore.GetPrefabDefaultProfileName still reads
+                    // it, the rename/delete cascade still maintains it), it is simply no longer
+                    // CONSULTED here. What remains is the SHIPPED bag-type table below — a routing
+                    // heuristic in the same family as content affinity, gated by the player's own
+                    // "5 - Known bag types get a default" toggle, which never writes an assignment
+                    // and never claims a container the player mapped by hand.
+                    string profName;
+                    if (bag.PrefabName != null && BagTypeDefaults.TryGetValue(bag.PrefabName, out profName))
                     {
                         // An explicit (resolvable, ELIGIBLE) assignment supersedes the built-in
                         // default; an assignment on a non-assignable container does not, so a
@@ -792,22 +822,47 @@ namespace StationeersUIMod.Core
         /// would still see "this bag has an explicit assignment" and decline too, so a tool belt
         /// that had been hand-assigned "Tools" would lose its shipped default as well and end up
         /// routing worse than a fresh one. Reported ONCE per container (per session) so the player
-        /// can find and clear it; nothing on disk is touched.</para></summary>
+        /// can find and clear it; nothing on disk is touched.</para>
+        ///
+        /// <para>An ASSIGNABLE container whose assignment names a profile the active Stow Profile
+        /// does not have is returned unchanged — the stages resolve it to null on their own and
+        /// decline, exactly as they always did for a dangling name. The only thing added is one
+        /// explanatory log line per container (SmartStow B2).</para></summary>
         private static string EffectiveAssignedName(Thing bag)
         {
             string name = BagProfileStore.GetAssignedProfileName(bag);
             if (string.IsNullOrEmpty(name)) return null;
-            if (BagProfileGate.IsAssignableContainer(bag)) return name;
-            if (bag != null && _ineligibleLogged.Add(bag.ReferenceId))
+            if (!BagProfileGate.IsAssignableContainer(bag))
             {
-                string what = null;
-                try { what = bag.DisplayName; } catch { }
-                if (string.IsNullOrEmpty(what)) { try { what = bag.PrefabName; } catch { } }
-                UIALog.Info("Bag profile '" + name + "' is assigned to '" + (what ?? "a container")
-                    + "', which is not a container profiles can be assigned to - Smart Stow now treats it as unassigned. "
-                    + "The assignment is kept on disk; clear it in F10 > Storage if you no longer want it.");
+                if (bag != null && _ineligibleLogged.Add(bag.ReferenceId))
+                    UIALog.Info("Bag profile '" + name + "' is assigned to '" + DescribeBag(bag)
+                        + "', which is not a container profiles can be assigned to - Smart Stow now treats it as unassigned. "
+                        + "The assignment is kept on disk; clear it in F10 > Storage if you no longer want it.");
+                return null;
             }
-            return null;
+            // SmartStow B2: with ONE active Stow Profile, a perfectly valid assignment can name a
+            // Bag Profile that lives only in another Stow Profile. The stages below already decline
+            // on a name FindProfile cannot resolve, so behaviour is unchanged (fail-soft, data kept)
+            // — this only makes the reason visible once, so "my bag stopped using its profile" has
+            // an answer in the log. The membership test keeps it to one lookup per container.
+            if (bag != null && !_assignmentChecked.Contains(bag.ReferenceId))
+            {
+                _assignmentChecked.Add(bag.ReferenceId);
+                if (FindProfile(name) == null)
+                    UIALog.Info("Bag profile '" + name + "' is assigned to '" + DescribeBag(bag)
+                        + "', but the active Stow Profile '" + (Features.StowProfileStore.ActiveName ?? "?")
+                        + "' has no profile with that name - Smart Stow treats that container as unassigned for now. "
+                        + "Nothing was deleted; switching back to the Stow Profile that has it restores the mapping.");
+            }
+            return name;
+        }
+
+        private static string DescribeBag(Thing bag)
+        {
+            string what = null;
+            try { what = bag.DisplayName; } catch { }
+            if (string.IsNullOrEmpty(what)) { try { what = bag.PrefabName; } catch { } }
+            return what ?? "a container";
         }
 
         private static int Cap(int value, int cap)

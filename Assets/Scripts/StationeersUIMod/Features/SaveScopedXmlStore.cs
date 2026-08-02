@@ -57,6 +57,21 @@ namespace StationeersUIMod.Features
         /// this overload exists for stores whose log wording differs (LoadoutStore names the file).</summary>
         public static bool TryLoad<T>(string path, out T value, out string error) where T : class
         {
+            Exception ex;
+            bool ok = TryLoad(path, out value, out ex);
+            error = ex != null ? ex.Message : null;
+            return ok;
+        }
+
+        /// <summary>As <see cref="TryLoad{T}(string,out T,out string)"/>, but hands back the
+        /// EXCEPTION rather than just its message. Callers that react destructively to a bad file
+        /// (quarantine) must be able to tell a genuine parse failure — <c>XmlException</c>, or the
+        /// <c>InvalidOperationException</c> XmlSerializer wraps it in — from a transient
+        /// <c>IOException</c>/<c>UnauthorizedAccessException</c> (a sync client or AV holding the
+        /// file open for a moment). Renaming a healthy file because of a two-second lock is not
+        /// fail-soft, it is data loss with extra steps.</summary>
+        public static bool TryLoad<T>(string path, out T value, out Exception error) where T : class
+        {
             value = null;
             error = null;
             try
@@ -70,9 +85,17 @@ namespace StationeersUIMod.Features
             catch (Exception e)
             {
                 value = null;
-                error = e.Message;
+                error = e;
                 return false;
             }
+        }
+
+        /// <summary>Is this a genuine "the XML is broken" failure (as opposed to a transient IO or
+        /// permission problem)? <c>XmlSerializer.Deserialize</c> reports malformed documents as an
+        /// <c>InvalidOperationException</c> wrapping an <c>XmlException</c>.</summary>
+        public static bool IsParseFailure(Exception error)
+        {
+            return error is System.Xml.XmlException || error is InvalidOperationException;
         }
 
         /// <summary>Deserialize a file, or null if it is absent/corrupt. A corrupt file warns once as
