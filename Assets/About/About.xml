@@ -2,7 +2,7 @@
   <Name>Stationeers UI Ascended</Name>
   <ModID>StationeersUIAscended</ModID>
   <Author>FlorpyDorp + JXSN</Author>
-  <Version>0.9.2.5</Version>
+  <Version>0.9.7.0</Version>
   <Description>
 	  [h1]Stationeers UI Ascended[/h1]
 
@@ -19,6 +19,16 @@ The visor HUD is a document-driven layout you can reshape live in the F9 HUD Des
 <br>
 ]]></InGameDescription>
   <ChangeLog>
+    [h3]Version 0.9.7.0 EXPERIMENTAL -- SMARTSTOW PROFILES + F9 STYLE PARITY:[/h3]
+    [list]
+    [*] SMARTSTOW PROFILES, REBUILT: bag-routing rules are now organized into "Stow Profiles" -- switchable folders of "Bag Profiles" you can browse, copy between and share. F10's Storage tab is now four clear pages: Bags (card grid, live thumbnails, per-bag exclude + rename), Bag Profiles (the rule editor), Stow Profiles (the set manager) and Settings. Only real containers (backpacks, mining bags, boxes, crates) are assignable. Assigning a profile can auto-rename the bag to match (multiplayer-safe, toggleable). Four shipped sets: By Printer, By Category, Stationpedia Ascended, and Starter. Share your own sets as a compact code (clipboard) or a drop-in XML file. New "UIA class" rule type for smarter, mod-aware catches. Profile and set rename/duplicate/delete finally exist in F10. Loadouts are retired in favor of this
+    [*] F9 STYLE PARITY: every per-element style page now mirrors the F9 global menu exactly (Glass / Edges / Glow / Bloom / Alerts / Transitions) -- one name, one range, everywhere. Each style category (Theme/Glass/Edges/Glow/Transitions) gets its own "follow global" checkbox, and unchecking one changes nothing until you actually edit it. New: make an element INHERIT its style from another element you pick by clicking it, either live-linked or as a one-time copy. Shared-global settings you couldn't reach before now show their real value with a jump-to-F9 button
+    [*] CUT (CHAMFERED) CORNERS: a new corner style alongside rounded -- global or per element, per suit tier, travels with your theme. Full glass effects (frost, chroma, halo, shine) now render identically on cut and rounded corners
+    [*] DETAILED VITALS TOOLTIPS: hover the vitals panel (or the vanilla stats panel) for exact mood/hygiene percentages and per-minute trend rates
+    [*] FROM THE PARALLEL WORK LINE: device internals (drills, tablets, canisters, demo charges) now open in our own themed, resizable window with the device's real switches inside instead of the vanilla popup. A first-run tutorial walks new players through the controls (replayable from the Guide tab), with a pause button for solo games and an in-game Designer Handbook for F9. The Universal Inventory and pinned bags grew a real scrollbar. Hand-box drag-outs, inventory tooltips and 1-6 click-to-pin all had rough edges fixed. F10's "Profiles" tab is renamed "HUD Themes" and "the Grid" is now "Universal Inventory" throughout, to stop it colliding with the new Bag/Stow Profiles
+    [*] RADIAL SIMPLIFICATION: the Hub is now the only interaction model (the old control-scheme choice and per-wheel on/off toggles are gone -- radials are core now); "flick to commit" is removed, fixing wedges that used to fire without the ring appearing
+    [*] Fixes: world-item drops now swap into occupied wedges/boxes/slots like vanilla; F9 correctly previews the Suited HUD when authoring unpowered; separating an element's style no longer strips its frost/glow/edge light; edge-light now fully turns off with the edge masters instead of leaving a static rim; portrait ring and body-doll outline restored; F10 scrollbar crash and drag-hijack fixed; compatibility fix for a renamed internal game API
+    [/list]
     [h3]Version 0.9.2.5 EXPERIMENTAL — YOUR HUD, YOUR RULES: PER-SUIT STYLES + TOTAL THEMES:[/h3]
     [list]
     [*] STYLE EVERY ELEMENT PER SUIT MODE: any HUD element can now fork its ENTIRE look between bare and suited (colours, glass, effects, icon tint — all of it, not just two colours). Turn the fork on for an element in the F9 designer and edit each mode independently; everything remembers and round-trips. The old system silently leaked most settings between modes — fixed at the root
@@ -30,30 +40,7 @@ The visor HUD is a document-driven layout you can reshape live in the F9 HUD Des
     [*] SAFETY NET: a corrupt profile is quarantined to a .broken backup instead of being overwritten; "uiareset" console command + an F10 "Restore shipped themes" button give you a clean-slate path without hunting folders
     [*] Plus: the F10 menu now fully matches Pure HUD (and every theme) including its border and dividers; the radial accent colour is themeable (and still orange by default)
     [/list]
-    [h3]Version 0.9.2.0 EXPERIMENTAL — THEMES THAT TRAVEL + THE RADIAL/CURSOR POLISH:[/h3]
-    [list]
-    [*] THE CURSOR NO LONGER FLICKERS IN RADIALS: the arrow pointer strobing while a radial was open is fixed at the root — the "walk/jump/jetpack while a wheel is up" feature was hiding and re-showing the cursor every physics frame. It now only touches the cursor on the exact frames you actually press jump or jetpack
-    [*] MIDDLE-MOUSE ONLY CLOSES A RADIAL: tapping MMB over an item while a radial is open used to select that item — now it just closes the wheel (and dumps any chips you were sorting to the ground, as before)
-    [*] PER-PROFILE THEMES: your HUD colours, glass/glow effects and the radial palette now travel WITH the saved profile — switch profiles and the whole look changes together. Shipped with two curated themes, [b]Stationeers Blue[/b] and [b]Pure HUD[/b] (the old themes are kept in an "Old Themes" folder you can still load)
-    [*] PROJECTED-LENS THEMING: moodlet warning words, per-element colours, icon toggles, optional scan-lines and a carried-item tint — the HUD reads like one coherent projected display
-    [*] DRAG FROM HANDS / 1-6 INTO ANY WINDOW: dragging an item out of a hand box or a 1-6 equipment box into the Universal Inventory or a pinned bag now lands every time (a fast flick-drop used to miss and drop at your feet)
-    [*] VANILLA PLACEMENT BOX WHEN DRAGGING FROM A RADIAL: dragging a chip/item from a radial toward a locker, charger or device slot now shows the game's own coloured placement box (green place/swap, yellow merge, blue insert, red refused)
-    [*] GREYED RADIAL ITEMS ARE STILL DRAGGABLE: with both hands full, a greyed item won't jump into your hand on click — but you can still drag it out as an icon onto the world, a bag or a slot
-    [*] SMART STOW (G) WORKS WITH A RADIAL OPEN: hold the belt wheel, press G, and a belt tool stows to the belt (with the "went in here" flash) — the wedge updates in place
-    [*] EQUIPMENT DAMAGE BARS: a worn item taking damage shows a thin health bar under its icon (green -> yellow -> red), exactly like the vanilla inventory, tinted by the game's OWN damage gradient; the body damage-doll matches it
-    [*] Fixes: splitting a stack to the ground no longer spawns the items inside you (they're placed and launched clear, no self-damage); a suit-power moodlet could get stuck lit in the borrowed status strip — fixed
-    [/list]
-    [h3]Version 0.9.1.1 EXPERIMENTAL — STABILITY, DRAG POLISH + SIZE KNOBS:[/h3]
-    [list]
-    [*] DRAG ANYTHING, ANYWHERE: drag items freely between the Universal Inventory, pinned bags, your hands, the 1-6 equipment slots and the world — both directions. The carried item now always draws IN FRONT of the windows, and pinned bags finally accept drops (they no longer freeze the item at their edge)
-    [*] MENUS ON TOP: opening the pause menu (Esc), the IC10 logic editor, or Stationpedia now hides the inventory windows so the game's menu is on top — and they come back exactly as they were when you close it
-    [*] SMART STOW respects consumable containers: it will no longer stuff items into a water-bottle bag, a cereal-bar box, a burger/egg box or the game-start supplies package — those are no longer treated as storage (real bags, belts and crates still work; ore still fills mining bags)
-    [*] CURSOR is stable in radials: fixed a flicker of the world-selection highlight when you opened a radial and swept to a wedge with the inventory open, plus a one-frame hitch on open. The "hold to look around in a radial" feature was removed (it was unreliable) — the cursor is simply free while any radial is open
-    [*] MORE F9 SIZE KNOBS (F9 > the inventory > Sizes): the manila tab icon, the Sort button, the window close/X button, and the pinned-window title icon + title text — all adjust live, alongside the existing cell/column/tab-size knobs
-    [*] Fixed pinned bag windows rendering as solid yellow boxes (they're frosted glass again)
-    [*] Stability: fixed a hot-reload issue that could make the cursor lag over a long dev session; a stray per-frame error can no longer flood the log or tank the frame rate
-    [/list]
-    [i]Full version history (0.9.1.0 and earlier) is in CHANGELOG.md, in the mod folder and on GitHub.[/i]
+    [i]Full version history (0.9.2.0 and earlier) is in CHANGELOG.md, in the mod folder and on GitHub.[/i]
   </ChangeLog>
   <WorkshopHandle>0</WorkshopHandle>
   <Tags>

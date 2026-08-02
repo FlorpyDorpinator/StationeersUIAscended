@@ -2,6 +2,183 @@
 
 All notable changes to the mod. Detailed engineering write-ups live in `Changes Reports/`.
 
+## 0.9.7.0 Experimental -- 2026-08-02 -- SMARTSTOW PROFILES REBUILT + F9 STYLE PARITY
+
+Two concurrent work lines land together: a ground-up rebuild of bag-routing profiles
+(SmartStow), and a five-phase pass that makes every per-element style page in F9 render from
+the exact same table as the F9 global menu. Plus a parallel session's device windows, first-run
+tutorial and Universal Inventory polish. Engineering detail across `Changes Reports/` 2026-07-25
+through 2026-08-02 (`SmartStow B1`-`B5`/beautification/final-review, `Style parity Phase 0`-`5`,
+and the standalone reports below).
+
+### SmartStow Profiles, rebuilt (the headline feature)
+- **Stow Profiles**: a named folder of **Bag Profiles** (item-routing rules). Exactly one Stow
+  Profile is active at a time; you can browse an inactive one and copy/move individual Bag
+  Profiles into the active one without switching. **Loadouts are retired** from the UI (data kept
+  on disk, hide-never-destroy) -- a Stow Profile's optional bag mapping replaces them.
+- **F10 Storage is now four sub-tabs**: **Bags** (3-across card grid, live `GetThumbnail()`
+  previews -- a painted bag shows its real colour -- occurrence ordinal, slot-fill count, a profile
+  dropdown, a "never stow into this" exclude switch and an inline rename box; an Advanced list
+  view is available), **Bag Profiles** (the rule editor: item / category / slot-class / new
+  **UIA-class** rules, each with a click-to-cycle priority chip, plus "Create recommended
+  profiles"), **Stow Profiles** (the set manager: browse/rename/duplicate/delete, copy or move a
+  profile between sets, export/import, "Restore shipped Stow Profiles"), and **Settings**
+  (Universal Inventory sizing/scroll options, the Smart Stow chain toggles, the dry-run test box).
+- **Only real containers are assignable**: backpacks, mining belts/backpacks, boxes and crates --
+  not tool belts, jetpacks, suits, tools-with-slots or packaging.
+- **Assigning a profile can rename the bag to match** ("labeller-funnel" rename) -- the same
+  server-authoritative rename path the in-game Labeller uses, so it is MP-safe and every client
+  sees it; on by default, toggleable, and never auto-reverts on unassign (use the manual Rename
+  button for that).
+- **New `UIAClassRule`**: profiles can now match on the mod's own 22-class `UIAClass` taxonomy
+  (`Core/UIASortingData.g.cs`), not just the game's coarse 11-value `SortingClass` or the 44-value
+  `Slot.Class` -- closes the gap that made hand-curated sets brittle against new/modded items.
+- **Four shipped Stow Profile sets**: **By Printer** (14 per-fabricator profiles + a catch-all,
+  570 rules -- can be regenerated from a live world's recipe tables), **By Category** (12
+  profiles, one per `SortingClass` + Electronics + a catch-all, 21 rules), **Stationpedia
+  Ascended** (FlorpyDorp's own 9-bag layout: Paints / Materials / Frames and Walls / Ingots and
+  Ores / Electronics / Liquids and Gases / Cables and Pipes / Canisters / Misc, 108 rules), and
+  **Starter** (one "Starter Haul" bag, 4 rules, mapped onto your first backpack). Seeded once to
+  disk (`.shipped`-marked); a Restore button brings the originals back without touching your edits.
+- **Share codes**: `UIAP1-F-<base64url>` -- a self-contained, Deflate-compressed export of an
+  entire Stow Profile set (Starter ~220 chars, By Category ~530, Stationpedia Ascended ~1400, By
+  Printer ~6000), shown with an 8-character Crockford-Base32 fingerprint for verbal confirmation.
+  Export copies to the clipboard and saves a `.txt`; Import reads a pasted code (or the clipboard)
+  and always creates a **new** Stow Profile, never overwriting one you have. A plain `.xml`
+  dropped into the `StowProfiles/` folder still works with no import step, same as before.
+- **Profile and set CRUD finally exists in F10**: rename / duplicate / delete for both Bag
+  Profiles and Stow Profiles (`BagProfileStore.RenameProfile` had zero callers before this).
+- **Final-review hardening (10 fixes)**: a scroll-wheel-over-a-list infinite-recursion **crash**
+  fixed before it shipped broadly; click-dragging inside a list no longer snaps/jumps instead of
+  scrolling; switching sub-tabs no longer leaves an armed Delete button live; a failed cross-set
+  move no longer falsely reports success or duplicates the profile; re-assigning an
+  already-correctly-labelled bag no longer spams redundant rename network messages; duplicating a
+  14-profile set is now one file write instead of fourteen; share-code import/export counts are
+  accurate.
+- **Terminology, to stop new and old features colliding**: F10's old "Profiles" tab (HUD styling)
+  is renamed **"HUD Themes"**; "the Grid" is renamed **"Universal Inventory"** everywhere in F9/F10
+  (the F9 design-canvas alignment grid is a separate, unrelated feature and was left alone).
+- New `hudfx` / `stowprofiles` console diagnostics for troubleshooting either system.
+  (`Changes Reports/2026-08-01 - SmartStow B1 ...`, `... B2 ...`, `2026-08-02 - SmartStow B3 ...`,
+  `... B4 ...`, `... B5 ...`, `... beautification ...`, `... final review fixes ...`)
+
+### Per-element style parity in F9 (Phases 0-5)
+- **Root cause fixed**: unchecking "Follow global style" on an element used to unpredictably
+  strip its frost, chromatic fringe, glass rim and halo. Un-following now preserves exactly what
+  is on screen (seed-on-separation), and F9's "shared global" rows (backdrop darkening, tint,
+  bloom, alerts) show live real values with jump-to-F9 buttons instead of being unreachable prose.
+- **The element popup now renders from the same table as the F9 global menu** (`HudStyleFx`
+  registry) -- captions and ranges can no longer drift into 2-3 different names for the same
+  setting across menus (a few were consolidated/renamed as a result; border width's max dropped
+  from 8 to 6 to match the global slider).
+- **Five independently-followable categories** replace the old all-or-nothing checkbox: Theme /
+  Glass / Edges / Glow / Transitions, each with its own "follow global" toggle -- unfollowing one
+  changes nothing on screen until you actually edit it. Fixes: unfollowing Theme on the
+  portrait/body-doll ring no longer disappears its border; unfollowing Transitions no longer
+  reveals previously-hidden dormant power-transition settings; the "ALL follow global" bulk
+  buttons no longer silently re-enable a death-collapse effect you had turned off per-element.
+  Transitions itself is simplified from a tri-state to plain on/off.
+- **Inherit style from another element**: a category can be set to live-track a donor element you
+  pick by clicking it on the HUD (edits to the donor ripple through immediately), plus a one-shot
+  "Copy from..." for a static copy. Illegal picks (inheriting from something that itself inherits)
+  are rejected in the UI; deleting a donor falls back to global style gracefully.
+- **"Flatten ALL boxes"/"Make flat" no longer permanently kills the power-on dissolve reveal** on
+  every box it touches (a long-standing side effect), and flattening a drawn line now correctly
+  kills its edge-light too. Shipped themes (Stationeers Blue, Pure HUD) re-exported at Schema 16
+  so fresh installs load with no first-launch repair messages.
+  (`Changes Reports/2026-07-26 - Style parity Phase 0 ...` through `2026-07-27 - Style parity
+  Phase 5 ...`)
+
+### Cut (chamfered) corners
+- **New corner style** alongside rounded -- global or per-element, per suit tier, travels with the
+  theme. Took three follow-up passes to reach full parity with rounded corners: the initial X-crease
+  and broken iridescence in the mesh geometry, then full glass richness (frost/chroma/halo/shine)
+  on the SDF renderer (**ABI 3** -- needs a full game restart, not just F6, to pick up the updated
+  shader bundle; F9 shows "READY (ABI 3)" once active), then the halo "X" artifact root-caused to a
+  true Minkowski corner offset. A theme-switch "absent key bleed" bug found along the way (a
+  setting like corner style could leak from the previous profile instead of resetting) is fixed for
+  every theme knob going forward.
+  (`Changes Reports/2026-07-26 - Cut (chamfered) corner style ...` and the three follow-up reports)
+
+### Tooltips, vitals & inventory QoL
+- **Detailed vitals tooltips**: hovering the HUD vitals panel (or the vanilla Player Stats panel)
+  shows exact mood/hygiene percentages and per-minute trend rates, matching vanilla's own
+  tooltip styling. New F10 toggle, on by default. Also fixes the hidden vanilla vitals panel
+  lingering as an invisible tooltip trap at its old screen location.
+- **Vitals Cognition row now matches vanilla** -- it only appears when actually stunned/concussed
+  (showing the real stun percentage), not merely from low oxygen/pressure.
+- **Item tooltips always render on top** of the Universal Inventory and pinned/nested bag windows
+  (were drawing behind them), and are shown again when hovering items inside those windows at all
+  (a QoL fix restored a dead code path).
+- Universal Inventory profile-dropdown popup opacity is now an F9 slider (was fixed and
+  unreadably transparent); mouse-mode click on a 1-6 equipment slot reliably opens its pinned
+  window again.
+  (`Changes Reports/2026-07-26 - Detailed vitals tooltips ...`, `... Vitals cognition matches
+  vanilla ...`, `... Tooltips always on top ...`, `... QoL - inventory tooltips ...`)
+
+### From the parallel work line
+- **Device internals open in our own themed pinned window**, not the vanilla popup -- clicking a
+  device (mouse freed) or pressing R on a scroll-selected one now behaves like tearing out a bag,
+  including devices nested inside bags (previously often failed to open there). The window also
+  shows the device's real buttons/switches (lock/arm, valve, on/off) as themed clickable controls,
+  so button-only devices with no slots (a demo charge) get a window too; plain inert items still
+  go straight to hand.
+- **First-run tutorial coach**: a 15-step, animated-demo walkthrough that opens automatically for
+  a new player (auto-pausing single-player), replayable via `uiatutorial` or a Guide-tab button.
+  New **pause button** in the F10 header and on the coach itself (single-player only; disabled
+  under multiplayer or an existing vanilla pause). New in-game **Designer Handbook** -- a 17-page
+  illustrated F9 guide, viewable as an in-game flip-book or opened as a real PDF.
+- **A real scrollbar** for the Universal Inventory and pinned windows -- auto-hides when content
+  fits, draggable, resizes with content; width/colour/opacity are F9 knobs that travel with the
+  theme.
+- Fixes: dragging an item **out** of a hand slot no longer silently fails on anything but an
+  instant flick-drag (a watchdog was eating the release edge); the Universal Inventory key (`B`)
+  no longer opens-then-instantly-closes with the mouse-modifier held; edge glow/edge energy
+  turning OFF now actually clears the leftover static rim on the compass, equipment columns,
+  vitals panel and bare-senses readout.
+- F10 profile cards show much larger previews (~73% of the card vs ~53% before); added a preview
+  image for the upcoming "Zirillian Red" theme (preview only -- the theme itself isn't shipped yet).
+  (`Changes Reports/2026-08-01 - First-run tutorial coach ...`, `... Hand-box drag-out ...`,
+  `2026-08-01b - Grid key opens then instantly closes ...`, `2026-08-01c - Scroll bar for the
+  Universal Inventory ...`, `2026-08-02 - Device internals ...`, `... Device windows show their
+  vanilla switches ...`, `2026-07-26 - F10 profile cards bigger previews ...`)
+
+### Radial simplification (post-0.9.2.5 play-test round)
+- **The Hub is now the only interaction model** -- the Option A/D control-scheme choice and the
+  four per-wheel on/off toggles (toolbelt/tool/bag/equipment-key) are removed; radials are core
+  functionality now, not an opt-in.
+- **"Flick to commit" is removed** -- it could fire a wedge without the ring ever appearing, and
+  occasionally swallowed a real MMB press.
+- Bound-tool label setting simplified to a plain show/hide toggle (always curved). Universal
+  Inventory settings moved from the F10 Radials tab to the Storage tab. F10's HUD tab "Look"
+  section is reduced to a note + an "Open the HUD Designer (F9)" button (the sliders are still
+  fully live in F9); the "Visor-edge vignette" toggle is removed from F10 (the setting itself is
+  untouched).
+- **Portrait ring root-caused**: it now renders a correctly lit edge-glass effect when following
+  the global style (a `CircleGraphic` hairline bug, two earlier attempts superseded); the
+  alarm-pulse recolour refreshes reliably. Body-doll "Outline width" slider restored.
+  (`Changes Reports/2026-07-25 - Wave G F10 alterations ...`)
+
+### Other fixes
+- **World-item drops swap like vanilla**: dragging a ground item onto an occupied radial wedge,
+  HUD hand/equipment box or world slot now swaps the occupant out (with merge/insert where
+  applicable) instead of doing nothing -- two rounds, closing one remaining occupied-wedge case.
+- **F9 authors the powered HUD**: opening F9 while not wearing a powered suit used to silently
+  preview the stripped-down Bare HUD; F9 now defaults to previewing Suited, and editing is immune
+  to your real battery level (test buttons still preview transitions on demand).
+- **Owned edge-light now respects the edge masters when they are OFF** (previously stayed lit
+  regardless).
+- **Game-update compatibility**: `Slot.SpecificTypePrefabHash` became
+  `Slot.SpecificTypePrefabHashes` (plural) in a 2026-07-28 game update; updated to match.
+- Freeform pen-shape borders no longer spike past a sharp tip and self-cross; sharp corners bevel
+  cleanly. Moodlet dashboard gained a vertical/horizontal layout toggle (F9); moodlet "words" mode
+  no longer shows raw unresolved localization tags.
+  (`Changes Reports/2026-07-25 - Freeform pen-shape border spike ...`, `... Moodlet dashboard
+  vertical-horizontal toggle ...`, `... Moodlet words mode strips unresolved localization tags
+  ...`, `2026-07-26 - World-item drops swap like vanilla ...`, `2026-07-26 - F9 authors the
+  powered HUD ...`, `2026-08-01 - Game update fix ...`, `2026-08-01 - Edge glass persists after
+  turning effects off ...`)
+
 ## 0.9.2.5 Experimental — 2026-07-25 — PER-SUIT STYLES, TOTAL THEMES + THE BIG CLEANUP
 
 The release-prep build: a seven-report audit (`Documentation/Release Prep Reports/`) executed
