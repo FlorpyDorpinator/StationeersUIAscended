@@ -1,5 +1,8 @@
 using System;
+using System.Globalization;
+using System.Text;
 using Assets.Scripts.Inventory;
+using Assets.Scripts.Objects.Entities;
 using Assets.Scripts.UI;
 using HarmonyLib;
 using UI.ImGuiUi.ImGuiWindows;
@@ -32,6 +35,121 @@ namespace StationeersUIMod.Core
                 }
             }
             UIALog.Info($"Harmony patches applied: {Applied}, failed: {Failed}.");
+        }
+    }
+
+    /// <summary>
+    /// Exact mood/hygiene detail for the combined Player Stats tooltip. The behavior was inspired
+    /// by AproposMath's Stationeers patches, but is independently implemented against the current
+    /// public game API: the upstream source has no reuse license and its private-method targets,
+    /// state thresholds, and patch registration are not safe to transplant.
+    ///
+    /// This is shared tooltip CONTENT, not a per-tier visual effect; its enable value still travels
+    /// with the active profile theme. It reads only replicated Human state plus the same read-only
+    /// delta calculators vanilla already calls.
+    /// </summary>
+    internal static class DetailedVitalsTooltip
+    {
+        internal static bool IsEnabled
+        {
+            get
+            {
+                return UIAConfig.MasterEnable != null && UIAConfig.MasterEnable.Value
+                    && UI.Hud.HudConfig.DetailedVitalsTooltips != null
+                    && UI.Hud.HudConfig.DetailedVitalsTooltips.Value;
+            }
+        }
+
+        internal static string AddDetails(Human human, string original)
+        {
+            if (!IsEnabled || human == null || human.IsArtificial) return original;
+
+            bool hasMood = ContainsLabel(original, "Mood Rate:");
+            bool hasHygiene = ContainsLabel(original, "Hygiene Rate:");
+            if (hasMood && hasHygiene) return original; // coexist with Apropos/another detail patch
+
+            var sb = new StringBuilder((original != null ? original.Length : 0) + 180);
+            if (!string.IsNullOrEmpty(original))
+            {
+                sb.Append(original);
+                if (original[original.Length - 1] != '\n') sb.AppendLine();
+            }
+
+            if (!hasMood)
+            {
+                sb.Append("Mood: ").Append(FormatState(human.Mood)).AppendLine();
+                sb.Append("Mood Rate: ").Append(FormatRate(human.CalculateMoodChange())).AppendLine();
+            }
+            if (!hasHygiene)
+            {
+                // Hygiene legitimately reaches 150% after showering; do not clamp it to 100%.
+                sb.Append("Hygiene: ").Append(FormatState(human.Hygiene)).AppendLine();
+                sb.Append("Hygiene Rate: ").Append(FormatRate(human.CalculateHygieneChange())).AppendLine();
+            }
+            return sb.ToString();
+        }
+
+        private static bool ContainsLabel(string text, string label)
+        {
+            return !string.IsNullOrEmpty(text)
+                && text.IndexOf(label, StringComparison.OrdinalIgnoreCase) >= 0;
+        }
+
+        private static string FormatState(float ratio)
+        {
+            if (float.IsNaN(ratio) || float.IsInfinity(ratio)) return "--";
+            // Compare the RAW ratio. Comparing after multiplying by 100 makes 0.8% look green.
+            string color = ratio > 0.8f ? "#67E480" : ratio > 0.25f ? "#FFD166" : "#FF5C70";
+            return "<color=" + color + ">"
+                + (ratio * 100f).ToString("0.0", CultureInfo.InvariantCulture) + "%</color>";
+        }
+
+        private static string FormatRate(float deltaPerLifeTick)
+        {
+            if (float.IsNaN(deltaPerLifeTick) || float.IsInfinity(deltaPerLifeTick)) return "--";
+            float tickSeconds = Assets.Scripts.GameManager.GameTickSpeedSeconds;
+            if (!(tickSeconds > 0f) || float.IsNaN(tickSeconds) || float.IsInfinity(tickSeconds))
+                tickSeconds = 0.5f; // verified current default; guards loading/update edge cases
+            float perMinutePercent = deltaPerLifeTick * (60f / tickSeconds) * 100f;
+            // The display has one decimal: normalize anything that rounds to 0.0 so it is not
+            // rendered as a green "+0.0" or amber "-0.0".
+            if (Math.Abs(perMinutePercent) < 0.05f) perMinutePercent = 0f;
+            string color = perMinutePercent > 0f ? "#67E480"
+                : perMinutePercent < 0f ? "#FF5C70" : "#FFD166";
+            return "<color=" + color + ">"
+                + perMinutePercent.ToString("+0.0;-0.0;0.0", CultureInfo.InvariantCulture)
+                + "%/min</color>";
+        }
+    }
+
+    /// <summary>
+    /// Public, exact combined-tooltip hook (Human.GetStatsTooltip in 27701 and live 27735).
+    /// Installed unconditionally through PatchHarness and gated per invocation, so the checkbox
+    /// changes immediately without re-patching or restarting. Any failure preserves vanilla text.
+    /// </summary>
+    [HarmonyPatch(typeof(Human), nameof(Human.GetStatsTooltip))]
+    internal static class Patch_Human_GetStatsTooltip_Details
+    {
+        private static void Postfix(Human __instance, ref string __result)
+        {
+            if (!DetailedVitalsTooltip.IsEnabled) return;
+            try { __result = DetailedVitalsTooltip.AddDetails(__instance, __result); }
+            catch (Exception e)
+            {
+                // Fail soft and keep the original tooltip. Warn at most once per process/load.
+                if (!_warned)
+                {
+                    _warned = true;
+                    UIALog.Warn("Detailed vitals tooltip degraded: " + e.Message);
+                }
+            }
+        }
+
+        private static bool _warned;
+
+        internal static void ResetRuntimeState()
+        {
+            _warned = false;
         }
     }
 

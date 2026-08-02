@@ -362,6 +362,7 @@ namespace StationeersUIMod.UI.Grid
         private RectTransform _viewport;
         private RectTransform _content;
         private ScrollRect _scroll;
+        private GridScrollbar _scrollbar;   // thin rounded scroll indicator on the right edge
         private GridRegionView _region;
         private GraphicRaycaster _raycaster;
 
@@ -440,8 +441,25 @@ namespace StationeersUIMod.UI.Grid
                 if (w == null || w._closed) { _live.RemoveAt(i); continue; }
                 if (rebind && w._node != null) w.Bind(w._node);
                 w.RefreshIfDirty();
+                if (w._scrollbar != null) w._scrollbar.Tick();   // drive the scroll indicator
             }
             UpdateCursorBlock();
+        }
+
+        /// <summary>Append every live pinned window's navigable targets to the scroll-select flat list
+        /// (<see cref="GridSelection.Rebuild"/>), so a nested bag torn out into its own window is still
+        /// reachable by the one wheel cursor. Each window's body is a <see cref="GridRegionView"/> bound
+        /// forceExpanded with its own tab suppressed, so <c>CollectNav</c> emits its cells and any nested
+        /// child regions (each with its own tab) — in window order, after the main tree.</summary>
+        public static void CollectNav(List<GridSelection.NavItem> list)
+        {
+            if (list == null) return;
+            for (int i = 0; i < _live.Count; i++)
+            {
+                var w = _live[i];
+                if (w != null && !w._closed && w._region != null && w.isActiveAndEnabled)
+                    w._region.CollectNav(list);
+            }
         }
 
         /// <summary>Re-flow every live pinned window into its current width — the pin-side of a live F9
@@ -618,6 +636,7 @@ namespace StationeersUIMod.UI.Grid
             if (_panelBg != null) HudFxMaterials.Unassign(_panelBg);
             if (_closeBg != null) HudFxMaterials.Unassign(_closeBg);
             if (_shrinkBg != null) HudFxMaterials.Unassign(_shrinkBg);
+            _scrollbar = null;   // plain PanelGraphics (no shared FX material); dies with the canvas
             if (gameObject != null) Object.Destroy(gameObject);
         }
 
@@ -942,6 +961,9 @@ namespace StationeersUIMod.UI.Grid
             _scroll.inertia = false;
 
             _region = GridRegionView.Create(_content);
+
+            // Thin rounded scroll indicator on the right edge (auto-hides when the list fits).
+            _scrollbar = GridScrollbar.Create(_scroll, _viewport, _content);
         }
 
         private static void AnchorTopLeft(RectTransform rt)

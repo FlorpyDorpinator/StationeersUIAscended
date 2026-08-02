@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using Assets.Scripts.Objects;
+using Assets.Scripts.UI;   // InputMouse (the cursor-freed / mouse-control signal)
 using StationeersUIMod.Features;
 using UnityEngine;
 using UnityEngine.UI;
@@ -12,23 +13,26 @@ namespace StationeersUIMod.UI.Grid
     /// ordered flat list + <c>CurrentSlotIndex</c> cursor + <c>CurrentScollButton</c> highlight), but
     /// over The Grid's region tree rather than vanilla's slot buttons.
     ///
-    /// <para>WHAT IT DOES. While the main window is open AND interactive (the player has freed the
-    /// mouse — the same gate every click surface checks), the mouse WHEEL moves a selection cursor
-    /// through a flat, display-ordered list of every navigable target (each region's manila
-    /// <see cref="GridTab"/>, then its cells, then its nested children — recursively), auto-scrolling
-    /// the list so the cursor stays in view; <c>F</c> (<see cref="KeyMap.InventorySelect"/>) acts on
-    /// the cursor (equip a cell's occupant to the active hand, or open/close a tab's region — the
-    /// primary open gesture under the collapsed-by-default store); <c>G</c>
-    /// (<see cref="KeyMap.SmartStow"/>) stows the active-hand item into the cursor's empty cell.</para>
+    /// <para>WHAT IT DOES. Vanilla-style: while the main window is open and the cursor is CAPTURED
+    /// (normal play — the mouse is controlling the camera, NOT freed), the mouse WHEEL moves a selection
+    /// cursor through a flat, display-ordered list of every navigable target (each region's manila
+    /// <see cref="GridTab"/>, then its cells, then its nested children — recursively — plus the contents
+    /// of any PINNED windows), auto-scrolling whichever window the cursor lands in; <c>F</c>
+    /// (<see cref="KeyMap.InventorySelect"/>) acts on the cursor (equip a cell's occupant to the active
+    /// hand, or open/close a tab's region — the primary open gesture under the collapsed-by-default
+    /// store). The MOMENT the mouse is FREED ("out and about" for click/drag) the feature stands down
+    /// entirely and the wheel FREE-PANS the whole window instead (see <see cref="ApplyScrollMode"/>).
+    /// <c>G</c> is left to SmartStow+ (the mod's own G), which is the vanilla-accurate "smart stow the
+    /// held item" — handling it here too would double-fire.</para>
     ///
-    /// <para>NO DOUBLE-FIRE. Every vanilla inventory-nav path (<c>NextButton</c>/<c>PreviousButton</c>
-    /// via <c>CheckDisplaySlotInput</c>, <c>InventorySelect</c>, <c>SmartStow</c>) early-returns while
-    /// <c>InputMouse.IsMouseControl</c> is true — and that is TRUE exactly when the cursor is freed,
-    /// which is exactly when this window is interactive (<c>MouseModeController.Check</c> →
-    /// <c>SetMouseControl(true)</c>). So the two are mutually exclusive by construction: the grid owns
-    /// the wheel/F/G frames precisely in the regime where vanilla has stood its own nav down. The keys
-    /// are additionally gated on <c>KeyManager.InputState == Game</c> (respects typing / modal states,
-    /// like <c>Core.Guards</c>) and on no radial being open.</para>
+    /// <para>NO DOUBLE-FIRE. This runs in the CAPTURED regime, which is exactly where vanilla's own
+    /// inventory-cursor nav (<c>NextButton</c>/<c>PreviousButton</c> — the wheel + NextItem/PreviousItem
+    /// keys — and <c>InventorySelect</c>) also runs (they early-return only when
+    /// <c>InputMouse.IsMouseControl</c>, i.e. when FREED). So the two are NOT mutually exclusive by the
+    /// cursor state alone: the Harmony prefixes in <c>Core.InventoryNavPatches</c> actively stand vanilla
+    /// down whenever <see cref="OwnsVanillaInventoryNav"/> — leaving the 1–6 equipment hotkeys untouched
+    /// (those go through <c>CheckDisplaySlot→MoveEquipmentSlot</c>, never NextButton/PreviousButton).
+    /// The F key is additionally gated on <c>KeyManager.InputState == Game</c> and on no radial open.</para>
     ///
     /// <para>MP-SAFETY. This is a VIEW/LAYOUT system. The only state mutations it can reach are F's
     /// equip and G's stow, and both route through the SAME gated funnel the click/drag paths already
@@ -37,8 +41,8 @@ namespace StationeersUIMod.UI.Grid
     /// re-verified at execute time — never a new mutation path. F on a tab is a per-save collapse-flag
     /// write only.</para>
     ///
-    /// <para>OWNERSHIP. The MAIN window owns the cursor (pinned windows do not participate — a
-    /// deliberate simplicity choice: exactly ONE box is highlighted at a time). The flat list is
+    /// <para>OWNERSHIP. The MAIN window drives the cursor, but the flat list SPANS the main tree and
+    /// every pinned window (still exactly ONE box highlighted at a time). The flat list is
     /// rebuilt on every structural rebuild and the cursor is reconciled by Slot/RefId identity, so a
     /// bag opening/closing or an item moving keeps the selection stable (like vanilla's
     /// <c>TryUpdateSelectedInventorySlot</c>); when the selected item is gone the cursor keeps its list
@@ -119,17 +123,51 @@ namespace StationeersUIMod.UI.Grid
             }
         }
 
-        /// <summary>Apply the wheel mode to the list's <see cref="ScrollRect"/>: with the feature on,
-        /// the wheel drives the CURSOR (and ensure-visible drives the pan), so the ScrollRect's own
-        /// wheel free-pan is neutralised (sensitivity 0 — drag-to-scroll on empty space is unaffected,
-        /// it rides OnDrag not the wheel). With the feature off, the default free-pan sensitivity is
-        /// restored. Set on Show and re-asserted each interactive Tick so a mid-session config toggle
-        /// (or a race with the EventSystem's own scroll dispatch on the enabling frame) can never
-        /// leave the two wheel consumers fighting.</summary>
+        /// <summary>Apply the wheel mode to the list's <see cref="ScrollRect"/>. Scroll-select is a
+        /// CAPTURED-regime feature (see <see cref="OwnsVanillaInventoryNav"/>): while the mouse controls
+        /// the camera the wheel drives the CURSOR, so the ScrollRect's own wheel free-pan is neutralised
+        /// (sensitivity 0). The MOMENT the mouse is freed ("out and about") the feature stands down and
+        /// the wheel must FREE-PAN the whole window so the player can see every bag — so the default
+        /// free-pan sensitivity is restored. Also restored when the feature is off. Set on Show and
+        /// re-asserted every Tick so a mid-session config toggle or a mouse-mode flip can never leave
+        /// the two wheel consumers fighting.</summary>
         public static void ApplyScrollMode(ScrollRect scroll)
         {
             if (scroll == null) return;
-            scroll.scrollSensitivity = Enabled ? 0f : DefaultScrollSensitivity;
+            bool ownWheel = Enabled && !MouseFreed();
+            scroll.scrollSensitivity = ownWheel ? 0f : DefaultScrollSensitivity;
+        }
+
+        /// <summary>The cursor is "freed" — mouse-control / double-tap latch, vanilla
+        /// <c>InputMouse.IsMouseControl</c>. In this regime the player is clicking/dragging with the
+        /// pointer and the wheel FREE-PANS the list; scroll-select runs only when the cursor is CAPTURED
+        /// (this returns false). Using the exact vanilla signal keeps the mod and vanilla mutually
+        /// exclusive on the wheel: vanilla's own NextButton/PreviousButton also early-return when it
+        /// is true (decompile InventoryWindowManager.cs:133/144).</summary>
+        private static bool MouseFreed()
+        {
+            try { return InputMouse.IsMouseControl; } catch { return false; }
+        }
+
+        /// <summary>True while the Universal Inventory OWNS the mouse wheel + F/G: the main window is
+        /// open, the feature is on, no radial is up, and the cursor is CAPTURED. The Harmony prefixes in
+        /// <c>Core.InventoryNavPatches</c> read this to stand vanilla's inventory-cursor nav down in
+        /// exactly this regime, so the wheel/F never drive two cursors or act twice. Pure function of
+        /// live state (no cached flag), so it is correct regardless of Update order versus vanilla's
+        /// ManagerUpdate.</summary>
+        public static bool OwnsVanillaInventoryNav
+        {
+            get
+            {
+                try
+                {
+                    return Enabled
+                        && TheGridPanel.IsOpen
+                        && !MouseFreed()
+                        && !RadialController.AnyRadialOpen;
+                }
+                catch { return false; }
+            }
         }
 
         /// <summary>Structural (re)build: rebuild the flat nav list from the region tree and reconcile
@@ -145,6 +183,10 @@ namespace StationeersUIMod.UI.Grid
 
             _items.Clear();
             if (root != null) root.CollectNav(_items);
+            // Pinned nested bags are torn out into their own floating windows; fold their contents into
+            // the ONE nav cursor too (after the main tree, in display order per window). EnsureVisible
+            // resolves each item's own ScrollRect, so landing on a pinned item scrolls THAT window.
+            PinnedInventoryWindow.CollectNav(_items);
 
             int n = _items.Count;
             if (n == 0)
@@ -189,17 +231,21 @@ namespace StationeersUIMod.UI.Grid
             SetCursor(found, null, false);
         }
 
-        /// <summary>Per-frame input, called from <c>TheGridPanel.Tick</c> ONLY while the window is open
-        /// AND interactive (the freed-mouse regime where vanilla's own nav is stood down). Reads the
-        /// wheel (cursor move + auto-scroll) and the F/G keys (act on the cursor). Runs BEFORE the
+        /// <summary>Per-frame input, called from <c>TheGridPanel.Tick</c> EVERY frame the main window is
+        /// open (both mouse regimes — it gates itself). Scroll-select drives the cursor + F only while
+        /// the cursor is CAPTURED (normal play, the vanilla-inventory-scroll regime); while the mouse is
+        /// FREED it stands down entirely and the wheel free-pans the window instead. Runs BEFORE the
         /// panel's structural signature check, so an F-driven collapse toggle rebuilds on the same
         /// frame.</summary>
         public static void Tick(ScrollRect scroll)
         {
-            // Reflect the current config every interactive frame (BEFORE the Enabled gate) so a live
-            // toggle restores the ScrollRect's own free-pan the moment the feature is switched off.
+            // Reflect the wheel mode every frame (BEFORE the gates) so flipping the config OR freeing
+            // the mouse restores the window's free-pan the very same frame.
             ApplyScrollMode(scroll);
             if (!Enabled) return;
+            // CAPTURED-regime feature: while the mouse is FREED ("out and about") the player clicks and
+            // drags and the wheel free-pans the whole window (ApplyScrollMode) — we drive nothing here.
+            if (MouseFreed()) return;
             // A radial owns the wheel AND the keyboard while it is up (its ModalScope even frees the
             // cursor); leave the cursor where it is and process nothing this frame.
             if (RadialController.AnyRadialOpen) return;
@@ -211,9 +257,20 @@ namespace StationeersUIMod.UI.Grid
 
         private static void HandleWheel(ScrollRect scroll)
         {
-            // Only while the pointer is over the window (the same hover-gate the ScrollHit gives the
-            // old free-pan): a freed cursor parked over the world leaves the wheel to the game.
-            if (!TheGridPanel.HitTestWindow((Vector2)Input.mousePosition)) return;
+            // No hover-gate: in the captured regime the cursor is locked to the centre for camera
+            // control, so it is never "over" the window — vanilla's own inventory wheel likewise cycles
+            // slots without hovering the panel. We already gate on the window being OPEN + captured.
+
+            // Match vanilla EXACTLY (decompile InventoryManager.cs:1412): the inventory wheel nav is
+            // skipped in Placement mode, where the same wheel cycles the ConstructionPanel's build
+            // variant. We do not patch CheckDisplaySlotInput, so its ConstructionPanel scroll still runs;
+            // standing our cursor down here keeps the wheel single-purpose while a multi-variant kit is out.
+            try
+            {
+                if (Assets.Scripts.Inventory.InventoryManager.CurrentMode
+                    == Assets.Scripts.Inventory.InventoryManager.Mode.Placement) return;
+            }
+            catch { }
 
             float dy = 0f;
             try { dy = Input.mouseScrollDelta.y; } catch { }
@@ -260,16 +317,17 @@ namespace StationeersUIMod.UI.Grid
             if (state != KeyInputState.Game) return;      // typing / modal: keys belong elsewhere
             if (RadialController.AnyRadialOpen) return;    // a radial owns the keyboard this frame
 
-            bool f = false, g = false;
+            // F acts on the cursor (open/close a bag, or equip a cell's item to the active hand). G is
+            // deliberately NOT handled here: it belongs to SmartStow+ (the mod's own G, patched onto
+            // InventoryManager.SmartStow downstream of vanilla's InventoryWindowManager.SmartStow),
+            // which routes the held item to the best bag — the vanilla-accurate G. Handling it here too
+            // would double-fire (stow into the highlighted cell AND smart-route). See Core.InventoryNavPatches.
+            bool f = false;
             try { f = KeyManager.GetButtonDown(KeyMap.InventorySelect); } catch { }
-            try { g = KeyManager.GetButtonDown(KeyMap.SmartStow); } catch { }
-            if (!f && !g) return;
+            if (!f) return;
 
             if (_cursor < 0 || _cursor >= _items.Count) return;
-            NavItem it = _items[_cursor];
-
-            if (f) DoSelect(it);
-            else if (g) DoStow(it);
+            DoSelect(_items[_cursor]);
         }
 
         /// <summary>F on the cursor: a CELL equips its occupant to the active hand (the same funnel
@@ -283,15 +341,6 @@ namespace StationeersUIMod.UI.Grid
                 return;
             }
             if (it.Cell != null) it.Cell.ActivateFromKeyboard();
-        }
-
-        /// <summary>G on the cursor: a CELL stows the active-hand item into it (the gated
-        /// <c>StowActiveHandTo</c> funnel — fails softly with the vanilla sound on an occupied cell or
-        /// empty hand). G on a tab is a no-op (routing an item INTO a bag is the drag / SmartStow+
-        /// path, not this cursor).</summary>
-        private static void DoStow(NavItem it)
-        {
-            if (it.Cell != null) it.Cell.StowHereFromKeyboard();
         }
 
         // ---------- cursor + visuals ----------
@@ -332,15 +381,22 @@ namespace StationeersUIMod.UI.Grid
         private static void EnsureVisible(NavItem it, ScrollRect scroll)
         {
             RectTransform target = it.Rect;
-            if (target == null || scroll == null) return;
-            RectTransform content = scroll.content;
-            RectTransform viewport = scroll.viewport;
+            if (target == null) return;
+            // Resolve the ScrollRect that actually contains this item: the main list for a main-window
+            // cell/tab, or the pinned window's own list for a pinned item. A window with no scroll
+            // container has nothing to auto-scroll (no-op) — the highlight still shows. `scroll` is
+            // only a hint used when the ancestor walk finds nothing.
+            ScrollRect owner = target.GetComponentInParent<ScrollRect>();
+            if (owner == null) owner = scroll;
+            if (owner == null) return;
+            RectTransform content = owner.content;
+            RectTransform viewport = owner.viewport;
             if (content == null || viewport == null) return;
 
             float contentH = content.rect.height;
             float viewH = viewport.rect.height;
             float range = contentH - viewH;
-            if (range <= 1f) { scroll.verticalNormalizedPosition = 1f; return; }
+            if (range <= 1f) { owner.verticalNormalizedPosition = 1f; return; }
 
             Bounds b = RectTransformUtility.CalculateRelativeRectTransformBounds(content, target);
             float centerY = (b.min.y + b.max.y) * 0.5f;
@@ -349,14 +405,14 @@ namespace StationeersUIMod.UI.Grid
             const float margin = 8f;
 
             // Current scroll offset (how far the content top sits above the viewport top).
-            float s = (1f - scroll.verticalNormalizedPosition) * range;
+            float s = (1f - owner.verticalNormalizedPosition) * range;
             float itemTop = depth - halfH - margin;
             float itemBot = depth + halfH + margin;
             if (itemTop < s) s = itemTop;
             else if (itemBot > s + viewH) s = itemBot - viewH;
             s = Mathf.Clamp(s, 0f, range);
 
-            scroll.verticalNormalizedPosition = 1f - s / range;
+            owner.verticalNormalizedPosition = 1f - s / range;
         }
 
         /// <summary>Drop all selection state and the visual on the current target. Called from

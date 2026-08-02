@@ -297,7 +297,13 @@ namespace StationeersUIMod.UI
             Object.DontDestroyOnLoad(_root);
             _canvas = _root.AddComponent<Canvas>();
             _canvas.renderMode = RenderMode.ScreenSpaceOverlay;
-            _canvas.sortingOrder = 5010; // just above the radial ring, but it sits below it spatially
+            // BEHIND all radial content. The strip sits spatially BELOW the ring, but child radials,
+            // satellites and other generated wedges expand into its area — at 5010 (above the radial's
+            // 5000) the strip drew ON TOP of them. Park it just UNDER the radial canvas (5000) so the
+            // ring and everything it spawns always render over the strip, while staying above the radial
+            // editor's black backdrop (4900, so the F10 hint-bar preview still shows) and the HUD (3800,
+            // so the strip stays visible where nothing overlaps it).
+            _canvas.sortingOrder = 4999;
 
             // Created FIRST so it sits behind the strip in sibling order.
             var previewGo = new GameObject("previewSwatch", typeof(RectTransform));

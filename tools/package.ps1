@@ -9,16 +9,20 @@
   version-named zip at the repo root. Mirrors the StationpediaAscended packaging flow.
 
   Ship layout (top-level folder wrapped inside the zip):
-    StationeersUIMod\
-      StationeersUIMod.dll        <- Dev\bin\Release
+    Stationeers UI Ascended\
+      StationeersUIMod.dll        <- Dev\bin\Release (assembly name; stays as-is)
       uia_effects.bundle          <- Dev\UiaEffectsBundle\Build (Tier B/C shaders; fail-soft)
       About\About.xml             <- Assets\About
       About\Preview.png
       About\thumb.png
       HudProfiles\*.xml + README  <- HudProfiles\
 
-  The same staged folder (dist\StationeersUIMod) is what tools\workshop_update.vdf points
-  steamcmd at, so 'Release & Publish' uploads exactly what the zip contains.
+  The same staged folder (dist\Stationeers UI Ascended) is what tools\workshop_update.vdf
+  points steamcmd at, so 'Release & Publish' uploads exactly what the zip contains.
+
+  NAMING: the human-facing package (zip file + this top-level folder) is "Stationeers UI
+  Ascended" to match About.xml <Name> and how SLP lists the mod. The DLL keeps its assembly
+  name StationeersUIMod.dll (referenced by the .csproj output and the ScriptEngine tasks).
 
 .PARAMETER SkipBuild
   Reuse the existing Release DLL instead of rebuilding.
@@ -46,8 +50,9 @@ $ProfSrc    = Join-Path $RepoRoot 'HudProfiles'
 $AboutXml   = Join-Path $AboutSrc 'About.xml'
 $ModSrcFile = Join-Path $RepoRoot 'Assets\Scripts\StationeersUIMod\StationeersUIMod.cs'
 
-$ModName  = 'StationeersUIMod'
-$Stage    = Join-Path $RepoRoot "dist\$ModName"   # steamcmd contentfolder + zip source
+$ModName  = 'StationeersUIMod'                     # assembly / DLL base name (internal, unchanged)
+$ShipName = 'Stationeers UI Ascended'             # human-facing package: zip file + top-level folder
+$Stage    = Join-Path $RepoRoot "dist\$ShipName"  # steamcmd contentfolder + zip source
 
 # ---- clean-tree guard (warn, not abort: a dirty tree still packages, but the zip may not
 # match any single commit, which makes a shipped bug hard to bisect later). ----
@@ -85,7 +90,7 @@ if ($CodeVersion -ne $Version) {
     throw "Version mismatch: About.xml=$Version vs ModVersion const=$CodeVersion."
 }
 
-Write-Host "==> Packaging $ModName v$Version ($Configuration)" -ForegroundColor Cyan
+Write-Host "==> Packaging $ShipName v$Version ($Configuration)" -ForegroundColor Cyan
 
 # ---- build Release ----
 if (-not $SkipBuild) {
@@ -111,7 +116,7 @@ New-Item -ItemType Directory -Path $Stage -Force | Out-Null
 New-Item -ItemType Directory -Path (Join-Path $Stage 'About') -Force | Out-Null
 New-Item -ItemType Directory -Path (Join-Path $Stage 'HudProfiles') -Force | Out-Null
 
-Copy-Item $DllPath (Join-Path $Stage 'StationeersUIMod.dll') -Force
+Copy-Item $DllPath (Join-Path $Stage "$ModName.dll") -Force
 
 # Effects bundle: fail-soft. Missing = Tier B/C shader effects unavailable (HudShaderStore
 # degrades to Tier A), so warn loudly rather than shipping silently without it.
@@ -184,11 +189,11 @@ Write-Host "    content audit passed" -ForegroundColor Green
 # Zip name derives from the SAME agreed version checked above (About.xml == ModVersion const) -
 # never a separately hand-typed string, so a name/tree mismatch like the 0.9.2 vs 0.9.2.0
 # incident above cannot recur.
-$ZipPath = Join-Path $RepoRoot "$ModName-$Version.zip"
+$ZipPath = Join-Path $RepoRoot "$ShipName-$Version.zip"
 if (Test-Path $ZipPath) { Remove-Item $ZipPath -Force }
 Compress-Archive -Path $Stage -DestinationPath $ZipPath -Force
 $zipMb = '{0:N2}' -f ((Get-Item $ZipPath).Length / 1MB)
-if (-not ((Split-Path -Leaf $ZipPath) -eq "$ModName-$Version.zip")) {
+if (-not ((Split-Path -Leaf $ZipPath) -eq "$ShipName-$Version.zip")) {
     throw "Internal error: zip name does not match the agreed version ($Version)."
 }
 
@@ -203,7 +208,7 @@ Get-ChildItem $Stage -Recurse -File | Sort-Object FullName | ForEach-Object {
 
 # ---- optional: install into the local mods folder for SLP testing ----
 if ($Install) {
-    $ModsFolder = Join-Path $env:USERPROFILE "Documents\My Games\Stationeers\mods\$ModName"
+    $ModsFolder = Join-Path $env:USERPROFILE "Documents\My Games\Stationeers\mods\$ShipName"
     if (Test-Path $ModsFolder) { Remove-Item $ModsFolder -Recurse -Force }
     New-Item -ItemType Directory -Path $ModsFolder -Force | Out-Null
     Copy-Item (Join-Path $Stage '*') $ModsFolder -Recurse -Force
@@ -212,6 +217,6 @@ if ($Install) {
 }
 
 Write-Host ""
-Write-Host "==> Packaged $ModName v$Version" -ForegroundColor Green
+Write-Host "==> Packaged $ShipName v$Version" -ForegroundColor Green
 Write-Host "    zip:   $ZipPath ($zipMb MB)"
 Write-Host "    stage: $Stage  (steamcmd contentfolder)"

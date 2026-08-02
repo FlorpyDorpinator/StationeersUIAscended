@@ -62,21 +62,34 @@ namespace StationeersUIMod.UI.Hud
         }
 
         /// <summary>Inverse of the CONFIGURED screen warp (VertexWarp and DomeProjection
-        /// modes) by fixed-point iteration — one negative pass drifts 15-25px at the
-        /// corners at full strength; three iterations land sub-pixel. Canvas coords
-        /// (centre origin, y up). Shared by the F9 editor hit-testing and the radial
-        /// chip-drop zones so mouse points always land where the warped HUD draws.</summary>
+        /// modes) by fixed-point iteration. Up to sixteen bounded passes cover the supported
+        /// inverted, per-element 2x bend; the common positive bend exits early once its residual
+        /// is below 0.01px. Canvas coords (centre origin, y up). Shared by the F9 editor
+        /// hit-testing and the radial chip-drop zones.</summary>
         public static Vector2 Unwarp(Vector2 p)
+        {
+            return Unwarp(p, 1f);
+        }
+
+        /// <summary>Inverse for one element. VertexWarp bends each element by its own fxWarp
+        /// multiplier, so its input geometry must use the same multiplier. DomeProjection bends
+        /// the completed HUD texture and therefore always uses the full global strength.</summary>
+        public static Vector2 Unwarp(Vector2 p, float elementMult)
         {
             if (BareFlat) return p; // flat while bare — mouse maps 1:1
             var mode = HudConfig.Curvature != null ? HudConfig.Curvature.Value : HudCurvature.Flat;
             if (mode != HudCurvature.VertexWarp && mode != HudCurvature.DomeProjection) return p;
             float k = HudConfig.CurveStrength.Value * (HudConfig.CurveInvert.Value ? -1f : 1f);
+            if (mode == HudCurvature.VertexWarp) k *= Mathf.Clamp(elementMult, 0f, 2f);
             if (Mathf.Abs(k) <= 0.001f) return p;
             float hw = Screen.width * 0.5f, hh = Screen.height * 0.5f;
             var q = p;
-            for (int i = 0; i < 3; i++)
-                q += p - Barrel(q, k, hw, hh);
+            for (int i = 0; i < 16; i++)
+            {
+                var correction = p - Barrel(q, k, hw, hh);
+                q += correction;
+                if (correction.sqrMagnitude < 0.0001f) break;
+            }
             return q;
         }
 

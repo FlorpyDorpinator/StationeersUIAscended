@@ -77,6 +77,14 @@ namespace StationeersUIMod.UI.Menu.Tabs
                 // global:: because the plugin CLASS shares the root namespace's name (same reason
                 // BumpGridChrome below spells it out).
                 v => { UIAConfig.GridCellSize.Value = v; global::StationeersUIMod.UI.Grid.TheGridPanel.Relayout(); }, "0", 1f);
+            // Scroll-select / keyboard nav (the vanilla-style wheel-through-your-inventory feature).
+            // GridSelection reads UIAConfig.GridKeyboardNav live every interactive frame, so the flip
+            // takes effect without a rebuild.
+            UiaControls.ToggleRow(col, "Scroll to select (mouse wheel through your inventory)",
+                UIAConfig.GridKeyboardNav.Value, v => UIAConfig.GridKeyboardNav.Value = v);
+            UiaControls.Note(col, "While the inventory is open during play, the mouse wheel moves a highlight " +
+                "through your bags and slots (F opens a bag / takes the highlighted item, G stows your held item). " +
+                "Works like vanilla — while you are still controlling the camera, not while the mouse is freed.");
             // Live toggles: badges refresh via GridProfileMode.ChromeStamp (folds the config
             // bit), hints are re-read by GridGhostHint.Tick — no extra plumbing needed.
             UiaControls.ToggleRow(col, "Show profile tags on bag tabs",

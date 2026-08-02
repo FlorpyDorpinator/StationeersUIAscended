@@ -866,6 +866,7 @@ namespace StationeersUIMod.UI.Hud
 
         public static void Shutdown()
         {
+            Core.HudSlotTooltip.Reset();   // drop any slot-item tooltip we raised
             HudSlotDrag.Shutdown();   // drop the ghost + any pinned drag before the canvas dies
             RestoreAnyPortraits();
             RestoreVanillaIfNeeded();
@@ -1273,6 +1274,11 @@ namespace StationeersUIMod.UI.Hud
                     }
                 }
             }
+
+            // Slot-item tooltips: hovering a hand box or a 1-6 equipment box that holds an item raises
+            // the vanilla item tooltip (via ZoneAt, the same hit-test drag/click-to-pin use). Ownership
+            // is tracked inside, so it never clears the vitals card's separate stats tooltip.
+            Core.HudSlotTooltip.Tick();
 
             // --- animations ---
             float now = Time.unscaledTime;
@@ -1719,6 +1725,10 @@ namespace StationeersUIMod.UI.Hud
         private static void UpdateDome(float strength)
         {
             if (_rtCam == null || _domeDisplay == null) return;
+            // BareFlattens disables per-graphic mesh curvature through HudWarp.Enabled. Dome mode
+            // bends the completed RT instead, so explicitly flatten that presentation too; this
+            // also keeps HudWarp.Unwarp's BareFlat identity mapping exact.
+            if (HudWarp.BareFlat) strength = 0f;
             _rtCam.orthographic = true;               // mode D leaves it perspective — restore
             _domeDisplay.enabled = true;              // show the dome grid, hide mode D's flat RT
             if (_rtFlat != null) _rtFlat.enabled = false;
@@ -2296,6 +2306,10 @@ namespace StationeersUIMod.UI.Hud
 
         private static bool _restorePlayerState;
         private static int _playerStateWarns;
+        private static CanvasGroup _vitalsInputGroup;
+        private static bool _vitalsInputCaptured;
+        private static bool _vitalsWasInteractable;
+        private static bool _vitalsBlockedRaycasts;
 
         /// <summary>True while the vanilla instrument cluster is being hidden. Read by the
         /// Harmony prefix that skips PlayerStateWindow.UpdateJetpackPanels — vanilla
@@ -2367,7 +2381,9 @@ namespace StationeersUIMod.UI.Hud
 
         /// <summary>Alpha the vanilla vitals list (VitalsObject) via a CanvasGroup —
         /// vanilla SetActives it per frame, but never touches a CanvasGroup, so alpha 0
-        /// sticks while every child stays readable. Idempotent per-frame call.</summary>
+        /// sticks while every child stays readable. Its PlayerStatsPanel Image is a live
+        /// raycast target, so hiding also disables interaction; otherwise an invisible
+        /// tooltip catcher remains at the old bottom-right position. Idempotent per frame.</summary>
         private static void SetVitalsAlpha(Assets.Scripts.UI.PlayerStateWindow psw, float alpha)
         {
             try
@@ -2377,8 +2393,49 @@ namespace StationeersUIMod.UI.Hud
                 var grp = go.GetComponent<UnityEngine.CanvasGroup>()
                     ?? go.AddComponent<UnityEngine.CanvasGroup>();
                 if (!Mathf.Approximately(grp.alpha, alpha)) grp.alpha = alpha;
+                bool visible = alpha > 0.001f;
+                if (!visible)
+                {
+                    // Capture once per concrete vanilla object. The shipped scene has no group (the
+                    // one above is ours, whose defaults are true), but another mod/future build may
+                    // supply one intentionally non-interactive; restore exactly what we found.
+                    if (!_vitalsInputCaptured || !ReferenceEquals(_vitalsInputGroup, grp))
+                    {
+                        _vitalsInputGroup = grp;
+                        _vitalsWasInteractable = grp.interactable;
+                        _vitalsBlockedRaycasts = grp.blocksRaycasts;
+                        _vitalsInputCaptured = true;
+                    }
+                    if (grp.interactable) grp.interactable = false;
+                    if (grp.blocksRaycasts) grp.blocksRaycasts = false;
+                }
+                else
+                {
+                    if (_vitalsInputCaptured && ReferenceEquals(_vitalsInputGroup, grp))
+                    {
+                        if (grp.interactable != _vitalsWasInteractable)
+                            grp.interactable = _vitalsWasInteractable;
+                        if (grp.blocksRaycasts != _vitalsBlockedRaycasts)
+                            grp.blocksRaycasts = _vitalsBlockedRaycasts;
+                    }
+                    ResetVitalsInputCapture();
+                }
             }
             catch { }
+            finally
+            {
+                // Even if the vanilla object disappeared or another mod threw while restoring,
+                // never retain an old Unity reference across a show/teardown transition.
+                if (alpha > 0.001f) ResetVitalsInputCapture();
+            }
+        }
+
+        private static void ResetVitalsInputCapture()
+        {
+            _vitalsInputGroup = null;
+            _vitalsInputCaptured = false;
+            _vitalsWasInteractable = false;
+            _vitalsBlockedRaycasts = false;
         }
 
         public static void RestoreVanillaIfNeeded()
@@ -2405,6 +2462,9 @@ namespace StationeersUIMod.UI.Hud
                 }
                 catch { }
             }
+            // If the vanilla object vanished during teardown there was nothing left to restore;
+            // still drop the old Unity reference so a double-F6 reload cannot retain it.
+            ResetVitalsInputCapture();
 
             if (!_restoreHands && !_restoreClothing && !_restoreStatus) return;
             bool hands = _restoreHands, clothing = _restoreClothing, status = _restoreStatus;

@@ -45,6 +45,30 @@ namespace StationeersUIMod.Core
             return true;
         }
 
+        /// <summary>Gate for OPENING the Universal Inventory (the Grid key, B). Same as
+        /// <see cref="CanAcceptGameplayInput"/> EXCEPT it does NOT block on a freed cursor: pressing B
+        /// must open the grid even while the mouse mod is active (FlorpyDorp) — the player may free the
+        /// mouse first and then open the inventory to click through it. The genuine "keys belong
+        /// elsewhere" states still block (paused, console, a text input, Stationpedia, the creative
+        /// menu, a non-Game input state), and — because dropping the <c>Cursor.visible</c> check would
+        /// otherwise let it through — an MP-client pause menu via <see cref="VanillaMenuWantsFront"/>.
+        /// No character still blocks.</summary>
+        public static bool CanOpenUniversalInventory()
+        {
+            if (!CanDraw()) return false;
+            if (WorldManager.IsGamePaused) return false;
+            if (ConsoleWindow.IsOpen) return false;
+            if (InputWindowBase.IsInputWindow) return false;
+            if (Stationpedia.IsOpenAndLocked) return false;
+            if (ImguiCreativeSpawnMenu.Show) return false;
+            if (KeyManager.InputState != KeyInputState.Game) return false;
+            if (VanillaMenuWantsFront()) return false;   // the MP-client pause menu the dropped Cursor.visible check would miss
+            var parent = InventoryManager.Parent;
+            if (parent == null || parent.IsUnresponsive) return false;
+            // Deliberately NOT gating on Cursor.visible — B opens the grid with the mouse freed too.
+            return true;
+        }
+
         /// <summary>Gate for the F9/F10 editor toggles: never over the console, a text
         /// input, or the creative spawn menu (vanilla also binds F9 to SpawnItem there).</summary>
         public static bool CanToggleMenus()

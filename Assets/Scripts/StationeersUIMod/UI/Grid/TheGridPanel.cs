@@ -152,6 +152,7 @@ namespace StationeersUIMod.UI.Grid
         private static RectTransform _viewport;
         private static RectTransform _content;
         private static ScrollRect _scroll;
+        private static GridScrollbar _scrollbar;   // thin rounded scroll indicator on the right edge
         private static GridRegionView _rootRegion;  // the ONE renderer (flat packed grid of regions)
         private static GraphicRaycaster _raycaster;
 
@@ -585,11 +586,16 @@ namespace StationeersUIMod.UI.Grid
             // profile mode. One bool read when idle.
             GridGhostHint.Tick();
 
-            // Scroll-select + keyboard nav (#4): wheel moves the cursor, F/G act on it. Only while
-            // the player has freed the mouse (the regime where vanilla's own inventory nav is stood
-            // down, so no double-fire). Runs BEFORE the signature check so an F-driven collapse
-            // toggle rebuilds on this very frame.
-            if (_interactive) GridSelection.Tick(_scroll);
+            // Scroll-select + keyboard nav (#4): wheel moves the cursor, F acts on it. GridSelection
+            // gates ITSELF by mouse regime — it drives the cursor only while the cursor is CAPTURED
+            // (normal play, the vanilla-inventory-scroll regime, with vanilla's own nav suppressed via
+            // Core.InventoryNavPatches) and free-pans the window once the mouse is freed — so it is
+            // ticked EVERY open frame, not just when interactive. Runs BEFORE the signature check so an
+            // F-driven collapse toggle rebuilds on this very frame.
+            GridSelection.Tick(_scroll);
+
+            // Drive the scroll indicator from the live scroll/content each frame (cheap; auto-hides).
+            if (_scrollbar != null) _scrollbar.Tick();
 
             long sig = GridModel.ComputeSignature();
             int pinVer = GridPinStore.PinVersion;
@@ -751,6 +757,7 @@ namespace StationeersUIMod.UI.Grid
             _viewport = null;
             _content = null;
             _scroll = null;
+            _scrollbar = null;   // its GameObject dies with the canvas below; just drop the ref
             _rootRegion = null;
             _linePts.Clear();
             _dirtyScratch.Clear();
@@ -1402,6 +1409,9 @@ namespace StationeersUIMod.UI.Grid
 
             // The ONE renderer. BagGridView (the old nested tree) is deprecated and never built.
             _rootRegion = GridRegionView.Create(_content);
+
+            // Thin rounded scroll indicator on the right edge (auto-hides when the list fits).
+            _scrollbar = GridScrollbar.Create(_scroll, _viewport, _content);
         }
 
         private static void AnchorTopLeft(RectTransform rt)

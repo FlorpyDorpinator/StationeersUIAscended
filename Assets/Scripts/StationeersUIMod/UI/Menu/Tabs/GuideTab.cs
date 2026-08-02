@@ -28,8 +28,8 @@ namespace StationeersUIMod.UI.Menu.Tabs
 
             UiaControls.Header(col, "The radial menus");
             UiaControls.Note(col,
-                "Hold a key to open a wheel; the wheel follows your cursor. Move over a wedge and " +
-                "release (or click) to act. Tapping the same key instead does the quick vanilla action.");
+                "Tap a key to open a wheel; use your cursor from there. Move over a wedge and " +
+                "click act. Holding the same key instead does the quick vanilla action, like putting the item in your hand.");
             KeyRow(col, "Open the tool / device wheel (hold)", UiaKeybinds.Glyph("UIA_ToolRadial"));
             KeyRow(col, "Open the toolbelt wheel (hold)", UiaKeybinds.Glyph("UIA_ToolbeltRadial"));
             KeyRow(col, "Open the bag / backpack wheel", UiaKeybinds.Glyph("UIA_BagRadial"));

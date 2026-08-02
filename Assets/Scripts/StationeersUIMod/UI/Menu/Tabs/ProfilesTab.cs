@@ -47,7 +47,10 @@ namespace StationeersUIMod.UI.Menu.Tabs
             var featured = PickFeatured(all);
             var gridGo = UiaUi.Go("card-grid", col);
             var grid = gridGo.AddComponent<GridLayoutGroup>();
-            grid.cellSize = new Vector2(298f, 158f);
+            // Taller card so the preview area is ~16:9 (all shipped previews are 800x450 = 1.778):
+            // at this width the image fills the box edge-to-edge with preserveAspect, instead of
+            // being letterboxed into a thin strip. The name + subtitle sit centered underneath.
+            grid.cellSize = new Vector2(298f, 218f);
             grid.spacing = new Vector2(UiaTheme.Gap, UiaTheme.Gap);
             grid.constraint = GridLayoutGroup.Constraint.FixedColumnCount;
             grid.constraintCount = 3;
@@ -96,6 +99,15 @@ namespace StationeersUIMod.UI.Menu.Tabs
                 UiaControls.Button(rowGo2.transform, "Open HUD Designer (F9)", OpenDesigner, 200f, UiaTheme.RowH, UiaControls.ButtonStyle.Primary);
                 UiaControls.Button(rowGo2.transform, "Open profiles folder", OpenFolder, 180f, UiaTheme.RowH);
                 UiaControls.Note(col, "New blank profile starts an empty slate (your screen size, one hand-boxes element, no saved theme) and switches to it. The HUD Designer (F9) is where you build it out - add, move, resize and restyle every element, and rename it there.");
+
+                // Dev-side "ship it": copy the profile you are building straight into the repo's
+                // HudProfiles folder (the folder SyncShipped reads and package.ps1 zips). No-op with
+                // an honest toast on a non-dev install (the repo folder is not there to write to).
+                var rowGo3 = UiaUi.Go("adv-row3", col);
+                UiaUi.Size(rowGo3, UiaTheme.RowH);
+                UiaUi.HLayout((RectTransform)rowGo3.transform, UiaTheme.Gap);
+                UiaControls.Button(rowGo3.transform, "Export active to mod (ship it)", ExportActiveToMod, 240f, UiaTheme.RowH);
+                UiaControls.Note(col, "Export active to mod copies the profile you're using (its layout, saved theme and preview .png) into the mod's HudProfiles folder in the repo - the same folder that ships and that the launch-time sync seeds to every player. Dev machines only.");
                 BuildManageBlock(col, all, active);
             }
         }
@@ -285,11 +297,12 @@ namespace StationeersUIMod.UI.Menu.Tabs
             var cimg = card.AddComponent<Image>();
             cimg.color = active ? UiaTheme.SelectedDim : UiaTheme.PanelRaised;
             UiaUi.OutlineOf(cimg, active ? UiaTheme.Selected : UiaTheme.Divider, active ? 2f : 1f);
-            UiaUi.VLayout((RectTransform)card.transform, 3f, 8, 8, 8, 8);
+            UiaUi.VLayout((RectTransform)card.transform, 3f, 6, 6, 6, 6);
 
-            // Preview image (or a labelled placeholder).
+            // Preview image (or a labelled placeholder). flexibleHeight lets it absorb all the
+            // space above the name/subtitle rows so the screenshot dominates the card.
             var preGo = UiaUi.Go("preview", card.transform);
-            UiaUi.Size(preGo, 84f);
+            UiaUi.Size(preGo, 84f, -1f, -1f, 1f);
             var preImg = preGo.AddComponent<Image>();
             var sprite = UiaImages.Load(HudProfileStore.PreviewPath(name));
             if (sprite != null)
@@ -307,7 +320,7 @@ namespace StationeersUIMod.UI.Menu.Tabs
             UiaUi.Size(nameGo, 22f);
             var nameT = nameGo.AddComponent<TextMeshProUGUI>();
             nameT.font = UiaTheme.Font(); nameT.fontSize = 16f; nameT.raycastTarget = false;
-            nameT.color = active ? UiaTheme.Selected : UiaTheme.Text; nameT.alignment = TextAlignmentOptions.Left;
+            nameT.color = active ? UiaTheme.Selected : UiaTheme.Text; nameT.alignment = TextAlignmentOptions.Center;
             nameT.text = name; nameT.overflowMode = TextOverflowModes.Ellipsis; nameT.enableWordWrapping = false;
 
             string sub = active ? "ACTIVE" : (doc != null && !string.IsNullOrEmpty(doc.Description) ? doc.Description : "Click to apply");
@@ -315,7 +328,7 @@ namespace StationeersUIMod.UI.Menu.Tabs
             UiaUi.Size(subGo, 18f);
             var subT = subGo.AddComponent<TextMeshProUGUI>();
             subT.font = UiaTheme.Font(); subT.fontSize = 12f; subT.raycastTarget = false;
-            subT.color = active ? UiaTheme.On : UiaTheme.TextMute; subT.alignment = TextAlignmentOptions.Left;
+            subT.color = active ? UiaTheme.On : UiaTheme.TextMute; subT.alignment = TextAlignmentOptions.Center;
             subT.text = sub; subT.overflowMode = TextOverflowModes.Ellipsis; subT.enableWordWrapping = false;
 
             // Whole card applies on click (drag still scrolls — click handler only).
@@ -377,6 +390,38 @@ namespace StationeersUIMod.UI.Menu.Tabs
         {
             try { System.Diagnostics.Process.Start("explorer.exe", HudProfileStore.Dir); }
             catch { }
+        }
+
+        /// <summary>FlorpyDorp's "add the UI I'm building to the build folder" button: exports the
+        /// ACTIVE profile into the repo's HudProfiles folder via <see cref="HudProfileStore
+        /// .ExportToShippedFolder"/>. Any in-flight F9 edit and the debounced autosave are flushed
+        /// FIRST, because Export re-reads the profile file from the config folder — an un-flushed
+        /// change would ship a stale copy. A clear toast reports success (with the repo path) or the
+        /// dev-only failure, so a confirmed action never looks like a silent no-op.</summary>
+        private void ExportActiveToMod()
+        {
+            string name = HudConfig.HudActiveProfile != null ? HudConfig.HudActiveProfile.Value : null;
+            if (string.IsNullOrEmpty(name))
+            {
+                global::StationeersUIMod.Overlay.Toast.Show("No active profile to export.",
+                    global::StationeersUIMod.Overlay.Theme.Critical, 3f);
+                return;
+            }
+            try
+            {
+                global::StationeersUIMod.Windows.HudEditorWindow.FlushPendingElementEdit();
+                HudProfileStore.FlushNow();
+                string dst = HudProfileStore.ExportToShippedFolder(name);
+                if (!string.IsNullOrEmpty(dst))
+                    global::StationeersUIMod.Overlay.Toast.Show(
+                        "Exported '" + name + "' to the mod's HudProfiles folder - it ships on the next package.",
+                        global::StationeersUIMod.Overlay.Theme.TextPrimary, 4f);
+                else
+                    global::StationeersUIMod.Overlay.Toast.Show(
+                        "Export failed: the mod's repo HudProfiles folder wasn't found (this works on a dev machine only).",
+                        global::StationeersUIMod.Overlay.Theme.Critical, 4.5f);
+            }
+            catch (System.Exception e) { UIALog.Warn("Export active profile to mod failed: " + e.Message); }
         }
     }
 }

@@ -2,8 +2,8 @@
 {
 	"appid"		"544550"
 	"publishedfileid"		"0"
-	"contentfolder"		"C:\\Dev\\Stationeers UI Ascended\\dist\\StationeersUIMod"
-	"previewfile"		"C:\\Dev\\Stationeers UI Ascended\\dist\\StationeersUIMod\\About\\Preview.png"
+	"contentfolder"		"C:\\Dev\\Stationeers UI Ascended\\dist\\Stationeers UI Ascended"
+	"previewfile"		"C:\\Dev\\Stationeers UI Ascended\\dist\\Stationeers UI Ascended\\About\\Preview.png"
 	// "changenote" below is a placeholder only - tools\publish-steam.ps1 OVERWRITES it at
 	// publish time with the topmost [h3] block from Assets\About\About.xml's <ChangeLog>,
 	// writing the live copy to dist\workshop_update.effective.vdf (this checked-in file is

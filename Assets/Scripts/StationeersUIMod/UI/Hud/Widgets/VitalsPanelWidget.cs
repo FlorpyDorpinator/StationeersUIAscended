@@ -1,5 +1,8 @@
 using System.Collections.Generic;
 using System.Globalization;
+using Assets.Scripts;
+using Assets.Scripts.Localization2;
+using Assets.Scripts.UI;
 using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
@@ -68,6 +71,10 @@ namespace StationeersUIMod.UI.Hud.Widgets
         private PanelGraphic _box;
         // Thin grey separators drawn BETWEEN visible rows (RowCount-1 max).
         private readonly PanelGraphic[] _seps = new PanelGraphic[RowCount - 1];
+        private CanvasGroup _hudRootGroup;
+        private VitalsTooltipReceiver _tooltipReceiver;
+        private Rect _tooltipRect;
+        private bool _tooltipRectValid;
         private int _sig = -1;
 
         // The vitals frame takes the trapezoid insets (base supplies the sliders); the thin
@@ -120,6 +127,12 @@ namespace StationeersUIMod.UI.Hud.Widgets
                 _stars[i] = MakeIcon(root, "Star" + i);
                 _stars[i].enabled = false;
             }
+
+            // Keep the HUD's established input-transparent contract: this is a MANUAL logical-rect
+            // hover, not a GraphicRaycaster target. UpdateHover inverse-warps the pointer through the
+            // same path as F9 and the HUD slot boxes, so mesh curvature cannot detach the hit area.
+            _tooltipReceiver = new VitalsTooltipReceiver(this);
+            _hudRootGroup = root.parent != null ? root.parent.GetComponent<CanvasGroup>() : null;
         }
 
         public override void Layout(float scale)
@@ -128,6 +141,8 @@ namespace StationeersUIMod.UI.Hud.Widgets
             // update, where the live visible set (and thus the box height) is known.
             Root.anchoredPosition = Vector2.zero;
             _sig = -1;
+            _tooltipRectValid = false;
+            if (_tooltipReceiver != null) _tooltipReceiver.UpdateHover(false, default(Rect));
         }
 
         public override void UpdatePanel(HudSnapshot s, float scale)
@@ -170,6 +185,8 @@ namespace StationeersUIMod.UI.Hud.Widgets
                 _sig = sig;
                 Reflow(scale, vHunger, vWater, vToilet, vHealth, vCognition, vPressure, vTemp, showBox);
             }
+            if (_tooltipReceiver != null)
+                _tooltipReceiver.UpdateHover(TooltipCanShow(), _tooltipRect);
 
             // --- chrome ---
             _box.enabled = showBox;
@@ -523,6 +540,12 @@ namespace StationeersUIMod.UI.Hud.Widgets
             float top = c.y + s.y * 0.5f;                 // stack grows down from the top edge
             float stackH = n * rowH;
 
+            // Follow the LIVE row stack, not the document's maximum/editor rectangle. This stays in
+            // logical canvas space; the receiver inverse-warps the screen pointer before testing it.
+            _tooltipRect = Rect.MinMaxRect(c.x - s.x * 0.5f, top - stackH,
+                c.x + s.x * 0.5f, top);
+            _tooltipRectValid = stackH > 0f && s.x > 0f;
+
             // Box takes the height of the visible rows, top-aligned in the element rect.
             if (showBox)
             {
@@ -577,6 +600,134 @@ namespace StationeersUIMod.UI.Hud.Widgets
                 // form a clean vertical column (icons-as-words mode only).
                 if (row.NameRt != null) { row.NameRt.anchoredPosition = valPos; row.NameRt.sizeDelta = valSize; }
             }
+        }
+
+        private bool TooltipCanShow()
+        {
+            if (!Core.DetailedVitalsTooltip.IsEnabled || !_tooltipRectValid || !Cursor.visible) return false;
+            // Modes C/D project a cylinder through a perspective camera; a flat logical rect is
+            // not their screen-space inverse and can miss by 60-150 px. Stay fail-soft until that
+            // projection has a proven inverse. Flat, per-element VertexWarp, and Dome are exact.
+            if (HudWarp.Active == HudWarp.Kind.Cylinder) return false;
+            if (global::StationeersUIMod.Features.RadialController.AnyRadialOpen) return false;
+            if (global::StationeersUIMod.Windows.HudEditorMode.Active
+                || global::StationeersUIMod.Windows.RadialEditorMode.Active) return false;
+            if (global::StationeersUIMod.UI.Menu.UiaControlCenter.IsOpen
+                || global::StationeersUIMod.UI.Grid.TheGridPanel.IsOpen) return false;
+            if (HudSlotDrag.IsDragging) return false;
+            if (Root == null || Group == null || !Root.gameObject.activeInHierarchy || Group.alpha < 0.5f)
+                return false;
+            if (_hudRootGroup != null && _hudRootGroup.alpha < 0.5f) return false;
+            try
+            {
+                if (Core.Guards.VanillaMenuWantsFront()) return false;
+                if (ImGuiNET.ImGui.GetIO().WantCaptureMouse) return false;
+                var cursor = CursorManager.Instance;
+                if (cursor != null && cursor.BlockCursorRaycast) return false;
+                if (!MouseModeController.InGame || MouseModeController.InCharacterCustomisation) return false;
+                if (HudSlotDrag.PointerOverOtherUiPublic()) return false;
+                var human = Core.Guards.LocalHuman;
+                return human != null && !human.IsArtificial;
+            }
+            catch { return false; }
+        }
+
+        protected override void OnBeforeDestroy()
+        {
+            if (_tooltipReceiver != null) _tooltipReceiver.Shutdown();
+            _tooltipReceiver = null;
+            _hudRootGroup = null;
+            _tooltipRectValid = false;
+        }
+
+        /// <summary>Small, owned adapter to the game's live screen-space tooltip. It is deliberately
+        /// NOT a MonoBehaviour/Graphic: manual inverse-warped polling preserves the HUD's completely
+        /// raycast-transparent input contract and cannot swallow a click behind the vitals card.</summary>
+        private sealed class VitalsTooltipReceiver : IScreenSpaceTooltip
+        {
+            private VitalsPanelWidget _owner;
+            private bool _available;
+            private bool _hovered;
+            private float _diagAt = -999f;   // throttle for the temporary hover diagnostic
+            private int _diagCount;          // capped so the log never floods
+
+            internal VitalsTooltipReceiver(VitalsPanelWidget owner)
+            {
+                _owner = owner;
+            }
+
+            internal void UpdateHover(bool available, Rect logicalRect)
+            {
+                _available = available;
+                bool over = false;
+                Vector2 canvasPoint = default(Vector2);
+                if (available)
+                {
+                    var mouse = (Vector2)Input.mousePosition;
+                    canvasPoint = new Vector2(mouse.x - Screen.width * 0.5f,
+                        mouse.y - Screen.height * 0.5f);
+                    // Use the SAME inverse the proven HUD hit-test uses (HudSystem.ZoneAt ->
+                    // HudWarp.Unwarp(p)): it inverse-warps flat + VertexWarp + Dome exactly. The
+                    // previous per-element fxWarp multiplier scaled the unwarp by a transition amount
+                    // (often not 1), so the hover-rect test missed and the tooltip never fired.
+                    canvasPoint = HudWarp.Unwarp(canvasPoint);
+                    over = logicalRect.Contains(canvasPoint);
+                }
+                // TEMPORARY diagnostic (remove once confirmed): capped + throttled, shows whether the
+                // gate passes and whether the cursor maps inside the card rect.
+                if (UnityEngine.Time.unscaledTime - _diagAt > 1.5f && _diagCount < 12)
+                {
+                    _diagAt = UnityEngine.Time.unscaledTime; _diagCount++;
+                    Core.UIALog.Info("VitalsTip diag: available=" + available + " over=" + over
+                        + " cursor=" + canvasPoint + " rect=" + logicalRect + " warp=" + HudWarp.Active);
+                }
+                if (over == _hovered) return;
+                _hovered = over;
+                if (!over || _owner == null) return;
+                try
+                {
+                    var human = Core.Guards.LocalHuman;
+                    var panel = PanelToolTip.Instance;
+                    if (human == null || human.IsArtificial || panel == null)
+                    {
+                        _hovered = false; // retry if initialization raced this frame
+                        return;
+                    }
+                    Core.VanillaTooltip.Lift(panel); // keep the tooltip above the mod's UI canvases
+                    panel.SetUpTooltip(GameStrings.PlayerStatsTooltipTitle.DisplayString,
+                        human.GetStatsTooltip(), this);
+                }
+                catch { _hovered = false; }
+            }
+
+            public void DoUpdate()
+            {
+                if (!TooltipIsVisible) return;
+                try
+                {
+                    var human = Core.Guards.LocalHuman;
+                    var panel = PanelToolTip.Instance;
+                    if (human != null && panel != null) panel.SetInfoText(human.GetStatsTooltip());
+                }
+                catch { }
+            }
+
+            public bool TooltipIsVisible
+            {
+                get { return _hovered && _available && _owner != null && _owner.TooltipCanShow(); }
+            }
+
+            internal void Shutdown()
+            {
+                _available = false;
+                _hovered = false;
+                _owner = null;
+            }
+        }
+
+        private float TooltipWarpMultiplier()
+        {
+            return TransitionAmt("fxWarp");
         }
 
         public override void DescribeProps(List<HudProp> into)

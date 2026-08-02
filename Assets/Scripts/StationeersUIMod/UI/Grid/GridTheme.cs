@@ -147,6 +147,43 @@ namespace StationeersUIMod.UI.Grid
         public static ConfigEntry<float> BareOpacity;
         public static ConfigEntry<int> BareFrostMode;
 
+        /// <summary>ABSOLUTE background opacity (0..1) for the per-bag "profiles" dropdown popup
+        /// (<see cref="GridProfilePopup"/>). Independent of the window fill alpha, so a see-through
+        /// window theme can't render the dropdown's entries unreadable (FlorpyDorp: "the transparency
+        /// is too thin, hard to see the different profiles"). A public static ConfigEntry, so it rides
+        /// the HUD profile theme via <see cref="SnapshotInto"/>/<see cref="ApplyFrom"/> automatically.</summary>
+        public static ConfigEntry<float> ProfilePopupOpacity;
+
+        // Scroll bar (main + pinned windows). SHARED chrome — deliberately NOT per-tier, like the
+        // Sizes knobs (a scroll indicator's readability shouldn't fork on suit power). Public static
+        // ConfigEntry fields, so all three ride the HUD profile theme via SnapshotInto/ApplyFrom
+        // automatically. Read LIVE each frame by GridScrollbar.Tick (no StyleHash plumbing).
+        /// <summary>Scroll-bar width in px (thin). Clamp 2..16, default 4.</summary>
+        public static ConfigEntry<float> ScrollBarWidth;
+        /// <summary>Scroll-bar colour as a ColorRef (palette entry name or #RRGGBBAA). Empty = follow
+        /// the window BORDER colour.</summary>
+        public static ConfigEntry<string> ScrollBarColorRef;
+        /// <summary>Scroll-bar thumb opacity 0..1 (the track renders at a fraction of it).</summary>
+        public static ConfigEntry<float> ScrollBarOpacity;
+
+        /// <summary>Resolved scroll-bar THUMB colour: the ColorRef (or the window border when empty),
+        /// with the scroll-bar opacity applied. GridScrollbar dims the track to a fraction of this.
+        /// Reads live, so a tier flip is picked up through the tier-resolved <see cref="Border"/>.</summary>
+        public static Color ScrollBarColor
+        {
+            get
+            {
+                Color baseC = (ScrollBarColorRef != null && !string.IsNullOrEmpty(ScrollBarColorRef.Value))
+                    ? HudPalette.Resolve(ScrollBarColorRef.Value, Border) : Border;
+                float a = ScrollBarOpacity != null ? Mathf.Clamp01(ScrollBarOpacity.Value) : 0.55f;
+                return new Color(baseC.r, baseC.g, baseC.b, a);
+            }
+        }
+
+        /// <summary>Clamped scroll-bar width in px.</summary>
+        public static float ScrollBarPx
+            => ScrollBarWidth != null ? Mathf.Clamp(ScrollBarWidth.Value, 2f, 16f) : 4f;
+
         /// <summary>The tier the Grid paints for. Fed each frame by <c>TheGridPanel.Tick</c> from
         /// <c>HudSystem.LastSnapshot.Tier</c> (Bare -> Bare, everything else -> Base); Base while
         /// the HUD is unavailable. A plain static, reset in HudSystem.Shutdown (hot-reload rule).</summary>
@@ -179,6 +216,24 @@ namespace StationeersUIMod.UI.Grid
             TextRef = cfg.Bind(Section, "GridText", "HudTextValue",
                 "Window text when NOT following the HUD theme. A palette entry name or a " +
                 "#RRGGBBAA literal.");
+
+            ProfilePopupOpacity = cfg.Bind(Section, "ProfilePopupOpacity", 0.95f,
+                new ConfigDescription("Background opacity of the per-bag profiles dropdown (1 = " +
+                    "solid). Independent of the window fill, so a transparent window theme still " +
+                    "gets a readable dropdown.", new AcceptableValueRange<float>(0.2f, 1f)));
+
+            ScrollBarWidth = cfg.Bind(Section, "ScrollBarWidth", 4f,
+                new ConfigDescription("Width (px) of the scroll bar on the right of the Universal " +
+                    "Inventory and pinned windows. It appears only when the list overflows, and its " +
+                    "thumb sizes to how much content there is.",
+                    new AcceptableValueRange<float>(2f, 16f)));
+            ScrollBarColorRef = cfg.Bind(Section, "ScrollBarColor", "",
+                "Scroll-bar colour. Empty = follow the window border colour. A palette entry name " +
+                "(e.g. HudPanelBorder) or a #RRGGBBAA literal.");
+            ScrollBarOpacity = cfg.Bind(Section, "ScrollBarOpacity", 0.55f,
+                new ConfigDescription("Scroll-bar thumb opacity (1 = solid). The faint track behind " +
+                    "the thumb renders at a fraction of this.",
+                    new AcceptableValueRange<float>(0.05f, 1f)));
 
             CornerRadiusOv = cfg.Bind(Section, "GridCornerRadius", -1f,
                 new ConfigDescription("Window corner rounding (px). -1 = follow the global HUD " +
@@ -1135,6 +1190,26 @@ namespace StationeersUIMod.UI.Grid
             // PerTier live, so both cached list shapes can carry the identical block without a
             // third cache key.
             AddPerTierProps(into);
+
+            // Profile-dropdown opacity: always shown (independent of follow), like Sizes — a
+            // see-through window theme should not make the per-bag profiles popup unreadable.
+            into.Add(Fs("Profile dropdown opacity", ProfilePopupOpacity, 0.2f, 1f, 0.95f,
+                "Background opacity of the per-bag profiles dropdown (1 = solid). Independent of " +
+                "the window fill alpha, so a transparent window still gets a readable dropdown."));
+
+            // Scroll bar — always shown (independent of follow, like the sizes + dropdown opacity):
+            // a see-through window theme should still be able to dial the bar in. Governs the main
+            // window AND every pinned window.
+            into.Add(HudProp.Header("Scroll bar (shows only when the list overflows)"));
+            into.Add(Fs("Scroll bar width (px)", ScrollBarWidth, 2f, 16f, 4f,
+                "Thin bar down the right of the window. Its thumb sizes to how much overflows and " +
+                "auto-hides when everything fits."));
+            into.Add(HudProp.Color("Scroll bar colour (empty = window border)",
+                () => ScrollBarColorRef != null ? ScrollBarColorRef.Value : "",
+                v => { if (ScrollBarColorRef != null) ScrollBarColorRef.Value = v ?? ""; },
+                () => Border));
+            into.Add(Fs("Scroll bar opacity", ScrollBarOpacity, 0.05f, 1f, 0.55f,
+                "Thumb opacity (1 = solid). The faint track behind it is a fraction of this."));
 
             if (following)
             {

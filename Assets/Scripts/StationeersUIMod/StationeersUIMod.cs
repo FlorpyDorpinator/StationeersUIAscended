@@ -65,6 +65,12 @@ namespace StationeersUIMod
         // (which in hold-to-peek mode would read as a tap-to-close) is swallowed instead of
         // shutting the window the user just opened to style. Reset in the cleanup path.
         private bool _gridEditPreviewOpened;
+        // Same hazard, second instance: in hold-to-peek mode with the cursor ALREADY FREED (mouse
+        // mod on), a Grid-key press opens the window LATCHED rather than as a peek, so _gridPeeking
+        // is false — and the matching key-UP would then fall into the "already open + tap = close"
+        // branch and shut the window on the very tap that opened it. Set here so that key-UP knows
+        // this press was the opener and leaves the window latched. Reset each press + in cleanup.
+        private bool _gridLatchedOpenedThisPress;
 
         /// <summary>The mod's install folder under SLP (local or Workshop), from the injected
         /// ModData. NULL under the F6 ScriptEngine dev flow (no mod folder — the dev shim passes
@@ -197,11 +203,17 @@ namespace StationeersUIMod
                     typeof(Patch_Human_SpawnDynamicThing),
                     typeof(Patch_KeyManager_SpawnDynamicThing),
                     typeof(Patch_InventoryManager_CheckDisplaySlotInput),
+                    // Suppress vanilla inventory-cursor nav (wheel + Next/Prev + select) while the
+                    // Universal Inventory owns the wheel in the captured regime — no double-cursor.
+                    typeof(Core.Patch_IWM_NextButton),
+                    typeof(Core.Patch_IWM_PreviousButton),
+                    typeof(Core.Patch_IWM_InventorySelect),
                     typeof(Patch_InventoryManager_AllowMouseControl),
                     typeof(Patch_MouseModeController_AltKeyDown), // double-tap cursor latch
                     typeof(Patch_MovementController_HandleJump),
                     typeof(Patch_MovementController_MovementHandler), // #9 jetpack toggle while a wheel is open
                     typeof(Patch_PlayerStateWindow_UpdateJetpackPanels),
+                    typeof(Core.Patch_Human_GetStatsTooltip_Details),
                     typeof(Patch_ThingRenderer_OverrideShadowMode), // names + silences the vanilla shadow-LOD NRE
                     typeof(Core.Patch_CommandLine_Process), // `finddead` console command
                     typeof(Core.Patch_KeyManager_SetupKeyBindings), // native Controls-screen rows for our keys
@@ -405,6 +417,7 @@ namespace StationeersUIMod
                     // press is read fresh rather than as "peek already in progress".
                     _gridPeeking = false;
                     _gridEditPreviewOpened = false;
+                    _gridLatchedOpenedThisPress = false;
                 }
 
                 // World-drag mirror: while VANILLA carries a world item OVER the Grid / a pinned window,
@@ -504,6 +517,7 @@ namespace StationeersUIMod
             {
                 _gridKeyDownTime = Time.unscaledTime;
                 _gridEditPreviewOpened = false;   // each press decides for itself
+                _gridLatchedOpenedThisPress = false;
                 if (!UI.Grid.TheGridPanel.IsOpen)
                 {
                     if (GridEditPreviewAllowed())
@@ -516,12 +530,22 @@ namespace StationeersUIMod
                         UI.Grid.TheGridPanel.ShowLatched();
                         return;
                     }
-                    // Fresh open only from a clean gameplay state (not typing / paused / cursor-free).
-                    if (!Guards.CanAcceptGameplayInput()) return;
-                    // With HoldToPeek on we can't yet know tap vs hold, so open as a LOCKED read-only
-                    // peek; the key-up below promotes a tap to the interactive latched state.
-                    if (holdPeek) { _gridPeeking = true; UI.Grid.TheGridPanel.ShowPeek(); }
-                    else UI.Grid.TheGridPanel.ShowLatched();
+                    // Fresh open. Unlike the vanilla slot-hotkeys this may open with the mouse FREED
+                    // (mouse mod active): CanOpenUniversalInventory drops ONLY the freed-cursor block,
+                    // keeping every typing/paused/menu block, so B opens the grid whether the mouse is
+                    // captured or out and about.
+                    if (!Guards.CanOpenUniversalInventory()) return;
+                    // A read-only PEEK is a captured-cursor gameplay glance; if the mouse is already
+                    // freed the player wants a real interactive window, so latch instead of peeking.
+                    if (holdPeek && !UnityEngine.Cursor.visible) { _gridPeeking = true; UI.Grid.TheGridPanel.ShowPeek(); }
+                    else
+                    {
+                        // Latched open (either not in hold-peek mode, or the cursor was already
+                        // freed). In hold-peek mode this press's key-UP must NOT be read as a
+                        // tap-to-close, or B-with-mouse-mod-on opens then instantly shuts the window.
+                        _gridLatchedOpenedThisPress = holdPeek;
+                        UI.Grid.TheGridPanel.ShowLatched();
+                    }
                 }
                 else
                 {
@@ -550,6 +574,10 @@ namespace StationeersUIMod
                 }
                 else if (tap)
                 {
+                    // This press OPENED the window latched (cursor already freed / not peek mode):
+                    // its own release must leave the window up. Only a tap on an ALREADY-open window
+                    // closes it — so swallow this one release and let the NEXT tap toggle it shut.
+                    if (_gridLatchedOpenedThisPress) { _gridLatchedOpenedThisPress = false; return; }
                     // Panel was already open before this press; a tap closes it.
                     UI.Grid.TheGridPanel.Hide();
                 }
@@ -680,10 +708,13 @@ namespace StationeersUIMod
             {
                 ClearPinPress();
 
-                bool modifier = false;
-                try { modifier = KeyManager.GetButton(KeyMap.MouseControl); }
-                catch { modifier = false; }
-                if (!modifier) return;
+                // Open the pinned window on a PLAIN click whenever the cursor is free (the mod's
+                // mouse mode) — the same condition the drag layer uses to let you tear an item OUT of
+                // these boxes. The old code required the vanilla MouseControl (Alt) modifier be held,
+                // which made a plain click in mouse mode a no-op (FlorpyDorp: "click any of the 1-6
+                // slots, they don't open"). When the cursor is LOCKED to the FPS crosshair
+                // IsCursorFree is false, so a normal attack/use click is never hijacked.
+                if (!UI.Hud.HudSlotDrag.IsCursorFree) return;
                 if (!Guards.CanToggleMenus()) return;
                 if (UI.Hud.HudSlotDrag.IsDragging) return;   // the drag layer already claimed it
 
@@ -1000,6 +1031,7 @@ namespace StationeersUIMod
                 UI.Grid.GridModel.Reset();          // drop the cached model/signature state
                 _gridPeeking = false;
                 _gridEditPreviewOpened = false;
+                _gridLatchedOpenedThisPress = false;
                 ClearPinPress();                    // never carry an armed press across a reload
                 UI.Hud.HudSystem.Shutdown();
                 Core.DragGhostLayer.Shutdown();    // destroy the shared top-most ghost canvas + world mirror
@@ -1038,6 +1070,8 @@ namespace StationeersUIMod
                 catch (Exception e) { UIALog.Error("ProfileSort.Reset failed: " + e); }
                 try { Core.UiaKeybinds.Unhook(); }
                 catch (Exception e) { UIALog.Error("UiaKeybinds.Unhook failed: " + e); }
+                try { Core.Patch_Human_GetStatsTooltip_Details.ResetRuntimeState(); }
+                catch (Exception e) { UIALog.Error("DetailedVitalsTooltip reset failed: " + e); }
                 try { _harmony?.UnpatchSelf(); }
                 catch (Exception e) { UIALog.Error("UnpatchSelf failed: " + e); }
                 _harmony = null;   // this instance's patches are gone; never let a re-entry re-unpatch

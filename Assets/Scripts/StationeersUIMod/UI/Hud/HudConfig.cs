@@ -87,6 +87,9 @@ namespace StationeersUIMod.UI.Hud
 
         // Diegetic behavior
         public static ConfigEntry<bool> DiegeticTiers;
+        /// <summary>Shared tooltip content rather than a per-tier visual style. It still travels
+        /// with the profile theme, as every non-performance HUD setting must.</summary>
+        public static ConfigEntry<bool> DetailedVitalsTooltips;
         public static ConfigEntry<bool> FlickerAnimations;
         public static ConfigEntry<bool> LowPowerDropouts;
         public static ConfigEntry<float> LowPowerThreshold;
@@ -425,6 +428,10 @@ namespace StationeersUIMod.UI.Hud
                 "The HUD is the suit's HUD: full readout only with a powered suit; without " +
                 "one you get felt-sense WORDS (WARM, HUNGRY) instead of numbers; the robot " +
                 "always sees everything. Off = always show the full readout.");
+            DetailedVitalsTooltips = cfg.Bind(S, "DetailedVitalsTooltips", true,
+                "Show a hover tooltip on UI Ascended's vitals panel and add exact mood, hygiene, " +
+                "and per-minute rates to the game's player-stats tooltip. Shared HUD content " +
+                "rather than a per-tier visual style. Default ON and stored with the profile theme.");
             FlickerAnimations = cfg.Bind(S, "FlickerAnimations", true,
                 "Panels flicker out when they turn off and boot in with a stagger when the " +
                 "suit powers up; suit death collapses the HUD.");

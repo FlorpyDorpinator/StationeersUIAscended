@@ -138,6 +138,17 @@ namespace StationeersUIMod.UI.Grid
             // dropdown, not a window shell). Dirty-guarded downstream, so per-frame is free.
             GridTheme.ApplyBox(_panelBg, _w, _h, GridTheme.GridSurface.Region, false);
 
+            // Force a readable opacity independent of the (possibly very transparent) window fill
+            // alpha — the entries sit on this fill, so a see-through window used to make them hard to
+            // read. RGB stays the themed fill; only alpha is pinned to the F9 slider. Applied every
+            // Tick, so the F9 knob updates the open popup live.
+            if (GridTheme.ProfilePopupOpacity != null)
+            {
+                Color pc = _panelBg.color;
+                pc.a = Mathf.Clamp01(GridTheme.ProfilePopupOpacity.Value);
+                _panelBg.color = pc;
+            }
+
             Color text = GridTheme.Text;
             Color accent = HudPalette.LineAccent != null ? HudPalette.LineAccent.Value : text;
             Color muted = HudPalette.TextLabel != null ? HudPalette.TextLabel.Value : text;

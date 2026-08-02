@@ -13,8 +13,9 @@
     {
       "label": "UI Mod: Package Release (zip)",
       "detail": "Ships it. Builds the RELEASE DLL (shim gated out), stages dist\\StationeersUIMod, and writes StationeersUIMod-<version>.zip at the repo root. No Steam upload.",
-      "type": "shell",
-      "command": "powershell -NoProfile -ExecutionPolicy Bypass -File \"${workspaceFolder}\\tools\\package.ps1\"",
+      "type": "process",
+      "command": "powershell",
+      "args": ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "${workspaceFolder}\\tools\\package.ps1"],
       "problemMatcher": "$msCompile",
       "group": "build",
       "presentation": { "echo": true, "reveal": "always", "focus": false, "panel": "shared" }
@@ -22,8 +23,9 @@
     {
       "label": "UI Mod: Publish to Steam Workshop",
       "detail": "Uploads dist\\StationeersUIMod to the Workshop via steamcmd + tools\\workshop_update.vdf. REFUSES while the Workshop id is the placeholder 0 (pass -Force in the script to create the item). Run Package first.",
-      "type": "shell",
-      "command": "powershell -NoProfile -ExecutionPolicy Bypass -File \"${workspaceFolder}\\tools\\publish-steam.ps1\"",
+      "type": "process",
+      "command": "powershell",
+      "args": ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "${workspaceFolder}\\tools\\publish-steam.ps1"],
       "problemMatcher": [],
       "group": "build",
       "presentation": { "echo": true, "reveal": "always", "focus": true, "panel": "shared" }

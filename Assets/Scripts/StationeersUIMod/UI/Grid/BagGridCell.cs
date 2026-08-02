@@ -398,11 +398,32 @@ namespace StationeersUIMod.UI.Grid
 
         /// <summary>Keyboard <c>F</c> (scroll-select #4) on this cell: the SAME action the left-click
         /// runs — equip the occupant to the active hand. Guarded against firing under an open radial
-        /// (which owns the keyboard), exactly like the click. Returns whether a move was issued.</summary>
+        /// (which owns the keyboard). BIDIRECTIONAL: an OCCUPIED cell takes/swaps its item (same as the
+        /// click); an EMPTY cell with a full hand receives the held item (vanilla hand-to-slot) — the one
+        /// place F diverges from the drag-only click. Returns whether a move was issued.</summary>
         public bool ActivateFromKeyboard()
         {
             if (RadialController.AnyRadialOpen) return false;
-            return EquipOccupantToActiveHand();
+            if (_slot == null) return false;
+
+            DynamicThing occ = null;
+            try { occ = _slot.Get(); } catch { }
+            // OCCUPIED cell: take it / swap with the held item — the shared click funnel (unchanged).
+            if (occ != null) return EquipOccupantToActiveHand();
+
+            // EMPTY cell: F with a FULL hand PLACES the held item here (vanilla InventorySelect's
+            // hand-to-slot). This is where F deliberately diverges from the mouse path — with the cursor
+            // captured there is no drag, so F is how the keyboard both TAKES and PLACES. Only attempt it
+            // when the hand actually holds something, so an empty-hand F over an empty cell is a silent
+            // no-op rather than the fail sound. StowActiveHandTo re-verifies emptiness + Slot.AllowMove
+            // at execute time and routes through OnServer.MoveToSlot (the MP-safe funnel).
+            DynamicThing held = null;
+            try { held = Assets.Scripts.Inventory.InventoryManager.ActiveHandSlot?.Get(); } catch { }
+            if (held == null) return false;
+
+            bool ok = ItemActions.StowActiveHandTo(_slot);
+            RefreshIfDirty();
+            return ok;
         }
 
         /// <summary>Keyboard <c>G</c> (scroll-select #4) on this cell: stow the active-hand item into
@@ -452,6 +473,7 @@ namespace StationeersUIMod.UI.Grid
             // A drag begun on this cell can never survive the radial taking the cursor.
             CancelDrag();
             _hover = false;
+            ClearOccupantTooltip();
             Repaint();
         }
 
@@ -470,12 +492,43 @@ namespace StationeersUIMod.UI.Grid
         {
             _hover = true;
             if (_slot != null) Repaint();
+            ShowOccupantTooltip();
         }
 
         public void OnPointerExit(PointerEventData e)
         {
             _hover = false;
             if (_slot != null) Repaint();
+            ClearOccupantTooltip();
+        }
+
+        /// <summary>Raise the vanilla item tooltip for this cell's occupant — the SAME
+        /// <see cref="Assets.Scripts.UI.PanelToolTip"/> the vanilla inventory slots drive on hover
+        /// (<c>SlotDisplayButton.ShowSlotTooltip</c>). Because <see cref="BagGridCell"/> is the shared
+        /// cell for the main Universal Inventory grid, nested-bag regions AND pinned windows, wiring
+        /// it here gives all three surfaces vanilla-faithful tooltips at once. Honors the game's own
+        /// <c>ShowSlotToolTips</c> setting for parity. Fail-soft: the singleton is world-only and may
+        /// not exist yet, and the occupant is re-read live (never a stale reference).</summary>
+        private void ShowOccupantTooltip()
+        {
+            try
+            {
+                if (!Assets.Scripts.Serialization.Settings.CurrentData.ShowSlotToolTips) return;
+                DynamicThing occ = _slot != null ? _slot.Get() : null;
+                if (occ == null) return;
+                // Route through VanillaTooltip so the tooltip's canvas is lifted ABOVE the mod's Grid /
+                // pinned / Control Center canvases — otherwise it renders hidden behind the window.
+                Core.VanillaTooltip.Show(occ);
+            }
+            catch { }
+        }
+
+        /// <summary>Hide the vanilla item tooltip. Null-safe and cheap; called on hover exit and on
+        /// every teardown path that can bypass <see cref="OnPointerExit"/> (radial open, pool return,
+        /// deactivate) so a tooltip never lingers over a cell no longer under the cursor.</summary>
+        private static void ClearOccupantTooltip()
+        {
+            Core.VanillaTooltip.Clear();
         }
 
         // ---- drag-drop (Stage 2 core: cell → cell move/swap/merge via the ItemActions funnel) ----
@@ -857,6 +910,7 @@ namespace StationeersUIMod.UI.Grid
         /// ever delivering OnEndDrag, so the gesture has to die here.</summary>
         private void OnDisable()
         {
+            if (_hover) ClearOccupantTooltip();   // deactivation can bypass OnPointerExit
             CancelDrag();
         }
 
@@ -865,6 +919,7 @@ namespace StationeersUIMod.UI.Grid
         /// (its canvas is destroyed by TheGridPanel.Shutdown).</summary>
         public void Idle()
         {
+            if (_hover) ClearOccupantTooltip();   // pooled while hovered → don't strand the tooltip
             _slot = null;
             _hover = false;
             _activeHand = false;

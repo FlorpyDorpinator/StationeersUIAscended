@@ -33,6 +33,8 @@ namespace StationeersUIMod.UI.Menu.Tabs
             UiaControls.Header(col, "Show");
             UiaControls.ToggleRow(col, "Diegetic tiers (words when unpowered)", HudConfig.DiegeticTiers.Value, v => HudConfig.DiegeticTiers.Value = v);
             UiaControls.ToggleRow(col, "Flicker / boot animations", HudConfig.FlickerAnimations.Value, v => HudConfig.FlickerAnimations.Value = v);
+            UiaControls.ToggleRow(col, "Detailed vitals tooltips (mood + hygiene)", HudConfig.DetailedVitalsTooltips.Value,
+                v => { HudConfig.DetailedVitalsTooltips.Value = v; Features.HudProfileStore.MarkThemeChanged(); });
 
             UiaControls.Header(col, "Hide vanilla panels");
             UiaControls.ToggleRow(col, "Hands panel", UIAConfig.HideVanillaHands.Value, v => UIAConfig.HideVanillaHands.Value = v);

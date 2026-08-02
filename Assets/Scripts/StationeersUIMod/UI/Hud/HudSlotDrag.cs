@@ -143,7 +143,14 @@ namespace StationeersUIMod.UI.Hud
             // does not help there because frameCount does not advance while unfocused. Without this
             // the drag stays armed forever: a ghost trailing a button nobody holds, and the NEXT
             // unrelated click's release executing a real move. Held-state is the ground truth.
-            if (Time.frameCount != _armFrame && !Input.GetMouseButton(0)) { Cancel(); return; }
+            // The `!GetMouseButtonUp(0)` term is load-bearing: on a NORMAL release frame Unity reports
+            // GetMouseButton(0)==false AND GetMouseButtonUp(0)==true, so without it this watchdog would
+            // Cancel() the gesture BEFORE the release handler at the bottom of Tick ever runs — every
+            // hand/equipment drop would silently abort (confirmed: the drop never reached Release). The
+            // watchdog must fire only for a GENUINELY lost edge — button not held AND no up-edge seen
+            // this frame (app unfocused on release, or a frame the OS coalesced). This mirrors the
+            // pending-press watchdog in TryPromotePendingPress, which already checks both edges.
+            if (Time.frameCount != _armFrame && !Input.GetMouseButton(0) && !Input.GetMouseButtonUp(0)) { Cancel(); return; }
 
             // The pinned item left the slot under us (teammate took it, despawn, our own move
             // round-tripped): abandon quietly rather than acting on whatever replaced it.
@@ -227,6 +234,15 @@ namespace StationeersUIMod.UI.Hud
 
             return CursorFree();
         }
+
+        /// <summary>True when the cursor is FREE (visible + in the mod's mouse mode, not character
+        /// customisation) — the canonical "the player can interact with the HUD/UGUI right now"
+        /// signal. Exposed so the equipment-slot click-to-pin path (StationeersUIMod
+        /// .TryPinFromHudEquipmentClick) gates on the EXACT same condition the drag layer uses: if
+        /// you can tear an item OUT of a 1-6 box, a plain click pins it — no Alt modifier needed.
+        /// When the cursor is LOCKED to the FPS crosshair this is false, so a normal attack/use
+        /// click is never hijacked.</summary>
+        public static bool IsCursorFree => CursorFree();
 
         private static bool CursorFree()
         {

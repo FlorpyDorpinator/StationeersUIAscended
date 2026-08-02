@@ -4,8 +4,8 @@
   Publish the staged Stationeers UI Ascended mod to the Steam Workshop via steamcmd.
 
 .DESCRIPTION
-  Uploads tools\workshop_update.vdf's contentfolder (the repo dist\StationeersUIMod folder that
-  package.ps1 stages) as a Workshop item. Run package.ps1 first so dist\ is fresh.
+  Uploads tools\workshop_update.vdf's contentfolder (the repo "dist\Stationeers UI Ascended"
+  folder that package.ps1 stages) as a Workshop item. Run package.ps1 first so dist\ is fresh.
 
   PLACEHOLDER SAFETY: the mod has no Workshop id yet, so workshop_update.vdf ships with
   publishedfileid "0". Publishing with 0 would CREATE a brand-new Workshop item, so this script
