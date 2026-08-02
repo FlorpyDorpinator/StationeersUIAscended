@@ -73,8 +73,7 @@ namespace StationeersUIMod.UI.Menu.Tabs
         private string _setRenameField;
         private bool _confirmDeleteSet;
         private bool _confirmRestoreShipped;
-        private string _shareCode;          // last exported UIAP1 code (shown in the read-only field)
-        private string _shareFingerprint;
+        private string _shareCode;          // last exported UIAP1 code (kept for Copy again)
         private string _importField;
         // Stow Profile listing + worn-bag scratch. STATIC (tab instances are recreated by a
         // theme Restyle) so a restyle-driven Build can reuse the last gesture-built data instead of
@@ -231,7 +230,7 @@ namespace StationeersUIMod.UI.Menu.Tabs
                 UiaControls.ToggleRow(col, "Rename a bag when a profile is assigned",
                     StowRenameConfig.RenameOnAssign,
                     v => { StowRenameConfig.RenameOnAssign = v; UiaControlCenter.Refresh(); });
-                UiaControls.Note(col, "On: assigning a Bag Profile also LABELS that container with the profile's name - the same authoritative rename a Labeller performs, so in multiplayer everyone sees it and it is kept in the save. Only containers you are carrying are ever renamed. Clearing a profile never renames anything back: use a card's Rename box for that.");
+                UiaControls.Note(col, "On: assigning a Bag Profile labels the container with the profile's name - the same multiplayer-safe rename a Labeller does. Clearing a profile never renames back; use the card's Rename box.");
             }
             else
             {
@@ -240,11 +239,11 @@ namespace StationeersUIMod.UI.Menu.Tabs
 
             if (bags.Count == 0)
             {
-                UiaControls.Note(col, "Nothing here yet - you are not carrying a container that can hold a Bag Profile. Backpacks, mining belts and mining backpacks, cardboard boxes and crates can; plain tool belts, jetpacks, suits, tools that happen to have slots, and packaging (cereal boxes, supply boxes) cannot. Pick one up and press Refresh.");
+                UiaControls.Note(col, "You are not carrying a container that can take a Bag Profile. Backpacks, mining packs, and boxes/crates qualify - suits, belts, tools, and packaging do not. Pick one up and press Refresh.");
             }
             else if (advanced)
             {
-                UiaControls.Note(col, "Compact list (Advanced density). Switch to Simple for the cards with thumbnails.");
+                UiaControls.Note(col, "Compact list (Advanced). Switch to Simple for thumbnail cards.");
                 BuildBagRows(col, bags, profNames);
             }
             else
@@ -423,7 +422,7 @@ namespace StationeersUIMod.UI.Menu.Tabs
             var input = UiaUi.InputField(fieldGo.transform, "Rename this bag...", v => SetRenameField(id, v));
             string held = GetRenameField(id);
             if (!string.IsNullOrEmpty(held)) input.text = held;
-            UiaControls.Button(rrow.transform, "Rename", () => RenameBag(b), 76f, 26f);
+            UiaControls.Button(rrow.transform, "OK", () => RenameBag(b), 60f, 26f);
         }
 
         /// <summary>The dense variant (plan §6 option 1B) behind the existing Advanced density
@@ -551,7 +550,7 @@ namespace StationeersUIMod.UI.Menu.Tabs
 
             // ---- one-click setup ----
             UiaControls.Header(col, "Quick setup");
-            UiaControls.Note(col, "Create a ready-made set of category profiles (Tools, Resources, Food...) inside the active Stow Profile, then map them to your containers on the Bags tab. Mapping is always a choice you make - nothing is assigned for you.");
+            UiaControls.Note(col, "Creates ready-made category profiles inside the active Stow Profile. Mapping them to containers stays your choice.");
             var qsGo = UiaUi.Go("qs", col);
             UiaUi.Size(qsGo, UiaTheme.RowH);
             UiaUi.HLayout((RectTransform)qsGo.transform, UiaTheme.Gap);
@@ -608,7 +607,7 @@ namespace StationeersUIMod.UI.Menu.Tabs
             UiaUi.HLayout((RectTransform)shGo.transform, UiaTheme.Gap);
             UiaControls.Button(shGo.transform, "Reload profiles", ReloadProfiles, 150f, UiaTheme.RowH);
             UiaControls.Button(shGo.transform, "Import shared profiles", ImportShared, 200f, UiaTheme.RowH);
-            UiaControls.Note(col, "Export writes the selected profile to its own file in the Profiles folder. Drop a received profile file in that same folder, then press Import shared profiles to add it to the active Stow Profile (a name you already have is replaced).");
+            UiaControls.Note(col, "Export writes the profile to the Profiles folder; drop received files there and press Import shared profiles (same name = replaced).");
         }
 
         // ---------- page 3: STOW PROFILES ----------
@@ -667,9 +666,9 @@ namespace StationeersUIMod.UI.Menu.Tabs
             // takes effect without a rebuild.
             UiaControls.ToggleRow(col, "Scroll to select (mouse wheel through your inventory)",
                 UIAConfig.GridKeyboardNav.Value, v => UIAConfig.GridKeyboardNav.Value = v);
-            UiaControls.Note(col, "While the inventory is open during play, the mouse wheel moves a highlight " +
-                "through your bags and slots. F takes the highlighted item or places your held item into an empty " +
-                "highlighted cell; freeing the mouse switches the wheel to panning the window instead.");
+            UiaControls.Note(col, "While the inventory is open, the mouse wheel moves a highlight through your " +
+                "bags and slots - F takes the highlighted item or places a held item into an empty cell. " +
+                "Free the mouse and the wheel pans the window instead.");
             // Live toggles: badges refresh via GridProfileMode.ChromeStamp (folds the config
             // bit), hints are re-read by GridGhostHint.Tick — no extra plumbing needed.
             UiaControls.ToggleRow(col, "Show profile tags on bag tabs",
@@ -702,7 +701,7 @@ namespace StationeersUIMod.UI.Menu.Tabs
 
             // ---- test box (design O6): the router dry-run, read-only by construction ----
             UiaControls.Header(col, "Test box");
-            UiaControls.Note(col, "Dry-run the Smart Stow router: pick an item and see which bag would take it, and why. This is a preview only - nothing ever moves.");
+            UiaControls.Note(col, "Dry-run the router: pick an item, see which bag would take it and why. Preview only - nothing moves.");
             var tbGo = UiaUi.Go("tb", col);
             UiaUi.Size(tbGo, UiaTheme.RowH);
             UiaUi.HLayout((RectTransform)tbGo.transform, UiaTheme.Gap);
@@ -734,7 +733,7 @@ namespace StationeersUIMod.UI.Menu.Tabs
         private void BuildStowProfileBlock(Transform col)
         {
             UiaControls.Header(col, "Stow Profiles");
-            UiaControls.Note(col, "A Stow Profile is a named folder of bag profiles. One is active at a time - only its profiles can be mapped to your containers. Switching keeps every mapping you made: a name the new Stow Profile also has keeps working, one it does not have simply goes quiet until you switch back.");
+            UiaControls.Note(col, "A named folder of Bag Profiles - one active at a time. Switching never deletes a mapping; a missing name just goes quiet until its Stow Profile is active again.");
 
             var sets = StowSets();
             if (!StowProfileStore.Available || sets.Count == 0)
@@ -809,7 +808,7 @@ namespace StationeersUIMod.UI.Menu.Tabs
                     UiaTheme.RowH, UiaControls.ButtonStyle.Danger);
                 UiaControls.Button(confirm.transform, "Cancel",
                     () => { _confirmDeleteSet = false; UiaControlCenter.Refresh(); }, 110f, UiaTheme.RowH);
-                UiaControls.Note(col, "Delete the Stow Profile \"" + browsed + "\" and every bag profile inside it? Your container mappings are NOT deleted - they name bag profiles, so they simply go quiet until a Stow Profile with those names is active again. The file is removed from disk; this cannot be undone.");
+                UiaControls.Note(col, "Delete \"" + browsed + "\" and every Bag Profile inside it? Container mappings are kept (they go quiet); the file is removed - this cannot be undone.");
                 return;
             }
 
@@ -827,6 +826,7 @@ namespace StationeersUIMod.UI.Menu.Tabs
             UiaControls.Button(row.transform, "Rename", () => RenameStowProfile(browsed), 90f, UiaTheme.RowH);
             UiaControls.Button(row.transform, "Duplicate", () => DuplicateStowProfile(browsed), 100f, UiaTheme.RowH);
             UiaControls.Button(row.transform, "New", () => NewStowProfile(false), 70f, UiaTheme.RowH);
+            UiaControls.Button(row.transform, "Refresh list", RefreshStowList, 130f, UiaTheme.RowH);
             if (sets.Count > 1)
                 UiaControls.Button(row.transform, "Delete",
                     () => { _confirmDeleteSet = true; UiaControlCenter.Refresh(); },
@@ -845,7 +845,7 @@ namespace StationeersUIMod.UI.Menu.Tabs
             catch (Exception e) { UIALog.Warn("Could not read Stow Profile '" + browsed + "': " + e.Message); }
             if (profiles == null || profiles.Count == 0)
             {
-                UiaControls.Note(col, "This Stow Profile has no bag profiles yet. Switch to it and use the Bag Profiles tab, or copy one in from another Stow Profile below.");
+                UiaControls.Note(col, "No Bag Profiles here yet - edit the active set on the Bag Profiles tab, or copy some in below.");
                 return;
             }
 
@@ -895,7 +895,7 @@ namespace StationeersUIMod.UI.Menu.Tabs
                 InlineDropdown(row.transform, moveOpts, 0,
                     idx => { if (idx > 0) TransferProfile(browsed, pname, moveOpts[idx], true); }, 150f);
             }
-            UiaControls.Note(col, "Copy leaves the original where it is; Move takes it out of this Stow Profile. A name the target already uses gets a \"(2)\" suffix rather than replacing anything. Moving a bag profile does NOT clear container mappings that name it - they resolve again as soon as a Stow Profile holding that name is active.");
+            UiaControls.Note(col, "Copy keeps the original; Move takes it. A taken name gets a \"(2)\". Container mappings follow the NAME, not the copy.");
         }
 
         // ---------- B4 gestures ----------
@@ -907,7 +907,6 @@ namespace StationeersUIMod.UI.Menu.Tabs
             _setRenameField = null;
             _confirmDeleteSet = false;
             _shareCode = null;
-            _shareFingerprint = null;
             _stowNote = null;
             UiaControlCenter.Refresh();
         }
@@ -1060,13 +1059,13 @@ namespace StationeersUIMod.UI.Menu.Tabs
 
         /// <summary>Export / import a whole Stow Profile as a <c>UIAP1-F-</c> string.
         ///
-        /// <para><b>The clipboard is the transport, not this text box.</b> A full code runs to
-        /// thousands of characters; putting all of it into a single-line <c>TMP_InputField</c> would
-        /// build a mesh for every one of those glyphs for no benefit, so Export copies straight to the
-        /// clipboard, writes a <c>StowProfiles/Export/&lt;name&gt;.txt</c> copy (clipboards do not
-        /// survive every remote-desktop/VM setup) and shows only a short preview plus the fingerprint.
-        /// Import reads the box, and falls back to the CLIPBOARD when the box is empty — so the normal
-        /// gesture is copy-then-press-Import with nothing pasted anywhere.</para>
+        /// <para><b>The clipboard is the transport, not a text box.</b> A full code runs to
+        /// thousands of characters; a persistent read-only preview field bought nothing (the real
+        /// transport is copy-then-Import), so Export writes straight to the clipboard, writes a
+        /// <c>StowProfiles/Export/&lt;name&gt;.txt</c> copy (clipboards do not survive every
+        /// remote-desktop/VM setup), and reports the fingerprint through the note below instead of a
+        /// permanent row. Import reads the box, and falls back to the CLIPBOARD when the box is empty
+        /// — so the normal gesture is copy-then-press-Import with nothing pasted anywhere.</para>
         ///
         /// <para>The third transport needs no UI at all: a <c>.xml</c> document dropped into
         /// <c>StowProfiles/</c> is picked up by the folder enumeration, so it appears in the list above
@@ -1081,46 +1080,23 @@ namespace StationeersUIMod.UI.Menu.Tabs
             UiaUi.HLayout((RectTransform)row.transform, UiaTheme.Gap);
             UiaControls.Button(row.transform, "Export \"" + Shorten(browsed, 18) + "\" as a code",
                 () => ExportStowCode(browsed), 260f, UiaTheme.RowH, UiaControls.ButtonStyle.Primary);
-            if (!string.IsNullOrEmpty(_shareCode))
-                UiaControls.Button(row.transform, "Copy again", () => CopyShareCode(), 120f, UiaTheme.RowH);
-            UiaControls.Button(row.transform, "Refresh list", RefreshStowList, 130f, UiaTheme.RowH);
-
-            if (!string.IsNullOrEmpty(_shareCode))
-            {
-                var preview = UiaUi.Go("codepreview", col);
-                UiaUi.Size(preview, 24f);
-                UiaUi.HLayout((RectTransform)preview.transform, UiaTheme.Gap);
-                var fp = UiaUi.Text(preview.transform,
-                    "Fingerprint " + (_shareFingerprint ?? "?") + "  -  say this out loud to check the code arrived whole",
-                    11f, UiaTheme.Good, TextAlignmentOptions.Left);
-                UiaUi.Size(fp.gameObject, 24f, 420f, flexW: 0f);
-                var host = UiaUi.Go("codehost", preview.transform);
-                UiaUi.Size(host, 24f, flexW: 1f, minW: 120f);
-                UiaUi.HLayout((RectTransform)host.transform, 0f, 0, 0, 0, 0, TextAnchor.MiddleLeft, true);
-                var field = UiaUi.InputField(host.transform, "", null);
-                field.readOnly = true;
-                field.text = Shorten(_shareCode, 46);
-            }
-
-            var importRow = UiaUi.Go("importrow", col);
-            UiaUi.Size(importRow, UiaTheme.RowH);
-            UiaUi.HLayout((RectTransform)importRow.transform, UiaTheme.Gap);
-            var fieldGo = UiaUi.Go("importhost", importRow.transform);
+            var fieldGo = UiaUi.Go("importhost", row.transform);
             UiaUi.Size(fieldGo, UiaTheme.RowH, flexW: 1f, minW: 140f);
             UiaUi.HLayout((RectTransform)fieldGo.transform, 0f, 0, 0, 0, 0, TextAnchor.MiddleLeft, true);
-            var importInput = UiaUi.InputField(fieldGo.transform, "Paste a UIAP1-F- code, or just press Import...",
+            var importInput = UiaUi.InputField(fieldGo.transform, "Paste a code - or leave empty to use the clipboard",
                 v => _importField = v);
             if (!string.IsNullOrEmpty(_importField)) importInput.text = _importField;
-            UiaControls.Button(importRow.transform, "Import code", ImportStowCode, 140f, UiaTheme.RowH,
+            UiaControls.Button(row.transform, "Import code", ImportStowCode, 140f, UiaTheme.RowH,
                 UiaControls.ButtonStyle.Primary);
+            if (!string.IsNullOrEmpty(_shareCode))
+                UiaControls.Button(row.transform, "Copy again", () => CopyShareCode(), 100f, UiaTheme.RowH);
 
-            UiaControls.Note(col, "Export copies the code to your clipboard AND writes it to StowProfiles/Export/ as a text file. Import reads the box above, or your clipboard when the box is empty, and always creates a NEW Stow Profile - it never overwrites one you already have. You can also just drop a Stow Profile .xml file into the StowProfiles folder and press Refresh list.");
+            UiaControls.Note(col, "Export = clipboard + a file in StowProfiles/Export. Import always creates a NEW Stow Profile - nothing is overwritten. A .xml dropped into StowProfiles/ works too.");
         }
 
         private void ExportStowCode(string setName)
         {
             _shareCode = null;
-            _shareFingerprint = null;
             StowProfileDoc doc = BuildDocFor(setName);
             if (doc == null)
             {
@@ -1137,7 +1113,6 @@ namespace StationeersUIMod.UI.Menu.Tabs
                 return;
             }
             _shareCode = code;
-            _shareFingerprint = fingerprint;
             bool copied = CopyToClipboard(code);
             string file = StowShareCodec.WriteExportFile(doc.Name, code, fingerprint);
             _stowNote = "Fingerprint " + fingerprint + " - " + code.Length + " characters"
@@ -1283,7 +1258,7 @@ namespace StationeersUIMod.UI.Menu.Tabs
                     UiaControls.ButtonStyle.Danger);
                 UiaControls.Button(row.transform, "Cancel",
                     () => { _confirmRestoreShipped = false; UiaControlCenter.Refresh(); }, 110f, UiaTheme.RowH);
-                UiaControls.Note(col, "This rewrites By Printer, By Category, Stationpedia Ascended and Starter from the mod, OVERWRITING any changes you made to those four names and re-creating any you deleted. Every other Stow Profile is untouched. Your container mappings are untouched.");
+                UiaControls.Note(col, "Overwrites By Printer, By Category, Stationpedia Ascended and Starter with the shipped originals. Everything else is untouched.");
                 return;
             }
             var btnRow = UiaUi.Go("maint", col);
@@ -1291,7 +1266,7 @@ namespace StationeersUIMod.UI.Menu.Tabs
             UiaUi.HLayout((RectTransform)btnRow.transform, UiaTheme.Gap);
             UiaControls.Button(btnRow.transform, "Restore shipped Stow Profiles",
                 () => { _confirmRestoreShipped = true; UiaControlCenter.Refresh(); }, 260f, UiaTheme.RowH);
-            UiaControls.Note(col, "The four shipped sets - By Printer, By Category, Stationpedia Ascended and Starter - are put on your disk once, the first time this build runs. After that they are yours: edit them freely, and a deleted one stays deleted. Use this button to get the originals back.");
+            UiaControls.Note(col, "The four shipped sets are seeded once, then they are yours - edits and deletions stick. This button brings back the originals.");
         }
 
         private void RestoreShipped()
@@ -1587,7 +1562,7 @@ namespace StationeersUIMod.UI.Menu.Tabs
             var slots = new List<string> { "+ Add slot class..." };
             slots.AddRange(Enum.GetNames(typeof(Slot.Class)));
             UiaControls.DropdownRow(col, "By slot class", slots, 0, i => { if (i > 0) AddSlotClass(p, slots[i]); });
-            UiaControls.Note(col, "Rule strength when several match one item: item beats UIA class, UIA class beats slot class, slot class beats category. UIA classes are the mod's own 22-way grouping (Materials, Electronics, Kits, Ores...) - broader than a single item, sharper than the game's 11 categories, and they keep catching new and modded items.");
+            UiaControls.Note(col, "When several rules match one item: item beats UIA class beats slot class beats category. UIA classes are the mod's 22-way grouping - sharper than the game's 11 categories, and they keep catching new and modded items.");
         }
 
         private void AddItem(BagProfile p, string prefab)
