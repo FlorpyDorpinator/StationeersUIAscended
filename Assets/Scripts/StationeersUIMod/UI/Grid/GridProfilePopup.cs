@@ -70,6 +70,10 @@ namespace StationeersUIMod.UI.Grid
         {
             Close();
             if (bag == null) return;
+            // Belt-and-braces: the chip is only built for an assignable container (GridRegionView
+            // gates the whole strip), but the popup is a public entry point — re-gate here so no
+            // future caller can offer an assignment the router would refuse to honour.
+            if (!BagProfileGate.IsAssignableContainer(bag)) return;
             _bag = bag;
 
             string current = null;
@@ -317,8 +321,21 @@ namespace StationeersUIMod.UI.Grid
             var bag = _bag;
             Close();
             if (bag == null) return;
+            // Re-gate at CLICK time: the popup was built on an earlier frame and the bag may have
+            // been dropped or handed off since (BagProfileGate.IsOnLocalPlayer is one property read).
+            if (!BagProfileGate.IsAssignableContainer(bag) || !BagProfileGate.IsOnLocalPlayer(bag)) return;
             try { BagProfileStore.Assign(bag, profileName); } catch { }
             GridProfileMode.BumpVersion();
+            // Typed-pack validation (redesign plan §14): warn, never block. This surface has no
+            // note line of its own, so the warning goes to the toast the rest of Smart Stow uses.
+            if (string.IsNullOrEmpty(profileName)) return;
+            try
+            {
+                string warn = BagProfileGate.ValidateAssignment(bag, BagProfileStore.FindProfile(profileName));
+                if (!string.IsNullOrEmpty(warn))
+                    Overlay.Toast.Show(warn, Overlay.Theme.Critical, 6f);
+            }
+            catch (System.Exception e) { Core.UIALog.Warn("Profile/container validation failed: " + e.Message); }
         }
 
         /// <summary>Left-click surface for one row. Instance data is just the profile name; the

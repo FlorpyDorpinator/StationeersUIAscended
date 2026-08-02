@@ -46,7 +46,10 @@ namespace StationeersUIMod.Windows
             foreach (var scanned in InventoryScanner.Scan(2, false))
             {
                 var bag = scanned.Occupant;
-                if (bag == null || bag.Slots == null || bag.Slots.Count < 2) continue;
+                // Same assignability gate as F10 and the Universal Inventory chip (redesign plan
+                // Q5): this legacy window is scheduled for retirement, but while it is reachable
+                // it must not be the one surface that can still assign a profile to a tool.
+                if (!BagProfileGate.IsAssignableContainer(bag)) continue;
                 if (!_wornBags.Contains(bag)) _wornBags.Add(bag);
             }
         }
@@ -124,7 +127,10 @@ namespace StationeersUIMod.Windows
                 ImGui.SameLine();
                 if (ImGui.Button("Delete selected"))
                 {
-                    BagProfileStore.Profiles.RemoveAt(_selected);
+                    // Through the store, so assignments/prefab defaults/loadouts/drop-in files are
+                    // cleared too — the raw RemoveAt this used to do left dangling names behind
+                    // and the profile came back on the next load from its drop-in copy.
+                    BagProfileStore.DeleteProfile(names[_selected]);
                     _selected = 0;
                 }
             }

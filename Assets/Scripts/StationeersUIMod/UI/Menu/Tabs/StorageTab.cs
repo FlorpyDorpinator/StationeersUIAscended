@@ -29,6 +29,14 @@ namespace StationeersUIMod.UI.Menu.Tabs
         // Refresh, reset on a theme Restyle — transient feedback, not state.
         private string _loadoutNote;
         private string _profileNote;
+        // Assignment feedback (typed-pack validation warning / "that bag went away"). Same
+        // transient lifetime as the notes above.
+        private string _assignNote;
+        // Profile CRUD scratch: the rename field's live text and the two-click delete arm.
+        // Both reset when the selected profile changes (a new target invalidates a typed name
+        // and an armed confirm alike) — the ProfilesTab confirm idiom, adapted.
+        private string _renameField;
+        private bool _confirmDeleteProfile;
         // Loadout listing + worn-bag scratch. STATIC (tab instances are recreated by a theme
         // Restyle) so a restyle-driven Build can reuse the last gesture-built data instead of
         // re-reading Loadouts/*.xml from disk and re-scanning the inventory up to ~7x/s during
@@ -83,8 +91,8 @@ namespace StationeersUIMod.UI.Menu.Tabs
             UiaControls.ToggleRow(col, "Scroll to select (mouse wheel through your inventory)",
                 UIAConfig.GridKeyboardNav.Value, v => UIAConfig.GridKeyboardNav.Value = v);
             UiaControls.Note(col, "While the inventory is open during play, the mouse wheel moves a highlight " +
-                "through your bags and slots (F opens a bag / takes the highlighted item, G stows your held item). " +
-                "Works like vanilla — while you are still controlling the camera, not while the mouse is freed.");
+                "through your bags and slots. F takes the highlighted item or places your held item into an empty " +
+                "highlighted cell; freeing the mouse switches the wheel to panning the window instead.");
             // Live toggles: badges refresh via GridProfileMode.ChromeStamp (folds the config
             // bit), hints are re-read by GridGhostHint.Tick — no extra plumbing needed.
             UiaControls.ToggleRow(col, "Show profile tags on bag tabs",
@@ -126,7 +134,7 @@ namespace StationeersUIMod.UI.Menu.Tabs
             var profNames = ProfileNames();
             if (bags.Count == 0)
             {
-                UiaControls.Note(col, "Equip some bags (backpack, belts, ore bags) to assign profiles to them.");
+                UiaControls.Note(col, "No assignable containers on you. Backpacks, mining belts, boxes and crates take profiles; plain tool belts, jetpacks, suits, tools with slots and packaging (cereal boxes, supply boxes) do not.");
             }
             else
             {
@@ -138,15 +146,11 @@ namespace StationeersUIMod.UI.Menu.Tabs
                     string cur = BagProfileStore.GetAssignedProfileName(b);
                     int idx = string.IsNullOrEmpty(cur) ? 0 : Mathf.Max(0, profNames.IndexOf(cur) + 1);
                     UiaControls.DropdownRow(col, SafeName(b), options, idx,
-                        i =>
-                        {
-                            BagProfileStore.Assign(b, i <= 0 ? null : profNames[i - 1]);
-                            BumpGridChrome();   // an open Grid / pinned window repaints its chip + badge
-                            UiaControlCenter.Refresh();
-                        });
+                        i => AssignToBag(b, i <= 0 ? null : profNames[i - 1]));
                     BagSubRows(col, b, cur);
                 }
             }
+            if (!string.IsNullOrEmpty(_assignNote)) SubNote(col, _assignNote);
 
             // ---- loadouts (design O5a: cross-save portability; apply is ALWAYS manual, Q4) ----
             BuildLoadouts(col);
@@ -174,13 +178,21 @@ namespace StationeersUIMod.UI.Menu.Tabs
                 // stretch the DropdownRow inside it to the slot width — without this the dropdown
                 // row keeps its zero default size and the field collapses to just the caret.
                 UiaUi.HLayout((RectTransform)ddHost.transform, 0f, 0, 0, 0, 0, TextAnchor.MiddleLeft, true);
-                UiaControls.DropdownRow(ddHost.transform, "Profile", profNames, _selected, i => { _selected = i; UiaControlCenter.Refresh(); });
+                UiaControls.DropdownRow(ddHost.transform, "Profile", profNames, _selected,
+                    i =>
+                    {
+                        _selected = i;
+                        _renameField = null;            // a new target invalidates a typed name
+                        _confirmDeleteProfile = false;  // ...and any armed confirm
+                        UiaControlCenter.Refresh();
+                    });
                 UiaControls.Button(pickGo.transform, "New", NewProfile, 70f, UiaTheme.RowH);
                 if (profile != null)
                     UiaControls.Button(pickGo.transform, "Export", () => ExportProfile(selName), 80f, UiaTheme.RowH);
 
                 if (profile != null)
                 {
+                    ManageProfileRow(col, selName);
                     RuleList(col, profile);
                     AddControls(col, profile);
                 }
@@ -366,12 +378,83 @@ namespace StationeersUIMod.UI.Menu.Tabs
             rt.offsetMin = new Vector2(18f, 0f);
         }
 
+        // ---------- profile CRUD (rename / delete) ----------
+
+        /// <summary>The destructive half of bag-profile CRUD, finally reachable from F10 (it had
+        /// existed only in the legacy ImGui editor, which made "Create recommended profiles" a
+        /// one-way door). Rename goes through <see cref="BagProfileStore.RenameProfile"/> — which
+        /// cascades the name through assignments (this save AND every other save's file), prefab
+        /// defaults, loadouts and any drop-in Profiles/*.xml copy — and delete through
+        /// <see cref="BagProfileStore.DeleteProfile"/>, which clears those same references so
+        /// nothing is left pointing at a name that no longer exists. Two-click confirm on delete,
+        /// the same arm/confirm pattern the HUD Profiles tab uses.</summary>
+        private void ManageProfileRow(Transform col, string selName)
+        {
+            var row = UiaUi.Go("manage", col);
+            UiaUi.Size(row, UiaTheme.RowH);
+            UiaUi.HLayout((RectTransform)row.transform, UiaTheme.Gap);
+
+            if (_confirmDeleteProfile)
+            {
+                UiaControls.Button(row.transform, "Yes, delete it", () => DeleteProfile(selName), 170f,
+                    UiaTheme.RowH, UiaControls.ButtonStyle.Danger);
+                UiaControls.Button(row.transform, "Cancel",
+                    () => { _confirmDeleteProfile = false; UiaControlCenter.Refresh(); }, 110f, UiaTheme.RowH);
+                UiaControls.Note(col, "Delete '" + selName + "'? Bags using it fall back to no profile, and any prefab default, loadout entry or shared copy of it is cleared too. This cannot be undone.");
+                return;
+            }
+
+            var fieldGo = UiaUi.Go("renamehost", row.transform);
+            UiaUi.Size(fieldGo, UiaTheme.RowH, flexW: 1f);
+            UiaUi.HLayout((RectTransform)fieldGo.transform, 0f, 0, 0, 0, 0, TextAnchor.MiddleLeft, true);
+            var input = UiaUi.InputField(fieldGo.transform, "New name for this profile...", v => _renameField = v);
+            if (!string.IsNullOrEmpty(_renameField)) input.text = _renameField;
+
+            UiaControls.Button(row.transform, "Rename", () => RenameProfile(selName), 100f, UiaTheme.RowH);
+            UiaControls.Button(row.transform, "Delete",
+                () => { _confirmDeleteProfile = true; UiaControlCenter.Refresh(); },
+                90f, UiaTheme.RowH, UiaControls.ButtonStyle.Danger);
+        }
+
+        private void RenameProfile(string oldName)
+        {
+            // ASCII-sanitised exactly like every other profile name (TMP renders Basic Latin only).
+            string wanted = ProfileCapture.SanitizeName(_renameField);
+            if (string.IsNullOrEmpty(wanted)) { _profileNote = "Type a new name first."; UiaControlCenter.Refresh(); return; }
+            if (wanted == oldName) { _profileNote = "That is already its name."; UiaControlCenter.Refresh(); return; }
+            if (BagProfileStore.FindProfile(wanted) != null)
+            {
+                _profileNote = "A profile called \"" + wanted + "\" already exists.";
+                UiaControlCenter.Refresh();
+                return;
+            }
+            bool ok = BagProfileStore.RenameProfile(oldName, wanted);
+            _profileNote = ok
+                ? "Renamed \"" + oldName + "\" to \"" + wanted + "\"."
+                : "Could not rename \"" + oldName + "\" (see the log).";
+            _renameField = null;
+            BumpGridChrome();   // chips/badges carry the name
+            UiaControlCenter.Refresh();
+        }
+
+        private void DeleteProfile(string name)
+        {
+            _confirmDeleteProfile = false;
+            bool ok = BagProfileStore.DeleteProfile(name);
+            _profileNote = ok
+                ? "Deleted \"" + name + "\". Bags that used it now have no profile."
+                : "Could not delete \"" + name + "\" (see the log).";
+            _selected = 0;
+            _renameField = null;
+            BumpGridChrome();
+            UiaControlCenter.Refresh();
+        }
+
         // ---------- rules ----------
 
         private void RuleList(Transform col, BagProfile p)
         {
-            bool any = p.Items.Count + p.Categories.Count + p.SlotClasses.Count > 0;
-            if (!any) { UiaControls.Note(col, "This profile has no rules yet. Add an item, category or slot class below."); return; }
+            if (p.RuleCount == 0) { UiaControls.Note(col, "This profile has no rules yet. Add an item, UIA class, category or slot class below."); return; }
 
             for (int i = p.Items.Count - 1; i >= 0; i--)
             {
@@ -379,6 +462,15 @@ namespace StationeersUIMod.UI.Menu.Tabs
                 RuleRow(col, "ITEM", rule.Prefab, rule.Priority,
                     v => { rule.Priority = v; Save(); },
                     () => { p.Items.RemoveAt(idx); Save(); });
+            }
+            // UIA classes sit between item and slot-class rules here because that is their MATCH
+            // precedence (+15000, above SlotClass's +10000): the list reads specific -> general.
+            for (int i = p.UIAClasses.Count - 1; i >= 0; i--)
+            {
+                int idx = i; var rule = p.UIAClasses[idx];
+                RuleRow(col, "UIA", rule.Name, rule.Priority,
+                    v => { rule.Priority = v; Save(); },
+                    () => { p.UIAClasses.RemoveAt(idx); Save(); });
             }
             for (int i = p.SlotClasses.Count - 1; i >= 0; i--)
             {
@@ -468,6 +560,14 @@ namespace StationeersUIMod.UI.Menu.Tabs
                 UiaItemPicker.Open(prefab => AddItem(p, prefab), () => UiaControlCenter.Refresh()),
                 150f, UiaTheme.RowH, UiaControls.ButtonStyle.Primary);
 
+            // The 4th rule kind (FlorpyDorp Q1): the mod's own 22-class taxonomy. Listed above the
+            // two game-enum dropdowns because it is the one most players want — "Electronics",
+            // "Materials", "Kits" are one rule here and a dozen hand-listed prefabs otherwise.
+            // Values are the enum NAMES (what the XML stores); the friendly label is in the note.
+            var classes = new List<string> { "+ Add UIA class..." };
+            classes.AddRange(Enum.GetNames(typeof(UIAClass)));
+            UiaControls.DropdownRow(col, "By UIA class", classes, 0, i => { if (i > 0) AddUIAClass(p, classes[i]); });
+
             var cats = new List<string> { "+ Add category..." };
             cats.AddRange(Enum.GetNames(typeof(SortingClass)));
             UiaControls.DropdownRow(col, "By category", cats, 0, i => { if (i > 0) AddCategory(p, cats[i]); });
@@ -475,6 +575,7 @@ namespace StationeersUIMod.UI.Menu.Tabs
             var slots = new List<string> { "+ Add slot class..." };
             slots.AddRange(Enum.GetNames(typeof(Slot.Class)));
             UiaControls.DropdownRow(col, "By slot class", slots, 0, i => { if (i > 0) AddSlotClass(p, slots[i]); });
+            UiaControls.Note(col, "Rule strength when several match one item: item beats UIA class, UIA class beats slot class, slot class beats category. UIA classes are the mod's own 22-way grouping (Materials, Electronics, Kits, Ores...) - broader than a single item, sharper than the game's 11 categories, and they keep catching new and modded items.");
         }
 
         private void AddItem(BagProfile p, string prefab)
@@ -497,6 +598,39 @@ namespace StationeersUIMod.UI.Menu.Tabs
             foreach (var r in p.SlotClasses) if (r.Name == name) { UiaControlCenter.Refresh(); return; }
             p.SlotClasses.Add(new SlotClassRule { Name = name, Priority = 60 });
             Save();
+        }
+
+        private void AddUIAClass(BagProfile p, string name)
+        {
+            foreach (var r in p.UIAClasses) if (r.Name == name) { UiaControlCenter.Refresh(); return; }
+            p.UIAClasses.Add(new UIAClassRule { Name = name, Priority = 55 });
+            Save();
+        }
+
+        /// <summary>Write one bag assignment from this tab. Re-gates the container at CLICK time
+        /// (the list was built on an earlier frame — the bag may have been dropped, or the whole
+        /// character swapped out), then runs the cheap typed-pack validation so assigning a
+        /// "Materials" profile to a mining backpack SAYS that half its rules can never land there.
+        /// Warning only, never a block: a player who means it keeps the assignment.</summary>
+        private void AssignToBag(DynamicThing bag, string profileName)
+        {
+            if (bag == null) return;
+            if (!BagProfileGate.IsAssignableContainer(bag) || !BagProfileGate.IsOnLocalPlayer(bag))
+            {
+                _assignNote = "That container is not on you any more - nothing was changed.";
+                _bagScratchValid = false;   // force a fresh scan on the rebuild below
+                UiaControlCenter.Refresh();
+                return;
+            }
+            BagProfileStore.Assign(bag, profileName);
+            _assignNote = null;
+            if (!string.IsNullOrEmpty(profileName))
+            {
+                try { _assignNote = BagProfileGate.ValidateAssignment(bag, BagProfileStore.FindProfile(profileName)); }
+                catch (Exception e) { UIALog.Warn("Profile/container validation failed: " + e.Message); }
+            }
+            BumpGridChrome();   // an open Grid / pinned window repaints its chip + badge
+            UiaControlCenter.Refresh();
         }
 
         private void NewProfile()

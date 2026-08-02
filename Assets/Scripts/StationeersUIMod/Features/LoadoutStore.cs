@@ -72,8 +72,17 @@ namespace StationeersUIMod.Features
         /// THE canonical worn-bag enumeration — the one order both loadout capture and apply key
         /// their occurrence indices on, and the same list the F10 "Your bags" section shows (it
         /// delegates here), so the numbering the player can see is the numbering loadouts use.
-        /// A "bag" is any occupant with 2+ slots within scan depth 2 (worn equipment + one level
-        /// of nesting), first-seen order, de-duplicated. Read-only scan.
+        /// A "bag" is any occupant within scan depth 2 (worn equipment + one level of nesting)
+        /// that passes <see cref="BagProfileGate.IsAssignableContainer"/>, first-seen order,
+        /// de-duplicated. Read-only scan.
+        ///
+        /// <para>The old filter here was "2+ slots" and nothing else, which let the Terrain
+        /// Manipulator (Battery + DirtCanister = exactly 2 slots) into F10's bag list and made it
+        /// assignable — the leak FlorpyDorp reported. The gate is class-based now. Occurrence
+        /// indices are counted PER PREFAB, so dropping whole prefabs from this list cannot shift
+        /// the index of any prefab that remains; existing Loadouts keep resolving. The depth-2 cap
+        /// is deliberately UNCHANGED for the same reason (raising it would interleave deeper bags
+        /// into the depth-first order and DOES shift same-prefab indices).</para>
         /// </summary>
         public static void CollectWornBags(List<DynamicThing> into)
         {
@@ -85,7 +94,7 @@ namespace StationeersUIMod.Features
                 foreach (var s in InventoryScanner.Scan(2, false))
                 {
                     var b = s.Occupant;
-                    if (b == null || b.Slots == null || b.Slots.Count < 2) continue;
+                    if (!BagProfileGate.IsAssignableContainer(b)) continue;
                     if (!into.Contains(b)) into.Add(b);
                 }
             }
@@ -187,6 +196,43 @@ namespace StationeersUIMod.Features
                 result.Applied++;
             }
             return result;
+        }
+
+        /// <summary>Profile-CRUD cascade (called by <see cref="BagProfileStore"/>): point every
+        /// entry naming <paramref name="oldName"/> at <paramref name="newName"/>, or DROP those
+        /// entries when it is null (a profile delete). A loadout left with zero entries keeps its
+        /// file — an empty loadout is harmless and deleting a file the player made is not our call.
+        /// Writes back to the file each loadout was LOADED from (so a hand-renamed file is updated
+        /// in place, never forked). Returns the number of entries changed. Fail-soft.</summary>
+        public static int CascadeProfileName(string oldName, string newName)
+        {
+            if (string.IsNullOrEmpty(oldName)) return 0;
+            int changed = 0;
+            var all = new List<Loadout>();
+            LoadAll(all);
+            foreach (var lo in all)
+            {
+                if (lo?.Entries == null) continue;
+                bool dirty = false;
+                for (int i = lo.Entries.Count - 1; i >= 0; i--)
+                {
+                    var e = lo.Entries[i];
+                    if (e == null || e.ProfileName != oldName) continue;
+                    if (newName == null) lo.Entries.RemoveAt(i);
+                    else e.ProfileName = newName;
+                    dirty = true;
+                    changed++;
+                }
+                if (!dirty) continue;
+                string path = lo.SourceFile;
+                if (string.IsNullOrEmpty(path))
+                    path = Path.Combine(LoadoutsDir, SafeFileToken(lo.Name ?? "loadout") + ".xml");
+                SaveScopedXmlStore.Save(path, lo, "Loadout");
+            }
+            if (changed > 0)
+                UIALog.Info("Updated " + changed + " loadout entr" + (changed == 1 ? "y" : "ies")
+                    + " for bag profile '" + oldName + "'.");
+            return changed;
         }
 
         /// <summary>Write a loadout to <c>Loadouts/&lt;safe-name&gt;.xml</c> (overwrite by name).</summary>

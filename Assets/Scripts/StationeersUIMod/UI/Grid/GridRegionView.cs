@@ -387,8 +387,14 @@ namespace StationeersUIMod.UI.Grid
             // Profile-mode strip (design O4a): chip + CAPTURE, per real bag region, only while the
             // mode is on. Mode flips force a rebuild (TheGridPanel diffs GridProfileMode's stamp),
             // so evaluating here — structurally — is enough; nothing profile-ish runs per frame.
+            // Gated on the ONE assignability predicate (redesign plan Q5 / FlorpyDorp's "only
+            // backpacks and boxes are assignable"): a region for a suit, a tool with slots or a
+            // packaging box renders normally but offers no chip and no CAPTURE, because neither
+            // gesture has anywhere legitimate to write. The passive BADGE above is deliberately
+            // NOT gated — an assignment made before this rule existed stays visible (hide, never
+            // destroy) even though the router no longer honours it.
             _stripVisible = GridProfileMode.Active && !_collapsed && !_isRoot
-                && node != null && node.Container != null;
+                && node != null && BagProfileGate.IsAssignableContainer(node.Container);
             if (_chipGo.activeSelf != _stripVisible) _chipGo.SetActive(_stripVisible);
             if (_capGo.activeSelf != _stripVisible) _capGo.SetActive(_stripVisible);
             if (_stripVisible)

@@ -258,6 +258,9 @@ namespace StationeersUIMod.Features
                     target.Items = items;
                     target.Categories = categories;
                     target.SlotClasses = slotClasses;
+                    // UIAClasses are deliberately LEFT ALONE: capture clusters by SortingClass and
+                    // Slot.Class only, so it can never propose a UIA-class rule — wiping the ones
+                    // the player hand-added would be silent data loss with no way to get them back.
                 }
                 else // Merge
                 {

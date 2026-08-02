@@ -167,6 +167,10 @@ namespace StationeersUIMod.UI.Grid
         public static void Open(DynamicThing bag)
         {
             Close();
+            // Capture ALWAYS auto-assigns the profile it writes (design Q3), so it is an assignment
+            // surface and takes the same gate as the chip popup (redesign plan Q5). The CAPTURE
+            // button only exists on an assignable region now; this re-gates the public entry point.
+            if (!BagProfileGate.IsAssignableContainer(bag)) return;
             CaptureProposal p = null;
             try { p = ProfileCapture.BuildProposal(bag); } catch { }
             if (p == null) return;

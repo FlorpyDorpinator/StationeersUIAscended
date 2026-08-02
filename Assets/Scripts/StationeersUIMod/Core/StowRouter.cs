@@ -140,6 +140,12 @@ namespace StationeersUIMod.Core
         }
         private static readonly List<BagMemo> _bagMemos = new List<BagMemo>(8);
 
+        /// <summary>ReferenceIds we have already reported as "assigned a profile, but not a
+        /// container profiles may be assigned to". The router declines them EVERY resolve; the
+        /// log line must fire once per bag, not four times a second. Cleared by <see cref="Reset"/>
+        /// (hot-reload rule) — the set holds longs only, never Thing references.</summary>
+        private static readonly HashSet<long> _ineligibleLogged = new HashSet<long>();
+
         // One-entry caches for the winner Reason strings, so a repeated winning resolve during
         // a drag ("profile: Ores" 4x/sec) composes the concat once, not per resolve.
         private static string _profileReasonName, _profileReason;
@@ -197,6 +203,7 @@ namespace StationeersUIMod.Core
             _affBags.Clear();
             _genBags.Clear();
             _bagMemos.Clear();
+            _ineligibleLogged.Clear();
             _profileReasonName = null;
             _profileReason = null;
             _defaultReasonName = null;
@@ -250,12 +257,14 @@ namespace StationeersUIMod.Core
             if (!UIAConfig.StowToolsToToolbeltFirst.Value || !(held is Tool)) return false;
 
             DynamicThing belt = human.ToolbeltSlot != null ? human.ToolbeltSlot.Get() : null;
+            if (IsExcluded(belt)) belt = null;   // Q5 exclusion applies to the belt stage too
             Slot dest = HomeOrBestDirectSlot(belt, held, dryRun);
             string reason = ReasonBeltHome;
             Thing holder = belt;
             if (dest == null)
             {
                 DynamicThing back = human.BackpackSlot != null ? human.BackpackSlot.Get() : null;
+                if (IsExcluded(back)) back = null;
                 dest = BestDirectSlot(back, held);
                 reason = ReasonBackContainer;
                 holder = back;
@@ -287,6 +296,7 @@ namespace StationeersUIMod.Core
                 if (scanned.Slot == human.LeftHandSlot || scanned.Slot == human.RightHandSlot) continue;
                 // Never top up a stack living inside a consumable/dispenser/starter box.
                 if (!HolderIsRealStorage(scanned.Holder)) continue;
+                if (IsExcluded(scanned.Holder)) continue;
                 DynamicThing occ = scanned.Occupant;
                 if (occ == null) continue;
                 IMergeable target = occ as IMergeable;
@@ -326,6 +336,7 @@ namespace StationeersUIMod.Core
                 // A TRUE socket only: the slot's own class equals the item's type. Excludes None
                 // (generic bag) slots by construction, which is the whole point of the stage.
                 if (scanned.Slot.Type != st) continue;
+                if (IsExcluded(scanned.Holder)) continue;   // Q5: even a real socket is off-limits
                 if (!Slot.AllowMove(held, scanned.Slot)) continue;
 
                 c.Slot = scanned.Slot;
@@ -386,6 +397,7 @@ namespace StationeersUIMod.Core
                 Thing bag = scanned.Holder;
                 if (bag == null || bag == human) continue;
                 if (!HolderIsRealStorage(bag)) continue; // not a consumable/dispenser/starter box
+                if (IsExcluded(bag)) continue;          // Q5: "never smart-stow into this"
                 // Per-bag memo: assigned name + FindProfile + Match are (bag, held)-constant,
                 // so compute them once per bag, not once per empty slot of that bag.
                 int mi = IndexOfBagMemo(bag);
@@ -393,8 +405,10 @@ namespace StationeersUIMod.Core
                 {
                     BagMemo m = new BagMemo();
                     m.Bag = bag;
-                    // Same lookup GetAssignedProfile does, without its per-call LINQ allocation.
-                    string name = BagProfileStore.GetAssignedProfileName(bag);
+                    // Same lookup GetAssignedProfile does, without its per-call LINQ allocation —
+                    // through the eligibility gate, so an assignment on a non-assignable container
+                    // reads as "unassigned" here and at every later stage (EffectiveAssignedName).
+                    string name = EffectiveAssignedName(bag);
                     BagProfile profile = FindProfile(name);
                     int? priority = profile != null ? profile.Match(held) : null;
                     m.HasMatch = priority.HasValue;
@@ -456,8 +470,9 @@ namespace StationeersUIMod.Core
                     AffBag fresh = new AffBag();
                     fresh.Bag = bag;
                     fresh.Depth = scanned.Depth;
-                    string assigned = BagProfileStore.GetAssignedProfileName(bag);
-                    fresh.Skip = FindProfile(assigned) != null;
+                    string assigned = EffectiveAssignedName(bag);
+                    // Skip when the bag is profile-owned (the player made it law) OR excluded (Q5).
+                    fresh.Skip = FindProfile(assigned) != null || IsExcluded(bag);
                     _affBags.Add(fresh);
                     i = _affBags.Count - 1;
                 }
@@ -544,6 +559,7 @@ namespace StationeersUIMod.Core
                 Thing bag = scanned.Holder;
                 if (bag == null || bag == human || ReferenceEquals(bag, held)) continue;
                 if (!HolderIsRealStorage(bag)) continue; // not a consumable/dispenser/starter box
+                if (IsExcluded(bag)) continue;          // Q5: "never smart-stow into this"
                 // Per-bag memo: default-name lookup, both FindProfile walks and Match(held) are
                 // (bag, held)-constant — compute once per bag, not once per empty slot.
                 int mi = IndexOfBagMemo(bag);
@@ -558,8 +574,10 @@ namespace StationeersUIMod.Core
                     string profName = BagProfileStore.GetPrefabDefaultProfileName(bag.PrefabName);
                     if (profName != null || (bag.PrefabName != null && BagTypeDefaults.TryGetValue(bag.PrefabName, out profName)))
                     {
-                        // An explicit (resolvable) assignment supersedes the built-in default.
-                        if (FindProfile(BagProfileStore.GetAssignedProfileName(bag)) == null)
+                        // An explicit (resolvable, ELIGIBLE) assignment supersedes the built-in
+                        // default; an assignment on a non-assignable container does not, so a
+                        // hand-assigned tool belt still gets its shipped "Tools" default back.
+                        if (FindProfile(EffectiveAssignedName(bag)) == null)
                         {
                             BagProfile prof = FindProfile(profName);
                             if (prof != null) // fires only when the recommended profile exists
@@ -613,6 +631,7 @@ namespace StationeersUIMod.Core
                 if (scanned.Slot == human.LeftHandSlot || scanned.Slot == human.RightHandSlot) continue;
                 if (scanned.Holder == null || scanned.Holder.ReferenceId != bagRef.Value) continue;
                 if (!HolderIsRealStorage(scanned.Holder)) continue; // not a consumable/dispenser/starter box
+                if (IsExcluded(scanned.Holder)) continue;          // Q5: "never smart-stow into this"
                 if (!Slot.AllowMove(held, scanned.Slot)) continue;
 
                 c.Slot = scanned.Slot;
@@ -655,7 +674,8 @@ namespace StationeersUIMod.Core
                     GenBag fresh = new GenBag();
                     fresh.Bag = bag;
                     fresh.Depth = scanned.Depth;
-                    fresh.Skip = FindProfile(BagProfileStore.GetAssignedProfileName(bag)) != null;
+                    fresh.Skip = FindProfile(EffectiveAssignedName(bag)) != null
+                        || IsExcluded(bag);   // Q5: "never smart-stow into this"
                     _genBags.Add(fresh);
                     i = _genBags.Count - 1;
                 }
@@ -725,6 +745,7 @@ namespace StationeersUIMod.Core
             if (held.SlotType != Slot.Class.Tool || held is Tool) return false;
 
             DynamicThing belt = human.ToolbeltSlot != null ? human.ToolbeltSlot.Get() : null;
+            if (IsExcluded(belt)) return false;   // Q5: "never smart-stow into this"
             Slot dest = BestDirectSlot(belt, held);
             if (dest == null) return false;
 
@@ -748,6 +769,45 @@ namespace StationeersUIMod.Core
         private static bool HolderIsRealStorage(Thing holder)
         {
             return GridModel.IsStorageContainer(holder as DynamicThing);
+        }
+
+        /// <summary>Design Q5: the player marked this container "never smart-stow into this".
+        /// Checked by EVERY stage of the chain (belt, stack, socket, profile, affinity, bag
+        /// default, memory, generic fallback, belt fallback) — an exclusion the belt stage ignored
+        /// would be an exclusion the player cannot trust. One save-key check plus, only when the
+        /// save actually has exclusions, one hash lookup; the empty-set fast path costs nothing
+        /// for the overwhelming majority of players.</summary>
+        private static bool IsExcluded(Thing holder)
+        {
+            return holder != null && BagProfileStore.IsStowExcluded(holder);
+        }
+
+        /// <summary>The bag's assigned profile name AS THE ROUTER SHOULD SEE IT: the saved name
+        /// when the container is one profiles may be assigned to, otherwise null.
+        ///
+        /// <para>A container that carries a saved assignment but is NOT assignable (a Terrain
+        /// Manipulator that slipped through the old F10 bag list, a suit, a cereal box) keeps its
+        /// data — hide, never destroy — and is simply treated as UNASSIGNED by every stage. That
+        /// uniformity matters: if only the profile stage ignored it, the bag-type-default stage
+        /// would still see "this bag has an explicit assignment" and decline too, so a tool belt
+        /// that had been hand-assigned "Tools" would lose its shipped default as well and end up
+        /// routing worse than a fresh one. Reported ONCE per container (per session) so the player
+        /// can find and clear it; nothing on disk is touched.</para></summary>
+        private static string EffectiveAssignedName(Thing bag)
+        {
+            string name = BagProfileStore.GetAssignedProfileName(bag);
+            if (string.IsNullOrEmpty(name)) return null;
+            if (BagProfileGate.IsAssignableContainer(bag)) return name;
+            if (bag != null && _ineligibleLogged.Add(bag.ReferenceId))
+            {
+                string what = null;
+                try { what = bag.DisplayName; } catch { }
+                if (string.IsNullOrEmpty(what)) { try { what = bag.PrefabName; } catch { } }
+                UIALog.Info("Bag profile '" + name + "' is assigned to '" + (what ?? "a container")
+                    + "', which is not a container profiles can be assigned to - Smart Stow now treats it as unassigned. "
+                    + "The assignment is kept on disk; clear it in F10 > Storage if you no longer want it.");
+            }
+            return null;
         }
 
         private static int Cap(int value, int cap)

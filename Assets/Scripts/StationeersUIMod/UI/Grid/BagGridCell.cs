@@ -365,6 +365,15 @@ namespace StationeersUIMod.UI.Grid
                 return;
             }
             if (e.button != PointerEventData.InputButton.Left) return;
+            // A device/tool with internal slots opens its VANILLA internals window on click — matching
+            // vanilla, where a plain click opens that window rather than jumping the item to the hand.
+            // Plain items still go to the hand; a device is taken by DRAGGING it (or F in scroll-nav).
+            DynamicThing occ = null;
+            try { occ = _slot != null ? _slot.Get() : null; } catch { }
+            // Open the device window; only if that actually happened do we consume the click. If the
+            // window can't open (no vanilla Display built yet), fall through so the click still takes the
+            // item to hand rather than dying.
+            if (occ != null && Core.DeviceWindow.CanOpen(occ) && Core.DeviceWindow.Open(occ)) return;
             EquipOccupantToActiveHand();
         }
 
@@ -424,17 +433,6 @@ namespace StationeersUIMod.UI.Grid
             bool ok = ItemActions.StowActiveHandTo(_slot);
             RefreshIfDirty();
             return ok;
-        }
-
-        /// <summary>Keyboard <c>G</c> (scroll-select #4) on this cell: stow the active-hand item into
-        /// THIS slot through the gated <see cref="ItemActions.StowActiveHandTo"/> funnel (occupancy +
-        /// <c>AllowMove</c> re-checked at execute time; it plays the vanilla fail sound on an occupied
-        /// cell or empty hand). One user action = one message. Returns whether a move was issued.</summary>
-        public bool StowHereFromKeyboard()
-        {
-            if (RadialController.AnyRadialOpen) return false;
-            if (_slot == null) return false;
-            return ItemActions.StowActiveHandTo(_slot);
         }
 
         /// <summary>
@@ -749,6 +747,10 @@ namespace StationeersUIMod.UI.Grid
             GridRegionView region = tab.OwnerRegion;
             DynamicThing bag = region != null ? region.BoundContainer : null;
             if (bag == null || ReferenceEquals(bag, item)) return;
+            // Drag-to-pin CREATES and auto-assigns a profile, so it is an assignment surface and
+            // takes the same gate as the chip popup (redesign plan Q5): a tool with slots, a suit
+            // or a packaging box must not acquire a profile by having something dropped on its tab.
+            if (!Features.BagProfileGate.IsAssignableContainer(bag)) return;
             string finalName = null;
             try { finalName = ProfileCapture.PinItemRule(bag, item.PrefabName); }
             catch (System.Exception ex) { UIALog.Warn("Drag-to-pin failed: " + ex.Message); }

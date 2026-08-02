@@ -29,12 +29,21 @@ namespace StationeersUIMod.Features
         [XmlElement("Item")] public List<ItemRule> Items = new List<ItemRule>();
         [XmlElement("Category")] public List<CategoryRule> Categories = new List<CategoryRule>();
         [XmlElement("SlotClass")] public List<SlotClassRule> SlotClasses = new List<SlotClassRule>();
+        /// <summary>The 4th rule kind (SmartStow redesign plan §3.2, FlorpyDorp Q1): match on the
+        /// MOD's own 22-class <see cref="Core.UIAClass"/> taxonomy instead of the game's coarse
+        /// 11-value SortingClass. Purely additive on disk — XmlSerializer omits an empty list, so
+        /// old profiles round-trip byte-identically and an OLD mod build re-saving profiles.xml
+        /// merely drops the element (the same accepted risk documented for <see cref="Badge"/>).</summary>
+        [XmlElement("Class")] public List<UIAClassRule> UIAClasses = new List<UIAClassRule>();
 
         /// <summary>Best-match priority for a thing, or null when nothing matches.
-        /// Precedence: explicit item > slot class > sorting category (ties by priority value).
-        /// Runs at resolve frequency (router stages, the ~4 Hz ghost-hint dry-run) AND inside the
-        /// profile-aware sort comparator, so the rule-name enum parses are CACHED per rule — on
-        /// net48 Mono <c>Enum.TryParse</c> allocates (split scratch + boxing) on every call.</summary>
+        /// Precedence: explicit item > UIA class > slot class > sorting category (ties by priority
+        /// value). Runs at resolve frequency (router stages, the ~4 Hz ghost-hint dry-run) AND
+        /// inside the profile-aware sort comparator, so the rule-name enum parses are CACHED per
+        /// rule — on net48 Mono <c>Enum.TryParse</c> allocates (split scratch + boxing) on every
+        /// call. <see cref="Core.UIASort.Classify"/> is resolved ONCE per Match (a PrefabHash
+        /// dictionary hit plus a type-switch fallback), never once per rule, and only when the
+        /// profile actually carries class rules.</summary>
         public int? Match(DynamicThing thing)
         {
             if (thing == null) return null;
@@ -42,6 +51,13 @@ namespace StationeersUIMod.Features
             foreach (var rule in Items)
                 if (!string.IsNullOrEmpty(rule.Prefab) && rule.Prefab == thing.PrefabName)
                     best = Max(best, rule.Priority + 20000);
+            if (UIAClasses.Count > 0)
+            {
+                Core.UIAClass actual = Core.UIASort.Classify(thing);
+                foreach (var rule in UIAClasses)
+                    if (rule.TryGetUIAClass(out Core.UIAClass want) && actual == want)
+                        best = Max(best, rule.Priority + 15000);
+            }
             foreach (var rule in SlotClasses)
                 if (rule.TryGetSlotClass(out Slot.Class cls) && thing.SlotType == cls)
                     best = Max(best, rule.Priority + 10000);
@@ -49,6 +65,12 @@ namespace StationeersUIMod.Features
                 if (rule.TryGetSortingClass(out SortingClass sc) && thing.SortingClass == sc)
                     best = Max(best, rule.Priority);
             return best;
+        }
+
+        /// <summary>Total rule count across all four kinds (UI listing / "N rules" labels).</summary>
+        public int RuleCount
+        {
+            get { return Items.Count + Categories.Count + SlotClasses.Count + UIAClasses.Count; }
         }
 
         private static int? Max(int? a, int b) => a.HasValue ? Math.Max(a.Value, b) : b;
@@ -99,6 +121,35 @@ namespace StationeersUIMod.Features
             if (!ReferenceEquals(_parsedFor, Name))
             {
                 _parsedOk = Enum.TryParse(Name, true, out _parsed);
+                _parsedFor = Name;
+            }
+            cls = _parsed;
+            return _parsedOk;
+        }
+    }
+
+    /// <summary>Matches the mod's own <see cref="Core.UIAClass"/> taxonomy (22 classes, backed by
+    /// the generated 785-prefab table in <c>Core/UIASortingData.g.cs</c> plus type fallbacks).
+    /// The class is stored as its enum NAME, never its ordinal, so the taxonomy can be reordered
+    /// or extended without silently re-pointing every player's rules; an unknown/renamed name
+    /// fail-softs to "this rule never matches" instead of throwing or matching the wrong class.</summary>
+    public class UIAClassRule
+    {
+        [XmlAttribute("name")] public string Name;   // UIAClass name
+        /// <summary>Between CategoryRule (50) and SlotClassRule (60) in raw value; the +15000
+        /// offset in <see cref="BagProfile.Match"/> is what actually orders the kinds.</summary>
+        [XmlAttribute("priority")] public int Priority = 55;
+
+        // Cached parse of Name — same rationale/semantics as CategoryRule's cache.
+        private string _parsedFor;
+        private bool _parsedOk;
+        private Core.UIAClass _parsed;
+
+        public bool TryGetUIAClass(out Core.UIAClass cls)
+        {
+            if (!ReferenceEquals(_parsedFor, Name))
+            {
+                _parsedOk = !string.IsNullOrEmpty(Name) && Enum.TryParse(Name, true, out _parsed);
                 _parsedFor = Name;
             }
             cls = _parsed;
@@ -181,6 +232,20 @@ namespace StationeersUIMod.Features
     {
         [XmlElement("Assign")] public List<Assignment> Assignments = new List<Assignment>();
         [XmlElement("Memory")] public List<TypeMemory> Memories = new List<TypeMemory>();
+        /// <summary>Per-container "never smart-stow into this" flags. Additive element: an old
+        /// file simply has none, and an OLD mod build re-saving this file drops them (accepted,
+        /// same posture as <see cref="BagProfile.Badge"/>). Keyed on ReferenceId like
+        /// <see cref="Assignment"/>, so it is per SAVE by construction.</summary>
+        [XmlElement("Exclude")] public List<ContainerExclude> Excludes = new List<ContainerExclude>();
+    }
+
+    /// <summary>"Smart Stow must never put anything in this container" (redesign plan Q5). Stored
+    /// as its own element rather than a flag on <see cref="Assignment"/> because a container can
+    /// be excluded WITHOUT carrying a profile (and keeping an empty assignment alive just to hold
+    /// a bool would resurrect dangling profile names).</summary>
+    public class ContainerExclude
+    {
+        [XmlAttribute("bagRef")] public long BagReferenceId;
     }
 
     public class Assignment
@@ -206,6 +271,9 @@ namespace StationeersUIMod.Features
         public static readonly List<BagProfile> Profiles = new List<BagProfile>();
         private static readonly Dictionary<long, string> Assignments = new Dictionary<long, string>();
         private static readonly Dictionary<int, long> Memory = new Dictionary<int, long>();
+        // Per-save "never smart-stow into this container" set (design Q5). Same lifetime and file
+        // as Assignments; the router consults it at EVERY stage.
+        private static readonly HashSet<long> Excludes = new HashSet<long>();
 
         // Global bag-prefab -> profile-name defaults (own file; see PrefabDefaultFile).
         private static readonly Dictionary<string, string> _prefabDefaults = new Dictionary<string, string>();
@@ -402,18 +470,53 @@ namespace StationeersUIMod.Features
             return baseName + " " + DateTime.UtcNow.Ticks; // degenerate fallback, never expected
         }
 
-        /// <summary>Rename a profile AND every pointer to it that this machine can see:
-        /// current-save assignments and global prefab defaults. Assignments in OTHER saves'
-        /// files keep the old name and dangle — fail-soft (the profile stage just skips
-        /// them), same scoping as the rest of the store. False on missing source name or
-        /// name collision (caller should pick another name, e.g. via UniqueProfileName).</summary>
+        /// <summary>Rename a profile AND every pointer to it, everywhere this machine stores one:
+        /// the CURRENT save's assignments (in memory), EVERY OTHER save's assignment file on disk,
+        /// the global prefab defaults, every Loadout entry, and any drop-in <c>Profiles/*.xml</c>
+        /// copy (whose stale old-named profile would otherwise be re-loaded as a SECOND profile on
+        /// the next launch — the reason this method's original, never-shipped implementation was
+        /// not safe to wire up as-is). False on missing source name, empty/whitespace target, or a
+        /// name collision (caller should pick another, e.g. via <see cref="UniqueProfileName"/>).
+        /// Fail-soft per file: a broken assignment/loadout file is skipped with a warning, never
+        /// deleted, and never aborts the rest of the cascade.</summary>
         public static bool RenameProfile(string oldName, string newName)
         {
             if (string.IsNullOrEmpty(oldName) || string.IsNullOrEmpty(newName) || oldName == newName) return false;
             var profile = FindProfile(oldName);
             if (profile == null || FindProfile(newName) != null) return false;
             profile.Name = newName;
+            CascadeProfileName(oldName, newName);
+            SaveProfiles();
+            UIALog.Info("Renamed bag profile '" + oldName + "' -> '" + newName + "'.");
+            return true;
+        }
 
+        /// <summary>Delete a profile and clear every reference to it, so nothing is left pointing
+        /// at a name that no longer exists: assignments (current save AND every other save's file)
+        /// fall back to UNASSIGNED, prefab defaults naming it are removed, loadout entries naming
+        /// it are dropped, and any drop-in <c>Profiles/*.xml</c> copy is purged (a file left
+        /// holding only the deleted profile is removed) — without that last step the profile
+        /// simply reappears on the next launch, which is not a delete. False when the name is not
+        /// loaded.</summary>
+        public static bool DeleteProfile(string name)
+        {
+            if (string.IsNullOrEmpty(name)) return false;
+            int removed = 0;
+            for (int i = Profiles.Count - 1; i >= 0; i--)
+                if (Profiles[i] != null && Profiles[i].Name == name) { Profiles.RemoveAt(i); removed++; }
+            if (removed == 0) return false;
+            CascadeProfileName(name, null);   // null target = drop the reference entirely
+            SaveProfiles();
+            UIALog.Info("Deleted bag profile '" + name + "'.");
+            return true;
+        }
+
+        /// <summary>Point every stored reference to <paramref name="oldName"/> at
+        /// <paramref name="newName"/>, or DROP it when that is null. Shared by rename and delete
+        /// so the two can never cover different sets of stores.</summary>
+        private static void CascadeProfileName(string oldName, string newName)
+        {
+            // 1) current save's assignments (authoritative in memory; the file is rewritten below)
             EnsureSaveLoaded();
             List<long> assignKeys = null;
             foreach (var kv in Assignments)
@@ -421,10 +524,18 @@ namespace StationeersUIMod.Features
                     (assignKeys ?? (assignKeys = new List<long>())).Add(kv.Key);
             if (assignKeys != null)
             {
-                foreach (long key in assignKeys) Assignments[key] = newName;
+                foreach (long key in assignKeys)
+                {
+                    if (newName == null) Assignments.Remove(key);
+                    else Assignments[key] = newName;
+                }
                 SaveAssignments();
             }
 
+            // 2) every OTHER save's assignment file (skip the loaded one — step 1 owns it)
+            CascadeOtherSaveAssignments(oldName, newName);
+
+            // 3) global prefab defaults
             EnsurePrefabDefaultsLoaded();
             List<string> defaultKeys = null;
             foreach (var kv in _prefabDefaults)
@@ -432,12 +543,115 @@ namespace StationeersUIMod.Features
                     (defaultKeys ?? (defaultKeys = new List<string>())).Add(kv.Key);
             if (defaultKeys != null)
             {
-                foreach (string key in defaultKeys) _prefabDefaults[key] = newName;
+                foreach (string key in defaultKeys)
+                {
+                    if (newName == null) _prefabDefaults.Remove(key);
+                    else _prefabDefaults[key] = newName;
+                }
                 SavePrefabDefaults();
             }
 
-            SaveProfiles();
-            return true;
+            // 4) loadouts (their own files, own root)
+            try { LoadoutStore.CascadeProfileName(oldName, newName); }
+            catch (Exception e) { UIALog.Warn("Loadout profile-name cascade failed: " + e.Message); }
+
+            // 5) drop-in Profiles/*.xml copies (a stale old-named copy would be re-loaded next launch)
+            CascadeDropInFiles(oldName, newName);
+        }
+
+        /// <summary>Rewrite the profile name inside every assignment file that is NOT the currently
+        /// loaded save's. Fail-soft per file; untouched files are not rewritten at all.</summary>
+        private static void CascadeOtherSaveAssignments(string oldName, string newName)
+        {
+            try
+            {
+                if (!Directory.Exists(AssignmentsDir)) return;
+                string current = (_loadedSaveKey ?? string.Empty) + ".xml";
+                var serializer = new XmlSerializer(typeof(AssignmentFile));
+                foreach (string file in Directory.GetFiles(AssignmentsDir, "*.xml"))
+                {
+                    if (string.Equals(Path.GetFileName(file), current, StringComparison.OrdinalIgnoreCase)) continue;
+                    try
+                    {
+                        AssignmentFile parsed;
+                        using (var stream = File.OpenRead(file))
+                            parsed = (AssignmentFile)serializer.Deserialize(stream);
+                        if (parsed?.Assignments == null) continue;
+                        bool dirty = false;
+                        for (int i = parsed.Assignments.Count - 1; i >= 0; i--)
+                        {
+                            var a = parsed.Assignments[i];
+                            if (a == null || a.ProfileName != oldName) continue;
+                            if (newName == null) parsed.Assignments.RemoveAt(i);
+                            else a.ProfileName = newName;
+                            dirty = true;
+                        }
+                        if (!dirty) continue;
+                        using (var stream = File.Create(file))
+                            serializer.Serialize(stream, parsed);
+                        UIALog.Info("Updated bag profile reference in " + Path.GetFileName(file) + ".");
+                    }
+                    catch (Exception e)
+                    {
+                        UIALog.Warn("Assignment file '" + Path.GetFileName(file) + "' not updated: " + e.Message);
+                    }
+                }
+            }
+            catch (Exception e)
+            {
+                UIALog.Warn("Assignment cascade failed: " + e.Message);
+            }
+        }
+
+        /// <summary>Rename/remove the profile inside every drop-in <c>Profiles/*.xml</c> (never
+        /// profiles.xml, which <see cref="SaveProfiles"/> rewrites wholesale). A drop-in left with
+        /// zero profiles is deleted — otherwise a deleted profile silently returns on the next
+        /// <see cref="LoadProfiles"/>. Fail-soft per file.</summary>
+        private static void CascadeDropInFiles(string oldName, string newName)
+        {
+            try
+            {
+                if (!Directory.Exists(ProfilesDir)) return;
+                var serializer = new XmlSerializer(typeof(BagProfileFile));
+                foreach (string file in Directory.GetFiles(ProfilesDir, "*.xml"))
+                {
+                    if (string.Equals(Path.GetFileName(file), "profiles.xml", StringComparison.OrdinalIgnoreCase)) continue;
+                    try
+                    {
+                        BagProfileFile parsed;
+                        using (var stream = File.OpenRead(file))
+                            parsed = (BagProfileFile)serializer.Deserialize(stream);
+                        if (parsed?.Profiles == null) continue;
+                        bool dirty = false;
+                        for (int i = parsed.Profiles.Count - 1; i >= 0; i--)
+                        {
+                            var p = parsed.Profiles[i];
+                            if (p == null || p.Name != oldName) continue;
+                            if (newName == null) parsed.Profiles.RemoveAt(i);
+                            else p.Name = newName;
+                            dirty = true;
+                        }
+                        if (!dirty) continue;
+                        if (parsed.Profiles.Count == 0)
+                        {
+                            File.Delete(file);
+                            UIALog.Info("Removed now-empty profile file Profiles/" + Path.GetFileName(file) + ".");
+                            continue;
+                        }
+                        using (var stream = File.Create(file))
+                            serializer.Serialize(stream, parsed);
+                        UIALog.Info("Updated Profiles/" + Path.GetFileName(file) + " for the profile change.");
+                    }
+                    catch (Exception e)
+                    {
+                        UIALog.Warn("Profile file '" + Path.GetFileName(file) + "' not updated: " + e.Message);
+                    }
+                }
+            }
+            catch (Exception e)
+            {
+                UIALog.Warn("Drop-in profile cascade failed: " + e.Message);
+            }
         }
 
         // --- per-save state ---
@@ -466,6 +680,7 @@ namespace StationeersUIMod.Features
             _loadedSaveKey = key;
             Assignments.Clear();
             Memory.Clear();
+            Excludes.Clear();
             try
             {
                 var path = Path.Combine(AssignmentsDir, key + ".xml");
@@ -478,6 +693,9 @@ namespace StationeersUIMod.Features
                         Assignments[a.BagReferenceId] = a.ProfileName;
                     foreach (var m in parsed.Memories)
                         Memory[m.PrefabHash] = m.BagReferenceId;
+                    if (parsed.Excludes != null)
+                        foreach (var x in parsed.Excludes)
+                            if (x != null) Excludes.Add(x.BagReferenceId);
                 }
                 UIALog.Info($"Loaded {Assignments.Count} bag assignment(s) for save '{key}'.");
             }
@@ -497,6 +715,7 @@ namespace StationeersUIMod.Features
                 {
                     Assignments = Assignments.Select(kv => new Assignment { BagReferenceId = kv.Key, ProfileName = kv.Value }).ToList(),
                     Memories = Memory.Select(kv => new TypeMemory { PrefabHash = kv.Key, BagReferenceId = kv.Value }).ToList(),
+                    Excludes = Excludes.Select(id => new ContainerExclude { BagReferenceId = id }).ToList(),
                 };
                 var serializer = new XmlSerializer(typeof(AssignmentFile));
                 using (var stream = File.Create(path))
@@ -531,6 +750,36 @@ namespace StationeersUIMod.Features
             if (string.IsNullOrEmpty(profileName)) Assignments.Remove(bag.ReferenceId);
             else Assignments[bag.ReferenceId] = profileName;
             SaveAssignments();
+        }
+
+        // --- per-container stow exclusion (design Q5: "never smart-stow into this") ---
+
+        /// <summary>True when the player has told Smart Stow to never route anything into this
+        /// container. Consulted by EVERY <c>StowRouter</c> stage, so it must stay cheap: one
+        /// save-key check plus (only when the set is non-empty) one hash lookup. The flag is
+        /// INDEPENDENT of any profile assignment — an excluded bag may still carry a profile,
+        /// which simply stops being routed to until the exclusion is lifted.</summary>
+        public static bool IsStowExcluded(Thing bag)
+        {
+            if (bag == null) return false;
+            EnsureSaveLoaded();
+            if (Excludes.Count == 0) return false;   // fast path: nothing excluded this save
+            return Excludes.Contains(bag.ReferenceId);
+        }
+
+        /// <summary>Set/clear the exclusion for one container (save-through, idempotent).</summary>
+        public static void SetStowExcluded(Thing bag, bool excluded)
+        {
+            if (bag == null) return;
+            EnsureSaveLoaded();
+            bool changed = excluded ? Excludes.Add(bag.ReferenceId) : Excludes.Remove(bag.ReferenceId);
+            if (changed) SaveAssignments();
+        }
+
+        /// <summary>How many containers are excluded in the current save (UI status lines).</summary>
+        public static int ExcludedCount
+        {
+            get { EnsureSaveLoaded(); return Excludes.Count; }
         }
 
         public static void RememberStow(DynamicThing item, Thing bag)
