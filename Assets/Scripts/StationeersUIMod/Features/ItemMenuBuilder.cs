@@ -361,7 +361,7 @@ namespace StationeersUIMod.Features
             // — the same eject/insert/swap candidates the classic slot wedge offers, even
             // with an empty hand. Skipped for generic (None) storage slots, whose candidate
             // list would be your entire inventory.
-            bool typed = slot.Type != Slot.Class.None || slot.SpecificTypePrefabHash != -1;
+            bool typed = slot.Type != Slot.Class.None || InventoryScanner.SlotIsPrefabRestricted(slot);
             return new RadialEntry
             {
                 Label = "Stow",
@@ -415,7 +415,7 @@ namespace StationeersUIMod.Features
             // inventory (right down to the player's brain/lungs). So offer Replace for typed slots
             // only; a stored item just gets Take (+ its own settings/slots).
             var slot = source.Slot;
-            bool deviceSlot = slot != null && (slot.Type != Slot.Class.None || slot.SpecificTypePrefabHash != -1);
+            bool deviceSlot = slot != null && (slot.Type != Slot.Class.None || InventoryScanner.SlotIsPrefabRestricted(slot));
             if (deviceSlot)
             {
                 entries.Add(new RadialEntry

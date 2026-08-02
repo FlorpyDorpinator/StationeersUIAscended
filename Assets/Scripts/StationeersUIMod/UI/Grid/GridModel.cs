@@ -318,18 +318,19 @@ namespace StationeersUIMod.UI.Grid
                     return true;
             }
             // Backstop for FUTURE / modded single-purpose dispensers not named above: a purely
-            // single-purpose holder restricts EVERY slot to one specific prefab
-            // (SpecificTypePrefabHash != -1), whereas a real multi-purpose bag always keeps at least
-            // one unrestricted (-1) slot. Verified in the 27701 prefab rip: ore/mining bags,
-            // backpacks, belts and deployable crates all keep -1 slots (mining bag slots are
-            // Type=Ore but SpecificTypePrefabHash=-1), so this can never exclude genuine storage;
-            // the burger box (its lone None slot restricted to ItemBurger) is exactly what it catches.
+            // single-purpose holder restricts EVERY slot to specific prefabs
+            // (SpecificTypePrefabHashes non-empty), whereas a real multi-purpose bag always keeps
+            // at least one unrestricted slot. Verified in the 27701 prefab rip (then the single
+            // -1-sentinel field): ore/mining bags, backpacks, belts and deployable crates all keep
+            // unrestricted slots (mining bag slots are Type=Ore but prefab-unrestricted), so this
+            // can never exclude genuine storage; the burger box (its lone None slot restricted to
+            // ItemBurger) is exactly what it catches.
             var s = t.Slots;                                                      // general storage (bags)
             bool anyUnrestricted = false;
             bool anyGeneral = false;                                             // a None/Ore slot = general capacity
             for (int i = 0; i < s.Count; i++)
             {
-                if (s[i].SpecificTypePrefabHash == -1) anyUnrestricted = true;
+                if (!Core.InventoryScanner.SlotIsPrefabRestricted(s[i])) anyUnrestricted = true;
                 if (s[i].Type == Slot.Class.None || s[i].Type == Slot.Class.Ore) anyGeneral = true;
             }
             if (!anyUnrestricted) return false;                                  // every slot prefab-locked -> not storage

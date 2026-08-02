@@ -217,8 +217,28 @@ namespace StationeersUIMod.Core
         {
             if (thing == null || targetSlot == null) return false;
             if (targetSlot.Type != Slot.Class.None && thing.SlotType != targetSlot.Type) return false;
-            if (targetSlot.SpecificTypePrefabHash != -1 && thing.PrefabHash != targetSlot.SpecificTypePrefabHash) return false;
+            if (!SlotAcceptsPrefab(targetSlot, thing.PrefabHash)) return false;
             return true;
+        }
+
+        /// <summary>The game update of 2026-07-28 replaced Slot.SpecificTypePrefabHash
+        /// (int, -1 = unrestricted) with Slot.SpecificTypePrefabHashes (int[]): a slot may
+        /// now be locked to SEVERAL specific prefabs. Null or empty = unrestricted (the old
+        /// -1). Verified by reflection against the live Assembly-CSharp.dll.</summary>
+        public static bool SlotIsPrefabRestricted(Slot slot)
+        {
+            var hashes = slot != null ? slot.SpecificTypePrefabHashes : null;
+            return hashes != null && hashes.Length > 0;
+        }
+
+        /// <summary>True when the slot's specific-prefab lock (if any) admits this prefab.</summary>
+        public static bool SlotAcceptsPrefab(Slot slot, int prefabHash)
+        {
+            var hashes = slot != null ? slot.SpecificTypePrefabHashes : null;
+            if (hashes == null || hashes.Length == 0) return true;
+            for (int i = 0; i < hashes.Length; i++)
+                if (hashes[i] == prefabHash) return true;
+            return false;
         }
 
         /// <summary>Consequence text when pulling <paramref name="source"/>'s occupant out (proposal §7.3).</summary>
