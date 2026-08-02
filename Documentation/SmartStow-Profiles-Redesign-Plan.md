@@ -5,7 +5,10 @@ write this document. Companion doc (written in parallel):
 `Documentation/SmartStow-Preset-Catalog.md` — the item-to-profile mapping tables for the
 shipped preset sets described in §7.*
 
-*Status: **DRAFT — awaiting FlorpyDorp's decisions on the open questions in §14.***
+*Status: **APPROVED by FlorpyDorp 2026-08-01 — in implementation.** His decisions are recorded
+at the top of §14 and OVERRIDE the prose below where they differ (notably: the sets are named
+**"Stow Profiles"** and the per-bag profiles **"Bag Profiles"** — the "Stow Plans" name used
+throughout this document is superseded).*
 
 ---
 
@@ -1015,7 +1018,37 @@ second. P3+P4 is the headline release. P5 whenever.
 
 ---
 
-## 14. Open questions for FlorpyDorp
+## 14. Open questions for FlorpyDorp — ANSWERED 2026-08-01
+
+> **Decisions (FlorpyDorp), binding for implementation:**
+> - **Q1 — YES to `UIAClassRule`**: profiles gain the 4th rule kind matching the mod's own
+>   22-class `UIASort` taxonomy.
+> - **Q2 — naming**: the folders/sets are **"Stow Profiles"**; the per-bag things are
+>   **"Bag Profiles"**. ("Stow Plans" is superseded everywhere.)
+> - **Q3 — one ACTIVE Stow Profile** at a time; bags are assigned to the Bag Profiles inside
+>   it; Bag Profiles are transferable/copyable between Stow Profiles (mix and match).
+> - **Q4 — Loadouts are ABANDONED** as a concept: a Stow Profile (a folder of Bag Profiles)
+>   subsumes "a saved group of bags". Retire the UI per hide-never-destroy; data files stay.
+>   Bag Profiles are always MANUALLY mapped to bags — prefab-default auto-assignment retires
+>   with Loadouts.
+> - **Q5 — the Bags sub-tab lists only containers in the player's inventory / on the player**,
+>   and every bag gets an **exclude checkbox** ("never smart-stow into this container").
+> - **Q6 — HUD "profiles" are renamed "HUD Themes"** in all user-facing labels.
+> - **Q7 — share codes GENERATE the XML**: import by pasting the code OR by dropping the XML
+>   file into the mod folder. Both transports ship.
+>
+> **Additional directives from the same review:**
+> - Nothing user-facing is called "the Grid" any more — always **"Universal Inventory"**.
+> - **Assigning a Bag Profile renames the storage device** like a labeller would (client
+>   requests the same authoritative rename the labeller uses — MP-safe funnel mandatory),
+>   gated by a checkbox; bag cards also offer manual rename.
+> - **Only backpacks and boxes are assignable** — real wearable/carryable storage (hardsuit
+>   backpack, simple backpack, mining backpack, boxes/crates), NOT tools with slots (terrain
+>   manipulator) or food packaging (cereal box). Typed packs (mining backpack = ore slots)
+>   VALIDATE assigned profiles: warn/block rules that can never fit.
+> - The UIA Item Picker has graphical glitches — investigate and fix during this work.
+
+The original questions, kept for the record:
 
 **Q1 — `UIAClassRule` (the 4th rule kind).** Your own bag layout (Paints / Frames+Walls / Cables &
 Pipes) does not exist in the game's 11-value `SortingClass`. The mod already has a 22-class
