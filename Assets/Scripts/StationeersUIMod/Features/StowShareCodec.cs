@@ -132,16 +132,21 @@ namespace StationeersUIMod.Features
                 WriteString(ms, doc.Name);
                 WriteString(ms, doc.Description);
 
+                // The count and the loop MUST use the same predicate as the wire itself. Counting
+                // raw non-empty names while WriteString strips to printable ASCII (and the decoder
+                // drops a profile that arrives nameless) meant a profile named entirely in
+                // non-ASCII was counted, written as an empty name, and then silently discarded on
+                // import: N announced, N-1 delivered, no error anywhere.
                 var profiles = doc.Profiles ?? new List<BagProfile>();
                 int count = 0;
                 for (int i = 0; i < profiles.Count; i++)
-                    if (profiles[i] != null && !string.IsNullOrEmpty(profiles[i].Name)) count++;
+                    if (Encodable(profiles[i])) count++;
                 WriteVar(ms, (uint)count);
 
                 for (int i = 0; i < profiles.Count; i++)
                 {
                     BagProfile p = profiles[i];
-                    if (p == null || string.IsNullOrEmpty(p.Name)) continue;
+                    if (!Encodable(p)) continue;
                     WriteString(ms, p.Name);
                     WriteString(ms, p.Badge);
 
@@ -316,8 +321,7 @@ namespace StationeersUIMod.Features
                         int priority = ReadSVar(payload, ref at, end);
                         var rule = new UIAClassRule { Name = name, Priority = priority };
                         p.UIAClasses.Add(rule);
-                        UIAClass parsedClass;
-                        if (!Enum.TryParse(name, true, out parsedClass)) unknownRules++;
+                        if (!KnownEnum<UIAClass>(name)) unknownRules++;
                     }
                     n = ReadVar(payload, ref at, end);
                     Bound(n, end - at);
@@ -326,8 +330,7 @@ namespace StationeersUIMod.Features
                         string name = ReadString(payload, ref at, end);
                         int priority = ReadSVar(payload, ref at, end);
                         p.SlotClasses.Add(new SlotClassRule { Name = name, Priority = priority });
-                        Slot.Class parsedSlot;
-                        if (!Enum.TryParse(name, true, out parsedSlot)) unknownRules++;
+                        if (!KnownEnum<Slot.Class>(name)) unknownRules++;
                     }
                     n = ReadVar(payload, ref at, end);
                     Bound(n, end - at);
@@ -336,8 +339,7 @@ namespace StationeersUIMod.Features
                         string name = ReadString(payload, ref at, end);
                         int priority = ReadSVar(payload, ref at, end);
                         p.Categories.Add(new CategoryRule { Name = name, Priority = priority });
-                        SortingClass parsedCat;
-                        if (!Enum.TryParse(name, true, out parsedCat)) unknownRules++;
+                        if (!KnownEnum<SortingClass>(name)) unknownRules++;
                     }
 
                     if (!string.IsNullOrEmpty(p.Name)) doc.Profiles.Add(p);
@@ -505,15 +507,44 @@ namespace StationeersUIMod.Features
         /// (and so nothing arriving from outside can tofu in our own TMP labels).</summary>
         private static void WriteString(MemoryStream ms, string s)
         {
-            if (string.IsNullOrEmpty(s)) { WriteVar(ms, 0); return; }
+            string clean = Sanitized(s);
+            WriteVar(ms, (uint)clean.Length);
+            for (int i = 0; i < clean.Length; i++) ms.WriteByte((byte)clean[i]);
+        }
+
+        /// <summary>Exactly what <see cref="WriteString"/> will put on the wire — factored out so the
+        /// encoder can ASK before it counts, instead of counting one thing and writing another.</summary>
+        private static string Sanitized(string s)
+        {
+            if (string.IsNullOrEmpty(s)) return string.Empty;
             var sb = new StringBuilder(Math.Min(s.Length, MaxStringChars));
             for (int i = 0; i < s.Length && sb.Length < MaxStringChars; i++)
             {
                 char c = s[i];
                 if (c >= 0x20 && c <= 0x7E) sb.Append(c);
             }
-            WriteVar(ms, (uint)sb.Length);
-            for (int i = 0; i < sb.Length; i++) ms.WriteByte((byte)sb[i]);
+            return sb.ToString();
+        }
+
+        /// <summary>Will this profile actually survive the round trip? A profile whose name sanitizes
+        /// away to nothing is dropped by the DECODER (which keeps only named profiles), so the encoder
+        /// must not count it either — the header count and the body have to agree.</summary>
+        private static bool Encodable(BagProfile p)
+        {
+            return p != null && Sanitized(p.Name).Length > 0;
+        }
+
+        /// <summary>Is <paramref name="name"/> a value of <typeparamref name="T"/> this build knows?
+        ///
+        /// <para><see cref="Enum.TryParse{T}(string,bool,out T)"/> alone is not that question: it also
+        /// accepts any NUMERIC string, so a rule named "99999" parsed "successfully" into an undefined
+        /// value and escaped the unknown-rule count that exists to warn the player. Match-time
+        /// behaviour is unchanged either way (an undefined value matches nothing); this only makes the
+        /// import summary tell the truth.</para></summary>
+        private static bool KnownEnum<T>(string name) where T : struct
+        {
+            T parsed;
+            return Enum.TryParse(name, true, out parsed) && Enum.IsDefined(typeof(T), parsed);
         }
 
         private static string ReadString(byte[] b, ref int at, int end)

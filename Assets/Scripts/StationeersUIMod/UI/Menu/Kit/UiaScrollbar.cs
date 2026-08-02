@@ -20,8 +20,23 @@ namespace StationeersUIMod.UI.Menu.Kit
     /// <para>Parented UNDER the viewport (inside its existing RectMask2D, so it clips to the list and
     /// never bleeds over the chrome) and kept as the last sibling so it draws above the rows. Not
     /// part of the scrolled content, so it stays put while the content moves. No static state, so
-    /// hot-reload just destroys it with its GameObject like everything else in the kit.</para></summary>
-    internal sealed class UiaScrollbar : MonoBehaviour, IBeginDragHandler, IDragHandler, IScrollHandler
+    /// hot-reload just destroys it with its GameObject like everything else in the kit.</para>
+    ///
+    /// <para>INPUT — and why this class handles NO pointer events itself. Unlike
+    /// <see cref="UI.Grid.GridScrollbar"/> (which lives on its own GameObject), this driver shares the
+    /// viewport GameObject with the ScrollRect, so any event interface implemented HERE would fire in
+    /// addition to the ScrollRect's own and fight it: an <c>IScrollHandler</c> forwarding the wheel to
+    /// <c>_scroll.gameObject</c> would be forwarding to ITSELF (unbounded recursion -> stack overflow),
+    /// and an <c>IDragHandler</c> doing absolute-position jump math would beat the ScrollRect's
+    /// relative drag on every list row. Both are therefore delegated correctly instead:
+    /// <list type="bullet">
+    /// <item>WHEEL: nothing to do. The ScrollRect is on this very GameObject, so a wheel anywhere over
+    /// the list — including over the thumb, whose event bubbles up from the bar — reaches it natively.</item>
+    /// <item>DRAG: handled by <see cref="UiaScrollbarDrag"/> on the BAR-ROOT child. Bubbling stops at
+    /// the first ancestor with a handler, so a press on the thumb/bar is bar-only (jump math) and a
+    /// press on list content never sees the bar at all (ScrollRect-only).</item>
+    /// </list></para></summary>
+    internal sealed class UiaScrollbar : MonoBehaviour
     {
         private ScrollRect _scroll;
         private RectTransform _viewport;
@@ -52,6 +67,10 @@ namespace StationeersUIMod.UI.Menu.Kit
             bar._self = (RectTransform)selfGo.transform;
             bar._self.anchorMin = bar._self.anchorMax = new Vector2(1f, 1f);
             bar._self.pivot = new Vector2(1f, 1f);
+            // Drag lives on the bar root, NOT on this driver (which shares the viewport GO with the
+            // ScrollRect) — see the INPUT note on the class. Only presses that start on the bar/thumb
+            // reach it; content drags bubble past it straight to the ScrollRect.
+            selfGo.AddComponent<UiaScrollbarDrag>().Owner = bar;
 
             // Faint track (full bar height), non-raycast so the wheel over empty bar area still
             // reaches the list underneath.
@@ -64,8 +83,9 @@ namespace StationeersUIMod.UI.Menu.Kit
             bar._track.raycastTarget = false;
             UiaImages.Round(bar._track);
 
-            // Thumb — the raycast target + drag handle (the drag handler on this root gets the
-            // bubbled event). Anchored to the top of the bar; positioned/sized every Update.
+            // Thumb — the bar's only raycast target, and thus its drag handle: the press bubbles up
+            // one level to the bar root's UiaScrollbarDrag and stops there (never reaching the
+            // ScrollRect). Anchored to the top of the bar; positioned/sized every Update.
             var hGo = new GameObject("thumb", typeof(RectTransform));
             hGo.transform.SetParent(bar._self, false);
             bar._thumbRt = (RectTransform)hGo.transform;
@@ -116,12 +136,11 @@ namespace StationeersUIMod.UI.Menu.Kit
             _track.color = new Color(mute.r, mute.g, mute.b, 0.18f);
         }
 
-        // ---- drag the thumb to scroll (event bubbles up from the thumb, the only raycast target) ----
+        // ---- drag the thumb to scroll (driven by UiaScrollbarDrag on the bar root) ----
 
-        public void OnBeginDrag(PointerEventData e) => DragTo(e);
-        public void OnDrag(PointerEventData e) => DragTo(e);
-
-        private void DragTo(PointerEventData e)
+        /// <summary>Jump the scroll so the thumb centres on the pointer. Called ONLY for presses that
+        /// began on the bar/thumb (the bar root owns the drag handlers).</summary>
+        internal void DragTo(PointerEventData e)
         {
             if (_scroll == null || _self == null || e == null) return;
             float barH = _self.rect.height;
@@ -138,13 +157,26 @@ namespace StationeersUIMod.UI.Menu.Kit
             float fromTop = Mathf.Clamp(-local.y - thumbH * 0.5f, 0f, span);
             _scroll.verticalNormalizedPosition = Mathf.Clamp01(1f - fromTop / span);
         }
+    }
 
-        /// <summary>Keep the wheel working while the pointer is over the thumb by forwarding it to
-        /// the ScrollRect (which is not under the cursor then, so it would otherwise get no wheel).</summary>
-        public void OnScroll(PointerEventData e)
-        {
-            if (_scroll != null && e != null)
-                ExecuteEvents.Execute(_scroll.gameObject, e, ExecuteEvents.scrollHandler);
-        }
+    /// <summary>The bar's drag handlers, deliberately on the BAR-ROOT child GameObject rather than on
+    /// <see cref="UiaScrollbar"/> itself — the driver shares the viewport GameObject with the
+    /// <see cref="ScrollRect"/>, and a drag handler there would run IN ADDITION to the ScrollRect's
+    /// (and, being added last, win), turning every drag on a list row into a position jump.
+    ///
+    /// <para>Sitting one level down fixes that with the event system's own routing: bubbling stops at
+    /// the first ancestor that handles the event, so a press on the thumb (the only raycast target in
+    /// the bar) stops here, while a press on list content never passes through the bar and goes to the
+    /// ScrollRect alone. The wheel is unaffected either way — no IScrollHandler anywhere in the bar, so
+    /// it always bubbles to the viewport's ScrollRect.</para>
+    ///
+    /// <para>Kept separate from the driver so the driver can keep ticking on the (always-active)
+    /// viewport while this GameObject — the bar root — is toggled off whenever nothing overflows.</para></summary>
+    internal sealed class UiaScrollbarDrag : MonoBehaviour, IBeginDragHandler, IDragHandler
+    {
+        internal UiaScrollbar Owner;
+
+        public void OnBeginDrag(PointerEventData e) { if (Owner != null) Owner.DragTo(e); }
+        public void OnDrag(PointerEventData e) { if (Owner != null) Owner.DragTo(e); }
     }
 }

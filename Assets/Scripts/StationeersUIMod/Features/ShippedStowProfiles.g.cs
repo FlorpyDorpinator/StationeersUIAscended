@@ -146,12 +146,26 @@ namespace StationeersUIMod.Features
         /// <item>an <b>Electronics</b> profile built from Slot.Class rules (catalog C5's own rule
         /// list), because the game has no electronics category at all and every board, chip,
         /// cartridge and battery otherwise lands in the ~210-item <c>Default</c> junk drawer;</item>
-        /// <item>a LOW-priority <c>UIAClass</c> backstop on <b>Tools</b> and <b>Kits</b> (plan
-        /// SS3.2, FlorpyDorp Q1) so a new or modded tool/kit whose SortingClass is unset still
-        /// lands somewhere sane. Only these two: every other UIA class overlaps a second bucket
-        /// here (UIAClass.Ore covers Ices, UIAClass.Material covers Resources AND stackable
-        /// frames, UIAClass.Storage covers backpacks that are SortingClass=Clothing), and a rule
-        /// that poaches another bag's items is worse than one that catches nothing.</item>
+        /// <item>a <c>UIAClass</c> catch-all on <b>Tools</b> and <b>Kits</b> (plan SS3.2, FlorpyDorp
+        /// Q1) so a new or modded tool/kit whose SortingClass is unset still lands somewhere sane.
+        ///
+        /// <para>READ THE PRIORITY CORRECTLY. The literal <c>10</c> on those two rules is NOT a
+        /// low-priority backstop, whatever it looks like next to the <c>50</c>s around it: rule KINDS
+        /// are ranked by a fixed offset in <see cref="BagProfile.Match"/> (Item +20000, UIAClass
+        /// +15000, Slot.Class +10000, Category +0), so priority-10 UIAClass scores 15010 and OUTRANKS
+        /// every Category rule in this set — and in every other set the player has, since matching
+        /// runs across all profiles. These two rules WIN their ties; they do not lose them. No live
+        /// misroute exists today only because <c>UIASort.Classify</c> derives Tool/Kit from the same
+        /// SortingClass, so the two never disagree on vanilla content. A MODDED item classified
+        /// <c>UIAClass.Kit</c> while carrying <c>SortingClass=Atmospherics</c> WOULD be poached out of
+        /// the Atmospherics bag by the Kits one. Adding a third such rule needs that checked, not
+        /// assumed — and if a genuine tie-breaker-only rule is ever wanted, the offsets, not the
+        /// number, are what would have to change.</para>
+        ///
+        /// <para>Only these two for exactly that reason: every other UIA class overlaps a second
+        /// bucket here (UIAClass.Ore covers Ices, UIAClass.Material covers Resources AND stackable
+        /// frames, UIAClass.Storage covers backpacks that are SortingClass=Clothing), and a rule that
+        /// poaches another bag's items is worse than one that catches nothing.</para></item>
         /// </list></summary>
         private static StowProfileDoc BuildByCategory()
         {

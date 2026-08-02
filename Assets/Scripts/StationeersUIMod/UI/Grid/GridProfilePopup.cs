@@ -344,14 +344,12 @@ namespace StationeersUIMod.UI.Grid
             // through the labeller's own authoritative funnel - one user gesture, one rename
             // message. Wired here as well as on the F10 bag cards so the behaviour does not depend
             // on which surface the assignment was made from. Un-assignment never renames back.
+            // One shared implementation with the F10 bag cards (ItemActions.LabelWith): it compares
+            // against the SANITISED name the funnel will actually store, so a re-assign of an
+            // already-labelled bag sends nothing.
             if (!string.IsNullOrEmpty(profileName) && Features.StowRenameConfig.RenameOnAssign)
             {
-                try
-                {
-                    string current = bag.CustomName;
-                    if (!string.Equals(current, profileName, System.StringComparison.Ordinal))
-                        Core.ItemActions.RenameThing(bag, profileName);
-                }
+                try { Core.ItemActions.LabelWith(bag, profileName); }
                 catch (System.Exception e) { Core.UIALog.Warn("Rename on assign failed: " + e.Message); }
             }
             // Typed-pack validation (redesign plan §14): warn, never block. This surface has no

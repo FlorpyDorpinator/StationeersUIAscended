@@ -496,6 +496,23 @@ namespace StationeersUIMod.Features
         public static string TransferProfile(string sourceStowName, string profileName,
             string targetStowName, bool move)
         {
+            bool sourceKept;
+            return TransferProfile(sourceStowName, profileName, targetStowName, move, out sourceKept);
+        }
+
+        /// <summary>As <see cref="TransferProfile(string,string,string,bool)"/>, but reports the one
+        /// outcome a bare name cannot: a MOVE whose copy landed and whose SOURCE REMOVAL then failed
+        /// to write. That is not a failure (the profile is safely in the target) and not a clean move
+        /// either — the profile now exists in BOTH sets, and on the next load the source's copy comes
+        /// straight back. Swallowing it made a move look successful while quietly duplicating the
+        /// profile, so the flag exists purely so the UI can say so out loud.
+        ///
+        /// <para><paramref name="sourceKept"/> is true ONLY in that case: copy written, source not.
+        /// A total failure still returns null with the flag false.</para></summary>
+        public static string TransferProfile(string sourceStowName, string profileName,
+            string targetStowName, bool move, out bool sourceKept)
+        {
+            sourceKept = false;
             if (string.IsNullOrEmpty(profileName) || string.IsNullOrEmpty(targetStowName)) return null;
             string source = string.IsNullOrEmpty(sourceStowName) ? ActiveName : sourceStowName;
             if (string.IsNullOrEmpty(source)) return null;
@@ -551,15 +568,34 @@ namespace StationeersUIMod.Features
 
                 if (move)
                 {
+                    // The copy is on disk. The source-side removal is a SECOND write and can fail on
+                    // its own (read-only file, full disk, a locked handle) — ignoring its result was
+                    // how a "move" silently became a duplicate that reappeared on the next load.
+                    bool removed;
                     if (sourceIsActive)
                     {
-                        BagProfileStore.Profiles.Remove(from);
-                        BagProfileStore.SaveProfiles();
+                        int at = BagProfileStore.Profiles.IndexOf(from);
+                        if (at >= 0) BagProfileStore.Profiles.RemoveAt(at);
+                        removed = BagProfileStore.SaveProfiles();
+                        // Memory must never outrun disk: if the write failed the file still holds
+                        // this profile, so the in-memory list has to hold it too (at its old index,
+                        // so the shelf does not reorder itself) — otherwise the next unrelated save
+                        // would quietly finish a move the player was told had failed.
+                        if (!removed && at >= 0) BagProfileStore.Profiles.Insert(at, from);
                     }
                     else
                     {
                         sourceDoc.Profiles.Remove(from);
-                        SaveDoc(sourceDoc);
+                        removed = SaveDoc(sourceDoc);
+                        // sourceDoc is a throwaway load, so a failed write leaves nothing stale in
+                        // memory — the untouched file on disk IS the surviving truth.
+                    }
+                    if (!removed)
+                    {
+                        sourceKept = true;
+                        UIALog.Warn("Moved bag profile '" + profileName + "' into Stow Profile '" + targetStowName
+                            + "', but could not remove it from '" + source + "' - it now exists in both.");
+                        return newName;
                     }
                 }
                 UIALog.Info((move ? "Moved" : "Copied") + " bag profile '" + profileName + "' from Stow Profile '"
@@ -571,6 +607,89 @@ namespace StationeersUIMod.Features
             {
                 UIALog.Warn("Bag profile transfer failed: " + e.Message);
                 return null;
+            }
+        }
+
+        /// <summary>Bulk COPY of EVERY Bag Profile in one Stow Profile into another — the "duplicate a
+        /// set" path. One load of each end, one write at the end.
+        ///
+        /// <para>WHY THIS EXISTS rather than a loop over <see cref="TransferProfile"/>: that call is
+        /// self-contained by design (it re-reads both ends and re-serializes the target every time),
+        /// which is right for one profile off a shelf and quadratic for a whole set — duplicating the
+        /// shipped 14-profile "By Printer" set meant fourteen full re-loads and fourteen full XML
+        /// writes of a document that grew with each pass. Here the clones are staged into the target
+        /// document in memory, colliding against what has ALREADY been staged (so two source profiles
+        /// that both want "Ores" still land as "Ores" and "Ores (2)"), and the file is written once.</para>
+        ///
+        /// <para>Copy only, never move: the caller is duplicating, and a half-written bulk MOVE is a
+        /// far worse failure mode than a duplicate. Returns how many profiles landed (0 on any
+        /// failure — a failed write stages nothing, and the active-set branch rolls its in-memory
+        /// additions back so memory never outruns disk).</para></summary>
+        public static int TransferMany(string sourceStowName, string targetStowName)
+        {
+            if (string.IsNullOrEmpty(targetStowName)) return 0;
+            string source = string.IsNullOrEmpty(sourceStowName) ? ActiveName : sourceStowName;
+            if (string.IsNullOrEmpty(source)) return 0;
+            if (string.Equals(source, targetStowName, StringComparison.OrdinalIgnoreCase)) return 0;
+            try
+            {
+                bool ok;
+                List<string> files = DocFiles(out ok);
+                if (!ok) return 0;
+
+                bool sourceIsActive = Available && string.Equals(source, ActiveName, StringComparison.OrdinalIgnoreCase);
+                bool targetIsActive = Available && string.Equals(targetStowName, ActiveName, StringComparison.OrdinalIgnoreCase);
+
+                // Snapshot the source first: if the target IS the active set we are about to append to
+                // that very list, and iterating it while it grows would copy our own copies.
+                List<BagProfile> from;
+                if (sourceIsActive) from = new List<BagProfile>(BagProfileStore.Profiles);
+                else
+                {
+                    StowProfileDoc sourceDoc = LoadByName(files, source, false);
+                    if (sourceDoc == null || sourceDoc.Profiles == null) return 0;
+                    from = new List<BagProfile>(sourceDoc.Profiles);
+                }
+                if (from.Count == 0) return 0;
+
+                StowProfileDoc target = null;
+                List<BagProfile> into;
+                if (targetIsActive) into = BagProfileStore.Profiles;
+                else
+                {
+                    target = LoadByName(files, targetStowName, false);
+                    if (target == null) return 0;
+                    into = target.Profiles;
+                }
+
+                int mark = into.Count;
+                int added = 0;
+                for (int i = 0; i < from.Count; i++)
+                {
+                    BagProfile src = from[i];
+                    if (src == null || string.IsNullOrEmpty(src.Name)) continue;
+                    BagProfile copy = CloneProfile(src);
+                    if (copy == null) continue;
+                    copy.Name = UniqueNameInList(into, src.Name);
+                    into.Add(copy);
+                    added++;
+                }
+                if (added == 0) return 0;
+
+                bool saved = targetIsActive ? BagProfileStore.SaveProfiles() : SaveDoc(target);
+                if (!saved)
+                {
+                    if (targetIsActive && into.Count > mark) into.RemoveRange(mark, into.Count - mark);
+                    return 0;
+                }
+                UIALog.Info("Copied " + added + " bag profile(s) from Stow Profile '" + source
+                    + "' to '" + targetStowName + "'.");
+                return added;
+            }
+            catch (Exception e)
+            {
+                UIALog.Warn("Bulk bag profile transfer failed: " + e.Message);
+                return 0;
             }
         }
 

@@ -714,6 +714,59 @@ namespace StationeersUIMod.Core
             return true;
         }
 
+        /// <summary>What <see cref="LabelWith"/> did (or declined to do).</summary>
+        public enum LabelResult
+        {
+            /// <summary>The container already carries that exact label — nothing was sent.</summary>
+            Unchanged,
+            /// <summary>A rename went out through the funnel.</summary>
+            Renamed,
+            /// <summary>Refused or failed — a gate said no, the name sanitised away, or the send threw.</summary>
+            Failed
+        }
+
+        /// <summary>LABEL a container with a Bag Profile's name (SmartStow's rename-on-assign). The one
+        /// implementation of that gesture, shared by the F10 bag cards and the Universal Inventory's
+        /// profile popup — the two surfaces were carrying their own copies of "skip if it already says
+        /// that, otherwise RenameThing in a try/catch", which is precisely the kind of pair that drifts
+        /// apart (they already had: one compared raw, both should compare sanitised).
+        ///
+        /// <para>The equality check runs against <see cref="SanitizedRenamePreview"/>, not the raw
+        /// profile name, because the sanitised form is what <c>CustomName</c> will hold. Comparing raw
+        /// made every profile whose name carries markup or non-ASCII compare unequal forever and
+        /// re-send a rename message on every assign.</para></summary>
+        public static LabelResult LabelWith(Thing thing, string label)
+        {
+            if (thing == null || string.IsNullOrEmpty(label)) return LabelResult.Failed;
+            string wanted = SanitizedRenamePreview(thing, label);
+            if (string.IsNullOrEmpty(wanted)) return LabelResult.Failed;
+
+            string current = null;
+            try { current = thing.CustomName; } catch { }
+            if (string.Equals(current, wanted, System.StringComparison.Ordinal)) return LabelResult.Unchanged;
+
+            bool ok = false;
+            try { ok = RenameThing(thing, wanted); }
+            catch (System.Exception e) { UIALog.Warn("Rename on assign failed: " + e.Message); }
+            return ok ? LabelResult.Renamed : LabelResult.Failed;
+        }
+
+        /// <summary>What <see cref="RenameThing"/> would actually WRITE for this name — the sanitiser's
+        /// output, without sending anything. Null when nothing usable survives (which is exactly when
+        /// <see cref="RenameThing"/> would refuse).
+        ///
+        /// <para>Exists so callers can answer "is it already called that?" against the string that
+        /// will reach <c>Thing.CustomName</c> rather than against their raw input. Comparing the raw
+        /// name instead makes any name carrying markup or non-ASCII compare unequal FOREVER — the
+        /// stored name is the stripped form, the wanted name is not — so a "skip if unchanged" guard
+        /// silently re-sends a rename message on every single assign.</para></summary>
+        public static string SanitizedRenamePreview(Thing thing, string newName)
+        {
+            if (thing == null) return null;
+            try { return SanitizeThingName(thing, newName); }
+            catch { return null; }
+        }
+
         /// <summary><c>Labeller.InputRenameFinished</c>'s sanitiser reproduced IN ORDER
         /// (Labeller.cs:99-118): empty -> the prefab's own display name; 200-character cap; still
         /// empty -> refuse; then the rich-text strip for anything that is not a <c>Sign</c>/

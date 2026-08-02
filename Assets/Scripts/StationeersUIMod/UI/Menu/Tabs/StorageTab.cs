@@ -175,6 +175,15 @@ namespace StationeersUIMod.UI.Menu.Tabs
                     {
                         if (_subTab == idx) return;
                         _subTab = idx;
+                        // Leaving a page disarms it. An armed confirm ("Delete - sure?") and a
+                        // half-typed rename belong to the screen they were started on; carrying
+                        // them to another sub-tab means the player comes BACK later to a live
+                        // destructive button they no longer remember arming.
+                        _confirmDeleteProfile = false;
+                        _confirmDeleteSet = false;
+                        _confirmRestoreShipped = false;
+                        _renameField = null;
+                        _setRenameField = null;
                         // A new page starts at the top; Refresh would otherwise carry the outgoing
                         // page's scroll fraction over to a completely different screen.
                         if (_scroll != null) _scroll.verticalNormalizedPosition = 1f;
@@ -965,12 +974,10 @@ namespace StationeersUIMod.UI.Menu.Tabs
             int copied = 0;
             if (!sourceIsActive)
             {
-                List<BagProfile> profiles = StowProfileStore.ProfilesOf(source);
-                for (int i = 0; i < profiles.Count; i++)
-                {
-                    if (profiles[i] == null || string.IsNullOrEmpty(profiles[i].Name)) continue;
-                    if (StowProfileStore.TransferProfile(source, profiles[i].Name, made, false) != null) copied++;
-                }
+                // One bulk call, one write. Per-profile TransferProfile would re-load and
+                // re-serialize the whole growing target document once per profile (fourteen full
+                // XML writes for the shipped "By Printer" set).
+                copied = StowProfileStore.TransferMany(source, made);
             }
             else
             {
@@ -1038,11 +1045,22 @@ namespace StationeersUIMod.UI.Menu.Tabs
         private void TransferProfile(string source, string profileName, string target, bool move)
         {
             string landed = null;
-            try { landed = StowProfileStore.TransferProfile(source, profileName, target, move); }
+            bool sourceKept = false;
+            try { landed = StowProfileStore.TransferProfile(source, profileName, target, move, out sourceKept); }
             catch (Exception e) { UIALog.Warn("Bag profile transfer failed: " + e.Message); }
             if (landed == null)
             {
                 _stowNote = "Could not " + (move ? "move" : "copy") + " \"" + profileName + "\" to \"" + target + "\" (see the log).";
+            }
+            else if (sourceKept)
+            {
+                // The copy landed but the source could not be rewritten: the profile is in BOTH sets
+                // and the source's copy will still be there after a reload. Say so - reporting this
+                // as a clean move is how the player ends up with a mystery duplicate.
+                string srcLabel = string.IsNullOrEmpty(source)
+                    ? (StowProfileStore.ActiveName ?? "the active set") : source;
+                _stowNote = "Copied \"" + profileName + "\" to \"" + target + "\", but could not remove it from \""
+                    + srcLabel + "\" - see the log.";
             }
             else
             {
@@ -1083,6 +1101,12 @@ namespace StationeersUIMod.UI.Menu.Tabs
             var fieldGo = UiaUi.Go("importhost", row.transform);
             UiaUi.Size(fieldGo, UiaTheme.RowH, flexW: 1f, minW: 140f);
             UiaUi.HLayout((RectTransform)fieldGo.transform, 0f, 0, 0, 0, 0, TextAnchor.MiddleLeft, true);
+            // ACCEPTED COST: this is a plain single-line TMP_InputField, so a code pasted BY HAND
+            // (rather than taken off the clipboard, which is the primary path and never touches this
+            // box) makes TMP lay out and mesh all ~6k glyphs on the frame it lands. One visible hitch,
+            // once, on a gesture that already involved switching windows to copy the code - not worth
+            // a virtualised or truncating input field to avoid. The empty box + clipboard route stays
+            // the documented gesture precisely because it costs nothing.
             var importInput = UiaUi.InputField(fieldGo.transform, "Paste a code - or leave empty to use the clipboard",
                 v => _importField = v);
             if (!string.IsNullOrEmpty(_importField)) importInput.text = _importField;
@@ -1630,16 +1654,22 @@ namespace StationeersUIMod.UI.Menu.Tabs
             UiaControlCenter.Refresh();
         }
 
+        /// <summary>Label the bag with the profile's name. The decision (already labelled? send?) lives
+        /// in <see cref="ItemActions.LabelWith"/>, shared with the Universal Inventory's profile popup
+        /// so the two surfaces cannot drift; this only phrases the note.</summary>
         private void RenameForProfile(DynamicThing bag, string profileName)
         {
-            string current = null;
-            try { current = bag.CustomName; } catch { }
-            if (string.Equals(current, profileName, StringComparison.Ordinal)) return;  // already labelled
-            bool ok = false;
-            try { ok = ItemActions.RenameThing(bag, profileName); }
-            catch (Exception e) { UIALog.Warn("Rename on assign failed: " + e.Message); }
-            _renameNote = ok ? RenameOkNote(bag, profileName)
-                             : "The profile was assigned, but that container could not be renamed.";
+            ItemActions.LabelResult r;
+            try { r = ItemActions.LabelWith(bag, profileName); }
+            catch (Exception e)
+            {
+                UIALog.Warn("Rename on assign failed: " + e.Message);
+                r = ItemActions.LabelResult.Failed;
+            }
+            if (r == ItemActions.LabelResult.Unchanged) return;   // already labelled: nothing was sent
+            _renameNote = r == ItemActions.LabelResult.Renamed
+                ? RenameOkNote(bag, ItemActions.SanitizedRenamePreview(bag, profileName) ?? profileName)
+                : "The profile was assigned, but that container could not be renamed.";
         }
 
         /// <summary>Manual rename from a bag card / dense row. Same funnel, same gates, and the same
