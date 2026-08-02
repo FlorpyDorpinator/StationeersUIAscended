@@ -655,6 +655,110 @@ namespace StationeersUIMod.Core
             return true;
         }
 
+        /// <summary>
+        /// Rename a Thing exactly as a LABELLER does. The mod's only NAME mutation, and its only
+        /// game-state write outside the slot funnel — so it lives here with the rest of them.
+        ///
+        /// <para>Verified chain (27758): <c>Labeller.InputRenameFinished</c> (Labeller.cs:97-128)
+        /// sanitises, then forks — host/SP <c>Thing.RenameThing(id, name)</c> (identical to
+        /// <c>OnServer.SetCustomName</c>, OnServer.cs:938-947 -> Thing.cs:1496-1502); MP client
+        /// <c>NetworkClient.RenameThing(id, name)</c> (NetworkClient.cs:524-535) -> exactly ONE
+        /// <c>ThingRenameMessage</c> -> server <c>Process</c> (ThingRenameMessage.cs:9-12) ->
+        /// <c>OnServer.SetCustomName</c> -> the <c>Thing.CustomName</c> setter raises
+        /// <c>NetworkUpdateFlags</c> bit 32 (Thing.cs:1295-1310), which replicates to every client
+        /// (Thing.cs:6296-6301) and to late joiners (Thing.cs:6081-6086), and persists in the save.
+        /// The fork is MANDATORY, not defensive: <c>OnServer.SetCustomName</c> on a client writes
+        /// <c>_customName</c> locally with no flag and no message = a desync that never heals.</para>
+        ///
+        /// <para><b>The server validates nothing.</b> <c>ThingRenameMessage</c> has no authority,
+        /// ownership, range, power, length or content check, and <c>NetworkBase</c> adds none — so
+        /// every gate below IS the gate, exactly as the labeller's own (client-side) gates are.
+        /// <c>Thing.RenameThing(long,string)</c> also has no null check and does not route through
+        /// the deferred queue, so an unknown ReferenceId NREs INSIDE THE SERVER's message pump:
+        /// never send without a live id, re-read at execute time.</para>
+        ///
+        /// <para>Not reproduced: the labeller's three local SFX (Labeller.cs:130-137) — we play a
+        /// UIAudioManager cue instead, like every other action here.</para>
+        /// </summary>
+        public static bool RenameThing(Thing thing, string newName)
+        {
+            if (thing == null) return Fail();
+            // OUR gate, and the honest one: only something the local player is actually carrying.
+            // On a host RunSimulation makes HasAuthority unconditionally true, so this - not the
+            // authority check below - is what stops a host renaming the world.
+            if (!IsCarriedByLocalPlayer(thing)) return Fail();
+            // Mirror Labeller.Rename's own gate (Labeller.cs:19-22, on the labeller's HOLDER). For a
+            // container carried by the local player, DynamicThing.HasAuthority resolves to "my brain
+            // owns the Human this is nested under" (DynamicThing.cs:791-796), which is TRUE on an MP
+            // client - the check is meaningful there and free on a host.
+            bool authority = false;
+            try { authority = thing.HasAuthority; } catch { }
+            if (!authority) return Fail();
+
+            long id;
+            try { id = thing.ReferenceId; } catch { return Fail(); }
+            if (id == 0) return Fail();      // never hand the server an id it cannot Find()
+
+            string name = SanitizeThingName(thing, newName);
+            if (string.IsNullOrEmpty(name)) return Fail();
+
+            try
+            {
+                if (Assets.Scripts.GameManager.RunSimulation)
+                    OnServer.SetCustomName(thing, name);                  // host / single-player
+                else
+                    Assets.Scripts.NetworkClient.RenameThing(id, name);   // MP client: ONE message
+            }
+            catch { return Fail(); }
+            UIAudioManager.Play(UIAudioManager.ObjectPutHash);
+            return true;
+        }
+
+        /// <summary><c>Labeller.InputRenameFinished</c>'s sanitiser reproduced IN ORDER
+        /// (Labeller.cs:99-118): empty -> the prefab's own display name; 200-character cap; still
+        /// empty -> refuse; then the rich-text strip for anything that is not a <c>Sign</c>/
+        /// <c>Label</c> (an unstripped "&lt;...&gt;" becomes live TMP markup in every client's
+        /// tooltips and labels). The final ASCII pass is OURS, not vanilla's — this mod renders
+        /// names through a TMP font that only carries Basic Latin, so a non-ASCII name would tofu
+        /// in our own UI after we ourselves wrote it.</summary>
+        private static string SanitizeThingName(Thing thing, string value)
+        {
+            if (string.IsNullOrEmpty(value))
+            {
+                try { value = thing.SourcePrefab != null ? thing.SourcePrefab.DisplayName : null; }
+                catch { value = null; }
+            }
+            if (!string.IsNullOrEmpty(value) && value.Length > 200) value = value.Substring(0, 200);
+            if (string.IsNullOrEmpty(value)) return null;
+            if (!(thing is Sign) && !(thing is Label))
+                value = System.Text.RegularExpressions.Regex.Replace(value, "<.*?>", "");
+            return AsciiOnly(value);
+        }
+
+        /// <summary>Basic-Latin printable characters only, trimmed; null when nothing survives.</summary>
+        private static string AsciiOnly(string value)
+        {
+            if (string.IsNullOrEmpty(value)) return null;
+            bool clean = true;
+            for (int i = 0; i < value.Length; i++)
+            {
+                char c = value[i];
+                if (c < ' ' || c > '~') { clean = false; break; }
+            }
+            if (!clean)
+            {
+                var sb = new System.Text.StringBuilder(value.Length);
+                for (int i = 0; i < value.Length; i++)
+                {
+                    char c = value[i];
+                    if (c >= ' ' && c <= '~') sb.Append(c);
+                }
+                value = sb.ToString();
+            }
+            value = value.Trim();
+            return value.Length == 0 ? null : value;
+        }
+
         /// <summary>Merge the held stackable into an existing stack (server-authoritative).</summary>
         public static bool MergeInto(IMergeable targetStack, IMergeable held)
         {

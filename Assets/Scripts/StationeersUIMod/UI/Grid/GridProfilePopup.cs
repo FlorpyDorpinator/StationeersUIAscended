@@ -14,9 +14,12 @@ namespace StationeersUIMod.UI.Grid
     /// The profile-assign dropdown for the Universal Inventory's PROFILE MODE (design O4a): click
     /// a bag's chip and this small themed list opens under it — "(no profile)" plus every loaded
     /// <see cref="BagProfileStore"/> profile, the current assignment marked. Selecting a row writes
-    /// ONE per-save assignment through <see cref="BagProfileStore.Assign"/> (config state only —
-    /// nothing in the world moves) and bumps <see cref="GridProfileMode.Version"/> so every chip
-    /// and badge refreshes on the next Tick. NO radial is involved (FlorpyDorp Q1).
+    /// ONE per-save assignment through <see cref="BagProfileStore.Assign"/> and bumps
+    /// <see cref="GridProfileMode.Version"/> so every chip and badge refreshes on the next Tick.
+    /// NO radial is involved (FlorpyDorp Q1). Since SmartStow B3 the same gesture also LABELS the
+    /// container with the profile's name when that option is on — the mod's only game-state write
+    /// from this surface, and it goes through the labeller's own multiplayer-safe funnel
+    /// (<see cref="Core.ItemActions.RenameThing"/>). Nothing in the world ever MOVES from here.
     ///
     /// <para>Lifetime: TRANSIENT BY CONSTRUCTION — the whole canvas is built on <see cref="Open"/>
     /// and destroyed on <see cref="Close"/>, so no pooled UI can strand across a hot reload; the
@@ -337,6 +340,20 @@ namespace StationeersUIMod.UI.Grid
             if (!BagProfileGate.IsAssignableContainer(bag) || !BagProfileGate.IsOnLocalPlayer(bag)) return;
             try { BagProfileStore.Assign(bag, profileName); } catch { }
             GridProfileMode.BumpVersion();
+            // SmartStow B3: assigning a Bag Profile LABELS the container (FlorpyDorp's directive),
+            // through the labeller's own authoritative funnel - one user gesture, one rename
+            // message. Wired here as well as on the F10 bag cards so the behaviour does not depend
+            // on which surface the assignment was made from. Un-assignment never renames back.
+            if (!string.IsNullOrEmpty(profileName) && Features.StowRenameConfig.RenameOnAssign)
+            {
+                try
+                {
+                    string current = bag.CustomName;
+                    if (!string.Equals(current, profileName, System.StringComparison.Ordinal))
+                        Core.ItemActions.RenameThing(bag, profileName);
+                }
+                catch (System.Exception e) { Core.UIALog.Warn("Rename on assign failed: " + e.Message); }
+            }
             // Typed-pack validation (redesign plan §14): warn, never block. This surface has no
             // note line of its own, so the warning goes to the toast the rest of Smart Stow uses.
             if (string.IsNullOrEmpty(profileName)) return;

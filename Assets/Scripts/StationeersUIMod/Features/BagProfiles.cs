@@ -310,6 +310,10 @@ namespace StationeersUIMod.Features
             // The `stowprofiles` console diagnostic self-installs here because this is the one
             // init entry point this subsystem owns; see StowCommands for the wiring note.
             try { Core.StowCommands.Install(); } catch { }
+            // Same reason: bind B3's rename-on-assign key here so it exists in the .cfg from launch
+            // instead of appearing the first time F10 > Storage is opened. See StowRenameConfig for
+            // why the key does not live in UIAConfig (yet).
+            try { StowRenameConfig.EnsureBound(); } catch { }
             try
             {
                 if (!StowProfileStore.LoadActiveInto(Profiles))
