@@ -152,7 +152,10 @@ namespace StationeersUIMod.UI.Menu.Kit
         }
 
         /// <summary>A vertical scroll region. Returns the CONTENT RectTransform (already carrying a
-        /// top-to-bottom VerticalLayoutGroup + a ContentSizeFitter) — add rows to it directly.</summary>
+        /// top-to-bottom VerticalLayoutGroup + a ContentSizeFitter) — add rows to it directly. Also
+        /// attaches a thin auto-hiding <see cref="UiaScrollbar"/> inside the viewport's own mask, so
+        /// every list in the kit gets a position indicator for free (no caller wiring needed — it
+        /// self-ticks and hides itself when the content fits).</summary>
         public static RectTransform ScrollView(Transform parent, out ScrollRect scroll, float spacing = UiaTheme.Gap)
         {
             var viewportGo = Go("scroll", parent);
@@ -179,6 +182,8 @@ namespace StationeersUIMod.UI.Menu.Kit
             var fit = contentGo.AddComponent<ContentSizeFitter>();
             fit.verticalFit = ContentSizeFitter.FitMode.PreferredSize;
             scroll.content = content;
+
+            UiaScrollbar.Create(scroll, (RectTransform)viewportGo.transform, content);
             return content;
         }
     }

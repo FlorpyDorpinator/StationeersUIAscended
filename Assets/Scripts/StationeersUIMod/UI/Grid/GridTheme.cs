@@ -204,7 +204,7 @@ namespace StationeersUIMod.UI.Grid
             Follow = cfg.Bind(Section, "FollowHudTheme", true,
                 "Skin the Universal Inventory window from the global HUD box theme (palette " +
                 "panel fill/border/text + the glass globals). Off = use the overrides below. " +
-                "Edit visually in the F9 HUD editor: open the Grid while the editor is active " +
+                "Edit visually in the F9 HUD editor: open the Universal Inventory while the editor is active " +
                 "and click the window.");
 
             FillRef = cfg.Bind(Section, "GridFill", "HudPanelFill",
@@ -319,7 +319,7 @@ namespace StationeersUIMod.UI.Grid
 
             FrostOn = cfg.Bind(Section, "GridFrostOn", true,
                 "The window shells take the Tier C frosted backdrop (when the global master " +
-                "and the backdrop capture are live). Off = the Grid opts out of frost.");
+                "and the backdrop capture are live). Off = the Universal Inventory opts out of frost.");
             FrostOv = cfg.Bind(Section, "GridFrostStrength", -1f,
                 new ConfigDescription("Frost strength (analytic SDF shells; the mesh " +
                     "fallback's frost strength is a shared global). -1 = follow the global.",
@@ -358,7 +358,7 @@ namespace StationeersUIMod.UI.Grid
                     "to say 'the same window, unpowered'.",
                     new AcceptableValueRange<float>(-1f, 1f)));
             BareFrostMode = cfg.Bind(Section, "GridBareFrost", 0,
-                new ConfigDescription("Frosted backdrop while BARE. 0 = inherit the normal Grid " +
+                new ConfigDescription("Frosted backdrop while BARE. 0 = inherit the normal Universal Inventory " +
                     "frost setting, 1 = force on, 2 = force off. The Tier C master and a live " +
                     "backdrop capture still gate.", new AcceptableValueRange<int>(0, 2)));
 
@@ -1219,7 +1219,7 @@ namespace StationeersUIMod.UI.Grid
             }
 
             into.Add(HudProp.Header("Overrides: -1 on a slider = follow the global value."));
-            into.Add(HudProp.Header("Styles the whole Grid family (main + pinned windows)."));
+            into.Add(HudProp.Header("Styles the whole Universal Inventory family (main + pinned windows)."));
 
             List<HudProp> colours = new List<HudProp>();
             colours.Add(HudProp.Header("Name a palette entry or type #RRGGBBAA"));
@@ -1334,7 +1334,7 @@ namespace StationeersUIMod.UI.Grid
                 "Multiplies the resolved alpha of the three colours above. The cheap way to say " +
                 "'the same window, unpowered'."));
             tier.Add(TriState("Bare frosted backdrop", BareFrostMode,
-                "Inherit follows the Grid's own frost setting; the Tier C master still gates."));
+                "Inherit follows the Universal Inventory's own frost setting; the Tier C master still gates."));
             into.Add(HudProp.TabGroup("gridpertier",
                 new List<HudProp> { HudProp.TabPage("Per tier", tier) }));
         }

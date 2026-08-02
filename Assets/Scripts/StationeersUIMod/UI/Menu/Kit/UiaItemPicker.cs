@@ -107,17 +107,27 @@ namespace StationeersUIMod.UI.Menu.Kit
             UiaUi.Size(searchGo, 30f);
             UiaUi.InputField(searchGo.transform, "Search items by name...", q => { _query = q; Rebuild(); });
 
-            // Category chips: "All" + every SortingClass, wrapping over two fixed rows.
+            // Category chips: "All" + every SortingClass, wrapping across as many rows as it takes.
+            // Height and row count are DERIVED from the live enum (today: 12 chips = 2 rows = 44px,
+            // same as the old hardcoded constant) so a future SortingClass addition grows the strip
+            // instead of silently overflowing into the "Slot class" dropdown below it; the mask is
+            // a defensive backstop for the same reason (GridLayoutGroup itself never clips).
             var chipsGo = UiaUi.Go("cats", panel);
-            UiaUi.Size(chipsGo, 44f);
-            var cgrid = chipsGo.AddComponent<GridLayoutGroup>();
-            cgrid.cellSize = new Vector2(87f, 20f);
-            cgrid.spacing = new Vector2(4f, 4f);
-            cgrid.constraint = GridLayoutGroup.Constraint.FixedColumnCount;
-            cgrid.constraintCount = 8;
-            _catChips.Clear();
+            chipsGo.AddComponent<RectMask2D>();
             _catValues = (SortingClass[])Enum.GetValues(typeof(SortingClass));
             var catNames = Enum.GetNames(typeof(SortingClass));
+            const int ChipCols = 8;
+            const float ChipCellH = 20f, ChipSpacing = 4f;
+            int chipCount = catNames.Length + 1; // + "All"
+            int chipRows = (chipCount + ChipCols - 1) / ChipCols;
+            float chipsH = chipRows * (ChipCellH + ChipSpacing) - ChipSpacing;
+            UiaUi.Size(chipsGo, chipsH);
+            var cgrid = chipsGo.AddComponent<GridLayoutGroup>();
+            cgrid.cellSize = new Vector2(87f, ChipCellH);
+            cgrid.spacing = new Vector2(ChipSpacing, ChipSpacing);
+            cgrid.constraint = GridLayoutGroup.Constraint.FixedColumnCount;
+            cgrid.constraintCount = ChipCols;
+            _catChips.Clear();
             CatChip(chipsGo.transform, "All", 0);
             for (int i = 0; i < catNames.Length; i++)
                 CatChip(chipsGo.transform, catNames[i], i + 1);
@@ -333,12 +343,17 @@ namespace StationeersUIMod.UI.Menu.Kit
 
         private static void HookPick(GameObject go, Image bg, string prefab, string disp)
         {
-            go.AddComponent<UiaControls.UiaButton>().Init(bg, bg.color, UiaTheme.PanelHover, UiaTheme.SelectedDim)
-                .OnClick = () =>
+            // The pick confirmation must survive the pointer leaving the row on the very next
+            // frame (the core workflow is "click several items in a row"). Writing bg.color
+            // directly gets clobbered by UiaButton.OnPointerExit's Repaint(false), which recomputes
+            // from _selectedState - so route the highlight through SetSelected instead, which is
+            // what Repaint actually reads.
+            var btn = go.AddComponent<UiaControls.UiaButton>().Init(bg, bg.color, UiaTheme.PanelHover, UiaTheme.SelectedDim);
+            btn.OnClick = () =>
                 {
                     if (_onPick != null) _onPick(prefab);
                     if (_status != null) _status.text = _pickVerb + ": " + (disp ?? prefab);
-                    bg.color = UiaTheme.SelectedDim;
+                    btn.SetSelected(true);
                 };
         }
 

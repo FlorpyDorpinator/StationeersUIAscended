@@ -63,7 +63,7 @@ namespace StationeersUIMod.UI.Menu.Tabs
             bool devOffline = !Features.HudProfileStore.ShippedFolderAvailable;
             UiaControls.Note(col, devOffline
                 ? "Restore shipped themes needs the mod's installed folder, which isn't available right now (the F6 dev flow has none) - the button below will just explain that if you click it."
-                : "Puts Stationeers Blue and Pure HUD back exactly as shipped, undoing any edits you made to either. Your own profiles are never touched. Click twice to confirm.");
+                : "Puts Stationeers Blue and Pure HUD back exactly as shipped, undoing any edits you made to either. Your own HUD Themes are never touched. Click twice to confirm.");
             UiaControls.Button(col, "Restore shipped themes", RestoreShippedThemes, -1f, UiaTheme.RowH, UiaControls.ButtonStyle.Danger);
         }
 

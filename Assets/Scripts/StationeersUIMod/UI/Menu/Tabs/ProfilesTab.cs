@@ -14,7 +14,7 @@ namespace StationeersUIMod.UI.Menu.Tabs
     /// Duplicate, the F9 Designer, the profiles folder).</summary>
     public sealed class ProfilesTab : IUiaTab
     {
-        public string Title => "Profiles";
+        public string Title => "HUD Themes";
 
         // The default UIs we want front-and-center, in order. Only the ones that actually exist
         // on disk become cards; the rest of the list falls through to the dropdown. Curated to the
@@ -60,10 +60,10 @@ namespace StationeersUIMod.UI.Menu.Tabs
                 Card(gridGo.transform, name, string.Equals(name, active, System.StringComparison.OrdinalIgnoreCase));
 
             UiaUi.Go("spacer1", col).AddComponent<LayoutElement>().preferredHeight = 6f;
-            UiaControls.Header(col, "All profiles");
+            UiaControls.Header(col, "All HUD Themes");
 
             int activeIdx = all.IndexOf(active ?? "");
-            UiaControls.DropdownRow(col, "Active profile", all, activeIdx < 0 ? 0 : activeIdx,
+            UiaControls.DropdownRow(col, "Active HUD Theme", all, activeIdx < 0 ? 0 : activeIdx,
                 i => { if (i >= 0 && i < all.Count) Apply(all[i]); });
 
             // Per-profile font.
@@ -76,7 +76,7 @@ namespace StationeersUIMod.UI.Menu.Tabs
                 int f = fonts.IndexOf(doc.Font);
                 fontIdx = f >= 0 ? f : 0;
             }
-            UiaControls.DropdownRow(col, "Font (this profile)", fonts, fontIdx, i =>
+            UiaControls.DropdownRow(col, "Font (this HUD Theme)", fonts, fontIdx, i =>
             {
                 var d = HudProfileStore.Active;
                 if (d == null) return;
@@ -91,14 +91,14 @@ namespace StationeersUIMod.UI.Menu.Tabs
                 var rowGo = UiaUi.Go("adv-row", col);
                 UiaUi.Size(rowGo, UiaTheme.RowH);
                 UiaUi.HLayout((RectTransform)rowGo.transform, UiaTheme.Gap);
-                UiaControls.Button(rowGo.transform, "New blank profile", NewBlank, 170f, UiaTheme.RowH);
+                UiaControls.Button(rowGo.transform, "New blank HUD Theme", NewBlank, 170f, UiaTheme.RowH);
                 UiaControls.Button(rowGo.transform, "Duplicate active", DuplicateActive, 160f, UiaTheme.RowH);
                 var rowGo2 = UiaUi.Go("adv-row2", col);
                 UiaUi.Size(rowGo2, UiaTheme.RowH);
                 UiaUi.HLayout((RectTransform)rowGo2.transform, UiaTheme.Gap);
                 UiaControls.Button(rowGo2.transform, "Open HUD Designer (F9)", OpenDesigner, 200f, UiaTheme.RowH, UiaControls.ButtonStyle.Primary);
-                UiaControls.Button(rowGo2.transform, "Open profiles folder", OpenFolder, 180f, UiaTheme.RowH);
-                UiaControls.Note(col, "New blank profile starts an empty slate (your screen size, one hand-boxes element, no saved theme) and switches to it. The HUD Designer (F9) is where you build it out - add, move, resize and restyle every element, and rename it there.");
+                UiaControls.Button(rowGo2.transform, "Open HUD Themes folder", OpenFolder, 180f, UiaTheme.RowH);
+                UiaControls.Note(col, "New blank HUD Theme starts an empty slate (your screen size, one hand-boxes element, no saved theme) and switches to it. The HUD Designer (F9) is where you build it out - add, move, resize and restyle every element, and rename it there.");
 
                 // Dev-side "ship it": copy the profile you are building straight into the repo's
                 // HudProfiles folder (the folder SyncShipped reads and package.ps1 zips). No-op with
@@ -107,7 +107,7 @@ namespace StationeersUIMod.UI.Menu.Tabs
                 UiaUi.Size(rowGo3, UiaTheme.RowH);
                 UiaUi.HLayout((RectTransform)rowGo3.transform, UiaTheme.Gap);
                 UiaControls.Button(rowGo3.transform, "Export active to mod (ship it)", ExportActiveToMod, 240f, UiaTheme.RowH);
-                UiaControls.Note(col, "Export active to mod copies the profile you're using (its layout, saved theme and preview .png) into the mod's HudProfiles folder in the repo - the same folder that ships and that the launch-time sync seeds to every player. Dev machines only.");
+                UiaControls.Note(col, "Export active to mod copies the HUD Theme you're using (its layout, saved theme and preview .png) into the mod's HudProfiles folder in the repo - the same folder that ships and that the launch-time sync seeds to every player. Dev machines only.");
                 BuildManageBlock(col, all, active);
             }
         }
@@ -120,10 +120,10 @@ namespace StationeersUIMod.UI.Menu.Tabs
         private void BuildManageBlock(RectTransform col, List<string> all, string active)
         {
             UiaUi.Go("spacer3", col).AddComponent<LayoutElement>().preferredHeight = 6f;
-            UiaControls.Header(col, "Manage a profile");
+            UiaControls.Header(col, "Manage a HUD Theme");
             if (all == null || all.Count == 0)
             {
-                UiaControls.Note(col, "No profiles on disk yet.");
+                UiaControls.Note(col, "No HUD Themes on disk yet.");
                 return;
             }
 
@@ -135,7 +135,7 @@ namespace StationeersUIMod.UI.Menu.Tabs
                 _manageName = a >= 0 ? all[a] : all[0];
             }
             int idx = IndexOfName(all, _manageName);
-            UiaControls.DropdownRow(col, "Profile", all, idx < 0 ? 0 : idx, i =>
+            UiaControls.DropdownRow(col, "HUD Theme", all, idx < 0 ? 0 : idx, i =>
             {
                 if (i < 0 || i >= all.Count) return;
                 _manageName = all[i];
@@ -166,11 +166,11 @@ namespace StationeersUIMod.UI.Menu.Tabs
                 UiaControls.Button(row.transform, "Yes, restore it", () => DoRestore(target), 170f,
                     UiaTheme.RowH, UiaControls.ButtonStyle.Danger);
                 UiaControls.Button(row.transform, "Cancel", CancelConfirm, 120f, UiaTheme.RowH);
-                UiaControls.Note(col, "Replace '" + target + "' with the version we ship? Your changes to that profile are overwritten. No other profile is touched.");
+                UiaControls.Note(col, "Replace '" + target + "' with the version we ship? Your changes to that HUD Theme are overwritten. No other HUD Theme is touched.");
                 return;
             }
 
-            var del = UiaControls.Button(row.transform, "Delete profile",
+            var del = UiaControls.Button(row.transform, "Delete HUD Theme",
                 () => { _confirmDelete = true; _confirmRestore = false; UiaControlCenter.Refresh(); },
                 170f, UiaTheme.RowH, UiaControls.ButtonStyle.Danger);
             if (isActive) del.SetEnabled(false);   // never delete the profile the HUD is drawing
@@ -188,11 +188,11 @@ namespace StationeersUIMod.UI.Menu.Tabs
             }
 
             if (isActive)
-                UiaControls.Note(col, "'" + target + "' is the profile you are using - pick another one above (or switch profiles) before deleting it.");
+                UiaControls.Note(col, "'" + target + "' is the HUD Theme you are using - pick another one above (or switch HUD Themes) before deleting it.");
             else if (shipped && !canRestore)
-                UiaControls.Note(col, "'" + target + "' is a profile we ship, but the mod's installed folder isn't available right now (the F6 dev flow has none), so there is nothing to restore from. Deleting it still works: a pristine copy comes back on the next launch.");
+                UiaControls.Note(col, "'" + target + "' is a HUD Theme we ship, but the mod's installed folder isn't available right now (the F6 dev flow has none), so there is nothing to restore from. Deleting it still works: a pristine copy comes back on the next launch.");
             else if (shipped)
-                UiaControls.Note(col, "'" + target + "' is a profile we ship. Restore puts our version back over your edits; deleting it also brings a pristine copy back on the next launch.");
+                UiaControls.Note(col, "'" + target + "' is a HUD Theme we ship. Restore puts our version back over your edits; deleting it also brings a pristine copy back on the next launch.");
             else
                 UiaControls.Note(col, "'" + target + "' is yours - deleting it is permanent.");
         }
@@ -252,7 +252,7 @@ namespace StationeersUIMod.UI.Menu.Tabs
                     ok ? global::StationeersUIMod.Overlay.Theme.TextPrimary : global::StationeersUIMod.Overlay.Theme.Critical,
                     ok ? 3f : 4f);
             }
-            catch (System.Exception e) { UIALog.Warn("Restore shipped profile failed: " + e.Message); }
+            catch (System.Exception e) { UIALog.Warn("Restore shipped HUD Theme failed: " + e.Message); }
             UiaControlCenter.Refresh();
         }
 
@@ -262,7 +262,7 @@ namespace StationeersUIMod.UI.Menu.Tabs
         /// because this side of the UI has no text input; rename it in F9.</summary>
         private void NewBlank()
         {
-            const string BaseName = "New profile";
+            const string BaseName = "New HUD Theme";
             string name = BaseName;
             var existing = HudProfileStore.ListProfiles();
             int n = 2;
@@ -274,7 +274,7 @@ namespace StationeersUIMod.UI.Menu.Tabs
                 _confirmRestore = false;
                 Apply(name);
             }
-            else UIALog.Warn("Could not create blank HUD profile '" + name + "'.");
+            else UIALog.Warn("Could not create blank HUD Theme '" + name + "'.");
         }
 
         private static List<string> PickFeatured(List<string> all)
@@ -356,7 +356,7 @@ namespace StationeersUIMod.UI.Menu.Tabs
                 // switch path does — parity, so a switch is a switch wherever it is driven from.
                 global::StationeersUIMod.Windows.HudEditorMode.ClearElementSelection();
             }
-            catch (System.Exception e) { UIALog.Warn("Apply profile failed: " + e.Message); }
+            catch (System.Exception e) { UIALog.Warn("Apply HUD Theme failed: " + e.Message); }
             UiaControlCenter.Refresh();
         }
 
@@ -364,7 +364,7 @@ namespace StationeersUIMod.UI.Menu.Tabs
         {
             var doc = HudProfileStore.Active;
             if (doc == null) return;
-            string baseName = (doc.Name ?? "Profile") + " copy";
+            string baseName = (doc.Name ?? "HUD Theme") + " copy";
             string name = baseName;
             var existing = HudProfileStore.ListProfiles();
             int n = 2;
@@ -403,7 +403,7 @@ namespace StationeersUIMod.UI.Menu.Tabs
             string name = HudConfig.HudActiveProfile != null ? HudConfig.HudActiveProfile.Value : null;
             if (string.IsNullOrEmpty(name))
             {
-                global::StationeersUIMod.Overlay.Toast.Show("No active profile to export.",
+                global::StationeersUIMod.Overlay.Toast.Show("No active HUD Theme to export.",
                     global::StationeersUIMod.Overlay.Theme.Critical, 3f);
                 return;
             }
@@ -421,7 +421,7 @@ namespace StationeersUIMod.UI.Menu.Tabs
                         "Export failed: the mod's repo HudProfiles folder wasn't found (this works on a dev machine only).",
                         global::StationeersUIMod.Overlay.Theme.Critical, 4.5f);
             }
-            catch (System.Exception e) { UIALog.Warn("Export active profile to mod failed: " + e.Message); }
+            catch (System.Exception e) { UIALog.Warn("Export active HUD Theme to mod failed: " + e.Message); }
         }
     }
 }

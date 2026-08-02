@@ -226,9 +226,9 @@ namespace StationeersUIMod.Windows
             ImGui.TextColored(new Vector4(0.25f, 0.85f, 0.93f, 1f), "VISOR HUD DESIGNER");
             ImGui.SameLine();
             if (Features.HudProfileStore.HasPendingSave)
-                ImGui.TextColored(new Vector4(1f, 0.72f, 0.25f, 1f), "PROFILE - Saving...");
+                ImGui.TextColored(new Vector4(1f, 0.72f, 0.25f, 1f), "HUD THEME - Saving...");
             else
-                ImGui.TextDisabled("PROFILE - Saved");
+                ImGui.TextDisabled("HUD THEME - Saved");
 
             DrawProfilesSection();
 
@@ -264,7 +264,7 @@ namespace StationeersUIMod.Windows
 
         private void DrawBuildTab()
         {
-            ImGui.TextDisabled("PROFILE — layout and element changes are saved to the active HUD profile.");
+            ImGui.TextDisabled("HUD THEME — layout and element changes are saved to the active HUD Theme.");
             DrawDesignerSection();
         }
 
@@ -275,7 +275,7 @@ namespace StationeersUIMod.Windows
         /// "tabs mean less scrolling").</summary>
         private void DrawThemeTab()
         {
-            ImGui.TextDisabled("GLOBAL — these defaults and palette colours apply across HUD profiles.");
+            ImGui.TextDisabled("GLOBAL — these defaults and palette colours apply across HUD Themes.");
             DrawProfileThemeBlock();
 
             PushTabStyle();
@@ -312,18 +312,18 @@ namespace StationeersUIMod.Windows
                 var doc = Features.HudProfileStore.Active;
                 bool stamped = doc != null && doc.RefW >= 320f && doc.RefH >= 240f;
                 ImGui.TextDisabled(string.Format("  designed at {0}x{1} ({2})  ->  screen {3}x{4}  =  x{5:0.000}",
-                    (int)rw, (int)rh, stamped ? "from this profile" : "global default",
+                    (int)rw, (int)rh, stamped ? "from this HUD Theme" : "global default",
                     Screen.width, Screen.height, resFactor));
-                // Stamps THIS profile only. Deliberately does NOT touch the global fallback: the
+                // Stamps THIS HUD Theme only. Deliberately does NOT touch the global fallback: the
                 // shipped profiles (Glassy 4.0 etc.) declare no reference and were authored at
                 // 1920x1080, so moving the global would make THEM scale wrong.
-                if (ImGui.Button("Stamp THIS profile as designed at my resolution") && doc != null)
+                if (ImGui.Button("Stamp THIS HUD Theme as designed at my resolution") && doc != null)
                 {
                     doc.RefW = Screen.width;
                     doc.RefH = Screen.height;
                     Features.HudProfileStore.MarkChanged();
                 }
-                ImGui.TextDisabled("  ^ saves your screen size INTO the profile, so when you share it");
+                ImGui.TextDisabled("  ^ saves your screen size INTO the HUD Theme, so when you share it");
                 ImGui.TextDisabled("    everyone gets your proportions (1080p players render it smaller).");
                 FloatSlider(HudConfig.HudScaleMatch, "  match: 0 = width, 1 = height", 0f, 1f);
             }
@@ -715,7 +715,7 @@ namespace StationeersUIMod.Windows
                 Toggle(HudConfig.VisorHudEnabled, "Visor HUD enabled");
                 Toggle(HudConfig.ShowVignette, "Visor-edge vignette");
                 Toggle(HudConfig.ShowScanlines, "Projector scan-lines (whole HUD canvas)");
-                ImGui.TextDisabled("  Colour: 'HudScanline' in Theme > All colours. Radials / inventory grid excluded.");
+                ImGui.TextDisabled("  Colour: 'HudScanline' in Theme > All colours. Radials / Universal Inventory excluded.");
                 Toggle(HudConfig.TintItemIcons, "Tint item icons green (hands / 1-6 / inventory)");
                 ImGui.TextDisabled("  Colour: 'HudItemIconTint' in Theme > All colours (white = off).");
                 ImGui.TextDisabled("  This is the INHERITED default: hands / 1-6 can override it per");
@@ -922,7 +922,7 @@ namespace StationeersUIMod.Windows
 
         private void DrawProfilesSection()
         {
-            ImGui.TextDisabled("Active profile (shareable XML; edits autosave):");
+            ImGui.TextDisabled("Active HUD Theme (shareable XML; edits autosave):");
             string active = HudEditorMode.ActiveProfileName();
             // Fit the row instead of a fixed 200f, which clipped longer profile names ("Stationeers
             // Blue" — user screenshot). If the "Open folder" button no longer fits beside a combo
@@ -985,7 +985,7 @@ namespace StationeersUIMod.Windows
             // otherwise let them stack rather than run off the edge of a narrowed window.
             bool oneRow = ImGui.GetContentRegionAvail().x >= rowW;
 
-            if (ImGui.Button("New")) ArmProfileAction(ProfActNew, UniqueProfileName("New profile"));
+            if (ImGui.Button("New")) ArmProfileAction(ProfActNew, UniqueProfileName("New HUD Theme"));
             if (oneRow) ImGui.SameLine();
             if (ImGui.Button("Duplicate")) ArmProfileAction(ProfActDup, UniqueProfileName(active + " copy"));
             if (oneRow) ImGui.SameLine();
@@ -1009,7 +1009,7 @@ namespace StationeersUIMod.Windows
                 ImGui.Button("Delete");
                 ImGui.PopStyleColor(4);
                 if (ImGui.IsItemHovered())
-                    ImGui.SetTooltip("The profile you are editing can't be deleted - switch to another one first.");
+                    ImGui.SetTooltip("The HUD Theme you are editing can't be deleted - switch to another one first.");
             }
 
             // Restore is only meaningful for a name WE ship, so it only exists then.
@@ -1052,7 +1052,7 @@ namespace StationeersUIMod.Windows
         /// exactly as it does for any other profile.</summary>
         private static void DrawNewProfileStrip()
         {
-            ImGui.TextDisabled("New profile - a blank slate to build on:");
+            ImGui.TextDisabled("New HUD Theme - a blank slate to build on:");
             if (NameFieldRow("Create"))
             {
                 string clean = CleanProfileName(_profileNameField);
@@ -1081,7 +1081,7 @@ namespace StationeersUIMod.Windows
         /// made active from memory rather than re-read from disk.</summary>
         private static void DrawDuplicateStrip()
         {
-            ImGui.TextDisabled("Copy the active profile (layout + its saved theme) under a new name:");
+            ImGui.TextDisabled("Copy the active HUD Theme (layout + its saved theme) under a new name:");
             if (!NameFieldRow("Duplicate as")) return;
             string clean = CleanProfileName(_profileNameField);
             if (string.IsNullOrEmpty(clean)) { _profileNotice = "Type a name first."; return; }
@@ -1089,7 +1089,7 @@ namespace StationeersUIMod.Windows
             FlushPendingElementEdit();
             var doc = Features.HudProfileStore.Active;
             var copy = doc != null ? doc.Clone() : null;
-            if (copy == null) { _profileNotice = "No active profile to copy."; return; }
+            if (copy == null) { _profileNotice = "No active HUD Theme to copy."; return; }
             copy.Name = clean;
             if (!Features.HudProfileStore.Save(copy, clean))
             {
@@ -1113,7 +1113,7 @@ namespace StationeersUIMod.Windows
             ImGui.TextDisabled("Rename '" + active + "':");
             if (IsShippedCached(active))
             {
-                ImGui.TextColored(WarnCol, "  This is a profile WE ship. Renaming detaches your copy from");
+                ImGui.TextColored(WarnCol, "  This is a HUD Theme WE ship. Renaming detaches your copy from");
                 ImGui.TextColored(WarnCol, "  shipped updates (it becomes yours forever), and a fresh");
                 ImGui.TextColored(WarnCol, "  pristine '" + active + "' appears again on the next launch.");
             }
@@ -1151,12 +1151,12 @@ namespace StationeersUIMod.Windows
                 _deleteTarget = FirstOtherProfile(active);
             if (string.IsNullOrEmpty(_deleteTarget))
             {
-                ImGui.TextColored(WarnCol, "Nothing to delete - '" + active + "' is the only profile.");
+                ImGui.TextColored(WarnCol, "Nothing to delete - '" + active + "' is the only HUD Theme.");
                 if (ImGui.Button("Cancel")) CancelProfileAction();
                 return;
             }
 
-            ImGui.TextDisabled("Delete which profile? (not the one you are editing)");
+            ImGui.TextDisabled("Delete which HUD Theme? (not the one you are editing)");
             float spacing = ImGui.GetStyle().ItemSpacing.x;
             ImGui.SetNextItemWidth(Mathf.Max(220f,
                 ImGui.GetContentRegionAvail().x - ButtonWidth("Delete permanently") - spacing));
@@ -1208,13 +1208,13 @@ namespace StationeersUIMod.Windows
             {
                 ImGui.TextColored(WarnCol, "The mod's installed folder isn't available right now, so there is");
                 ImGui.TextColored(WarnCol, "no shipped copy to restore from (the F6 dev flow has none).");
-                ImGui.TextDisabled("  Delete this profile instead and relaunch - a pristine copy comes back.");
+                ImGui.TextDisabled("  Delete this HUD Theme instead and relaunch - a pristine copy comes back.");
                 if (ImGui.Button("Cancel")) CancelProfileAction();
                 return;
             }
 
             ImGui.TextColored(WarnCol, "Replace '" + active + "' with the version we ship?");
-            ImGui.TextDisabled("  Your changes to THIS profile are overwritten. No other profile is touched.");
+            ImGui.TextDisabled("  Your changes to THIS HUD Theme are overwritten. No other HUD Theme is touched.");
             if (ImGui.Button("Restore permanently"))
             {
                 FlushPendingElementEdit();
@@ -1327,7 +1327,7 @@ namespace StationeersUIMod.Windows
         private static string UniqueProfileName(string baseName)
         {
             string clean = CleanProfileName(baseName);
-            if (string.IsNullOrEmpty(clean)) clean = "New profile";
+            if (string.IsNullOrEmpty(clean)) clean = "New HUD Theme";
             if (!ProfileExists(clean)) return clean;
             for (int n = 2; n < 500; n++)
             {
@@ -2212,11 +2212,11 @@ namespace StationeersUIMod.Windows
         private static void DrawProfileThemeBlock()
         {
             bool hasTheme = Features.HudProfileStore.ActiveHasTheme;
-            ImGui.TextColored(Accent, "PROFILE THEME");
+            ImGui.TextColored(Accent, "HUD THEME");
             ImGui.TextDisabled(hasTheme
-                ? "This profile stores its own theme (colours + effects + radial); switching restores it."
-                : "No saved theme yet - this profile follows the live globals until you save one.");
-            if (ImGui.Button("Save theme into this profile")) Features.HudProfileStore.CaptureThemeNow();
+                ? "This HUD Theme stores its own look (colours + effects + radial); switching restores it."
+                : "No saved theme yet - this HUD Theme follows the live globals until you save one.");
+            if (ImGui.Button("Save theme into this HUD Theme")) Features.HudProfileStore.CaptureThemeNow();
             if (hasTheme)
             {
                 ImGui.SameLine();

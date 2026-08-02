@@ -838,7 +838,7 @@ namespace StationeersUIMod.UI.Menu.Tabs
         /// set's profiles live in memory rather than in a re-readable file.</summary>
         private void BuildProfileShelf(Transform col, List<StowProfileStore.StowSetInfo> sets, string browsed)
         {
-            UiaControls.Header(col, "Bag profiles in \"" + browsed + "\"");
+            UiaControls.Header(col, "Bag Profiles in \"" + browsed + "\"");
 
             List<BagProfile> profiles = null;
             try { profiles = StowProfileStore.ProfilesOf(browsed); }
