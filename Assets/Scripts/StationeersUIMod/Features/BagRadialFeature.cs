@@ -147,6 +147,10 @@ namespace StationeersUIMod.Features
         internal static List<RadialEntry> BuildBagLevel(DynamicThing bag)
         {
             var entries = new List<RadialEntry>();
+            // Backstop: every route here is already gated by LooksLikeContainer/HasInnards, but an
+            // off-limits container (body bag) must never enumerate its slots even if a new caller
+            // forgets the gate.
+            if (Core.InventoryScanner.ContentsOffLimits(bag)) return entries;
             if (bag?.Slots == null) return entries;
 
             var occupied = new List<Slot>();

@@ -2,6 +2,35 @@
 
 All notable changes to the mod. Detailed engineering write-ups live in `Changes Reports/`.
 
+## 0.9.7.1 Experimental -- 2026-08-04 -- CRITICAL PUBLIC-BRANCH FIX + PLAY-TEST ROUND
+
+Engineering detail: `Changes Reports/2026-08-03 - Public-branch crash fix...` and
+`2026-08-04 - Play-test round 2...`.
+
+- **CRITICAL — public-branch crash loop fixed.** The 2026-07-28 beta game update renamed
+  `Slot.SpecificTypePrefabHash` (int) to `SpecificTypePrefabHashes` (int[]); 0.9.7.0 compiled
+  against the beta shape, so DEFAULT-branch clients threw `MissingFieldException` every frame the
+  Universal Inventory enumerated — the circuit breaker stood the whole per-frame body down in 5s
+  cycles, killing the Grid and starving radial content (the "cardboard box won't open" and
+  "radial menu missing" playtester reports). The slot prefab-lock field is now resolved by cached
+  reflection, whichever shape the running game has, fail-open. One build runs on both branches.
+- **Body bags are not storage** (design ruling): the bag's three slots are the corpse's organs
+  (Brain/Lungs/Stomach) and are now invisible to every mod surface — manage radial, bag radial,
+  Ctrl-bind, Universal Inventory (Grid/Tree/pinned), search and SmartStow routing — via one shared
+  `ContentsOffLimits` predicate. Vanilla paths (cryotube revival) untouched; the after-death
+  cardboard box remains full storage.
+- **Compass wrap-seam fixed**: ticks were laid on an unwrapped lattice, so a tick spacing that
+  does not divide 360 (the shipped themes' 14.597°) shifted the whole strip by `360 % spacing`
+  (~9.7° — the reported "N is 10° off from one side"). The step now snaps to the nearest exact
+  divisor of 360 at render time (fixes custom profiles too, which never auto-upgrade), the
+  cardinal pattern and letters are wrap-consistent, and the readout shows 0°, never 360°.
+- **"Exit To Desktop" confirm dialog unclickable after leaving a dedicated server**: vanilla's
+  item tooltip disables a shared alert-layer `GraphicRaycaster` and only `ClearToolTip` re-enables
+  it; a HUD-slot tooltip left up at world unload could never be cleared (its tick sits below the
+  HUD stand-down return), leaving that layer's clicks dead at the main menu. The tooltip is now
+  force-released (clear + explicit raycaster re-enable) on the stand-down edge and on the
+  invalid-snapshot path.
+
 ## 0.9.7.0 Experimental -- 2026-08-02 -- SMARTSTOW PROFILES REBUILT + F9 STYLE PARITY
 
 Two concurrent work lines land together: a ground-up rebuild of bag-routing profiles

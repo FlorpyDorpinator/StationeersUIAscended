@@ -958,6 +958,16 @@ namespace StationeersUIMod.UI.Hud
                     DetachWorldCanvas(); // never leave it parented to the camera across a world unload
                     _canvas.gameObject.SetActive(false);
                     if (_domeCanvas != null) _domeCanvas.gameObject.SetActive(false);
+                    // Release any slot tooltip WE raised — same rule as HudSlotDrag.Cancel below
+                    // (its Tick sits under this return, so its self-heal can never run while the
+                    // HUD is down), but with a nastier failure: vanilla's SetUpTooltip DISABLES the
+                    // shared alert-layer GraphicRaycaster and only ClearToolTip re-enables it, so a
+                    // leaked tooltip left the MAIN MENU's exit-confirm dialog unclickable (clicks
+                    // fell through to the menu behind — Ningy's "Exit From Menu Non-Interactive",
+                    // 2026-08-04). On the EDGE only — the once-per-stand-down block, not the
+                    // every-frame tail — because ClearToolTip every frame would suppress vanilla's
+                    // own main-menu tooltips (save items, workshop icons).
+                    Core.HudSlotTooltip.Reset();
                 }
                 // Tier C must never keep a capture component on the vanilla camera across a
                 // world unload (dead-assembly failure class; audit 2026-07-13).
@@ -1035,7 +1045,10 @@ namespace StationeersUIMod.UI.Hud
             LastSnapshot = snap;
             // The alert must stand down on THIS exit too: the canvas stays active and no widget
             // UpdatePanel runs, so a latched tint would survive a sampling outage of any length.
-            if (!snap.Valid) { HudAlertPulse.Reset(); return; }
+            // Ditto OUR slot tooltip (the Tick that clears it sits below this return, so a
+            // disconnect that invalidates the sampler mid-hover would strand vanilla's shared
+            // raycaster off — the gated variant, so a vanilla tooltip is never stomped here).
+            if (!snap.Valid) { HudAlertPulse.Reset(); Core.HudSlotTooltip.ReleaseIfOurs(); return; }
 
             HudTier tier = ForceTier ?? snap.Tier;
 

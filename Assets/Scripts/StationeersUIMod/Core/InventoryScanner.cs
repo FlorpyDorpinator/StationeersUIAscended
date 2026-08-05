@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Reflection;
 using Assets.Scripts.Inventory;
 using Assets.Scripts.Objects;
 using Assets.Scripts.Objects.Entities;
@@ -33,6 +34,20 @@ namespace StationeersUIMod.Core
     /// </summary>
     public static class InventoryScanner
     {
+        /// <summary>Things whose CONTENTS the mod must never expose as storage (FlorpyDorp
+        /// directive 2026-08-04): a body bag's three slots are the corpse's ORGANS
+        /// (DynamicBodyBag.BrainSlot/LungsSlot/StomachSlot), and vanilla itself never opens a
+        /// slot UI for the bag — only the mod's radial/grid/search could reach them. The ONE
+        /// shared predicate for every surface (manage radial, bag radial, Universal Inventory
+        /// recursion, this scanner), so no surface can disagree. A CLASS check, not a slot
+        /// heuristic: organ slots are typed/prefab-locked exactly like ordinary component
+        /// sockets, so no data-driven rule can tell them apart. The death CARDBOARD BOX (base
+        /// CardboardBox) deliberately stays real storage. Vanilla interactions with the bag
+        /// (cryotube revival, dragging the bag itself) are untouched — this only stops the
+        /// mod's own UI from opening its contents.</summary>
+        public static bool ContentsOffLimits(DynamicThing t)
+            => t is Assets.Scripts.DynamicBodyBag;
+
         public static List<ScannedSlot> Scan(int maxDepth, bool includeToolSlots)
         {
             var result = new List<ScannedSlot>(64);
@@ -56,6 +71,9 @@ namespace StationeersUIMod.Core
         {
             if (depth > maxDepth || holder == null || !visited.Add(holder)) return;
             if (holder.Slots == null) return;
+            // Never walk INTO an off-limits container (body bag): its slots must not surface in
+            // search/stow/swap results. The bag ITSELF was already added as an occupant above.
+            if (holder is DynamicThing dtH && ContentsOffLimits(dtH)) return;
 
             bool holderIsTool = holder is Tool || holder is PowerTool;
             foreach (Slot slot in holder.Slots)
@@ -138,6 +156,8 @@ namespace StationeersUIMod.Core
         {
             if (depth > maxDepth || holder == null || !_pooledVisited.Add(holder)) return;
             if (holder.Slots == null) return;
+            // Same off-limits gate as Walk: SmartStow must never route INTO a body bag.
+            if (holder is DynamicThing dtH && ContentsOffLimits(dtH)) return;
 
             bool holderIsTool = holder is Tool || holder is PowerTool;
             foreach (Slot slot in holder.Slots)
@@ -221,24 +241,80 @@ namespace StationeersUIMod.Core
             return true;
         }
 
-        /// <summary>The game update of 2026-07-28 replaced Slot.SpecificTypePrefabHash
-        /// (int, -1 = unrestricted) with Slot.SpecificTypePrefabHashes (int[]): a slot may
-        /// now be locked to SEVERAL specific prefabs. Null or empty = unrestricted (the old
-        /// -1). Verified by reflection against the live Assembly-CSharp.dll.</summary>
-        public static bool SlotIsPrefabRestricted(Slot slot)
+        // The game update of 2026-07-28 replaced Slot.SpecificTypePrefabHash (int, -1 =
+        // unrestricted) with Slot.SpecificTypePrefabHashes (int[]): a slot may now be locked
+        // to SEVERAL specific prefabs. PUBLIC-BRANCH players still run builds with the OLD
+        // field, and a COMPILED reference to either name hard-throws MissingFieldException on
+        // the build that lacks it (playtester report 2026-08-03: "SmartStow+ failed, falling
+        // back to vanilla" + a degraded Universal Inventory). So the field is resolved by
+        // REFLECTION once - whichever shape this game build carries - and read through that.
+        // The FieldInfo caches are immutable after resolve and hold no Unity objects, so
+        // there is nothing to reset on hot reload (they die with the assembly).
+        private static FieldInfo _slotHashesField;   // new shape: int[] SpecificTypePrefabHashes
+        private static FieldInfo _slotHashField;     // old shape: int   SpecificTypePrefabHash
+        private static bool _slotFieldResolved;
+
+        private static void ResolveSlotRestrictionField()
         {
-            var hashes = slot != null ? slot.SpecificTypePrefabHashes : null;
-            return hashes != null && hashes.Length > 0;
+            if (_slotFieldResolved) return;
+            _slotFieldResolved = true;
+            try
+            {
+                const BindingFlags F = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
+                var f = typeof(Slot).GetField("SpecificTypePrefabHashes", F);
+                if (f != null && f.FieldType == typeof(int[])) { _slotHashesField = f; return; }
+                f = typeof(Slot).GetField("SpecificTypePrefabHash", F);
+                if (f != null && f.FieldType == typeof(int)) _slotHashField = f;
+            }
+            catch { }
         }
 
-        /// <summary>True when the slot's specific-prefab lock (if any) admits this prefab.</summary>
+        /// <summary>True when this slot is locked to specific prefab(s). Works on BOTH game
+        /// shapes (see the resolver above). Unknown/future shape = fail-OPEN (unrestricted, the
+        /// old -1 default): being permissive here can only OFFER a candidate the authoritative
+        /// server-side AllowMove/AllowSwap gate then refuses - never a wrong mutation.</summary>
+        public static bool SlotIsPrefabRestricted(Slot slot)
+        {
+            if (slot == null) return false;
+            ResolveSlotRestrictionField();
+            try
+            {
+                if (_slotHashesField != null)
+                {
+                    var hashes = _slotHashesField.GetValue(slot) as int[];
+                    return hashes != null && hashes.Length > 0;
+                }
+                if (_slotHashField != null)
+                    return (int)_slotHashField.GetValue(slot) != -1;
+            }
+            catch { }
+            return false;
+        }
+
+        /// <summary>True when the slot's specific-prefab lock (if any) admits this prefab.
+        /// Dual-shape like <see cref="SlotIsPrefabRestricted"/>; unknown shape = admit.</summary>
         public static bool SlotAcceptsPrefab(Slot slot, int prefabHash)
         {
-            var hashes = slot != null ? slot.SpecificTypePrefabHashes : null;
-            if (hashes == null || hashes.Length == 0) return true;
-            for (int i = 0; i < hashes.Length; i++)
-                if (hashes[i] == prefabHash) return true;
-            return false;
+            if (slot == null) return true;
+            ResolveSlotRestrictionField();
+            try
+            {
+                if (_slotHashesField != null)
+                {
+                    var hashes = _slotHashesField.GetValue(slot) as int[];
+                    if (hashes == null || hashes.Length == 0) return true;
+                    for (int i = 0; i < hashes.Length; i++)
+                        if (hashes[i] == prefabHash) return true;
+                    return false;
+                }
+                if (_slotHashField != null)
+                {
+                    int h = (int)_slotHashField.GetValue(slot);
+                    return h == -1 || h == prefabHash;
+                }
+            }
+            catch { }
+            return true;
         }
 
         /// <summary>Consequence text when pulling <paramref name="source"/>'s occupant out (proposal §7.3).</summary>

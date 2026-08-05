@@ -2,7 +2,7 @@
   <Name>Stationeers UI Ascended</Name>
   <ModID>StationeersUIAscended</ModID>
   <Author>FlorpyDorp + JXSN</Author>
-  <Version>0.9.7.0</Version>
+  <Version>0.9.7.1</Version>
   <Description>
 	  [h1]Stationeers UI Ascended[/h1]
 
@@ -19,6 +19,13 @@ The visor HUD is a document-driven layout you can reshape live in the F9 HUD Des
 <br>
 ]]></InGameDescription>
   <ChangeLog>
+    [h3]Version 0.9.7.1 EXPERIMENTAL -- CRITICAL public-branch fix + play-test round:[/h3]
+    [list]
+    [*] CRITICAL: fixed a crash loop on the DEFAULT (public) game branch -- a beta-branch field rename made the Universal Inventory throw every frame on public builds, which killed the Grid and starved the radials (the "cardboard box won't open" / "radial menu empty" reports). The mod now detects the game's field shape at runtime and works on BOTH branches
+    [*] Body bags are no longer storage anywhere in the mod: no organ access via radials, the Universal Inventory, search or SmartStow. Vanilla interactions (cryotube revival) are untouched, and the after-death cardboard box still opens normally
+    [*] Compass: North no longer reads ~10 degrees off when approached from below 360 -- the tick strip, cardinal letters and degree readout now agree at the wrap on every profile (including custom ones)
+    [*] Fixed the main menu's "Exit To Desktop" confirmation being unclickable after leaving a dedicated server (a leaked item tooltip left a shared vanilla UI layer's clicks disabled)
+    [/list]
     [h3]Version 0.9.7.0 EXPERIMENTAL -- SMARTSTOW PROFILES + F9 STYLE PARITY:[/h3]
     [list]
     [*] SMARTSTOW PROFILES, REBUILT: bag-routing rules are now organized into "Stow Profiles" -- switchable folders of "Bag Profiles" you can browse, copy between and share. F10's Storage tab is now four clear pages: Bags (card grid, live thumbnails, per-bag exclude + rename), Bag Profiles (the rule editor), Stow Profiles (the set manager) and Settings. Only real containers (backpacks, mining bags, boxes, crates) are assignable. Assigning a profile can auto-rename the bag to match (multiplayer-safe, toggleable). Four shipped sets: By Printer, By Category, Stationpedia Ascended, and Starter. Share your own sets as a compact code (clipboard) or a drop-in XML file. New "UIA class" rule type for smarter, mod-aware catches. Profile and set rename/duplicate/delete finally exist in F10. Loadouts are retired in favor of this

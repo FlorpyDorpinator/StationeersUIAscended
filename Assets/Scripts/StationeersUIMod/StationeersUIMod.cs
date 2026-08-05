@@ -18,8 +18,8 @@ namespace StationeersUIMod
     /// </summary>
     public sealed class StationeersUIMod : MonoBehaviour
     {
-        public const string ModVersion = "0.9.7.0";
-        public const string VersionDisplay = "0.9.7.0 Experimental";
+        public const string ModVersion = "0.9.7.1";
+        public const string VersionDisplay = "0.9.7.1 Experimental";
         public const string ModGuid = "com.stationeersuimod.ui";
 
         public static StationeersUIMod Instance { get; private set; }

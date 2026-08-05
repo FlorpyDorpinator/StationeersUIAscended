@@ -71,13 +71,24 @@ namespace StationeersUIMod.Core
             catch { return false; }
         }
 
-        /// <summary>Hot-reload/teardown: drop our tooltip and forget state (statics must never survive
-        /// an F6 pointing at a dead occupant).</summary>
+        /// <summary>Hot-reload/teardown/world-unload: drop our tooltip and forget state (statics must
+        /// never survive an F6 pointing at a dead occupant). UNCONDITIONAL — not gated on _showing:
+        /// the whole point of the release is to heal the shared-raycaster leak even when ownership
+        /// tracking was lost (see VanillaTooltip.ForceRelease). Idempotent and cheap, so calling it
+        /// on paths where no tooltip was up costs one null check.</summary>
         internal static void Reset()
         {
-            if (_showing) { try { VanillaTooltip.Clear(); } catch { } }
+            try { VanillaTooltip.ForceRelease(); } catch { }
             _showing = false;
             _lastOcc = null;
+        }
+
+        /// <summary>Release ONLY if we are the one showing. For transient per-frame paths (an
+        /// invalid sampler frame during a disconnect) where an unconditional ClearToolTip would
+        /// stomp a legitimate vanilla tooltip that happens to be up.</summary>
+        internal static void ReleaseIfOurs()
+        {
+            if (_showing) Reset();
         }
     }
 }

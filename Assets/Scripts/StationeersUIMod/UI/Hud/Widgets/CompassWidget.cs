@@ -186,7 +186,10 @@ namespace StationeersUIMod.UI.Hud.Widgets
                 HudText.Sync(_degrees);
                 _degrees.fontSize = HudText.Size(12f * Def.FontScaleFor(LayoutBare)) * scale;
                 _degrees.color = GlobalOr(Def.GetSFor(LayoutBare, "degreesColor", ""), HudPalette.CompassCardinal.Value);
-                int hd = Mathf.RoundToInt(heading);
+                // % 360 so 359.7 reads "0°", never "360°" — the readout must agree with the tick
+                // strip about where north is (the tester's screenshot showed "360°" with the caret
+                // visibly right of N; half of that confusion was this label).
+                int hd = Mathf.RoundToInt(heading) % 360;
                 if (hd != _lastDeg || _degStr == null) { _lastDeg = hd; _degStr = hd + "°"; }
                 HudText.Set(_degrees, _degStr);
             }
@@ -195,23 +198,37 @@ namespace StationeersUIMod.UI.Hud.Widgets
                 _degrees.gameObject.SetActive(false);
             }
 
+            // The tick lattice MUST be 360-periodic: ticks are laid on integer multiples of the
+            // step and positioned via DeltaAngle (which wraps mod 360), so a step that does not
+            // divide 360 evenly leaves a SEAM at the 0/360 wrap of (360 % step) degrees — with
+            // the shipped tickDeg 14.597 that put "N" ~9.7° left of the caret whenever the
+            // heading approached north from below 360 (playtester report 2026-08-03), while a
+            // heading just past 0 looked correct because the unwrapped d=0 tick was on screen.
+            // Snap the free-dragged slider value to the nearest exact divisor of 360.
+            int ticksPerTurn = Mathf.Max(1, Mathf.RoundToInt(360f / tickEvery));
+            float step = 360f / ticksPerTurn;
+
             // Which ticks read as cardinals: the ratio of cardinal spacing to tick spacing
-            // (3 for the vanilla 45°/15°), so the tall/labelled marks land on the multiples
-            // of cardinalEvery regardless of how the two knobs are set.
-            int cardStep = Mathf.Max(1, Mathf.RoundToInt(cardinalEvery / tickEvery));
+            // (3 for the vanilla 45°/15°). The pattern must ALSO close over a full turn, or the
+            // same physical bearing is cardinal on one wrap and plain on the next — walk the
+            // ratio down until it divides ticksPerTurn.
+            int cardStep = Mathf.Clamp(Mathf.RoundToInt(cardinalEvery / step), 1, ticksPerTurn);
+            while (cardStep > 1 && ticksPerTurn % cardStep != 0) cardStep--;
 
             float pxPerDeg = (w - 12f * scale) / span;
             var tickColor = GlobalOr(Def.GetSFor(LayoutBare, "tickColor", ""), HudPalette.CompassTick.Value);
             var cardColor = GlobalOr(Def.GetSFor(LayoutBare, "cardinalColor", ""), HudPalette.CompassCardinal.Value);
             int tick = 0, label = 0;
 
-            int first = Mathf.CeilToInt((heading - span * 0.5f) / tickEvery);
-            int last = Mathf.FloorToInt((heading + span * 0.5f) / tickEvery);
+            int first = Mathf.CeilToInt((heading - span * 0.5f) / step);
+            int last = Mathf.FloorToInt((heading + span * 0.5f) / step);
             for (int d = first; d <= last && tick < TickPool; d++)
             {
-                float deg = d * tickEvery;
+                float deg = d * step;
                 float offset = Mathf.DeltaAngle(heading, deg) * pxPerDeg;
-                bool cardinal = ((d % cardStep) + cardStep) % cardStep == 0;
+                // Cardinality on the WRAPPED index, so the pattern is identical on every turn.
+                int dw = ((d % ticksPerTurn) + ticksPerTurn) % ticksPerTurn;
+                bool cardinal = dw % cardStep == 0;
                 var img = _ticks[tick++];
                 img.gameObject.SetActive(true);
                 img.color = cardinal ? cardColor : tickColor;
@@ -223,9 +240,11 @@ namespace StationeersUIMod.UI.Hud.Widgets
 
                 if (cardinal && label < LabelPool)
                 {
-                    // Name the mark by its true 8-point bearing, so the letters stay N/E/S/W
-                    // even if the cardinal spacing is retuned away from 45°.
-                    int ci = ((Mathf.RoundToInt(deg / 45f)) % 8 + 8) % 8;
+                    // Name the mark by its true 8-point bearing — of the WRAPPED angle, so the
+                    // same tick is named identically on every turn (the unwrapped deg used to
+                    // round 350.3 to "N" on one wrap and 710.6 to whatever on the next).
+                    float bearing = Mathf.Repeat(deg, 360f);
+                    int ci = Mathf.RoundToInt(bearing / 45f) % 8;
                     var t = _labels[label++];
                     t.gameObject.SetActive(true);
                     HudText.Sync(t);

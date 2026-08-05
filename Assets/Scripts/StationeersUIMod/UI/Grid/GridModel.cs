@@ -288,6 +288,9 @@ namespace StationeersUIMod.UI.Grid
         /// </summary>
         private static bool ShouldRecurse(DynamicThing occ, GridDisplayMode mode)
         {
+            // Off-limits contents (body bag): never open its slots — not in Grid mode, not in
+            // Tree mode (whose HasSlots rung would otherwise expose the organs), not even pinned.
+            if (Core.InventoryScanner.ContentsOffLimits(occ)) return false;
             // A PINNED interactive item must build a node even when Grid mode would keep it a leaf cell
             // (a tool/device): that node is what PinContainer tears out into a themed pinned window, so
             // "open device internals" opens OUR window, not vanilla's. Includes button-ONLY things (a demo
@@ -308,6 +311,10 @@ namespace StationeersUIMod.UI.Grid
         {
             if (t == null || t.Slots == null || t.Slots.Count == 0) return false; // leaf
             if (t is Tool) return false;                                          // drill/welder/tablet/...
+            // A body bag's slots are the corpse's organs — never storage (FlorpyDorp directive
+            // 2026-08-04; the death CARDBOARD BOX stays storage). Shared predicate, see
+            // InventoryScanner.ContentsOffLimits.
+            if (Core.InventoryScanner.ContentsOffLimits(t)) return false;
             // Single-purpose consumable/dispenser/starter boxes are NOT real storage even though
             // their slot data (a None,-1 slot) is indistinguishable from a genuine bag, so they can
             // only be told apart by CLASS: DisposableCardboardBox (water-bottle bag, cereal-bar box/

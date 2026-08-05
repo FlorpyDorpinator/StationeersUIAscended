@@ -76,7 +76,9 @@ namespace StationeersUIMod.Features
 
             var controls = BuildControlsList(thing);
             var slotEntries = new List<RadialEntry>();
-            if (thing.Slots != null)
+            // Off-limits contents (body bag = the corpse's organs): no slot wedges at all —
+            // the bag is a plain takeable item to the radial. See InventoryScanner.ContentsOffLimits.
+            if (thing.Slots != null && !Core.InventoryScanner.ContentsOffLimits(thing))
             {
                 foreach (Slot slot in thing.Slots)
                 {
@@ -139,6 +141,7 @@ namespace StationeersUIMod.Features
         {
             var entries = new List<RadialEntry>();
             if (thing?.Slots == null) return entries;
+            if (Core.InventoryScanner.ContentsOffLimits(thing)) return entries; // body bag: no slot level
             foreach (Slot slot in thing.Slots)
             {
                 if (slot == null || slot.IsLocked) continue;
@@ -161,7 +164,8 @@ namespace StationeersUIMod.Features
         {
             if (thing == null) return false;
             if (IsUnpackBox(thing)) return false; // a sealed package's slots are not user-openable innards
-            if (thing.Slots != null && thing.Slots.Count > 0) return true;
+            if (thing.Slots != null && thing.Slots.Count > 0
+                && !Core.InventoryScanner.ContentsOffLimits(thing)) return true; // body bag: organs aren't innards
             if (UIAConfig.IsA)
             {
                 // Match the generic enumeration, or wedges and satellites disagree.
@@ -689,6 +693,7 @@ namespace StationeersUIMod.Features
         {
             if (thing?.Slots == null) return false;
             if (IsUnpackBox(thing)) return false; // a sealed package is NOT a bag, despite its slots
+            if (Core.InventoryScanner.ContentsOffLimits(thing)) return false; // body bag is never a bag
             return thing.Slots.Count >= 4 && thing.InteractOnOff == null;
         }
 
@@ -697,6 +702,7 @@ namespace StationeersUIMod.Features
         /// tools or jetpacks. Broader than <see cref="LooksLikeContainer"/> (no 4-slot floor).</summary>
         public static bool IsBindableBag(DynamicThing thing)
             => thing?.Slots != null && thing.Slots.Count > 0 && !IsUnpackBox(thing)
+               && !Core.InventoryScanner.ContentsOffLimits(thing) // a body bag is never a bag
                && thing.InteractOnOff == null && thing.InteractMode == null;
 
         /// <summary>

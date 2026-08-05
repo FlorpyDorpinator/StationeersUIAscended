@@ -73,6 +73,25 @@ namespace StationeersUIMod.Core
             try { tip.ClearToolTip(); } catch { }
         }
 
+        /// <summary>Hide the vanilla tooltip AND force its shared raycaster back on.
+        ///
+        /// WHY THIS EXISTS (Ningy's "Exit To Desktop dialog non-interactive", 2026-08-04): vanilla's
+        /// SetUpTooltip DISABLES a shared GraphicRaycaster (PanelToolTipScreenSpace.GraphicRayCast —
+        /// wired to the persistent alert layer, see the 2026-07-24 report) and the ONLY vanilla path
+        /// that re-enables it is ClearToolTip (PanelToolTipScreenSpace.cs:25). A tooltip we raised
+        /// and never cleared therefore leaves that raycaster dead for the rest of the process — at
+        /// the main menu the exit-confirm dialog renders on that layer but takes no clicks, which
+        /// fall through to the menu behind it. This release is called from every teardown path, and
+        /// it re-enables the raycaster EXPLICITLY as well as via ClearToolTip, so it heals even when
+        /// ownership tracking was lost (a pooled cell hidden mid-hover, a state we never saw).</summary>
+        internal static void ForceRelease()
+        {
+            var tip = Assets.Scripts.UI.PanelToolTip.Instance;
+            if (tip == null) return;
+            try { tip.ClearToolTip(); } catch { }
+            try { if (tip.GraphicRayCast != null) tip.GraphicRayCast.enabled = true; } catch { }
+        }
+
         /// <summary>Lift the tooltip's own canvas above the mod. Idempotent — only writes when the
         /// order is wrong, so it is free on the steady path. Call it before showing a tooltip from any
         /// mod surface (the grid cells, the vitals panel, …); the raise persists for the session, so
