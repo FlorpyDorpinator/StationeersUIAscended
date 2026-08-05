@@ -84,8 +84,13 @@ if (-not $changenote) { throw "Derived an empty changenote from About.xml <Chang
 Write-Host "==> Derived changenote from About.xml (topmost [h3] block, $($changenote.Length) chars):" -ForegroundColor Cyan
 Write-Host $changenote
 
-# Escape for VDF (only '"' and '\' are special inside a quoted VDF string).
-$vdfEscaped = $changenote -replace '\\', '\\\\' -replace '"', '\"'
+# SANITIZE for VDF rather than escape: steamcmd's KeyValues parser does NOT process escape
+# sequences in the workshop config (a \" still terminates the quoted string), so a changenote
+# containing a real double quote broke the whole file ("got } in key", first hit 2026-08-04 —
+# the 0.9.7.1 note quoted a playtester report). Double quotes become typographic singles and
+# backslashes become slashes; both read fine in the published note. Newlines stay — KeyValues
+# quoted tokens span lines and earlier multiline notes published cleanly.
+$vdfEscaped = $changenote -replace '"', "'" -replace '\\', '/'
 
 if ($vdfText -notmatch '(?m)^\s*"changenote"\s+"[^"]*"\s*$') {
     throw "Could not find a `"changenote`" `"...`" line in $Vdf to replace."
