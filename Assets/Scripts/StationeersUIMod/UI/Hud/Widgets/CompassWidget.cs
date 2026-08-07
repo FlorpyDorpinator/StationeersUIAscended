@@ -198,62 +198,78 @@ namespace StationeersUIMod.UI.Hud.Widgets
                 _degrees.gameObject.SetActive(false);
             }
 
-            // The tick lattice MUST be 360-periodic: ticks are laid on integer multiples of the
-            // step and positioned via DeltaAngle (which wraps mod 360), so a step that does not
-            // divide 360 evenly leaves a SEAM at the 0/360 wrap of (360 % step) degrees — with
-            // the shipped tickDeg 14.597 that put "N" ~9.7° left of the caret whenever the
-            // heading approached north from below 360 (playtester report 2026-08-03), while a
-            // heading just past 0 looked correct because the unwrapped d=0 tick was on screen.
-            // Snap the free-dragged slider value to the nearest exact divisor of 360.
+            // TWO INDEPENDENT LATTICES. History, because this block has now been wrong twice:
+            // (1) originally ticks AND letters lived on one unwrapped lattice (deg = d * tickEvery)
+            //     — a non-divisor spacing (shipped 14.597) left a 360 % step ≈ 9.7° SEAM at the
+            //     0/360 wrap ("N is 10° off from one side", playtest 2026-08-03);
+            // (2) the first fix snapped that lattice and derived cardinals as every Nth tick with
+            //     N walked DOWN until it divided ticksPerTurn — but 14.597 snaps to 25 ticks/turn,
+            //     25 = 5², so N fell 4→3→2→1 and EVERY tick became a nearest-45°-named letter
+            //     ("NW NWN N N NE NE NE", playtest 2026-08-06).
+            // The truth a compass owes the player: LETTERS sit on their true bearings, always.
+            // So the letters get their OWN lattice — the eight fixed compass points, whose 45°
+            // spacing divides 360 by construction (no seam possible) — and the minor ticks keep
+            // the snapped divisor lattice purely as a density/texture knob. The two never mix, so
+            // no tick spacing can ever misplace or spam a letter again.
             int ticksPerTurn = Mathf.Max(1, Mathf.RoundToInt(360f / tickEvery));
             float step = 360f / ticksPerTurn;
 
-            // Which ticks read as cardinals: the ratio of cardinal spacing to tick spacing
-            // (3 for the vanilla 45°/15°). The pattern must ALSO close over a full turn, or the
-            // same physical bearing is cardinal on one wrap and plain on the next — walk the
-            // ratio down until it divides ticksPerTurn.
-            int cardStep = Mathf.Clamp(Mathf.RoundToInt(cardinalEvery / step), 1, ticksPerTurn);
-            while (cardStep > 1 && ticksPerTurn % cardStep != 0) cardStep--;
+            // cardinalDeg now selects HOW MANY of the eight points show: below ~67.5 = all eight
+            // (N NE E SE S SW W NW), above = the four majors only. (Free values like the shipped
+            // 62.535 land on "all eight" — visually identical to the pre-regression intent.)
+            int cardStride = cardinalEvery < 67.5f ? 1 : 2;
 
             float pxPerDeg = (w - 12f * scale) / span;
+            float halfSpan = span * 0.5f;
             var tickColor = GlobalOr(Def.GetSFor(LayoutBare, "tickColor", ""), HudPalette.CompassTick.Value);
             var cardColor = GlobalOr(Def.GetSFor(LayoutBare, "cardinalColor", ""), HudPalette.CompassCardinal.Value);
             int tick = 0, label = 0;
 
-            int first = Mathf.CeilToInt((heading - span * 0.5f) / step);
-            int last = Mathf.FloorToInt((heading + span * 0.5f) / step);
-            for (int d = first; d <= last && tick < TickPool; d++)
+            // ---- cardinal pass: tall marks + letters on the true 45° points ----
+            for (int ci = 0; ci < 8 && tick < TickPool && label < LabelPool; ci += cardStride)
             {
-                float deg = d * step;
-                float offset = Mathf.DeltaAngle(heading, deg) * pxPerDeg;
-                // Cardinality on the WRAPPED index, so the pattern is identical on every turn.
-                int dw = ((d % ticksPerTurn) + ticksPerTurn) % ticksPerTurn;
-                bool cardinal = dw % cardStep == 0;
+                float delta = Mathf.DeltaAngle(heading, ci * 45f);
+                if (Mathf.Abs(delta) > halfSpan) continue;   // off the visible arc
+                float offset = delta * pxPerDeg;
+
                 var img = _ticks[tick++];
                 img.gameObject.SetActive(true);
-                img.color = cardinal ? cardColor : tickColor;
-                img.rectTransform.sizeDelta = new Vector2(
-                    (cardinal ? 2f : 1f) * scale, cardinal ? h * 0.34f : h * 0.2f);
+                img.color = cardColor;
+                img.rectTransform.sizeDelta = new Vector2(2f * scale, h * 0.34f);
                 // Offset is relative to the ELEMENT centre; the mask sits +2*scale above it.
                 PlaceOnCurve(img.rectTransform, new Vector2(
                     offset, 2f * scale - h * 0.5f + img.rectTransform.sizeDelta.y * 0.5f + 3f * scale));
 
-                if (cardinal && label < LabelPool)
-                {
-                    // Name the mark by its true 8-point bearing — of the WRAPPED angle, so the
-                    // same tick is named identically on every turn (the unwrapped deg used to
-                    // round 350.3 to "N" on one wrap and 710.6 to whatever on the next).
-                    float bearing = Mathf.Repeat(deg, 360f);
-                    int ci = Mathf.RoundToInt(bearing / 45f) % 8;
-                    var t = _labels[label++];
-                    t.gameObject.SetActive(true);
-                    HudText.Sync(t);
-                    t.fontSize = HudText.Size(12f * Def.FontScaleFor(LayoutBare)) * scale;
-                    t.color = cardColor;
-                    HudText.Set(t, Cardinals[ci]);
-                    t.rectTransform.sizeDelta = new Vector2(40f * scale, 16f * scale);
-                    PlaceOnCurve(t.rectTransform, new Vector2(offset, 2f * scale + h * 0.16f));
-                }
+                var t = _labels[label++];
+                t.gameObject.SetActive(true);
+                HudText.Sync(t);
+                t.fontSize = HudText.Size(12f * Def.FontScaleFor(LayoutBare)) * scale;
+                t.color = cardColor;
+                HudText.Set(t, Cardinals[ci]);
+                t.rectTransform.sizeDelta = new Vector2(40f * scale, 16f * scale);
+                PlaceOnCurve(t.rectTransform, new Vector2(offset, 2f * scale + h * 0.16f));
+            }
+
+            // ---- minor-tick pass: the snapped divisor lattice, no letters ----
+            int first = Mathf.CeilToInt((heading - halfSpan) / step);
+            int last = Mathf.FloorToInt((heading + halfSpan) / step);
+            for (int d = first; d <= last && tick < TickPool; d++)
+            {
+                float deg = d * step;
+                // A minor mark sitting on (or visually crowding) a shown cardinal is clutter — a
+                // doubled line a few px from the tall one. Skip any minor within 40% of a step of
+                // a cardinal point this frame is drawing.
+                float nearest = Mathf.Repeat(deg, 45f * cardStride);
+                float toCardinal = Mathf.Min(nearest, 45f * cardStride - nearest);
+                if (toCardinal < step * 0.4f) continue;
+
+                var img = _ticks[tick++];
+                img.gameObject.SetActive(true);
+                img.color = tickColor;
+                img.rectTransform.sizeDelta = new Vector2(1f * scale, h * 0.2f);
+                PlaceOnCurve(img.rectTransform, new Vector2(
+                    Mathf.DeltaAngle(heading, deg) * pxPerDeg,
+                    2f * scale - h * 0.5f + img.rectTransform.sizeDelta.y * 0.5f + 3f * scale));
             }
             for (int i = tick; i < TickPool; i++) _ticks[i].gameObject.SetActive(false);
             for (int i = label; i < LabelPool; i++) _labels[i].gameObject.SetActive(false);

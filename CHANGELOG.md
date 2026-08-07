@@ -2,6 +2,18 @@
 
 All notable changes to the mod. Detailed engineering write-ups live in `Changes Reports/`.
 
+## 0.9.7.2 Experimental -- 2026-08-06 -- COMPASS HOTFIX
+
+0.9.7.1's compass wrap-seam fix over-corrected: it derived cardinal marks as "every Nth tick"
+with N walked down until it divided the ticks-per-turn — but the shipped 14.597° spacing snaps
+to 25 ticks/turn (5²), so N collapsed 4→3→2→1 and EVERY tick became a nearest-45°-named letter
+("NW NWN N N NE NE NE"). Letters now render on their own lattice — the eight true compass
+bearings, whose 45° spacing divides 360 by construction — fully decoupled from the tick-spacing
+knob (now a pure density control, still snapped to a 360-divisor so the seam stays fixed).
+`cardinalDeg` selects all eight points (< 67.5) vs the four majors; minor ticks crowding a shown
+cardinal are skipped. Letter misplacement/spam is now structurally impossible: no tunable value
+participates in letter placement.
+
 ## 0.9.7.1 Experimental -- 2026-08-04 -- CRITICAL PUBLIC-BRANCH FIX + PLAY-TEST ROUND
 
 Engineering detail: `Changes Reports/2026-08-03 - Public-branch crash fix...` and

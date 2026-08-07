@@ -2,7 +2,7 @@
   <Name>Stationeers UI Ascended</Name>
   <ModID>StationeersUIAscended</ModID>
   <Author>FlorpyDorp + JXSN</Author>
-  <Version>0.9.7.1</Version>
+  <Version>0.9.7.2</Version>
   <Description>
 	  [h1]Stationeers UI Ascended[/h1]
 
@@ -19,6 +19,10 @@ The visor HUD is a document-driven layout you can reshape live in the F9 HUD Des
 <br>
 ]]></InGameDescription>
   <ChangeLog>
+    [h3]Version 0.9.7.2 EXPERIMENTAL -- compass hotfix:[/h3]
+    [list]
+    [*] HOTFIX: 0.9.7.1's compass fix over-corrected on some themes -- nearly every tick gained a cardinal letter (the 'NW NWN N N NE NE NE' strip). Cardinal letters now live on their own true 45-degree bearings, fully independent of the tick-spacing knob, so they can never be misplaced or duplicated again. Minor ticks keep the spacing slider as a pure density control; cardinalDeg now chooses all eight points vs the four majors
+    [/list]
     [h3]Version 0.9.7.1 EXPERIMENTAL -- CRITICAL public-branch fix + play-test round:[/h3]
     [list]
     [*] CRITICAL: fixed a crash loop on the DEFAULT (public) game branch -- a beta-branch field rename made the Universal Inventory throw every frame on public builds, which killed the Grid and starved the radials (the "cardboard box won't open" / "radial menu empty" reports). The mod now detects the game's field shape at runtime and works on BOTH branches
