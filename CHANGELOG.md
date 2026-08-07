@@ -2,6 +2,34 @@
 
 All notable changes to the mod. Detailed engineering write-ups live in `Changes Reports/`.
 
+## 0.9.7.3 Experimental -- 2026-08-06 -- PLAY-TEST ROUND 3
+
+Engineering detail: the four 2026-08-06 b/c/d/e Changes Reports.
+
+- **Toolbelt wedge bindings are sticky.** Swapping a tool from the MMB wheel into an occupied
+  hand no longer dumps the hand tool into the taken tool's wedge and steal its binding — the
+  displaced tool returns to its OWN bound wedge (click and drag paths both). Bindings move ONLY
+  on explicit mouse drags (wedge-over-wedge = the two tools exchange homes; drag from a bag onto
+  a wedge = that wedge rebinds); every mechanical landing (swap displacement, keyboard stow,
+  SmartStow) is seed-only and can never overwrite an existing home. Implemented as a one-shot
+  drag-intent handshake between the drag dispatchers and the Slot.Take observer, with a
+  deliberate documented two-message swap+relocate (each half independently server-gated).
+- **Smart-stow no longer strands the build hologram.** Vanilla's only build-mode exit is
+  CancelPlacement, called solely from its own input paths — so ANY hand-emptying route (ours and
+  vanilla's own G-branch alike) left a ghost hologram. Now every mod funnel that empties the
+  active hand cancels placement, plus a postfix on InventoryManager.SmartStow covering vanilla's
+  fallthrough. Host/SP keeps the mode when the stow actually failed (full inventory).
+- **Invertible Shift semantics** (play-tester request): F10 → Radials → Behaviour → "Holding
+  Shift keeps the wheel open after an action" (default ON = today's behaviour). OFF: wheels stay
+  open after every action and Shift closes them. One decision property (`KeepOpenAfterAction`);
+  the search panel follows; hold-mode wheels and parking unchanged. A personal input preference —
+  deliberately NOT part of the radial theme family.
+- **F2 tips panel layering**: vanilla's helper-hints panel now always draws above the mod's UI
+  (HUD, wheels, Universal Inventory, pinned windows) via a tightly-scoped nested override canvas
+  (+ its own raycaster so it stays clickable), and drops back to vanilla's natural layering the
+  moment a vanilla full-attention menu (Esc, Stationpedia, console) is front. Type resolved by
+  reflection; teardown restores vanilla exactly.
+
 ## 0.9.7.2 Experimental -- 2026-08-06 -- COMPASS HOTFIX
 
 0.9.7.1's compass wrap-seam fix over-corrected: it derived cardinal marks as "every Nth tick"

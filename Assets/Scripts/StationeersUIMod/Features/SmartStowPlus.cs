@@ -201,6 +201,27 @@ namespace StationeersUIMod.Features
             }
             return true;
         }
+
+        /// <summary>Runs after the stow — OURS or vanilla's fallthrough branch alike. If the
+        /// stowed slot was the ACTIVE HAND and a build/placement hologram is up, tear it down
+        /// (FlorpyDorp, 2026-08-06: "G on the item you're building with left the hologram, as if
+        /// you could build, but you can't"). Vanilla only cancels from its own input paths, so
+        /// even the pure-VANILLA G-branch ghosted — his "might even be a vanilla bug" was right;
+        /// this postfix covers both routes at the one choke point. On host/SP the move applied
+        /// synchronously, so a still-occupied hand means the stow FAILED (belt full) and the mode
+        /// is kept; an MP client cannot see the echo yet, so it cancels optimistically — a failed
+        /// G with a full inventory is the rare case, and re-entering build mode is one click.</summary>
+        private static void Postfix(Slot selectedSlot)
+        {
+            try
+            {
+                bool authoritative = false;
+                try { authoritative = GameManager.RunSimulation; } catch { }
+                if (authoritative && selectedSlot != null && selectedSlot.Get() != null) return;
+                Core.ItemActions.MaybeCancelPlacement(selectedSlot);
+            }
+            catch { }
+        }
     }
 
     /// <summary>

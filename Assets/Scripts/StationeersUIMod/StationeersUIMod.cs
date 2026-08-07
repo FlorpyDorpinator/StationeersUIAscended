@@ -18,8 +18,8 @@ namespace StationeersUIMod
     /// </summary>
     public sealed class StationeersUIMod : MonoBehaviour
     {
-        public const string ModVersion = "0.9.7.2";
-        public const string VersionDisplay = "0.9.7.2 Experimental";
+        public const string ModVersion = "0.9.7.3";
+        public const string VersionDisplay = "0.9.7.3 Experimental";
         public const string ModGuid = "com.stationeersuimod.ui";
 
         public static StationeersUIMod Instance { get; private set; }
@@ -470,6 +470,11 @@ namespace StationeersUIMod
                 // vanishing behind. Ticked unconditionally so it always self-hides when the drag ends or
                 // leaves those bounds; a no-op (one InputMouse read) when no world drag is live.
                 Core.DragGhostLayer.TickWorldMirror();
+
+                // Vanilla F2 helper-hints panel: keep it above every MOD canvas while playing, and
+                // hand it back to vanilla's natural layering (under the Esc menu & co.) the moment a
+                // vanilla full-attention menu is front. Cheap, dirty-guarded, fail-soft.
+                Core.HelperHintsLift.Tick();
 
                 // Cursor/drag trace (OFF unless `uiadiag` in the console): sampled LAST so it sees the
                 // fully-resolved frame state, and writes a log line only when something changed.
@@ -1133,6 +1138,10 @@ namespace StationeersUIMod
                 catch (Exception e) { UIALog.Error("ProfileSort.Reset failed: " + e); }
                 try { Core.UiaKeybinds.Unhook(); }
                 catch (Exception e) { UIALog.Error("UiaKeybinds.Unhook failed: " + e); }
+                // MUTATES A VANILLA OBJECT: the F2 hints panel's lifted canvas must be restored
+                // here or the tips would cover the Esc menu forever after the mod unloads.
+                try { Core.HelperHintsLift.Shutdown(); }
+                catch (Exception e) { UIALog.Error("HelperHintsLift.Shutdown failed: " + e); }
                 try { Core.Patch_Human_GetStatsTooltip_Details.ResetRuntimeState(); }
                 catch (Exception e) { UIALog.Error("DetailedVitalsTooltip reset failed: " + e); }
                 try { _harmony?.UnpatchSelf(); }

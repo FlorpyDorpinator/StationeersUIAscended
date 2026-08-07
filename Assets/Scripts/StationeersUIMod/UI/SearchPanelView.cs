@@ -134,7 +134,7 @@ namespace StationeersUIMod.UI
                 if (top != null && ItemActions.TakeOrDrop(top.Source))
                 {
                     _press = null; // never leave a press behind an exit
-                    if (RadialMenu.ShiftHeld) { _builtFor = null; RebuildRows(); return Result.None; }
+                    if (RadialMenu.KeepOpenAfterAction) { _builtFor = null; RebuildRows(); return Result.None; } // same inverted-Shift semantics as the wheel
                     return Result.Took;
                 }
             }
@@ -183,7 +183,7 @@ namespace StationeersUIMod.UI
                 if (!ReferenceEquals(pressed, current)) return Result.None;
                 if (ItemActions.TakeOrDrop(pressed.Source))
                 {
-                    if (RadialMenu.ShiftHeld) { _builtFor = null; RebuildRows(); return Result.None; }
+                    if (RadialMenu.KeepOpenAfterAction) { _builtFor = null; RebuildRows(); return Result.None; } // same inverted-Shift semantics as the wheel
                     return Result.Took;
                 }
             }

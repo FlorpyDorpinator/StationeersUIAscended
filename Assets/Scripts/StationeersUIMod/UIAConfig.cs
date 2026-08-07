@@ -32,6 +32,12 @@ namespace StationeersUIMod
         public static ConfigEntry<KeyCode> RadialPageKey;
         public static ConfigEntry<KeyCode> RadialFineAdjustKey;
         public static ConfigEntry<bool> RadialMovementEnabled;
+        // Shift-modifier semantics for "keep the radial open after an action". TRUE (default) =
+        // the wheel closes after one action and held Shift keeps it open; FALSE = inverted — the
+        // wheel STAYS open after actions and held Shift closes it after this one. A personal
+        // INPUT preference, deliberately NOT in RadialThemeKeys: a theme must never flip a
+        // player's muscle memory (standing directive: documented shared/non-theme knob).
+        public static ConfigEntry<bool> RadialShiftKeepsOpen;
         public static ConfigEntry<bool> RadialHintBar;
         /// <summary>Set true once the first-run tutorial has been shown (so it only auto-opens once).</summary>
         public static ConfigEntry<bool> GuideShown;
@@ -308,6 +314,11 @@ namespace StationeersUIMod
                 "Camera look stays on the cursor; typing in the search panel never moves you; " +
                 "disabled while seated (vehicle controls share the same gate). " +
                 "Off = the classic stop-and-pick behavior.");
+            RadialShiftKeepsOpen = cfg.Bind("1. General", "ShiftKeepsRadialOpen", true,
+                "What holding Shift means when you pick a radial action. ON (default): the wheel " +
+                "closes after one action, and holding Shift keeps it open for more. OFF " +
+                "(inverted): the wheel STAYS open after actions, and holding Shift closes it " +
+                "after this one. For players who use the wheel as a persistent panel.");
             RadialHintBar = cfg.Bind("1. General", "RadialHintBar", true,
                 "Show a slim, contextual key-hint bar just below an open radial (LMB select, RMB " +
                 "back, Alt reach, swap hand, page…). Follows your rebinds. Turn off for a cleaner wheel.");

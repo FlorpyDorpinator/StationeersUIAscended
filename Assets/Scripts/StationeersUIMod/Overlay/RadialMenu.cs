@@ -308,6 +308,24 @@ namespace StationeersUIMod.Overlay
         internal static bool ShiftHeld
             => Input.GetKey(KeyCode.LeftShift) || Input.GetKey(KeyCode.RightShift);
 
+        /// <summary>Should the radial stay open after the action just picked? The ONE place the
+        /// Shift modifier's meaning is decided (all three action-commit sites consult this).
+        /// Default (<see cref="UIAConfig.RadialShiftKeepsOpen"/> = true): closes after one action,
+        /// held Shift keeps it open. Inverted (config false, a play-tester request 2026-08-06):
+        /// stays open after actions, held Shift closes it after this one. The identity
+        /// <c>ShiftHeld == config</c> encodes both directions in one expression. Fail-soft to the
+        /// default semantics before the config binds (hot reload).</summary>
+        internal static bool KeepOpenAfterAction
+        {
+            get
+            {
+                bool shiftMeansKeepOpen = true;
+                try { if (UIAConfig.RadialShiftKeepsOpen != null) shiftMeansKeepOpen = UIAConfig.RadialShiftKeepsOpen.Value; }
+                catch { }
+                return ShiftHeld == shiftMeansKeepOpen;
+            }
+        }
+
         /// <summary>Q flips to the next page of a crowded ring (satellite first when open).
         /// Vanilla Q-throw is Game-state-bound, so the radial modal already suppresses it.</summary>
         public void NextPage()
@@ -450,9 +468,10 @@ namespace StationeersUIMod.Overlay
                 UI.SearchPanelView.Begin();
                 return true;
             }
-            if (ShiftHeld)
+            if (KeepOpenAfterAction)
             {
-                // Shift = "keep it open, I'm not done" — the radial goes sticky.
+                // "Keep it open, I'm not done" — the radial goes sticky. (Shift held by default;
+                // the inverted option makes staying open the default and Shift the closer.)
                 _sticky = true;
                 _satellite = null;
                 Top().Refresh();
@@ -555,9 +574,9 @@ namespace StationeersUIMod.Overlay
                 UI.SearchPanelView.Begin();
                 return;
             }
-            if (ShiftHeld)
+            if (KeepOpenAfterAction)
             {
-                // Shift = "keep it open, I'm not done" — stay transient, just refreshed.
+                // "Keep it open, I'm not done" — stay transient, just refreshed.
                 _satellite = null;
                 Top().Refresh();
                 _hovered = -1;
@@ -785,12 +804,12 @@ namespace StationeersUIMod.Overlay
                 UI.SearchPanelView.Begin();
                 return;
             }
-            if (!_parking.Active && !ShiftHeld)
+            if (!_parking.Active && !KeepOpenAfterAction)
             {
                 Close(); // one action, radial goes away
                 return;
             }
-            // Parking locks the radial open; Shift means "I'm not done yet".
+            // Parking locks the radial open; KeepOpenAfterAction means "I'm not done yet".
             _satellite = null;
             Top().Refresh();
             _hovered = -1;

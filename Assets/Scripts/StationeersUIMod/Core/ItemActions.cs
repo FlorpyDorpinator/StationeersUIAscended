@@ -61,8 +61,61 @@ namespace StationeersUIMod.Core
                 return true;
             }
             if (!Slot.AllowSwap(source.Slot, hand)) return Fail();
+            // Wedge-binding rule (FlorpyDorp, 2026-08-06): when taking a tool OUT of a worn-belt
+            // wedge with another belt tool in hand, the held tool must NOT be dumped into the
+            // taken tool's wedge — it returns to its OWN bound wedge, so both bindings survive
+            // (a raw swap left the taken tool bound nowhere). Resolve the home BEFORE the swap
+            // (the pre-checks read pre-swap state), swap, then relocate. DELIBERATE two-message
+            // exception to the one-action-one-message rule: no single vanilla funnel expresses
+            // "A to slot Y, B to hand", both messages are independently server-gated, and if the
+            // relocation is refused (a teammate filled the home mid-flight) the end state is
+            // exactly the old behaviour — held tool sits in the taken tool's wedge, unbound
+            // (bindings themselves are protected by BeltBindingStore's observe-only policy).
+            Slot home = BeltHomeFor(source.Slot, handOcc);
             source.Slot.PlayerSwapToSlot(hand);
+            if (home != null) OnServer.MoveToSlot(handOcc, home);
+            MaybeCancelPlacement(hand); // the (possibly building) hand item was displaced: no ghost hologram
             return true;
+        }
+
+        /// <summary>Is this slot on the belt the LOCAL player is currently wearing?</summary>
+        private static bool IsWornBeltSlot(Slot slot)
+        {
+            try
+            {
+                var human = InventoryManager.ParentHuman;
+                DynamicThing belt = human?.ToolbeltSlot?.Get();
+                return belt != null && slot != null && ReferenceEquals(slot.Parent, belt);
+            }
+            catch { return false; }
+        }
+
+        /// <summary>The displaced/held item's OWN empty bound wedge on the local player's worn
+        /// tool-belt, or null — non-null only when <paramref name="sourceSlot"/> (where the item is
+        /// about to land) is a slot on that same belt, the home differs from the landing slot
+        /// (same-type keeps plain semantics), and the home slot is empty, unlocked and accepts the
+        /// item. Fail-soft: null on any doubt = plain swap, no relocation.</summary>
+        private static Slot BeltHomeFor(Slot sourceSlot, DynamicThing handItem)
+        {
+            try
+            {
+                if (sourceSlot == null || handItem == null) return null;
+                var human = InventoryManager.ParentHuman;
+                DynamicThing belt = human?.ToolbeltSlot?.Get();
+                if (belt == null || !ReferenceEquals(sourceSlot.Parent, belt)) return null;
+                int home = Features.BeltBindingStore.HomeSlotFor(belt, handItem);
+                if (home < 0 || home == sourceSlot.SlotIndex) return null;
+                var slots = belt.Slots;
+                if (slots == null) return null;
+                for (int i = 0; i < slots.Count; i++)
+                {
+                    Slot s = slots[i];
+                    if (s == null || s.SlotIndex != home) continue;
+                    return (s.Get() == null && !s.IsLocked && Slot.AllowMove(handItem, s)) ? s : null;
+                }
+            }
+            catch { }
+            return null;
         }
 
         /// <summary>Is this slot part of the given thing (directly or nested inside it)?</summary>
@@ -78,6 +131,25 @@ namespace StationeersUIMod.Core
             return false;
         }
 
+        /// <summary>Exit vanilla's build/precision-placement mode when a mod funnel just moved the
+        /// ACTIVE-HAND item out of the hand. Vanilla tears the hologram down only from its own
+        /// input paths (<c>InventoryManager.CancelPlacement</c> — mode → Normal, construction +
+        /// precision cursors off, panel hidden; InventoryManager.cs:1735), so a mod-funnel stow
+        /// left a GHOST hologram you could aim but never build with (FlorpyDorp, 2026-08-06).
+        /// Purely LOCAL UI state — no network message, safe on MP clients. No-op unless the given
+        /// slot is the active hand and a placement mode is live; fail-soft.</summary>
+        public static void MaybeCancelPlacement(Slot handSlot)
+        {
+            try
+            {
+                if (handSlot == null || handSlot != InventoryManager.ActiveHandSlot) return;
+                if (InventoryManager.CurrentMode == InventoryManager.Mode.Normal) return;
+                var inv = InventoryManager.Instance;
+                if (inv != null) inv.CancelPlacement();
+            }
+            catch { }
+        }
+
         /// <summary>Stow the active-hand item into a specific empty slot.</summary>
         public static bool StowActiveHandTo(Slot destination)
         {
@@ -86,6 +158,7 @@ namespace StationeersUIMod.Core
             if (item == null || destination == null || destination.Get() != null) return Fail();
             if (!Slot.AllowMove(item, destination)) return Fail();
             OnServer.MoveToSlot(item, destination);
+            MaybeCancelPlacement(hand); // the held constructor left the hand: no ghost hologram
             SlotFlash.OnStow(destination, item); // "it went in here" flash on the worn box, if nested
             UIAudioManager.Play(UIAudioManager.AddToInventoryHash);
             return true;
@@ -109,14 +182,27 @@ namespace StationeersUIMod.Core
             if (targetSlot.Get() == null)
             {
                 if (!Slot.AllowMove(item, targetSlot)) return Fail();
+                Features.BeltBindingStore.NoteExplicitPlacement(targetSlot, item); // drag = may rebind a wedge
                 OnServer.MoveToSlot(item, targetSlot);
                 SlotFlash.OnStow(targetSlot, item); // stow flash if the target is inside a worn container
             }
             else
             {
                 if (!Slot.AllowSwap(candidate.Slot, targetSlot)) return Fail();
+                // The drop TARGET is explicit; the DISPLACED side only when the gesture stayed on
+                // the belt (wedge-over-wedge = the sanctioned home exchange). Displaced out of the
+                // belt (chip dropped on a hand box): the occupant lands in the vacated wedge
+                // mechanically — no rebind, route it to its own bound wedge. See DragTo's swap
+                // branch for the full rationale (the wrench/screwdriver case).
+                Features.BeltBindingStore.NoteExplicitPlacement(targetSlot, item);
+                DynamicThing displaced = targetSlot.Get();
+                Slot displacedHome = null;
+                if (IsWornBeltSlot(targetSlot)) Features.BeltBindingStore.NoteExplicitPlacement(candidate.Slot, displaced);
+                else displacedHome = BeltHomeFor(candidate.Slot, displaced);
                 OnServer.SwapSlots(candidate.Slot, targetSlot);
+                if (displacedHome != null) OnServer.MoveToSlot(displaced, displacedHome);
             }
+            MaybeCancelPlacement(candidate.Slot); // dragged out of the hand: no ghost hologram
             UIAudioManager.Play(targetSlot.Type == Slot.Class.Battery
                 ? UIAudioManager.InstallBatteryHash
                 : UIAudioManager.ObjectPutHash);
@@ -164,6 +250,7 @@ namespace StationeersUIMod.Core
                         if (child != null && Slot.AllowMove(item, child))
                         {
                             OnServer.MoveToSlot(item, child);
+                            MaybeCancelPlacement(src); // dragged out of the hand: no ghost hologram
                             UIAudioManager.Play(UIAudioManager.ObjectPutHash);
                             return true;
                         }
@@ -178,13 +265,18 @@ namespace StationeersUIMod.Core
 
             if (dest.Get() != null)
             {
-                // 2. Merge onto a matching partial stack.
+                // 2. Merge onto a matching partial stack. (A stack CONSTRUCTOR — iron frames —
+                //    merged fully away also empties the hand: cancel the hologram then too.)
                 if (Slot.CanMerge(item, dest))
                 {
                     IMergeable held = item as IMergeable;
                     IMergeable targetStack;
                     if (held != null && dest.Contains<IMergeable>(out targetStack))
-                        return MergeInto(targetStack, held);
+                    {
+                        bool mergedOk = MergeInto(targetStack, held);
+                        if (mergedOk && src.Get() == null) MaybeCancelPlacement(src);
+                        return mergedOk;
+                    }
                     // Vanilla's mining-belt fallback (Slot.PlayerMergeToSlot, Slot.cs:745-763):
                     // Slot.CanMerge also returns true when the destination holds a MiningBelt and
                     // the dragged thing is Ore it can take (Slot.cs:306-320 -> CanMergeAsOre). The
@@ -202,14 +294,32 @@ namespace StationeersUIMod.Core
                 }
                 // 3. Swap with the occupied destination.
                 if (!Slot.AllowSwap(dest, item)) return Fail();
+                Features.BeltBindingStore.NoteExplicitPlacement(dest, item); // the drop TARGET: explicit
+                // The DISPLACED occupant is an explicit rebind ONLY when the gesture stayed on the
+                // belt (wedge dragged over wedge = the sanctioned home exchange). When the tool was
+                // dragged OUT of the belt (wedge -> hand box / bag cell), the displaced item lands
+                // in the vacated wedge MECHANICALLY — never rebind it; route it onward to its own
+                // bound wedge instead (FlorpyDorp's wrench/screwdriver case, 2026-08-06: dragging
+                // the screwdriver from slot 5 into the wrench-holding hand must send the wrench to
+                // ITS slot 4, not leave it squatting in 5). Same two-message rationale as
+                // EquipToActiveHand's home routing: swap first (old behaviour = the degraded state),
+                // then one independently-gated relocation.
+                DynamicThing displaced = dest.Get();
+                Slot displacedHome = null;
+                if (IsWornBeltSlot(dest)) Features.BeltBindingStore.NoteExplicitPlacement(src, displaced);
+                else displacedHome = BeltHomeFor(src, displaced);
                 OnServer.SwapSlots(src, dest);
+                if (displacedHome != null) OnServer.MoveToSlot(displaced, displacedHome);
+                MaybeCancelPlacement(src); // dragged out of the hand: no ghost hologram
                 UIAudioManager.Play(UIAudioManager.ObjectPutHash);
                 return true;
             }
 
             // 4. Move into the empty destination.
             if (!Slot.AllowMove(item, dest)) return Fail();
+            Features.BeltBindingStore.NoteExplicitPlacement(dest, item); // drag = may rebind a wedge
             OnServer.MoveToSlot(item, dest);
+            MaybeCancelPlacement(src); // dragged out of the hand: no ghost hologram
             SlotFlash.OnStow(dest, item);                        // stow flash if it lands in a worn container
             UIAudioManager.Play(UIAudioManager.ObjectPutHash);
             return true;
@@ -377,6 +487,7 @@ namespace StationeersUIMod.Core
                 //    PlayerSwapToWorld is the only clean route to the slot-to-world SwapSlots
                 //    overload and, unlike PlayerMoveToSlot, carries NO MoveAll tail (Slot.cs:736).
                 if (!Slot.AllowSwap(dest, item)) return Fail();
+                Features.BeltBindingStore.NoteExplicitPlacement(dest, item); // drag = may rebind a wedge
                 dest.PlayerSwapToWorld(item);
                 return true;
             }
@@ -387,6 +498,7 @@ namespace StationeersUIMod.Core
             //    DoSwapActiveHand, which is the chosen UIA behaviour — the item lands where you
             //    aimed without stealing your active hand.
             if (!Slot.AllowMove(item, dest)) return Fail();
+            Features.BeltBindingStore.NoteExplicitPlacement(dest, item); // drag = may rebind a wedge
             MoveOneToSlot(item, dest);
             SlotFlash.OnStow(dest, item);
             UIAudioManager.Play(UIAudioManager.AddToInventoryHash);
@@ -401,6 +513,7 @@ namespace StationeersUIMod.Core
             if (item == null) return false; // silent: dump loops report their own result
             if (source.Expected != null && item != source.Expected) return false;
             OnServer.MoveToSlotOrWorld(item, null);
+            MaybeCancelPlacement(source.Slot); // a held constructor dropped to the world: no ghost hologram
             return true;
         }
 

@@ -2,7 +2,7 @@
   <Name>Stationeers UI Ascended</Name>
   <ModID>StationeersUIAscended</ModID>
   <Author>FlorpyDorp + JXSN</Author>
-  <Version>0.9.7.2</Version>
+  <Version>0.9.7.3</Version>
   <Description>
 	  [h1]Stationeers UI Ascended[/h1]
 
@@ -19,6 +19,13 @@ The visor HUD is a document-driven layout you can reshape live in the F9 HUD Des
 <br>
 ]]></InGameDescription>
   <ChangeLog>
+    [h3]Version 0.9.7.3 EXPERIMENTAL -- play-test round 3:[/h3]
+    [list]
+    [*] Toolbelt wedge bindings are STICKY: swapping a tool from the wheel into your hand no longer steals the wedge binding -- the displaced hand tool returns to its own bound wedge instead of squatting in the taken tool's slot (click AND drag). Bindings only ever move when you deliberately drag tools over each other in the wheel or drag one onto a wedge
+    [*] Smart-stow (G) no longer strands the build hologram: stowing the item you were building with now exits build mode properly -- this also fixes the same ghost in vanilla's own G-stow branch
+    [*] New option (F10 - Radials - Behaviour): invert what Shift means -- wheels can now default to STAYING OPEN after every action, with Shift closing them instead. Default unchanged
+    [*] Vanilla's F2 tips panel now always draws ON TOP of the mod's UI (HUD, wheels, Universal Inventory) -- while still sitting behind the Esc menu and other vanilla menus
+    [/list]
     [h3]Version 0.9.7.2 EXPERIMENTAL -- compass hotfix:[/h3]
     [list]
     [*] HOTFIX: 0.9.7.1's compass fix over-corrected on some themes -- nearly every tick gained a cardinal letter (the 'NW NWN N N NE NE NE' strip). Cardinal letters now live on their own true 45-degree bearings, fully independent of the tick-spacing knob, so they can never be misplaced or duplicated again. Minor ticks keep the spacing slider as a pure density control; cardinalDeg now chooses all eight points vs the four majors
@@ -40,18 +47,6 @@ The visor HUD is a document-driven layout you can reshape live in the F9 HUD Des
     [*] RADIAL SIMPLIFICATION: the Hub is now the only interaction model (the old control-scheme choice and per-wheel on/off toggles are gone -- radials are core now); "flick to commit" is removed, fixing wedges that used to fire without the ring appearing
     [*] Fixes: world-item drops now swap into occupied wedges/boxes/slots like vanilla; F9 correctly previews the Suited HUD when authoring unpowered; separating an element's style no longer strips its frost/glow/edge light; edge-light now fully turns off with the edge masters instead of leaving a static rim; portrait ring and body-doll outline restored; F10 scrollbar crash and drag-hijack fixed; compatibility fix for a renamed internal game API
     [/list]
-    [h3]Version 0.9.2.5 EXPERIMENTAL — YOUR HUD, YOUR RULES: PER-SUIT STYLES + TOTAL THEMES:[/h3]
-    [list]
-    [*] STYLE EVERY ELEMENT PER SUIT MODE: any HUD element can now fork its ENTIRE look between bare and suited (colours, glass, effects, icon tint — all of it, not just two colours). Turn the fork on for an element in the F9 designer and edit each mode independently; everything remembers and round-trips. The old system silently leaked most settings between modes — fixed at the root
-    [*] THEMES NOW CARRY EVERYTHING: a saved profile's theme includes the radial menus (size, colours, effects, hint bar), the Universal Inventory skin AND the F10 Control Center skin — switch profiles and the whole mod retints as one. Performance settings deliberately stay global (a theme carries a look, not a framerate). Your current look is stamped into your existing profiles on first launch, so nothing changes until you want it to
-    [*] REAL PROFILE MANAGEMENT: New (blank slate), Duplicate, Rename, Delete (with confirm, never the active one) and "Restore shipped version" — in F9 and the F10 Profiles tab. Break a shipped theme? Restore it in one click, or delete it and a pristine copy returns next launch
-    [*] THE F9 DESIGNER, REORGANIZED: the Effects wall of dropdowns is now clean sub-tabs (Glass / Edges / Glow / Bloom / Alerts / Transitions / Advanced), the Theme tab leads with the palette wheels, jargon got plain names, the active tab and the suit mode you are editing are clearly marked, and long profile names no longer get cut off
-    [*] TINT ITEM ICONS is now per-element too: keep the global switch, or give any element its own tint colour (or none) — separately per suit mode
-    [*] SPRING CLEANING: the pre-0.9 legacy HUD, the old fixed-panel HUD and the old ImGui radial renderer are gone — the document-driven HUD IS the mod now. Your config is migrated automatically (dead settings cleaned out, old glitch settings carried over)
-    [*] SAFETY NET: a corrupt profile is quarantined to a .broken backup instead of being overwritten; "uiareset" console command + an F10 "Restore shipped themes" button give you a clean-slate path without hunting folders
-    [*] Plus: the F10 menu now fully matches Pure HUD (and every theme) including its border and dividers; the radial accent colour is themeable (and still orange by default)
-    [/list]
-    [i]Full version history (0.9.2.0 and earlier) is in CHANGELOG.md, in the mod folder and on GitHub.[/i]
   </ChangeLog>
   <WorkshopHandle>0</WorkshopHandle>
   <Tags>

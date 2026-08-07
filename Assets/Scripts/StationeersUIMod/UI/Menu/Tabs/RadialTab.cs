@@ -27,6 +27,15 @@ namespace StationeersUIMod.UI.Menu.Tabs
             UiaControls.ToggleRow(col, "Keep moving while a wheel is open", UIAConfig.RadialMovementEnabled.Value, v => UIAConfig.RadialMovementEnabled.Value = v);
             UiaControls.SliderRow(col, "Open hold time", 60f, 600f, UIAConfig.HoldThresholdMs.Value,
                 v => UIAConfig.HoldThresholdMs.Value = Mathf.RoundToInt(v), "0", 10f);
+            // Personal input preference — deliberately NOT part of the radial theme family (a
+            // theme must never flip a player's Shift muscle memory), so no MarkThemeChanged.
+            UiaControls.ToggleRow(col, "Holding Shift keeps the wheel open after an action",
+                UIAConfig.RadialShiftKeepsOpen.Value, v => UIAConfig.RadialShiftKeepsOpen.Value = v);
+            UiaControls.Note(col,
+                "ON (default): a wheel closes after one action; hold Shift to keep it open for " +
+                "more. OFF: the wheel STAYS open after every action instead, and holding Shift " +
+                "closes it after that one - for players who like the wheel as a persistent panel. " +
+                "Hold-to-open wheels still close on release either way.");
 
             UiaControls.Header(col, "Size & readout");
             // These are all part of the radial theme's LOOK ("radial:" family, HudTheme) — each
