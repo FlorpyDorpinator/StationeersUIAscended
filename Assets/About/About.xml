@@ -2,7 +2,7 @@
   <Name>Stationeers UI Ascended</Name>
   <ModID>StationeersUIAscended</ModID>
   <Author>FlorpyDorp + JXSN</Author>
-  <Version>0.9.7.3</Version>
+  <Version>0.9.7.4</Version>
   <Description>
 	  [h1]Stationeers UI Ascended[/h1]
 
@@ -19,6 +19,14 @@ The visor HUD is a document-driven layout you can reshape live in the F9 HUD Des
 <br>
 ]]></InGameDescription>
   <ChangeLog>
+    [h3]Version 0.9.7.4 EXPERIMENTAL -- four shipped themes + play-test round 4:[/h3]
+    [list]
+    [*] FOUR shipped HUD themes, all at their newest versions: Stationeers Blue, Stationeers Blue Minimalist, Zirillian Red and Pure HUD. Shipped themes are now read-only in the editors (duplicate one to customize it), and the new uiadev console command unlocks them for theme authoring
+    [*] The 1-6 equipment keys now open a worn container INSIDE the Universal Inventory by default; if you pinned it into its own window yourself, the key remembers that and opens the pinned window instead
+    [*] Alert glow fixes: a red CRITICAL pulse no longer washes out to white/pink at high brightness on older profiles, and the glow stays visible while the F9 designer is open so you can actually tune it
+    [*] F9 designer: a Pause button in the toolbar (single-player; auto-resumes when you close F9), and the editor + element popup now draw above the mod's own HUD elements
+    [*] New F10 - HUD - Maintenance - Repair config folders button: non-destructively recreates any missing config folders/files; every store now also survives its folder being deleted mid-session
+    [/list]
     [h3]Version 0.9.7.3 EXPERIMENTAL -- play-test round 3:[/h3]
     [list]
     [*] Toolbelt wedge bindings are STICKY: swapping a tool from the wheel into your hand no longer steals the wedge binding -- the displaced hand tool returns to its own bound wedge instead of squatting in the taken tool's slot (click AND drag). Bindings only ever move when you deliberately drag tools over each other in the wheel or drag one onto a wedge

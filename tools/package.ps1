@@ -134,10 +134,49 @@ foreach ($img in @('Preview.png','thumb.png')) {
     if (Test-Path $src) { Copy-Item $src (Join-Path $Stage 'About') -Force } else { Write-Warning "About\$img missing." }
 }
 
-# HudProfiles: ship every .xml + the README + the <name>.png preview cards (SyncShipped
-# seeds the previews into the player's config dir; the F10 Profiles tab renders them).
-Copy-Item (Join-Path $ProfSrc '*.xml') (Join-Path $Stage 'HudProfiles') -Force
-Copy-Item (Join-Path $ProfSrc '*.png') (Join-Path $Stage 'HudProfiles') -Force -ErrorAction SilentlyContinue
+# HudProfiles: an EXPLICIT ALLOWLIST, never a blind glob of the source folder - same rule the
+# Handbook staging below already follows. A stray profile sitting in HudProfiles\ (an
+# Export-active-to-mod drop, or stale dist\ staging) once rode along into a shipped build and
+# reached a playtester as a phantom "new hud theme"; globbing is how that happened. Each
+# allowlisted theme ships as <name>.xml + <name>.png (SyncShipped seeds the previews into the
+# player's config dir; the F10 Profiles tab renders them).
+#
+# ADDING THEME #5 MEANS EDITING THIS LIST ON PURPOSE. Dropping a file in HudProfiles\ is not
+# enough to ship it - by design. This array is also the post-stage audit's list (see below), so
+# there is exactly ONE place the shipped set is written down.
+$ShippedThemes = @(
+    'Stationeers Blue',
+    'Stationeers Blue Minimalist',
+    'Zirillian Red',
+    'Pure HUD'
+)
+
+$stagedProfileDir = Join-Path $Stage 'HudProfiles'
+foreach ($theme in $ShippedThemes) {
+    $themeXml = Join-Path $ProfSrc "$theme.xml"
+    $themePng = Join-Path $ProfSrc "$theme.png"
+    if (Test-Path -LiteralPath $themeXml -PathType Leaf) {
+        Copy-Item -LiteralPath $themeXml $stagedProfileDir -Force
+    } else {
+        Write-Warning "Allowlisted theme '$theme' has NO .xml in HudProfiles\ - nothing staged for it. A shipped theme needs both an .xml and a .png."
+    }
+    if (Test-Path -LiteralPath $themePng -PathType Leaf) {
+        Copy-Item -LiteralPath $themePng $stagedProfileDir -Force
+    } else {
+        Write-Warning "Allowlisted theme '$theme' has NO .png preview in HudProfiles\ - it will ship without a preview card. A shipped theme needs both an .xml and a .png."
+    }
+}
+
+# Everything else in the source folder is deliberately left behind, named out loud by filename so
+# a theme that WAS meant to ship can never go missing silently either. README.md is staged
+# separately below, so it is not a stray.
+$profileStrays = @(Get-ChildItem -LiteralPath $ProfSrc -File -ErrorAction SilentlyContinue)
+foreach ($stray in $profileStrays) {
+    if ($stray.Extension -ne '.xml' -and $stray.Extension -ne '.png') { continue }
+    if ($ShippedThemes -contains $stray.BaseName) { continue }
+    Write-Warning "HudProfiles\$($stray.Name) is not in the shipped-theme allowlist - NOT packaged; add it to the allowlist in package.ps1 if this is deliberate."
+}
+
 $readme = Join-Path $ProfSrc 'README.md'
 if (Test-Path $readme) { Copy-Item $readme (Join-Path $Stage 'HudProfiles') -Force }
 
@@ -178,12 +217,20 @@ if ($hasHandbook) {
 Write-Host "==> Content audit" -ForegroundColor Cyan
 $auditErrors = New-Object System.Collections.Generic.List[string]
 
-# Both shipped themes must be present (CLAUDE.md: shipped set = Stationeers Blue + Pure HUD).
-foreach ($theme in @('Stationeers Blue', 'Pure HUD')) {
+# Every allowlisted theme must actually be in the stage. The list is $ShippedThemes, defined with
+# the HudProfiles staging block above - ONE list, not a second copy that can drift out of sync.
+foreach ($theme in $ShippedThemes) {
     $themeFile = Join-Path $Stage "HudProfiles\$theme.xml"
     if (-not (Test-Path $themeFile)) {
         $auditErrors.Add("Missing shipped theme: HudProfiles\$theme.xml")
     }
+}
+# Nothing OUTSIDE the allowlist may be in the staged folder - the phantom-theme regression, caught
+# on the way out as well as on the way in. Hard failure: this is what actually reached a player.
+$stagedStrays = @(Get-ChildItem (Join-Path $Stage 'HudProfiles') -File -ErrorAction SilentlyContinue |
+    Where-Object { ($_.Extension -eq '.xml' -or $_.Extension -eq '.png') -and ($ShippedThemes -notcontains $_.BaseName) })
+foreach ($stray in $stagedStrays) {
+    $auditErrors.Add("Non-allowlisted file staged in HudProfiles: $($stray.Name)")
 }
 # At least one HudProfiles\*.xml must exist at all (belt-and-suspenders on the copy step above).
 $stagedProfiles = @(Get-ChildItem (Join-Path $Stage 'HudProfiles') -Filter '*.xml' -ErrorAction SilentlyContinue)

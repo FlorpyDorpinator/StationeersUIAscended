@@ -31,11 +31,16 @@ namespace StationeersUIMod.Features
     /// if the shape changed. <see cref="ExportToShippedFolder"/> is the author-side convenience: it
     /// copies the ACTIVE profile straight into that folder from the F9/F10 UI, but only when a repo
     /// checkout is actually detectable next to the running mod (never on a Workshop/SLP install —
-    /// see that method's doc for the exact probe). The two currently-curated shipped themes
-    /// ("Stationeers Blue", "Pure HUD") ALSO live embedded verbatim in <see cref="ShippedProfiles"/>
-    /// as a last-resort self-heal factory (see <see cref="LoadActive"/>) for when no mod folder is
-    /// reachable at all (the F6 ScriptEngine dev flow) — keep that embed in sync by hand if you
-    /// change either file's shipped content (there is no build step that does it for you).
+    /// see that method's doc for the exact probe). Every curated shipped theme ALSO lives embedded
+    /// verbatim in <see cref="ShippedProfiles"/> — one <c>BuildXxx</c> factory each, registered in
+    /// <see cref="ShippedFactories"/> — as a last-resort self-heal (see <see cref="LoadActive"/>)
+    /// for when no mod folder is reachable at all (the F6 ScriptEngine dev flow). Keep those embeds
+    /// in sync BY HAND whenever you change a shipped theme's content, and add a factory line for
+    /// every theme you add (there is no build step that does either for you).
+    ///
+    /// READ-ONLY FOR PLAYERS: a theme this mod ships cannot be overwritten from the UI — see
+    /// <see cref="Save"/> and <see cref="ShippedReadOnly"/> for the gate, and <c>Core.UiaDevMode</c>
+    /// (the <c>uiadev</c> console command) for the author-side unlock.
     /// </summary>
     public static class HudProfileStore
     {
@@ -53,7 +58,7 @@ namespace StationeersUIMod.Features
         /// now" without their callers having to know or pass it.</summary>
         private static string _modDirectory;
 
-        /// <summary>The two shipped themes, embedded verbatim (see <see cref="ShippedProfiles"/>) so
+        /// <summary>Every shipped theme, embedded verbatim (see <see cref="ShippedProfiles"/>) so
         /// a missing/corrupt config copy self-heals from the REAL design instead of the generic
         /// blank/starter — closes the "broken Stationeers Blue forever" hole (audit 06 P1): before
         /// this, a missing active profile regenerated as the generic starter PERSISTED under the
@@ -66,6 +71,11 @@ namespace StationeersUIMod.Features
             {
                 { ShippedProfiles.StationeersBlueName, ShippedProfiles.BuildStationeersBlue },
                 { ShippedProfiles.PureHudName, ShippedProfiles.BuildPureHud },
+                // Add a line here for EVERY theme that gains an embed in ShippedProfiles: a shipped
+                // theme with no factory regenerates as the generic starter under its own name and is
+                // then permanently player-owned (audit 06 P1). One entry per BuildXxx there.
+                { ShippedProfiles.StationeersBlueMinimalistName, ShippedProfiles.BuildStationeersBlueMinimalist },
+                { ShippedProfiles.ZirillianRedName, ShippedProfiles.BuildZirillianRed },
             };
 
         /// <summary>Provenance of the profiles WE shipped, so an update can refresh / retire a
@@ -216,7 +226,10 @@ namespace StationeersUIMod.Features
                         int added = HudTheme.TopUp(doc.Theme);
                         if (added <= 0) continue;
                         doc.Name = name;
-                        if (Save(doc, name)) { filesTouched++; keysAdded += added; }
+                        // SaveFile, not Save: this is OUR one-shot migration, and it has to reach
+                        // the shipped themes too (a shipped profile left un-topped-up would follow
+                        // whatever globals happen to be live). Not a player edit, so not gated.
+                        if (SaveFile(doc, name)) { filesTouched++; keysAdded += added; }
                     }
                     catch (Exception e)
                     {
@@ -290,6 +303,12 @@ namespace StationeersUIMod.Features
         {
             try
             {
+                // The folder can vanish UNDER a running session (a player "cleaning up" their config
+                // tree with the game open — the 2026-08 playtester incident). Every other write in
+                // this file already creates it first; this one relied on its callers having done so,
+                // which AdoptShippedIntoManifest only does by accident of call order. Idempotent and
+                // cheap, so it belongs here rather than in three call sites.
+                Directory.CreateDirectory(Dir);
                 var sb = new StringBuilder();
                 sb.Append("# Stationeers UI Ascended - shipped-profile provenance. Do not edit.\n");
                 sb.Append("# <filename>|<hash>: what the mod SHIPPED, so updates can refresh/retire\n");
@@ -388,7 +407,10 @@ namespace StationeersUIMod.Features
                 if (doc.RepairedOnLoad)
                 {
                     doc.RepairedOnLoad = false;
-                    Save(doc, name);
+                    // SaveFile, not Save: schema repair is OUR write, and it must land on a shipped
+                    // theme as readily as on a player's own (a gated call here would leave every
+                    // shipped theme re-migrating on every single load, for ever).
+                    SaveFile(doc, name);
                 }
                 _warned.Remove(file); // a clean read re-arms the one-shot warning for next time
                 return doc;
@@ -438,7 +460,10 @@ namespace StationeersUIMod.Features
                 hands.SetB("tray", false); // just the two boxes, no trapezoid shelf
                 doc.Elements.Add(hands);
 
-                return Save(doc, file);
+                // SaveFile: this method only ever CREATES (the never-clobber guard above), so there
+                // is no player edit of a shipped theme to refuse — and a blank slate that silently
+                // failed to be created would be a worse outcome than a squatted name.
+                return SaveFile(doc, file);
             }
             catch (Exception e)
             {
@@ -447,9 +472,36 @@ namespace StationeersUIMod.Features
             }
         }
 
-        /// <summary>Serialize a document to &lt;name&gt;.xml, creating the folder first. Returns false
-        /// (never throws) on any failure so an autosave tick can degrade quietly.</summary>
+        /// <summary>PLAYER-FACING save: serialize a document to &lt;name&gt;.xml — unless
+        /// <paramref name="name"/> is a theme WE ship and author mode is off, in which case it
+        /// refuses cleanly (false, nothing written, one centre-screen notice per theme per session —
+        /// see <see cref="ShippedReadOnly"/>).
+        ///
+        /// <para>THE GATE LIVES HERE, on the one public writer, rather than being sprinkled across
+        /// the editor: the F9 element-property commit and the drag-commit fallback
+        /// (<c>HudEditorWindow.FlushPendingElementEdit</c>, <c>HudEditorMode.CommitActiveDrag</c>)
+        /// write a document DIRECTLY through this method, bypassing the dirty flag entirely, so a
+        /// gate that only covered <see cref="Tick"/>/<see cref="FlushNow"/> would leak those two
+        /// paths straight onto a shipped file. Both ignore the return value and neither retries, so
+        /// refusing is safe there.</para>
+        ///
+        /// <para>The store's OWN shipped-lifecycle writes deliberately do NOT come through here —
+        /// they call <see cref="SaveFile"/> instead (schema repair on load, the embedded-theme
+        /// self-heal, the one-shot theme top-up, blank creation, the rename re-stamp). Those write
+        /// what we ship, not what a player edited, and gating them would break exactly the
+        /// self-healing this file exists to guarantee.</para></summary>
         public static bool Save(HudDocument doc, string name)
+        {
+            if (ShippedReadOnly(name)) { NoticeReadOnly(name); return false; }
+            return SaveFile(doc, name);
+        }
+
+        /// <summary>The real writer, UNGATED: serialize a document to &lt;name&gt;.xml, creating the
+        /// folder first. Returns false (never throws) on any failure so an autosave tick can degrade
+        /// quietly. Private on purpose — everything outside this file goes through
+        /// <see cref="Save"/> and is therefore gated; inside it, a caller picks this one only when
+        /// it is writing OUR content (see <see cref="Save"/>'s remarks).</summary>
+        private static bool SaveFile(HudDocument doc, string name)
         {
             if (doc == null) return false;
             string file = SafeFileName(name);
@@ -465,13 +517,25 @@ namespace StationeersUIMod.Features
                 string path = Path.Combine(Dir, file + ".xml");
                 using (var stream = File.Create(path))
                     serializer.Serialize(stream, doc);
+                _warned.Remove(SaveWarnKey(file)); // a write that lands re-arms the one-shot warning
                 return true;
             }
             catch (Exception e)
             {
-                UIALog.Warn("HUD profile '" + file + "' failed to save: " + e.Message);
+                // A failed autosave RETRIES every AutosaveDebounceSeconds (see Tick), so warning on
+                // every attempt turns a read-only or full config folder into a steady log drip for
+                // the whole session. Same WarnOnce idiom Load uses, under its own key so a save
+                // problem never silences a load warning for the same profile (or vice versa).
+                WarnOnce(SaveWarnKey(file), "HUD profile '" + file + "' failed to save: " + e.Message);
                 return false;
             }
+        }
+
+        /// <summary>Warn-once key for the SAVE path, deliberately distinct from the LOAD path's bare
+        /// file name so one failing direction never suppresses the other's first report.</summary>
+        private static string SaveWarnKey(string file)
+        {
+            return "save:" + file;
         }
 
         /// <summary>Delete a profile file (+ its preview .png, if any). Hardened with an
@@ -522,6 +586,12 @@ namespace StationeersUIMod.Features
         /// that no longer exists). Returns false (never throws, never overwrites) on an invalid/empty
         /// name, a missing source, a same-name no-op, or a destination that already exists.
         ///
+        /// READ-ONLY GATE: renaming a theme WE ship is a player edit of the shipped set (it moves our
+        /// file out from under its own name), so it is refused unless author mode is on — the caller
+        /// gets false and the player gets the one-per-theme notice. The paragraph below therefore
+        /// describes what happens when FlorpyDorp does it with `uiadev` on, or what happened before
+        /// this gate existed. Renaming a profile of the player's OWN is untouched.
+        ///
         /// MANIFEST: deliberately left UNTOUCHED. If &lt;from&gt; happened to be a shipped profile name
         /// <see cref="SyncShipped"/> is managing (e.g. "Stationeers Blue"), its manifest entry still
         /// points at that name — but the file there is now gone, so the NEXT SyncShipped pass reads
@@ -537,6 +607,7 @@ namespace StationeersUIMod.Features
             string fTo = SafeFileName(to);
             if (fFrom == null || fTo == null) return false;
             if (string.Equals(fFrom, fTo, StringComparison.OrdinalIgnoreCase)) return false;
+            if (ShippedReadOnly(fFrom)) { NoticeReadOnly(fFrom); return false; }
             try
             {
                 string pathFrom = Path.Combine(Dir, fFrom + ".xml");
@@ -560,7 +631,10 @@ namespace StationeersUIMod.Features
                 try
                 {
                     var doc = Load(fTo);
-                    if (doc != null) Save(doc, fTo);
+                    // SaveFile: a bookkeeping re-stamp of the file we just moved, not a player edit
+                    // of a shipped name — and fTo is by definition NOT a shipped file (it did not
+                    // exist a moment ago), so the gate would be inert here anyway.
+                    if (doc != null) SaveFile(doc, fTo);
                 }
                 catch (Exception e) { UIALog.Warn("HudProfileStore.Rename: internal re-stamp failed: " + e.Message); }
 
@@ -591,7 +665,11 @@ namespace StationeersUIMod.Features
         }
 
         /// <summary>Copy a profile under a new name. Routed through Load/Save (not a raw file copy)
-        /// so the duplicate is sanitized and re-stamped rather than inheriting stale XML.</summary>
+        /// so the duplicate is sanitized and re-stamped rather than inheriting stale XML.
+        /// Duplicating a shipped theme is the SUPPORTED way to make it yours, so the source is never
+        /// gated; the DESTINATION goes through the gated <see cref="Save"/>, which is what refuses a
+        /// duplicate aimed AT one of our names (that would overwrite a shipped theme with other
+        /// content under its own name — the same thing the gate stops everywhere else).</summary>
         public static bool Duplicate(string from, string to)
         {
             var doc = Load(from);
@@ -630,6 +708,88 @@ namespace StationeersUIMod.Features
                 UIALog.Warn("HudProfileStore.IsShippedName('" + name + "') failed: " + e.Message);
                 return false;
             }
+        }
+
+        // ---------- the read-only gate for shipped themes ----------
+
+        /// <summary>One notice per THEME per session, so a player who keeps nudging a shipped layout
+        /// is told once and then left alone (the same WarnOnce discipline <see cref="_warned"/> uses
+        /// for IO failures — a refusal that re-fires every 1.5s autosave window would be a toast
+        /// storm). Cleared by <see cref="Shutdown"/>, and by <see cref="ClearReadOnlyNotices"/> when
+        /// author mode is switched back off.</summary>
+        private static readonly HashSet<string> _readOnlyNoticed =
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>THE GATE's predicate: is <paramref name="profileName"/> a theme WE ship that the
+        /// player may therefore not overwrite? False while <see cref="Core.UiaDevMode.Active"/> (the
+        /// `uiadev` author unlock), and false for every profile of the player's own.
+        ///
+        /// <para>Keyed on <see cref="IsShippedName"/> — the mod folder, falling back to the shipped
+        /// manifest — so the protected set is whatever we actually ship RIGHT NOW and no hand-kept
+        /// name list can drift from it. Deliberately fail-OPEN: IsShippedName swallows its own IO
+        /// errors and answers false, so a probe we cannot make can only ever cost protection, never
+        /// make a player's own profiles unsavable.</para>
+        ///
+        /// <para>Under the F6 ScriptEngine dev flow (no mod folder) the answer comes from the
+        /// manifest, which exists only if a normal install ever ran against this config tree or a
+        /// self-heal adopted a name — so the gate can be live under F6 too. That is intentional:
+        /// `uiadev` is the answer for the one person who edits shipped themes.</para></summary>
+        private static bool ShippedReadOnly(string profileName)
+        {
+            if (string.IsNullOrEmpty(profileName)) return false;
+            if (Core.UiaDevMode.Active) return false;
+            return IsShippedName(profileName);
+        }
+
+        /// <summary>Tell the player WHY nothing saved — once per theme per session, centre-screen
+        /// through the mod's existing toast (a refusal a player cannot see is indistinguishable from
+        /// a bug), plus one log line for a report. Never throws: the toast reads Unity's clock, and
+        /// this can be reached from a teardown/flush path where that is not worth risking.</summary>
+        private static void NoticeReadOnly(string profileName)
+        {
+            try
+            {
+                if (!_readOnlyNoticed.Add(profileName ?? string.Empty)) return;
+                UIALog.Info("HUD theme '" + profileName + "' is one we ship, so it is read-only: "
+                    + "that edit was not saved. Duplicate it to make it yours (`uiadev` unlocks "
+                    + "shipped themes for this session).");
+                Overlay.Toast.Show("Shipped theme - read-only. Duplicate it to make it yours.",
+                    Overlay.Theme.Warn, 4.5f);
+            }
+            catch (Exception e) { UIALog.Warn("HudProfileStore read-only notice failed: " + e.Message); }
+        }
+
+        /// <summary>Re-arm the once-per-theme notice above. Called when `uiadev` turns author mode
+        /// back OFF, so the next refused edit explains itself again instead of failing silently
+        /// because this session already spent that theme's one toast.</summary>
+        internal static void ClearReadOnlyNotices()
+        {
+            _readOnlyNoticed.Clear();
+        }
+
+        /// <summary>THE GATE for the three ACTIVE-DOCUMENT persistence paths (<see cref="Tick"/>,
+        /// <see cref="FlushNow"/>, <see cref="SaveActiveNow"/>). Refusing is not enough on its own:
+        /// those paths are driven by <see cref="_dirty"/>/<see cref="_themeDirty"/>, and a refusal
+        /// that left the flags standing would have Tick re-attempt the same blocked write every
+        /// <see cref="AutosaveDebounceSeconds"/> for the rest of the session — a retry loop, and a
+        /// disk probe with it. So the pending write is DROPPED here, exactly as if the edit had been
+        /// saved and reloaded away.
+        ///
+        /// <para>The live document keeps the edit IN MEMORY (the HUD goes on showing it until the
+        /// next load), which is what makes "duplicate it" the natural next step: Duplicate clones the
+        /// LIVE document, so the change the player just made travels into their own copy rather than
+        /// being thrown away in front of them.</para>
+        ///
+        /// <para>Called only AFTER each path's own dirty/deadline checks, so the IsShippedName disk
+        /// probe behind it runs at most once per debounce window, never per frame.</para></summary>
+        private static bool RefuseActiveSave()
+        {
+            if (!ShippedReadOnly(_activeName)) return false;
+            _dirty = false;
+            _themeDirty = false;
+            _rearm = false;
+            NoticeReadOnly(_activeName);
+            return true;
         }
 
         /// <summary>Can <see cref="RestoreShipped"/> / <see cref="ResetShippedProfiles"/> actually do
@@ -750,8 +910,8 @@ namespace StationeersUIMod.Features
         /// <summary>The F10 "Restore shipped themes" nuke — deliberately more drastic than
         /// <see cref="RestoreShipped"/>, and reserved for that ONE confirmed button (its own two-step
         /// confirm lives upstream in the UI; arriving here already means the player said yes twice).
-        /// Deletes every file <see cref="ManifestPath"/> currently tracks (Stationeers Blue, Pure
-        /// HUD, any future shipped theme) plus its preview art, deletes the manifest itself, then
+        /// Deletes every file <see cref="ManifestPath"/> currently tracks (every shipped theme, this
+        /// version's and any future one) plus its preview art, deletes the manifest itself, then
         /// immediately re-runs <see cref="SyncShipped"/> so the wiped set reseeds fresh from the mod
         /// folder in the very same call — the player is never left mid-action with no shipped themes
         /// on disk at all. If the active profile is one of the wiped names, its config entry falls
@@ -953,8 +1113,8 @@ namespace StationeersUIMod.Features
         public static bool ActiveHasTheme => Active != null && Active.Theme != null && Active.Theme.Count > 0;
 
         /// <summary>Make <paramref name="profileName"/> the live document, self-healing a missing or
-        /// corrupt file. When <paramref name="profileName"/> matches one of the two EMBEDDED shipped
-        /// themes (<see cref="ShippedFactories"/> — "Stationeers Blue", "Pure HUD"), it is
+        /// corrupt file. When <paramref name="profileName"/> matches an EMBEDDED shipped theme
+        /// (<see cref="ShippedFactories"/> — one entry per theme we ship), it is
         /// regenerated from that REAL factory instead of the caller's generic
         /// <paramref name="starterFactory"/>, and the manifest is stamped directly so it reads as
         /// pristine (see <see cref="AdoptShippedIntoManifest"/>) — audit 06 P1, "broken Stationeers
@@ -1010,7 +1170,12 @@ namespace StationeersUIMod.Features
                 // sitting there, it is the second case — quarantine it before this Save overwrites
                 // it (no-op when there is nothing on disk). See BackupCorruptProfile.
                 BackupCorruptProfile(profileName);
-                Save(doc, profileName);
+                // SaveFile, and this one is load-bearing: the self-heal writes OUR embedded shipped
+                // theme back under its own (shipped) name. Routing it through the gated Save would
+                // refuse the write for every player, leaving a missing/corrupt shipped theme with
+                // nothing on disk and re-heals it from memory on every single load — audit 06 P1,
+                // reopened. This is a shipped-lifecycle write, not a player edit.
+                SaveFile(doc, profileName);
                 if (usedShippedFactory)
                 {
                     string file = SafeFileName(profileName);
@@ -1032,10 +1197,14 @@ namespace StationeersUIMod.Features
             }
             if ((!_dirty && !_themeDirty) || Active == null || string.IsNullOrEmpty(_activeName)) return;
             if (unscaledNow < _saveAt) return;
+            // Read-only gate LAST, so its disk probe only runs on a frame that was about to write.
+            // It drops the pending write itself (see RefuseActiveSave) — without that, this deadline
+            // would come round every 1.5s for the rest of the session on a blocked profile.
+            if (RefuseActiveSave()) return;
             try
             {
                 if (_themeDirty) Active.Theme = HudTheme.Snapshot(); // recapture the global look
-                if (Save(Active, _activeName)) { _dirty = false; _themeDirty = false; }
+                if (SaveFile(Active, _activeName)) { _dirty = false; _themeDirty = false; }
                 else _saveAt = unscaledNow + AutosaveDebounceSeconds; // back off; don't hammer
             }
             catch (Exception e)
@@ -1049,14 +1218,53 @@ namespace StationeersUIMod.Features
         public static void FlushNow()
         {
             if ((!_dirty && !_themeDirty) || Active == null || string.IsNullOrEmpty(_activeName)) return;
+            // Same gate as Tick. It matters most on the paths that flush BEFORE replacing a file —
+            // SetActive, and the UI's flush-then-restore sequence: refusing here is precisely what
+            // stops a shipped theme's pending player edits from landing on top of the copy we just
+            // restored (the reason those call sites had to flush first in the first place).
+            if (RefuseActiveSave()) return;
             try
             {
                 if (_themeDirty) Active.Theme = HudTheme.Snapshot();
-                if (Save(Active, _activeName)) { _dirty = false; _themeDirty = false; }
+                if (SaveFile(Active, _activeName)) { _dirty = false; _themeDirty = false; }
             }
             catch (Exception e)
             {
                 UIALog.Warn("HUD flush-save failed: " + e.Message);
+            }
+        }
+
+        /// <summary>Write the live document to disk RIGHT NOW, dirty or not — the repair path (F10 ->
+        /// HUD -> Maintenance -> "Repair config folders", see <see cref="ConfigTreeRepair"/>).
+        ///
+        /// <para>Deliberately NOT <see cref="FlushNow"/>: that returns immediately when nothing is
+        /// pending, which is exactly the state a player is in after deleting HudProfiles/ mid-session
+        /// without having touched the F9 editor since. Their active profile then lives ONLY in
+        /// memory, and no autosave will ever fire for it because there is nothing dirty to save — so
+        /// a custom (non-shipped) active profile would be silently lost at the next restart, with the
+        /// repair button having reported success. Theme handling matches FlushNow exactly; only the
+        /// dirty gate is dropped. Returns false (never throws) when there is no live document.</para></summary>
+        public static bool SaveActiveNow()
+        {
+            if (Active == null || string.IsNullOrEmpty(_activeName)) return false;
+            // Gated like the other two. The repair still completes for a shipped active theme: the
+            // caller re-runs SyncShipped straight after this, which reseeds a pristine copy of it —
+            // a better outcome than writing the player's in-memory edits back under our name. And in
+            // the case this button exists for (the whole config tree deleted mid-session) the
+            // manifest went with it, so under F6 the gate reads "not shipped" and the write lands.
+            if (RefuseActiveSave()) return false;
+            try
+            {
+                if (_themeDirty) Active.Theme = HudTheme.Snapshot();
+                if (!SaveFile(Active, _activeName)) return false;
+                _dirty = false;
+                _themeDirty = false;
+                return true;
+            }
+            catch (Exception e)
+            {
+                UIALog.Warn("HUD profile force-save failed: " + e.Message);
+                return false;
             }
         }
 
@@ -1094,6 +1302,8 @@ namespace StationeersUIMod.Features
             _rearm = false;
             _saveAt = 0f;
             _warned.Clear();
+            _readOnlyNoticed.Clear();  // the shipped read-only notice is once per session, and a
+                                       // hot reload starts a new one (author mode resets with it)
             ActiveReplaced = null;
             _modDirectory = null; // re-cached by the next SyncShipped call (OnLoaded runs it every
                                    // session, F6 included); cleared here so no narrow boot-time

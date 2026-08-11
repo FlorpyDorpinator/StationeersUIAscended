@@ -243,6 +243,52 @@ namespace StationeersUIMod.Core
             }
         }
 
+        /// <summary>`uiadev [on|off]` — AUTHOR MODE (FlorpyDorp). Bare toggles; `on`/`off` are
+        /// explicit. While it is on, the read-only gate that protects the HUD themes WE ship stands
+        /// down, so they can be edited in place instead of only through a duplicate.
+        ///
+        /// Session-only by construction — see <see cref="UiaDevMode"/> for why that is the whole
+        /// point rather than a missing feature: nothing persists it, so a player who finds this
+        /// command cannot permanently put themselves in a state where their edits to a shipped theme
+        /// fight the next update. Mutates no game state (a client-side authoring latch only).</summary>
+        public static void UiaDev(string input)
+        {
+            try
+            {
+                var parts = (input ?? "").Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+                string sub = parts.Length >= 2 ? parts[1].ToLowerInvariant() : "";
+                bool on;
+                if (sub.Length == 0) on = !UiaDevMode.Active;
+                else if (sub == "on") on = true;
+                else if (sub == "off") on = false;
+                else
+                {
+                    ConsoleWindow.Print("usage: uiadev [on|off]   (no argument toggles)", ConsoleColor.Yellow);
+                    return;
+                }
+
+                UiaDevMode.Active = on;
+                // Turning it back OFF re-arms the one-per-theme "read-only" notice, so the very next
+                // refused edit explains itself again instead of failing silently because this
+                // session already showed that toast once (see HudProfileStore's latch).
+                if (!on) Features.HudProfileStore.ClearReadOnlyNotices();
+
+                ConsoleWindow.Print("uiadev: author mode " + (on ? "ON" : "OFF") + ".",
+                    on ? ConsoleColor.Green : ConsoleColor.Cyan);
+                ConsoleWindow.Print(on
+                    ? "  shipped HUD themes are editable this session (F9 edits to them save again)."
+                    : "  shipped HUD themes are read-only again - duplicate one to make it yours.",
+                    ConsoleColor.White);
+                if (on)
+                    ConsoleWindow.Print("  this session only: it resets on restart and on every F6 reload.",
+                        ConsoleColor.White);
+            }
+            catch (Exception e)
+            {
+                ConsoleWindow.Print("uiadev failed: " + e.Message, ConsoleColor.Red);
+            }
+        }
+
         // "uiareset" — see Patch_CommandLine_Process. A full nuke of every UIA on-disk file: the
         // whole config/StationeersUIMod tree (every HUD profile, bag profile, HUD icon, profiler
         // snapshot — everything under it) plus BOTH possible .cfg names (the live SLP one and the
@@ -591,6 +637,7 @@ namespace StationeersUIMod.Core
                 if (Matches(cmd, "stowtrace")) { FinderCommands.StowTrace(cmd); return false; }
                 if (Matches(cmd, "uiareset")) { FinderCommands.UiaReset(cmd); return false; }
                 if (Matches(cmd, "uiatutorial")) { FinderCommands.UiaTutorial(cmd); return false; }
+                if (Matches(cmd, "uiadev")) { FinderCommands.UiaDev(cmd); return false; }
                 if (Matches(cmd, "hudfx")) { FinderCommands.HudFx(cmd); return false; }
                 if (Matches(cmd, "uiadiag"))
                 {

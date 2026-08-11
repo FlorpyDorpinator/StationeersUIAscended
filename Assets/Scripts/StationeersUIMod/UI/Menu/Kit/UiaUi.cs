@@ -177,7 +177,10 @@ namespace StationeersUIMod.UI.Menu.Kit
             content.anchorMax = new Vector2(1f, 1f);
             content.pivot = new Vector2(0.5f, 1f);
             content.offsetMin = new Vector2(0f, 0f);
-            content.offsetMax = new Vector2(0f, 0f);
+            // Right gutter: the scroll bar draws in an overlay lane at the viewport's right edge,
+            // and full-width content put buttons/sliders UNDER it (FlorpyDorp 2026-08-10). Every
+            // scroll view reserves the lane so controls can never clip beneath the bar.
+            content.offsetMax = new Vector2(-14f, 0f);
             VLayout(content, spacing, 0, 0, 0, 0);
             var fit = contentGo.AddComponent<ContentSizeFitter>();
             fit.verticalFit = ContentSizeFitter.FitMode.PreferredSize;

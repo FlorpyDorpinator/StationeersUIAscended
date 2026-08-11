@@ -85,6 +85,84 @@ namespace StationeersUIMod.Windows
                 _blockedCursor = false;
                 Core.CursorBlockArbiter.Release("hudeditor");
             }
+            // Drop any pause the F9 toolbar's Pause button was holding, so closing the editor never
+            // leaves the world frozen (GamePause.Release is a no-op if we were not the one holding it).
+            try { Core.GamePause.Release(PauseReason); } catch { }
+            RestoreImGuiCanvas();   // hand the shared ImGui canvas back to its scene order
+        }
+
+        /// <summary>Our name in the shared <see cref="Core.GamePause"/> latch — the F9 toolbar Pause
+        /// button holds/releases the world under this reason.</summary>
+        internal const string PauseReason = "hudeditor";
+
+        // --- ImGui-above-the-mod-UGUI Z lift (FlorpyDorp: the F9 window + element popup must not be
+        // covered by mod HUD elements) -----------------------------------------------------------------
+        // ImGui renders into a single shared RawImage canvas (ImGuiManager.current.outputRawImage.canvas).
+        // At rest it sits at its low scene-default order — BELOW the mod's own UGUI (HUD 3800 … Control
+        // Center 5200) — so a mod HUD element overlapping the editor draws over it. We lift that nested
+        // canvas to just ABOVE the mod stack while F9 is open (overrideSorting so a nested canvas sorts
+        // independently). NOT vanilla's SetBlockUguiClicks path, which forces 32767 = the game's own
+        // ImGui-modal level ("not like the game elements"). Restored on Exit; only ever RAISES (never
+        // fights a vanilla higher lift such as an open console). Reflection: the ImGui internals vary by
+        // build, so every access is fail-soft.
+        private const int EditorImGuiOrder = 5900;   // above Control Center (5200), below the tooltip (6000)
+        private static Canvas _imguiCanvas;
+        private static bool _imguiResolved;
+        private static bool _imguiRaised;
+        private static int _imguiOrigOrder;
+        private static bool _imguiOrigOverride;
+
+        private static void RaiseImGuiCanvas()
+        {
+            if (!_imguiResolved)
+            {
+                _imguiResolved = true;
+                try
+                {
+                    var t = typeof(Assets.Scripts.UI.ImGuiManager);
+                    var curF = t.GetField("current", System.Reflection.BindingFlags.Static
+                        | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic);
+                    var cur = curF != null ? curF.GetValue(null) : null;
+                    var imgF = cur != null ? t.GetField("outputRawImage", System.Reflection.BindingFlags.Instance
+                        | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic) : null;
+                    var img = imgF != null ? imgF.GetValue(cur) as UnityEngine.UI.RawImage : null;
+                    _imguiCanvas = img != null ? img.canvas : null;
+                }
+                catch { _imguiCanvas = null; }
+            }
+            if (_imguiCanvas == null) return;
+            try
+            {
+                // Raise-only: if the canvas is at its low default (or a lower order), lift it; if vanilla
+                // already lifted it higher (an open console at 32767), leave that alone.
+                if (!_imguiCanvas.overrideSorting || _imguiCanvas.sortingOrder < EditorImGuiOrder)
+                {
+                    if (!_imguiRaised)
+                    {
+                        _imguiOrigOverride = _imguiCanvas.overrideSorting;
+                        _imguiOrigOrder = _imguiCanvas.sortingOrder;
+                        _imguiRaised = true;
+                    }
+                    _imguiCanvas.overrideSorting = true;
+                    _imguiCanvas.sortingOrder = EditorImGuiOrder;
+                }
+            }
+            catch { }
+        }
+
+        private static void RestoreImGuiCanvas()
+        {
+            if (_imguiRaised && _imguiCanvas != null)
+            {
+                try
+                {
+                    _imguiCanvas.overrideSorting = _imguiOrigOverride;
+                    _imguiCanvas.sortingOrder = _imguiOrigOrder;
+                }
+                catch { }
+            }
+            _imguiRaised = false;
+            _imguiResolved = false;   // re-resolve on next activate (guards a destroyed/stale ref post-reload)
         }
 
         public static void Shutdown()
@@ -108,6 +186,9 @@ namespace StationeersUIMod.Windows
             if (!Active) return;
             EnsureBackdrop();
             _dimCanvas.gameObject.SetActive(true);
+            // Keep the editor window + element popup (ImGui) ABOVE the mod's own UGUI HUD/overlays —
+            // re-asserted each frame so a vanilla ImGui toggle mid-session can't strand them low.
+            RaiseImGuiCanvas();
             // Overlay canvases always draw over camera-rendered geometry, so in
             // CurvedWorldCanvas mode the dim would sit ON TOP of the world-space HUD —
             // there, the world itself is the backdrop.

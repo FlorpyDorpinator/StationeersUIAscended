@@ -303,7 +303,8 @@ namespace StationeersUIMod.UI.Hud
             HudActiveProfile = cfg.Bind(S, "HudActiveProfile", "Stationeers Blue",
                 "Which HUD layout profile to render (a .xml in config/StationeersUIMod/" +
                 "HudProfiles). 'Stationeers Blue' is the shipped default; shipped profiles " +
-                "(Stationeers Blue + Pure HUD) import from the mod folder on first run.");
+                "(Stationeers Blue, Stationeers Blue Minimalist, Zirillian Red, Pure HUD) " +
+                "import from the mod folder on first run.");
             GridSnapEnabled = cfg.Bind(S, "GridSnapEnabled", true,
                 "HUD editor: snap dragged/resized elements to the grid. Toggleable live in " +
                 "the F9 window; hold Alt while dragging for temporary freeform.");
@@ -622,13 +623,17 @@ namespace StationeersUIMod.UI.Hud
                     new AcceptableValueRange<float>(0f, 1f)));
             FxAlertCautionBright = cfg.Bind(FX, "AlertCautionBrightness", 1f,
                 new ConfigDescription("Brightness gain on the CAUTION alert colour. 1 = the palette " +
-                    "colour as picked; above 1 drives it toward a hot, blown-out amber; below 1 " +
-                    "gives a subdued tint. Pairs with the HudAlertCaution palette entry.",
+                    "colour as picked; below 1 gives a subdued tint. Above 1 the HUE IS KEPT: once " +
+                    "the amber is as bright as the screen can draw it, the rest of the gain buys a " +
+                    "more solid line and a bigger halo instead of washing the colour out toward " +
+                    "white. Pairs with the HudAlertCaution palette entry.",
                     new AcceptableValueRange<float>(0.25f, 3f)));
             FxAlertCriticalBright = cfg.Bind(FX, "AlertCriticalBrightness", 1f,
                 new ConfigDescription("Brightness gain on the CRITICAL alert colour. 1 = the palette " +
-                    "colour as picked; above 1 drives it toward a hot, blown-out red; below 1 gives " +
-                    "a subdued tint. Pairs with the HudAlertCritical palette entry.",
+                    "colour as picked; below 1 gives a subdued tint. Above 1 the HUE IS KEPT: once " +
+                    "the red is as bright as the screen can draw it, the rest of the gain buys a " +
+                    "more solid line and a bigger halo instead of washing the alarm out to pink or " +
+                    "white. Pairs with the HudAlertCritical palette entry.",
                     new AcceptableValueRange<float>(0.25f, 3f)));
             FxPulseSpeed = cfg.Bind(FX, "PulseSpeedHz", 0.5f,
                 new ConfigDescription("Breathing-pulse rate for elements that opt in, cycles per second.",

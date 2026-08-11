@@ -50,6 +50,7 @@ namespace StationeersUIMod.UI.Hud
         private const int BreathsDefault = 3;      // caution burst length when config is unbound
         private const float SettleMix = 0.55f;     // the critical breath's floor, as a fraction of peak
         private const float GlowFloorAmt = 0.35f;
+        private const float GlowOverMix = 0.5f;    // how much of a >1 brightness gain the halo floor takes
         private const float ReblinkCooldown = 10f; // re-blink when a NEW channel joins
         private const float ArmCooldown = 3f;      // minimum gap between cold-start arms
         private const float HueBlendSeconds = 0.15f;
@@ -86,13 +87,40 @@ namespace StationeersUIMod.UI.Hud
         /// <summary>True while an alarm stands and the tint filters are live.</summary>
         internal static bool Active;
 
-        /// <summary>F9-only preview override: 0 = off, 1 = force caution, 2 = force critical. Set by
-        /// the designer's Alert pulse panel so the hues and brightness can be tuned while WATCHING
-        /// them, instead of having to actually suffocate. Preview breathes CONTINUOUSLY (the caution
-        /// flash loops instead of standing down) — the point is a steady thing to tune against.
+        /// <summary>F9-only preview override: 0 = AUTO (follow the designer's Effects &gt; Alerts
+        /// sub-tab — see <see cref="RequestAutoPreview"/>), 1 = force caution, 2 = force critical,
+        /// -1 = force suppressed. Set by the designer's Alert pulse panel so the hues and brightness
+        /// can be tuned while WATCHING them, instead of having to actually suffocate. Preview breathes
+        /// CONTINUOUSLY (the caution flash loops instead of standing down) — the point is a steady
+        /// thing to tune against. An EXPLICIT level (1/2) is also what carries the alarm to the OTHER
+        /// sub-tabs, so a halo, edge-light or border-colour edit can be judged with the alarm lit.
         /// Cannot leak into normal play: <see cref="Tick"/> disarms it and resets on the very first
         /// frame the editor is no longer active, before any other state is read.</summary>
         internal static int PreviewMode;
+
+        /// <summary>What AUTO resolves to: the persistent CRITICAL breath. It is the level that
+        /// stands still long enough to judge (a caution is a three-flash annunciation that clears),
+        /// and its brightness gain is the knob that was actually broken — see
+        /// <see cref="LevelColor"/>.</summary>
+        private const int AutoPreviewLevel = 2;
+
+        /// <summary>Frame on which the designer's Effects &gt; Alerts sub-tab last drew itself. A
+        /// frame STAMP, not a bool, so nothing has to remember to clear it when the sub-tab loses
+        /// focus, the window closes, or ImGui simply skips a draw.</summary>
+        private static int _autoFrame = -999;
+
+        /// <summary>True while a preview is actually forcing state, so <see cref="Tick"/> can unwind
+        /// it when the designer closes. NOT part of the alarm state machine (<see cref="Reset"/> must
+        /// not touch it — Reset also runs on respawn) — it is an editor-session latch, cleared in
+        /// <see cref="Shutdown"/>.</summary>
+        private static bool _previewArmed;
+
+        /// <summary>Called by HudEditorWindow every frame the Effects &gt; Alerts sub-tab is on
+        /// screen. Auto-arming the preview THERE is the answer to "opening F9 makes the glow
+        /// disappear" (FlorpyDorp, 2026-08-10) that does not cost the suppression its reason: an
+        /// author editing border colours on any other page still never sees a hue they did not type,
+        /// but the one page whose whole job is the alarm shows the alarm.</summary>
+        internal static void RequestAutoPreview() { _autoFrame = Time.frameCount; }
 
         /// <summary>Full reset. Called from HudSystem.Shutdown, from the in-Update stand-down AND
         /// from the !snap.Valid exit — all three, or you return to a world with the previous
@@ -106,7 +134,12 @@ namespace StationeersUIMod.UI.Hud
             _env = 0f; Active = false;
         }
 
-        internal static void Shutdown() { Reset(); PreviewMode = 0; WarningSensor.Shutdown(); }
+        internal static void Shutdown()
+        {
+            Reset();
+            PreviewMode = 0; _autoFrame = -999; _previewArmed = false;
+            WarningSensor.Shutdown();
+        }
 
         /// <summary>Once per frame from HudSystem.Update, after the snapshot validity gate and BEFORE
         /// the content loop, so a severity change tints on the SAME frame rather than one frame
@@ -120,9 +153,13 @@ namespace StationeersUIMod.UI.Hud
             // time F9 closed, since PreviewMode also survived the editor session. Clearing it HERE
             // rather than inside Reset() is deliberate: Reset() also runs on respawn/stand-down, and
             // folding it in there would kill an in-progress preview every time the body changed.
-            if (!editorActive && PreviewMode != 0)
+            // Gated on the ARMED LATCH rather than on PreviewMode, because an AUTO preview forces
+            // exactly the same state while leaving PreviewMode at 0 — testing the field alone would
+            // have let every auto-armed session leak into play through the hole this block exists
+            // to plug.
+            if (!editorActive && _previewArmed)
             {
-                PreviewMode = 0;
+                PreviewMode = 0; _autoFrame = -999; _previewArmed = false;
                 Reset();
                 // Reset() clears _sev, so the first real sample after the designer closes would look
                 // like a COLD START and re-flash a caution the player already watched — breaking the
@@ -134,10 +171,19 @@ namespace StationeersUIMod.UI.Hud
             }
 
             // Suppressed while the F9 designer is open — an author editing border colours must never
-            // see a hue they did not type — UNLESS they explicitly asked to preview the alert from
-            // the designer's own Alert pulse panel, which is the only way to tune the hues while
-            // watching them breathe.
-            bool preview = editorActive && PreviewMode != 0;
+            // see a hue they did not type — UNLESS a preview is asked for, which is the only way to
+            // tune the alarm while watching it breathe.
+            //
+            // The request is either EXPLICIT (a level picked on the designer's Alert pulse panel,
+            // which then follows the author to every other sub-tab) or AUTO: PreviewMode 0 arms the
+            // critical breath for as long as the Effects > Alerts sub-tab is actually on screen. That
+            // is what stops "F9 open = no glow at all" without weakening the suppression anywhere the
+            // suppression has a reason. A negative PreviewMode is the explicit opt-out, and folds to
+            // 0 here so every downstream test stays a simple "level != 0".
+            int level = PreviewMode;
+            if (level == 0 && editorActive && Time.frameCount - _autoFrame <= 2) level = AutoPreviewLevel;
+            if (level < 0) level = 0;
+            bool preview = editorActive && level != 0;
 
             // SUITED ONLY. HudTier.Bare is "no suit, or the suit has no power" (HudSampler.cs:16-17),
             // and the alert is a visor effect — with no powered visor there is no instrument surface
@@ -168,9 +214,12 @@ namespace StationeersUIMod.UI.Hud
 
             if (preview)
             {
+                // Latch that a preview really did force state this editor session, so the disarm at
+                // the top of Tick knows to unwind it however it was armed.
+                _previewArmed = true;
                 // Force the previewed level. The sensor is not polled at all, so a real alarm cannot
                 // fight the preview for control of the hue.
-                bool crit = PreviewMode >= 2;
+                bool crit = level >= 2;
                 _sev = crit ? WarnSev.Critical : WarnSev.Caution;
                 // Show each level's ACTUAL waveform — critical's persistent breath (floored at
                 // SettleMix) or caution's transient flash (falling to nothing) — rather than one
@@ -240,7 +289,7 @@ namespace StationeersUIMod.UI.Hud
             // flag rather than pinning _cycles is what makes that true at EVERY flash count: pinning
             // happens once per frame, but the increment and the completion test both live inside the
             // phase-wrap loop below, so at a count of 1 a single wrap would still stand it down.
-            bool previewLoop = preview && PreviewMode < 2;
+            bool previewLoop = preview && level < 2;
 
             _phase += dt * hz;
             while (_phase >= 1f)
@@ -408,21 +457,75 @@ namespace StationeersUIMod.UI.Hud
             return Mathf.Clamp01((Mathf.Round(v * Steps - off) + off) / Steps);
         }
 
+        /// <summary>ONE alert level's colour with its brightness gain applied HUE-PRESERVINGLY, plus
+        /// the overdrive the display's 0..1 ceiling would otherwise have thrown away
+        /// (<paramref name="over"/>, always &gt;= 1).
+        ///
+        /// THE WHITE-ALERT BUG (FlorpyDorp, 2026-08-10: "red alerts wash out to white"). The gain
+        /// used to be applied raw and left deliberately unclamped, on the theory that "a gain above 1
+        /// is allowed to blow the hue out toward white". It does not blow out toward white — it
+        /// destroys the hue, and it does so WORST in the middle of the breath rather than at its
+        /// peak. <see cref="Tint"/> LERPS this colour against the element's own accent and clamps
+        /// PER CHANNEL, so a critical red of (1, 0.012, 0) x 3 = (3, 0.035, 0) contributes a
+        /// three-times-saturated red while the element's own green and blue survive the mix intact:
+        /// against Stationeers Blue's #54D5FE border at the critical breath's own floor
+        /// (SettleMix, q = 0.55) the result was (1.00, 0.61, 0.69) — salmon pink — snapping back to
+        /// red only at the very peak. And it was not an edge case: every shipped theme carries
+        /// AlertCriticalBrightness = 3 (ShippedProfiles.cs:1588 / :3154 / :4771, and the on-disk
+        /// copies), where the config DEFAULT is 1, so a profile that predates the key and falls back
+        /// to the default (HudTheme.cs:215-220) was the only one seeing a red alarm.
+        ///
+        /// The fix is a uniform scale, which is hue-exact by construction: multiply by the gain, then
+        /// divide the whole triple by its own brightest channel whenever that exceeds 1. A gain BELOW
+        /// 1 is untouched (scaling down never clipped) and <paramref name="over"/> stays 1, as it
+        /// also does for any picked colour dim enough that the gain never reaches the ceiling
+        /// (Zirillian Red's 58007C at 1.181 does not) — those themes keep the exact colour they had.
+        ///
+        /// The removed factor is not discarded. It is spent on the three things that CAN carry
+        /// "brighter" on an LDR canvas without lying about the hue: how far the blend travels toward
+        /// the alert colour, how opaque it lands (both <see cref="Tint"/>), and how big a halo it
+        /// forces (<see cref="Glow"/>).
+        ///
+        /// RGB only: the gain must never touch alpha, which carries the hasBorder lift in
+        /// <see cref="Tint"/>.</summary>
+        private static Color LevelColor(bool critical, out float over)
+        {
+            Color c;
+            float gain;
+            if (critical)
+            {
+                c = HudPalette.AlertCritical != null
+                    ? HudPalette.AlertCritical.Value : new Color(1f, 0.290f, 0.239f, 1f);
+                gain = HudConfig.FxAlertCriticalBright != null ? HudConfig.FxAlertCriticalBright.Value : 1f;
+            }
+            else
+            {
+                c = HudPalette.AlertCaution != null
+                    ? HudPalette.AlertCaution.Value : new Color(1f, 0.694f, 0.239f, 1f);
+                gain = HudConfig.FxAlertCautionBright != null ? HudConfig.FxAlertCautionBright.Value : 1f;
+            }
+            c.r *= gain; c.g *= gain; c.b *= gain;
+            float m = Mathf.Max(c.r, Mathf.Max(c.g, c.b));
+            over = 1f;
+            if (m > 1f)
+            {
+                float k = 1f / m;
+                c.r *= k; c.g *= k; c.b *= k;
+                over = m;
+            }
+            return c;
+        }
+
         /// <summary>The alert hue at this point of the caution-to-critical crossfade, with each
         /// level's own brightness gain applied BEFORE the blend — so the two levels are independently
-        /// tunable and a crossfade between them stays continuous. RGB only: the gain must never touch
-        /// alpha, which carries the hasBorder lift in <see cref="Tint"/>. Deliberately unclamped here
-        /// (a gain above 1 is allowed to blow the hue out toward white); Tint does the final clamp.</summary>
-        private static Color AlertColor(float hueQ)
+        /// tunable and a crossfade between them stays continuous. <paramref name="over"/> crossfades
+        /// with the hue for the same reason.</summary>
+        private static Color AlertColor(float hueQ, out float over)
         {
-            Color a = HudPalette.AlertCaution != null
-                ? HudPalette.AlertCaution.Value : new Color(1f, 0.694f, 0.239f, 1f);
-            Color b = HudPalette.AlertCritical != null
-                ? HudPalette.AlertCritical.Value : new Color(1f, 0.290f, 0.239f, 1f);
-            float ga = HudConfig.FxAlertCautionBright != null ? HudConfig.FxAlertCautionBright.Value : 1f;
-            float gb = HudConfig.FxAlertCriticalBright != null ? HudConfig.FxAlertCriticalBright.Value : 1f;
-            a.r *= ga; a.g *= ga; a.b *= ga;
-            b.r *= gb; b.g *= gb; b.b *= gb;
+            float oa, ob;
+            Color a = LevelColor(false, out oa);
+            Color b = LevelColor(true, out ob);
+            over = Mathf.Lerp(oa, ob, hueQ);
             return Color.Lerp(a, b, hueQ);
         }
 
@@ -440,21 +543,52 @@ namespace StationeersUIMod.UI.Hud
             if (q <= 0.0001f) return c;
             // _hue is quantised on the SAME grid: an unquantised 0.15s crossfade would otherwise
             // re-mesh every alerted panel every frame during an escalation.
-            Color a = AlertColor(Quantise(_hue, seed));
+            float over;
+            Color a = AlertColor(Quantise(_hue, seed), out over);
             float bright = 1f + Mathf.Clamp01(
                 HudConfig.FxAlertPulseStrength != null ? HudConfig.FxAlertPulseStrength.Value : 0.6f) * q;
-            Color o = Color.Lerp(c, a, q);
-            o.r = Mathf.Clamp01(o.r * bright);
-            o.g = Mathf.Clamp01(o.g * bright);
-            o.b = Mathf.Clamp01(o.b * bright);
+
+            // WHERE THE BRIGHTNESS OVERDRIVE GOES (part 1 of 3): into how far the blend travels,
+            // not into the channel values. This is the honest translation of what the old raw gain
+            // did BY ACCIDENT — an alert red of (3, 0.035, 0) saturated the red channel at about a
+            // third of the breath, so the alarm "dominated" earlier; but only the RED channel did,
+            // and the element's own green/blue rode the mix untouched, which is precisely why the
+            // result was pink rather than red. Curving the WEIGHT reproduces the intended "the
+            // alarm takes over sooner" on all three channels at once, so the hue is the picked hue
+            // at every point of the breath.
+            //
+            // A power curve, not a multiply-and-clamp: q*over would peg the weight at 1 for the
+            // whole of a critical breath (its envelope floors at SettleMix = 0.55, so 0.55 * 3 is
+            // already past 1) and the alarm would stop visibly breathing at exactly the settings
+            // that ask it to shout. q^(1/over) leaves the peak at 1, lifts the trough, and keeps
+            // the swing. over == 1 makes it the identity — a default-brightness profile takes the
+            // pre-fix path bit for bit.
+            float qc = over > 1.0001f ? Mathf.Pow(q, 1f / over) : q;
+            Color o = Color.Lerp(c, a, qc);
+
+            // (part 2 of 3) HUE-PRESERVING breath gain, the same rule as LevelColor and for the same
+            // reason: the breath's own 1..2 brightness rides on a blend that still carries the
+            // element's accent, so a per-channel Clamp01 here washed the mix toward white exactly
+            // when the alarm was loudest. Scaling the whole triple by ONE factor keeps the hue and
+            // parks it at the brightest value the canvas can show. Where the old expression did not
+            // clip (max channel x bright <= 1) this is arithmetically identical; where it DID clip
+            // it now desaturates instead of whitening — so this half of the fix bites at EVERY
+            // brightness gain, including the default 1.0, and not only above the ceiling.
+            float m = Mathf.Max(o.r, Mathf.Max(o.g, o.b)) * bright;
+            float gain = m > 1f ? bright / m : bright;
+            o.r = Mathf.Clamp01(o.r * gain);
+            o.g = Mathf.Clamp01(o.g * gain);
+            o.b = Mathf.Clamp01(o.b * gain);
             // Lift alpha over PanelGraphic's hasBorder gate ('bw > 0.05f && BorderColor.a > 0.004f',
-            // PanelGraphic.cs:635) so a near-clear border still emits a coloured halo. A zero
+            // PanelGraphic.cs:748) so a near-clear border still emits a coloured halo. A zero
             // BorderWidth still cannot — noted on the play-test list.
             // The picked colour's own alpha SCALES that lift, so the pickers' alpha bar means
             // something ("how hard may this alert force a faint border to show?") instead of being a
             // live-looking control with no effect. Both palette defaults are opaque, so this is
             // behaviour-preserving at 1.0.
-            o.a = Mathf.Clamp01(Mathf.Max(c.a, q * 0.45f * a.a));
+            // (part 3 of 3) It rides the CURVED weight, so a high brightness gain also makes the
+            // alert more solid rather than whiter — and at over == 1 it is the old expression.
+            o.a = Mathf.Clamp01(Mathf.Max(c.a, qc * 0.45f * a.a));
             return o;
         }
 
@@ -471,6 +605,8 @@ namespace StationeersUIMod.UI.Hud
         /// CONSTANT then and the "changes only at onset/clear" contract holds — and only ramps during
         /// FadeOut, where it is quantised on the SAME per-element grid as <see cref="Tint"/> so the
         /// skirt re-tessellations spread across frames instead of every panel rebuilding at once.
+        /// The floor is additionally scaled by <see cref="GlowOverdrive"/>, which is where a
+        /// brightness gain above 1 now goes now that it no longer whitens the hue.
         /// <paramref name="seed"/> is the element's HudDocument.StableSeed(Def.Id).</summary>
         internal static float Glow(float g) { return Glow(g, 0); }
 
@@ -479,7 +615,28 @@ namespace StationeersUIMod.UI.Hud
             if (!Active) return g;
             // Quantise(1, seed) clamps back to 1 for every seed, so an actively-standing alarm holds a
             // constant floor with no per-element churn; only the fade's sub-1 values vary per element.
-            return Mathf.Max(g, GlowFloorAmt * Quantise(_alertGlow, seed));
+            return Mathf.Max(g, GlowFloorAmt * GlowOverdrive() * Quantise(_alertGlow, seed));
+        }
+
+        /// <summary>The halo's share of a brightness gain above 1 — the other half of what
+        /// <see cref="LevelColor"/>'s hue-preserving clamp took off the colour. "Brighter" on a
+        /// display that already reads full red can only mean MORE LIGHT, i.e. a bigger halo and a
+        /// more opaque line, so the gain is spent there instead of on a hue nobody asked for.
+        /// Taken at <see cref="GlowOverMix"/> strength and capped by the config's own 3.0 ceiling, so
+        /// the shipped themes' gain of 3 doubles the forced floor (0.35 -> 0.70) rather than tripling
+        /// it into the FxGlow slider's top third.
+        ///
+        /// Reads the CURRENT SEVERITY's level directly rather than the crossfaded
+        /// <see cref="AlertColor"/>: the perf contract on <see cref="Glow"/> is that the floor is a
+        /// CONSTANT, decided at onset and clear, because _glow re-tessellates the emitted skirt. A
+        /// severity is a step, so the floor stays a step; a hue crossfade would have made it a ramp
+        /// and re-meshed every alerted panel for the 0.15s an escalation takes. Palette and gain are
+        /// constants during play (they move only under an F9 drag, where a re-mesh is the point).</summary>
+        private static float GlowOverdrive()
+        {
+            float over;
+            LevelColor(_sev == WarnSev.Critical, out over);
+            return 1f + (Mathf.Min(over, 3f) - 1f) * GlowOverMix;
         }
     }
 }

@@ -1,9 +1,9 @@
 <?xml version="1.0"?>
-<HudDocument xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" Schema="16" Name="Stationeers Blue" RefW="0" RefH="0">
-  <El Id="g2-topbar" Type="Box" Anchor="TopCenter" X="0" Y="-38" W="1860" H="62" WPct="0.99" HPct="-1" Z="0" Tiers="Suited Robot" Fill="#001727D5" Border="#54D5FE65" TextColor="#FFFFFFF5" BorderWidth="0.076" RTL="32.778" RTR="23.263" RBR="64" RBL="64" FontScale="1" Align="Center">
+<HudDocument xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" Schema="7" Name="Stationeers Blue" RefW="0" RefH="0">
+  <El Id="g2-topbar" Type="Box" Anchor="TopCenter" X="0" Y="-38" W="1860" H="62" WPct="0.99" HPct="-1" Z="0" Tiers="Suited Robot" Fill="#001727D5" Border="#54D5FE65" TextColor="#FFFFFFF5" BorderWidth="0.076" RTL="11.771" RTR="11.771" RBR="11.771" RBL="11.771" FontScale="1" Align="Center">
     <P K="insetBottom" V="9.418" />
     <P K="sheen" V="0" />
-    <P K="spec" V="0" />
+    <P K="spec" V="0.689399958" />
     <P K="fxCollapse" V="false" />
     <P K="mAL" V="true" />
     <P K="mAAnchor" V="1" />
@@ -16,7 +16,7 @@
     <P K="edgeFadeY" V="0.06" />
     <P K="edgeFadeX" V="0.191" />
     <P K="bfade" V="0.775" />
-    <P K="feather" V="0.932" />
+    <P K="feather" V="1.27" />
     <P K="rippleSmooth" V="0" />
     <P K="ripple" V="2.27" />
     <P K="glowWidth" V="31.468" />
@@ -47,15 +47,17 @@
     <P K="customIridOn" V="false" />
     <P K="customIrid" V="0.008" />
     <P K="customChromaOn" V="true" />
-    <P K="customChroma" V="0.564" />
+    <P K="customChroma" V="0.492" />
     <P K="customFrostOn" V="true" />
-    <P K="customFrost" V="0.49764" />
+    <P K="customFrost" V="0.426" />
     <P K="customDissolve" V="true" />
     <P K="customStyleReady" V="true" />
     <P K="styleSource" V="2" />
     <P K="fxWarp" V="true" />
     <P K="fxCollapseMode" V="2" />
-    <P K="styleSrc" V="682" />
+    <P K="styleSrc" V="674" />
+    <P K="cornerStyle" V="0" />
+    <P K="insetTop" V="0" />
   </El>
   <El Id="g2-clock" Type="Clock" Anchor="TopLeft" X="150" Y="-38" W="200" H="40" WPct="-1" HPct="-1" Z="2" Tiers="Suited Robot" Fill="#0017279A" Border="#54D5FE65" TextColor="#FFFFFF5B" BorderWidth="0.076" RTL="11.771" RTR="11.771" RBR="11.771" RBL="11.771" FontScale="1" Align="Center">
     <P K="fxCollapse" V="false" />
@@ -409,7 +411,7 @@
     <P K="customStyleReady" V="true" />
     <P K="bLayout" V="true" />
     <P K="bAnchor" V="1" />
-    <P K="bX" V="-68" />
+    <P K="bX" V="-11" />
     <P K="bY" V="-768" />
     <P K="bW" V="1414" />
     <P K="bH" V="64" />
@@ -488,7 +490,41 @@
     <P K="fxCollapseMode" V="2" />
     <P K="fxGlitchMode" V="2" />
     <P K="tierStyle" V="1" />
-    <P K="tierStyleNeedsSeed" V="true" />
+    <P K="b_styleSource" V="2" />
+    <P K="b_bw" V="0.67" />
+    <P K="b_feather" V="0.932" />
+    <P K="b_rtl" V="11.771" />
+    <P K="b_rtr" V="11.771" />
+    <P K="b_rbr" V="11.771" />
+    <P K="b_rbl" V="11.771" />
+    <P K="b_sheen" V="0" />
+    <P K="b_spec" V="0.689399958" />
+    <P K="b_squircle" V="3.517" />
+    <P K="b_gaussianHalo" V="false" />
+    <P K="b_fs" V="1.041" />
+    <P K="b_customBorderFadeOn" V="true" />
+    <P K="b_bfade" V="0.757" />
+    <P K="b_customSoftEdgeOn" V="false" />
+    <P K="b_edgeFadeX" V="0" />
+    <P K="b_edgeFadeY" V="0" />
+    <P K="b_customShineOn" V="false" />
+    <P K="b_customIridOn" V="false" />
+    <P K="b_customChromaOn" V="true" />
+    <P K="b_customChroma" V="0.564" />
+    <P K="b_customFrostOn" V="true" />
+    <P K="b_customFrost" V="0.87" />
+    <P K="b_frostDepth" V="0.359" />
+    <P K="b_gap" V="5.446" />
+    <P K="b_horizontal" V="true" />
+    <P K="b_iconScale" V="0.559" />
+    <P K="b_iconDX" V="0" />
+    <P K="b_iconDY" V="0" />
+    <P K="b_labels" V="true" />
+    <P K="b_damageWarn" V="true" />
+    <P K="b_damageBarThick" V="0.085" />
+    <P K="b_warnScale" V="0.72" />
+    <P K="b_iconTintMode" V="0" />
+    <P K="b_dropWholeBox" V="false" />
     <P K="b_glowExtraDiffuse" V="0" />
     <P K="b_glowHaze" V="0.424" />
     <P K="b_glowBreath" V="0.299" />
@@ -498,6 +534,7 @@
     <P K="b_customGlowBreathOn" V="true" />
     <P K="b_customGlowUnevenOn" V="true" />
     <P K="b_customGlowFlowOn" V="true" />
+    <P K="b_styleSrc" V="682" />
     <P K="styleSrc" V="682" />
   </El>
   <El Id="g2-hands" Type="HandBoxes" Anchor="BottomCenter" X="-16" Y="62" W="358" H="118" WPct="-1" HPct="-1" Z="2" Tiers="All" Fill="#0017279A" Border="#54D5FE65" TextColor="#FFFFFFF5" BorderWidth="0.076" RTL="11.771" RTR="11.771" RBR="11.771" RBL="11.771" FontScale="0.599" Align="Center">
@@ -570,7 +607,40 @@
     <P K="fxDissolveMode" V="2" />
     <P K="fxGlitchMode" V="2" />
     <P K="tierStyle" V="1" />
-    <P K="tierStyleNeedsSeed" V="true" />
+    <P K="b_styleSource" V="2" />
+    <P K="b_text" V="#FFFFFFF5" />
+    <P K="b_bw" V="0.076" />
+    <P K="b_feather" V="0.932" />
+    <P K="b_rtl" V="11.771" />
+    <P K="b_rtr" V="11.771" />
+    <P K="b_rbr" V="11.771" />
+    <P K="b_rbl" V="11.771" />
+    <P K="b_sheen" V="0" />
+    <P K="b_spec" V="0" />
+    <P K="b_squircle" V="3.517" />
+    <P K="b_gaussianHalo" V="false" />
+    <P K="b_fs" V="0.599" />
+    <P K="b_customRippleOn" V="false" />
+    <P K="b_customBorderFadeOn" V="false" />
+    <P K="b_customSoftEdgeOn" V="false" />
+    <P K="b_edgeFadeX" V="0" />
+    <P K="b_edgeFadeY" V="0" />
+    <P K="b_customGlowOn" V="false" />
+    <P K="b_customShineOn" V="false" />
+    <P K="b_customIridOn" V="false" />
+    <P K="b_customChromaOn" V="false" />
+    <P K="b_customFrostOn" V="false" />
+    <P K="b_gap" V="24.576" />
+    <P K="b_titleDX" V="0" />
+    <P K="b_titleDY" V="-0.735" />
+    <P K="b_stateDX" V="1.179" />
+    <P K="b_stateDY" V="-3.324" />
+    <P K="b_iconScale" V="0.542" />
+    <P K="b_iconDX" V="0" />
+    <P K="b_iconDY" V="-1.572" />
+    <P K="b_tray" V="false" />
+    <P K="b_iconTintMode" V="0" />
+    <P K="b_dropWholeBox" V="false" />
     <P K="b_glowExtraDiffuse" V="0" />
     <P K="b_glowHaze" V="0" />
     <P K="b_glowBreath" V="0" />
@@ -580,6 +650,7 @@
     <P K="b_customGlowBreathOn" V="false" />
     <P K="b_customGlowUnevenOn" V="false" />
     <P K="b_customGlowFlowOn" V="false" />
+    <P K="b_styleSrc" V="682" />
     <P K="styleSrc" V="682" />
   </El>
   <El Id="g2-eqright" Type="EquipmentColumn" Anchor="BottomCenter" X="360" Y="56" W="264" H="78" WPct="-1" HPct="-1" Z="2" Tiers="All" Fill="HudPanelFill" Border="HudPanelBorder" TextColor="HudTextValue" BorderWidth="0.076" RTL="11.771" RTR="11.771" RBR="11.771" RBL="11.771" FontScale="1" Align="Center">
@@ -645,7 +716,41 @@
     <P K="fxCollapseMode" V="2" />
     <P K="fxGlitchMode" V="2" />
     <P K="tierStyle" V="1" />
-    <P K="tierStyleNeedsSeed" V="true" />
+    <P K="b_styleSource" V="2" />
+    <P K="b_bw" V="0.076" />
+    <P K="b_feather" V="0.932" />
+    <P K="b_rtl" V="11.771" />
+    <P K="b_rtr" V="11.771" />
+    <P K="b_rbr" V="11.771" />
+    <P K="b_rbl" V="11.771" />
+    <P K="b_sheen" V="0" />
+    <P K="b_spec" V="0.689399958" />
+    <P K="b_squircle" V="3.517" />
+    <P K="b_gaussianHalo" V="false" />
+    <P K="b_fs" V="1" />
+    <P K="b_customBorderFadeOn" V="true" />
+    <P K="b_bfade" V="0.757" />
+    <P K="b_customSoftEdgeOn" V="false" />
+    <P K="b_edgeFadeX" V="0" />
+    <P K="b_edgeFadeY" V="0" />
+    <P K="b_customShineOn" V="false" />
+    <P K="b_customIridOn" V="false" />
+    <P K="b_customChromaOn" V="true" />
+    <P K="b_customChroma" V="0.564" />
+    <P K="b_customFrostOn" V="true" />
+    <P K="b_customFrost" V="0.87" />
+    <P K="b_frostDepth" V="0.359" />
+    <P K="b_gap" V="8" />
+    <P K="b_horizontal" V="true" />
+    <P K="b_iconScale" V="0.559" />
+    <P K="b_iconDX" V="0" />
+    <P K="b_iconDY" V="0" />
+    <P K="b_labels" V="true" />
+    <P K="b_damageWarn" V="true" />
+    <P K="b_damageBarThick" V="0.085" />
+    <P K="b_warnScale" V="0.72" />
+    <P K="b_iconTintMode" V="0" />
+    <P K="b_dropWholeBox" V="false" />
     <P K="b_glowExtraDiffuse" V="0" />
     <P K="b_glowHaze" V="0.424" />
     <P K="b_glowBreath" V="0.299" />
@@ -655,9 +760,10 @@
     <P K="b_customGlowBreathOn" V="true" />
     <P K="b_customGlowUnevenOn" V="true" />
     <P K="b_customGlowFlowOn" V="true" />
+    <P K="b_styleSrc" V="682" />
     <P K="styleSrc" V="682" />
   </El>
-  <El Id="g2-portrait" Type="Portrait" Anchor="BottomRight" X="-96" Y="100" W="186" H="178" WPct="-1" HPct="-1" Z="3" Tiers="Suited Robot" Fill="HudPanelFill" Border="#54D5FE83" TextColor="HudTextValue" BorderWidth="0.728" RTL="11.771" RTR="11.771" RBR="11.771" RBL="11.771" FontScale="0.679" Align="Center">
+  <El Id="g2-portrait" Type="Portrait" Anchor="BottomRight" X="-96" Y="100" W="186" H="178" WPct="-1" HPct="-1" Z="10" Tiers="Suited Robot" Fill="HudPanelFill" Border="HudPanelBorder" TextColor="HudTextValue" BorderWidth="1.534" RTL="11.771" RTR="11.771" RBR="11.771" RBL="11.771" FontScale="0.679" Align="Center">
     <P K="camFov" V="25.08" />
     <P K="holo" V="false" />
     <P K="scanlines" V="true" />
@@ -1004,10 +1110,10 @@
     <P K="styleSrc" V="0" />
   </El>
   <El Id="e4d9d8873c1b46fab33d7ccb368865d4" Type="PngDoll" Anchor="Center" X="673.326" Y="-500.72702" W="90" H="218" WPct="-1" HPct="-1" Z="50" Tiers="Suited Robot" Fill="HudPanelFill" Border="HudPanelBorder" TextColor="HudTextValue" BorderWidth="0.076" RTL="11.771" RTR="11.771" RBR="11.771" RBL="11.771" FontScale="1" Align="Center">
-    <P K="armY" V="0.002" />
+    <P K="armY" V="0.008" />
     <P K="legSpread" V="0.088" />
     <P K="legY" V="-0.114" />
-    <P K="armSpread" V="1.517" />
+    <P K="armSpread" V="1.531" />
     <P K="figScale" V="0.909" />
     <P K="box" V="true" />
     <P K="mAL" V="true" />
@@ -1023,7 +1129,7 @@
     <P K="glow" V="0" />
     <P K="glowIn" V="0" />
     <P K="softEdge" V="0" />
-    <P K="wholeBody" V="true" />
+    <P K="wholeBody" V="false" />
     <P K="feather" V="0.932" />
     <P K="squircle" V="3.517" />
     <P K="gaussianHalo" V="false" />
@@ -1356,31 +1462,14 @@
     <E k="cfg:CurveInvert" v="false" />
     <E k="cfg:WorldCanvasDistance" v="0.6" />
     <E k="cfg:BareFlattens" v="true" />
-    <E k="cfg:ShowTopBar" v="false" />
-    <E k="cfg:ShowCompass" v="false" />
-    <E k="cfg:ShowEquipment" v="false" />
-    <E k="cfg:ShowHands" v="false" />
-    <E k="cfg:ShowVitals" v="false" />
     <E k="cfg:ShowVignette" v="false" />
-    <E k="cfg:ShowHologram" v="false" />
     <E k="cfg:ShowScanlines" v="false" />
     <E k="cfg:TintItemIcons" v="false" />
     <E k="cfg:HudScale" v="1.209" />
-    <E k="cfg:TopBarHeight" v="75.89" />
-    <E k="cfg:TopBarCurve" v="117.306" />
-    <E k="cfg:TopBarWidthPct" v="0.781" />
-    <E k="cfg:CompassWidthPct" v="0.15" />
-    <E k="cfg:CompassHeight" v="33.699" />
-    <E k="cfg:CompassFovDeg" v="116.674" />
-    <E k="cfg:EquipBoxSize" v="83.814" />
-    <E k="cfg:EquipSpacing" v="15.374" />
-    <E k="cfg:HandBoxWidth" v="130.557" />
-    <E k="cfg:HandBoxHeight" v="88.292" />
-    <E k="cfg:VitalsWidth" v="264.95" />
-    <E k="cfg:VitalsHeight" v="160.639" />
     <E k="cfg:CornerRadius" v="11.771" />
+    <E k="cfg:HudCornerStyle" v="0" />
     <E k="cfg:BorderWidth" v="0.076" />
-    <E k="cfg:EdgeFeather" v="0.932" />
+    <E k="cfg:EdgeFeather" v="1.27" />
     <E k="cfg:GlassSheen" v="0" />
     <E k="cfg:GlassEdge" v="0" />
     <E k="cfg:SdfPanels" v="true" />
@@ -1389,21 +1478,15 @@
     <E k="cfg:FontName" v="RBNoBold" />
     <E k="cfg:FontScale" v="1.004" />
     <E k="cfg:LabelFontSize" v="13.626" />
-    <E k="cfg:ValueFontSize" v="19.784" />
-    <E k="cfg:CompassFontSize" v="14.185" />
-    <E k="cfg:BareWordFontSize" v="22.601" />
-    <E k="cfg:VitalsRowFontSize" v="15.5" />
     <E k="cfg:DiegeticTiers" v="true" />
+    <E k="cfg:DetailedVitalsTooltips" v="true" />
     <E k="cfg:FlickerAnimations" v="true" />
     <E k="cfg:LowPowerDropouts" v="true" />
     <E k="cfg:LowPowerThreshold" v="27.034" />
-    <E k="cfg:GlitchEnabled" v="true" />
-    <E k="cfg:GlitchDuration" v="1.777" />
-    <E k="cfg:GlitchIntensity" v="0.457" />
     <E k="cfg:GlitchOnPowerDown" v="true" />
     <E k="cfg:GlitchOnPowerUp" v="false" />
     <E k="cfg:FxTierA" v="true" />
-    <E k="cfg:FxTierB" v="false" />
+    <E k="cfg:FxTierB" v="true" />
     <E k="cfg:FxTierC" v="true" />
     <E k="cfg:FxHairlinesOn" v="true" />
     <E k="cfg:FxEdgeLightOn" v="true" />
@@ -1437,6 +1520,7 @@
     <E k="cfg:FxCollapseAmt" v="1" />
     <E k="cfg:FxGlitchOn" v="true" />
     <E k="cfg:FxGlitchAmt" v="1" />
+    <E k="cfg:FxGlitchDuration" v="1.777" />
     <E k="cfg:FxWarpOn" v="true" />
     <E k="cfg:FxWarpAmt" v="1" />
     <E k="cfg:FxTvOffOn" v="false" />
@@ -1471,21 +1555,16 @@
     <E k="cfg:FxAlertCriticalBright" v="3" />
     <E k="cfg:FrostStrength" v="0.87" />
     <E k="cfg:FrostDepth" v="0.359" />
-    <E k="cfg:FrostDownsample" v="4" />
-    <E k="cfg:FrostUpdateEveryN" v="2" />
     <E k="cfg:FrostDarken" v="0.605" />
     <E k="cfg:FrostTint" v="#FFFFFF" />
     <E k="cfg:FxBloomOn" v="false" />
     <E k="cfg:FxBloomStrength" v="1.245" />
     <E k="cfg:FxBloomThreshold" v="0.996" />
     <E k="cfg:FxBloomKnee" v="0.589" />
-    <E k="cfg:FxBloomBlurSteps" v="2" />
     <E k="cfg:FxBloomSpread" v="0.808" />
-    <E k="cfg:FxBloomFineDetail" v="true" />
     <E k="cfg:FxBloomSaturation" v="1.013" />
     <E k="cfg:FxBloomTint" v="#DBF1F6" />
     <E k="cfg:FxBloomAnamorph" v="0.194" />
-    <E k="cfg:FxBloomRes" v="2" />
     <E k="cfg:FxBloomPulseOn" v="false" />
     <E k="cfg:FxBloomPulseSpeed" v="0.704" />
     <E k="cfg:FxBloomPulseDepth" v="0.552" />
@@ -1507,11 +1586,11 @@
     <E k="pal:HudTextLabel" v="8FB4C2D0" />
     <E k="pal:HudTextValue" v="FFFFFFF5" />
     <E k="pal:HudTextDim" v="6A8E9BA8" />
-    <E k="pal:HudGood" v="4CE07AE6" />
-    <E k="pal:HudWarn" v="F9FF00FF" />
+    <E k="pal:HudGood" v="23FF00E6" />
+    <E k="pal:HudWarn" v="FFEF00FF" />
     <E k="pal:HudCritical" v="FF1200F0" />
-    <E k="pal:HudAlertCaution" v="FFB13DFF" />
-    <E k="pal:HudAlertCritical" v="FF4A3DFF" />
+    <E k="pal:HudAlertCaution" v="FFEF00FF" />
+    <E k="pal:HudAlertCritical" v="FF0300FF" />
     <E k="pal:HudCompassTick" v="35C8E870" />
     <E k="pal:HudCompassCardinal" v="D8F0F8EE" />
     <E k="pal:HudCompassNeedle" v="FF8C29D9" />
@@ -1547,5 +1626,108 @@
     <E k="rad:HintBarFill" v="000000C4" />
     <E k="rad:HintBarBorder" v="00000000" />
     <E k="rad:HintBarText" v="FFFFFFFF" />
+    <E k="radial:RadialOuterRadius" v="294.182" />
+    <E k="radial:RadialInnerRadius" v="116.814" />
+    <E k="radial:IconFlipV" v="false" />
+    <E k="radial:RadialIconRatio" v="0.62" />
+    <E k="radial:RadialShineIntensity" v="0.599" />
+    <E k="radial:ParkedChipRadius" v="49.229" />
+    <E k="radial:RadialShowWedgeLabels" v="false" />
+    <E k="radial:RadialEdgeFeather" v="2.198" />
+    <E k="radial:RadialBorderWidth" v="3.12" />
+    <E k="radial:RadialSideBorders" v="true" />
+    <E k="radial:RadialSideWidthInner" v="0.5" />
+    <E k="radial:RadialSideWidthOuter" v="3.215" />
+    <E k="radial:RadialWedgeGapDeg" v="0" />
+    <E k="radial:RadialDimShading" v="false" />
+    <E k="radial:RadialDimStrength" v="0.5" />
+    <E k="radial:RadialFontName" v="RBNoBook" />
+    <E k="radial:RadialUppercaseLabels" v="true" />
+    <E k="radial:RadialShowStateText" v="true" />
+    <E k="radial:RadialShowBindingLabels" v="true" />
+    <E k="radial:RadialSatelliteScale" v="0.994" />
+    <E k="radial:RadialHubTitleSize" v="20.914" />
+    <E k="radial:RadialTextVerb" v="17.587" />
+    <E k="radial:RadialTextLabel" v="16.516" />
+    <E k="radial:RadialTextSub" v="14.065" />
+    <E k="radial:RadialTextWarn" v="12" />
+    <E k="radial:RadialRotateLongLabels" v="true" />
+    <E k="radial:RadialSatelliteHubRatio" v="0.34" />
+    <E k="radial:RadialDynamicReadoutText" v="true" />
+    <E k="radial:RadialFrost" v="true" />
+    <E k="radial:RadialFrostStrength" v="1" />
+    <E k="radial:RadialSheen" v="0.023" />
+    <E k="radial:RadialEdgeLight" v="0" />
+    <E k="radial:HintBarCorner" v="12" />
+    <E k="radial:HintBarBorderWidth" v="0" />
+    <E k="radial:HintBarFeather" v="1.486667" />
+    <E k="radial:HintBarSheen" v="0" />
+    <E k="radial:HintBarSpec" v="0" />
+    <E k="radial:HintBarGlow" v="0" />
+    <E k="radial:HintBarGlowWidth" v="24" />
+    <E k="radial:HintBarFontSize" v="11.2" />
+    <E k="radial:HintBarBold" v="true" />
+    <E k="radial:HintBarHeight" v="30" />
+    <E k="radial:HintBarPadding" v="24" />
+    <E k="radial:HintBarDrop" v="34" />
+    <E k="radial:HintBarFrost" v="false" />
+    <E k="radial:HintBarFrostStrength" v="0.85" />
+    <E k="grid:Follow" v="false" />
+    <E k="grid:FillRef" v="HudPanelFill" />
+    <E k="grid:BorderRef" v="HudPanelBorder" />
+    <E k="grid:TextRef" v="HudTextValue" />
+    <E k="grid:CornerRadiusOv" v="3.711" />
+    <E k="grid:SheenOv" v="-1" />
+    <E k="grid:SpecOv" v="-1" />
+    <E k="grid:BorderWidthOv" v="1.321" />
+    <E k="grid:FeatherOv" v="0.971" />
+    <E k="grid:SquircleOv" v="-1" />
+    <E k="grid:GaussianMode" v="2" />
+    <E k="grid:BorderFadeOv" v="-1" />
+    <E k="grid:SoftEdgeOv" v="-1" />
+    <E k="grid:GlowMode" v="2" />
+    <E k="grid:GlowOv" v="-1" />
+    <E k="grid:GlowInnerOv" v="-1" />
+    <E k="grid:GlowHazeOv" v="-1" />
+    <E k="grid:GlowWidthOv" v="-1" />
+    <E k="grid:GlowDiffuseOv" v="-1" />
+    <E k="grid:GlowExtraDiffuseOv" v="-1" />
+    <E k="grid:RippleMode" v="2" />
+    <E k="grid:RippleOv" v="-1" />
+    <E k="grid:RippleFreqOv" v="-1" />
+    <E k="grid:RippleSmoothOv" v="-1" />
+    <E k="grid:FlowOv" v="-1" />
+    <E k="grid:FrostOn" v="true" />
+    <E k="grid:FrostOv" v="-1" />
+    <E k="grid:FrostDepthOv" v="-1" />
+    <E k="grid:ShineOv" v="-1" />
+    <E k="grid:IridOv" v="-1" />
+    <E k="grid:ChromaOv" v="-1" />
+    <E k="grid:PerTier" v="false" />
+    <E k="grid:BareFillRef" v="" />
+    <E k="grid:BareBorderRef" v="" />
+    <E k="grid:BareTextRef" v="" />
+    <E k="grid:BareOpacity" v="-1" />
+    <E k="grid:BareFrostMode" v="0" />
+    <E k="menu:Follow" v="true" />
+    <E k="menu:Scrim" v="#05050580" />
+    <E k="menu:Window" v="#292B2EE6" />
+    <E k="menu:Bar" v="#333638F2" />
+    <E k="menu:Panel" v="#36383BEB" />
+    <E k="menu:PanelRaised" v="#45474AFA" />
+    <E k="menu:PanelHover" v="#54575CFF" />
+    <E k="menu:Track" v="#5C5E63FF" />
+    <E k="menu:Divider" v="#FFFFFF14" />
+    <E k="menu:Border" v="#2E7A94AB" />
+    <E k="menu:Accent" v="#59C7E6FF" />
+    <E k="menu:Selected" v="#FF8C29FF" />
+    <E k="menu:On" v="#5CD17AFF" />
+    <E k="menu:Off" v="#596673FF" />
+    <E k="menu:Text" v="#F0F7FFFF" />
+    <E k="menu:TextDim" v="#B8CCDEFF" />
+    <E k="menu:TextMute" v="#8599ADFF" />
+    <E k="menu:Good" v="#6BD985FF" />
+    <E k="menu:Warn" v="#FAC74CFF" />
+    <E k="menu:Critical" v="#F26661FF" />
   </Theme>
 </HudDocument>

@@ -258,8 +258,28 @@ namespace StationeersUIMod.Windows
             ImGui.SameLine();
             if (ImGui.Button("Exit##toolbar"))
                 StationeersUIMod.Instance?.ToggleHudEditor();
+            ImGui.SameLine();
+            DrawPauseButton();
             DrawEditTargetLine();
             ImGui.Separator();
+        }
+
+        /// <summary>Freeze/thaw the world while editing so a moving HUD (vitals ticking, moodlets
+        /// changing) does not fight the layout. Mirrors the F10 Control Center's pause button through the
+        /// shared <see cref="Core.GamePause"/> latch (single-player only — <c>CanOwnPause</c> declines in
+        /// multiplayer / under a vanilla menu, so the click is a safe no-op there). The pause is released
+        /// automatically when the editor closes (see <see cref="HudEditorMode.Exit"/>).</summary>
+        private static void DrawPauseButton()
+        {
+            bool held = Core.GamePause.Held;
+            bool canToggle = held || (Core.GamePause.CanOwnPause() && !WorldManager.IsGamePaused);
+            // BeginDisabled is unavailable in this ImGui.NET (see the pattern elsewhere in this file), so
+            // the button always draws; the click just no-ops when a pause cannot be owned.
+            if (ImGui.Button(held ? "Resume##pause" : "Pause##pause") && canToggle)
+            {
+                if (held) Core.GamePause.Release(HudEditorMode.PauseReason);
+                else Core.GamePause.Hold(HudEditorMode.PauseReason, null);
+            }
         }
 
         private void DrawBuildTab()
@@ -521,6 +541,11 @@ namespace StationeersUIMod.Windows
         /// must stay reachable.</summary>
         private void DrawFxAlertsSection()
         {
+            // Being ON SCREEN is itself the preview request (HudAlertPulse.RequestAutoPreview):
+            // opening this page used to leave the HUD's alert glow switched off, so the colour
+            // wheels and brightness gains below had nothing to act on. Stamped every frame the
+            // sub-tab draws, and consumed one frame later by HudAlertPulse.Tick.
+            UI.Hud.HudAlertPulse.RequestAutoPreview();
             FxRows(HudFxCategory.Alerts, HudStyleFx.SecAlertMaster);
             if (HudConfig.FxAlertPulseOn.Value)
             {
@@ -555,8 +580,10 @@ namespace StationeersUIMod.Windows
 
                 ImGui.PopID();
 
-                ImGui.TextDisabled("  Brightness is a gain on the picked colour: above 1 blows it");
-                ImGui.TextDisabled("  out toward white, below 1 gives a subdued tint.");
+                ImGui.TextDisabled("  Brightness is a gain on the picked colour. The HUE is always");
+                ImGui.TextDisabled("  kept: past full brightness the gain buys a bigger, more solid");
+                ImGui.TextDisabled("  halo instead of washing the colour out to white.");
+                ImGui.TextDisabled("  Below 1 gives a subdued tint.");
                 ImGui.TextDisabled("  Strength scales the caution flash's peak, and the critical");
                 ImGui.TextDisabled("  breath's swing (0 = steady red, no motion).");
 
@@ -564,24 +591,35 @@ namespace StationeersUIMod.Windows
                 // the colour pickers above impossible to judge. Preview forces a level so the HUD
                 // breathes live while you drag. It breathes continuously rather than running the
                 // caution burst and stopping, and only works while F9 is open.
+                // "auto" is the default and simply means "while THIS page is open" — that is what
+                // stops opening F9 from killing the alert glow you came here to tune. Picking a
+                // level explicitly carries it to the other sub-tabs too.
                 ImGui.Separator();
                 ImGui.TextDisabled("  Live preview (designer only):");
                 int pv = UI.Hud.HudAlertPulse.PreviewMode;
-                if (ImGui.RadioButton("off##alertPv", pv == 0)) UI.Hud.HudAlertPulse.PreviewMode = 0;
+                if (ImGui.RadioButton("auto##alertPv", pv == 0)) UI.Hud.HudAlertPulse.PreviewMode = 0;
                 ImGui.SameLine();
                 if (ImGui.RadioButton("caution##alertPv", pv == 1)) UI.Hud.HudAlertPulse.PreviewMode = 1;
                 ImGui.SameLine();
                 if (ImGui.RadioButton("critical##alertPv", pv == 2)) UI.Hud.HudAlertPulse.PreviewMode = 2;
-                if (pv != 0)
+                ImGui.SameLine();
+                if (ImGui.RadioButton("off##alertPv", pv < 0)) UI.Hud.HudAlertPulse.PreviewMode = -1;
+                if (pv < 0)
+                {
+                    ImGui.TextDisabled("  Alerts stay suppressed while this designer is open -");
+                    ImGui.TextDisabled("  switch back to auto to judge these colours.");
+                }
+                else if (pv == 0)
                 {
                     ImGui.TextColored(WarnCol,
-                        "  Previewing - breathing continuously, real warnings ignored.");
-                    ImGui.TextDisabled("  Clears itself the moment this designer closes.");
+                        "  Auto: breathing the CRITICAL alarm while this page is open.");
+                    ImGui.TextDisabled("  Pick caution/critical to keep it lit on the other tabs.");
                 }
                 else
                 {
-                    ImGui.TextDisabled("  Alerts are suppressed while this designer is open -");
-                    ImGui.TextDisabled("  use the preview above to judge these colours.");
+                    ImGui.TextColored(WarnCol,
+                        "  Previewing - breathing continuously, real warnings ignored.");
+                    ImGui.TextDisabled("  Stays lit on every tab; clears when this designer closes.");
                 }
                 if (!On(HudConfig.FxTierA))
                     ImGui.TextColored(WarnCol,
@@ -958,7 +996,26 @@ namespace StationeersUIMod.Windows
                 catch { }
             }
 
+            DrawShippedReadOnlyNotice(active);
             DrawProfileCrudRow(active);
+        }
+
+        /// <summary>The one persistent line that says whether the active HUD Theme can be edited at
+        /// all. A shipped theme is READ-ONLY for a player (the store refuses every player-edit write
+        /// — see <c>HudProfileStore.Save</c>), and the only in-game symptom of that is a toast the
+        /// first time it happens, which is not enough for a window whose whole job is editing. So it
+        /// is stated up front, right under the profile picker, for as long as that theme is active.
+        ///
+        /// In author mode (`uiadev`) the line flips rather than disappearing: FlorpyDorp edits
+        /// shipped themes ON PURPOSE, and the dangerous state is not knowing WHICH mode a session is
+        /// in — an unlocked session looks exactly like the old build until something saves.</summary>
+        private static void DrawShippedReadOnlyNotice(string active)
+        {
+            if (!IsShippedCached(active)) return;
+            if (Core.UiaDevMode.Active)
+                ImGui.TextColored(Accent, "DEV MODE - editing a shipped theme.");
+            else
+                ImGui.TextColored(WarnCol, "SHIPPED THEME - read-only. Duplicate it to edit.");
         }
 
         /// <summary>New / Duplicate / Rename / Delete (plus "Restore shipped version" when the
@@ -1104,16 +1161,32 @@ namespace StationeersUIMod.Windows
             CancelProfileAction();
         }
 
-        /// <summary>RENAME the ACTIVE profile. Renaming one of OUR names is allowed but detaches the
-        /// file from shipped management: SyncShipped keys the manifest by FILE NAME, so the renamed
-        /// copy is simply an unknown (player-owned) profile from then on and a pristine original is
-        /// re-seeded on the next launch. Say so before the click, not after.</summary>
+        /// <summary>RENAME the ACTIVE profile.
+        ///
+        /// A theme WE ship is READ-ONLY: the store refuses to move our file out from under its own
+        /// name (author mode aside), so the commit button is not drawn at all rather than armed and
+        /// guaranteed to fail — the same rule <see cref="DrawRestoreStrip"/> follows when the shipped
+        /// folder is missing, and it keeps the inline notice honest (a refused rename would otherwise
+        /// report "that name may be taken", which is simply untrue). Duplicate is the way across.
+        ///
+        /// With author mode on, the old behaviour applies and is explained instead: renaming one of
+        /// OUR names detaches the file from shipped management, because SyncShipped keys the manifest
+        /// by FILE NAME — the renamed copy is an unknown (player-owned) profile from then on and a
+        /// pristine original is re-seeded on the next launch. Say so before the click, not after.</summary>
         private static void DrawRenameStrip(string active)
         {
             ImGui.TextDisabled("Rename '" + active + "':");
             if (IsShippedCached(active))
             {
-                ImGui.TextColored(WarnCol, "  This is a HUD Theme WE ship. Renaming detaches your copy from");
+                if (!Core.UiaDevMode.Active)
+                {
+                    ImGui.TextColored(WarnCol, "  '" + active + "' is a HUD Theme WE ship, so it is read-only.");
+                    ImGui.TextDisabled("  Duplicate it instead - the copy is yours, name and all, and it keeps");
+                    ImGui.TextDisabled("  every edit you have made in this session.");
+                    if (ImGui.Button("Cancel")) CancelProfileAction();
+                    return;
+                }
+                ImGui.TextColored(WarnCol, "  DEV MODE: renaming a HUD Theme WE ship detaches your copy from");
                 ImGui.TextColored(WarnCol, "  shipped updates (it becomes yours forever), and a fresh");
                 ImGui.TextColored(WarnCol, "  pristine '" + active + "' appears again on the next launch.");
             }

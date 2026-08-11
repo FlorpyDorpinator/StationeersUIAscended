@@ -181,11 +181,11 @@ namespace StationeersUIMod.UI.Menu.Tutorial
 
             // ---------------- Act IV - make it yours ----------------
 
-            // 14. Themes (reference section 21): click-to-apply cards, two shipped themes.
+            // 14. Themes (reference section 21): click-to-apply cards, four shipped themes.
             list.Add(S("profiles", "Pick your look",
                 "Open {UIA_Menu} -> PROFILES. Click a card and the whole mod re-skins - HUD, wheels, " +
-                "windows, this menu. Two looks ship: Stationeers Blue and Pure HUD. " +
-                "Everything about them is editable later.",
+                "windows, this menu. Four looks ship: Stationeers Blue, Stationeers Blue Minimalist, " +
+                "Zirillian Red and Pure HUD. Everything about them is editable later.",
                 "themeswitch"));
 
             // 15. Where to go next. The window adds the Handbook + Replay buttons on this step.

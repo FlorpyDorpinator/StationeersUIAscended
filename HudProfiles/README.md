@@ -6,11 +6,13 @@ in this folder is what every player's game seeds on first launch.
 
 ## What ships
 
-Two curated themes, both a complete `HudDocument` (layout **and** theme — colours, glass/glow
+Four curated themes, each a complete `HudDocument` (layout **and** theme — colours, glass/glow
 effects, radial palette, Grid skin, F10 menu skin all travel together):
 
 - **`Stationeers Blue.xml`** — the default active profile on a fresh install.
-- **`Pure HUD.xml`** — the second curated look.
+- **`Stationeers Blue Minimalist.xml`** — the same blue, with the chrome trimmed back.
+- **`Zirillian Red.xml`** — the red alternate.
+- **`Pure HUD.xml`** — the green alternate.
 
 Each theme's preview screenshot lives beside its XML as `<name>.png` (e.g.
 `Stationeers Blue.png`), shown wherever the mod lists profiles with art (F9/F10 profile
@@ -40,13 +42,15 @@ So to change what ships:
 Full detail (canonical hashing, the CRUD/manifest interaction, gotchas):
 `Documentation/Config-and-Theme-Migration.md` §3.
 
-**Hand-sync reminder:** both curated themes are also embedded verbatim as C# self-heal factories
-in `Assets/Scripts/StationeersUIMod/UI/Hud/ShippedProfiles.cs`, so a missing/corrupt copy of a
-shipped name can rebuild from the real design even with no mod folder available (e.g. the F6 dev
-flow). **If you edit either XML in this folder, re-embed the matching constant in
+**Hand-sync reminder:** all four curated themes are also embedded verbatim as C# self-heal
+factories in `Assets/Scripts/StationeersUIMod/UI/Hud/ShippedProfiles.cs`, so a missing/corrupt
+copy of a shipped name can rebuild from the real design even with no mod folder available (e.g.
+the F6 dev flow). **If you edit any XML in this folder, re-embed the matching constant in
 `ShippedProfiles.cs` by hand** — nothing does this automatically, and letting the two drift makes
 the self-healed copy hash as "player edited," silently cutting it off from future shipped
-updates.
+updates. The embed transform is exactly: drop the `<?xml …?>` declaration line and swap the
+attribute quotes from `"` to `'` (safe only while no shipped XML contains an apostrophe, an
+ampersand or a non-ASCII byte — all four currently satisfy that).
 
 ## Adding your own profile (as a player)
 

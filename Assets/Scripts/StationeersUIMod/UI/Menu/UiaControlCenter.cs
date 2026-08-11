@@ -339,7 +339,7 @@ namespace StationeersUIMod.UI.Menu
             _window = win;
             win.anchorMin = win.anchorMax = new Vector2(0.5f, 0.5f);
             win.pivot = new Vector2(0.5f, 0.5f);
-            win.sizeDelta = new Vector2(980f, 660f);
+            win.sizeDelta = new Vector2(1000f, 660f);   // +20 for the scroll-bar gutter (2026-08-10)
             // The window is a REAL HUD glass panel (PanelGraphic), not a flat Image, so it carries
             // the full F9 effect stack — the glowing edge-lit border a HUD box has. Shape + effects
             // are pushed every frame in StyleWindowPanel(); the corners/border/glow come from the

@@ -939,6 +939,26 @@ namespace StationeersUIMod.UI.Grid
             if (_open) ForceRebuild();
         }
 
+        /// <summary>Open a container INSIDE the Universal Inventory — expand its region in the main list
+        /// and show the window — rather than tearing it out into a pinned window. This is the DEFAULT for
+        /// the 1-6 keys: a container the player has NOT manually pinned lives in the main list, so the key
+        /// just reveals it there. <paramref name="toggle"/> (the keyboard half) flips an already-open,
+        /// already-expanded region closed on a repeat press (open ↔ close); the mouse half only ever
+        /// opens. VIEW-ONLY: writes a per-save expand flag and rebuilds — no game state changes.</summary>
+        public static void OpenContainerInGrid(long containerRefId, bool toggle)
+        {
+            if (containerRefId == 0L) return;
+            GridCollapseStore.EnsureSaveLoaded();
+            bool wasCollapsed = GridCollapseStore.IsCollapsedLoaded(containerRefId);
+            // Keyboard repeat on an already-shown, already-expanded region collapses it; otherwise expand.
+            bool collapseNow = toggle && _open && !wasCollapsed;
+            GridCollapseStore.SetCollapsed(containerRefId, collapseNow);
+            if (!_open) { ShowLatched(); return; }   // Show forces the rebuild that renders it expanded
+            // Grid already open: rebuild only when the expand/collapse actually flipped, so a repeat open
+            // of an already-expanded region does not needlessly rebuild (which would reset the scroll).
+            if (collapseNow != wasCollapsed) ForceRebuild();
+        }
+
         /// <summary>Raise a pinned window above its siblings so a repeat shortcut press reads as
         /// "focus this one". Cheap sibling reorder; no-op when the window is not live.</summary>
         private static void Focus(long containerRefId)

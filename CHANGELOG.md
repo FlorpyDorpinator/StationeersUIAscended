@@ -2,6 +2,31 @@
 
 All notable changes to the mod. Detailed engineering write-ups live in `Changes Reports/`.
 
+## 0.9.7.4 Experimental -- 2026-08-10 -- FOUR SHIPPED THEMES + PLAY-TEST ROUND 4
+
+Engineering detail: the five 2026-08-10 Changes Reports.
+
+- **Four shipped themes at their newest masters**: Stationeers Blue, Stationeers Blue
+  Minimalist, Zirillian Red, Pure HUD — copied byte-exact from FlorpyDorp's live config
+  (the old repo copies of Blue/Pure HUD carried 30 dead pre-Wave-B keys), `ShippedProfiles.cs`
+  embeds regenerated for all four and proven by inverse-transform byte compare. Previews
+  normalized to 800x450 (zip ~1.9 MB smaller). Shipped themes are READ-ONLY in F9/F10
+  (duplicate to edit); the new `uiadev` console command unlocks authoring mode. Packaging now
+  stages HudProfiles from an explicit four-name allowlist — a stray theme in the folder can
+  never ride into the zip again.
+- **1-6 opens containers in-grid by default**: the equipment keys reveal the worn container's
+  region inside the Universal Inventory (repeat press toggles); a container the player pinned
+  into its own window stays pinned — the key focuses that window instead.
+- **Alert glow**: red criticals no longer wash out to white/pink at high brightness gain on
+  older profiles (fallback resolution), and the pulse stays visible with F9 open so it can be
+  tuned live.
+- **F9**: toolbar Pause button (single-player, shared GamePause latch, auto-released on editor
+  close) and the ImGui editor + element popup lifted above the mod's own UGUI HUD elements —
+  but still below the game's own modal ImGui level.
+- **Config-tree resilience**: full audit of every store against a missing/deleted config
+  folder (launch AND mid-session); the broken write paths fixed; new non-destructive
+  F10 → HUD → Maintenance → "Repair config folders" button.
+
 ## 0.9.7.3 Experimental -- 2026-08-06 -- PLAY-TEST ROUND 3
 
 Engineering detail: the four 2026-08-06 b/c/d/e Changes Reports.

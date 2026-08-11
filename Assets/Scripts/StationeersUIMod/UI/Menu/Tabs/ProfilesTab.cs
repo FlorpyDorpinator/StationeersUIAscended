@@ -18,9 +18,11 @@ namespace StationeersUIMod.UI.Menu.Tabs
 
         // The default UIs we want front-and-center, in order. Only the ones that actually exist
         // on disk become cards; the rest of the list falls through to the dropdown. Curated to the
-        // shipped set (2026-07-24) — Stationeers Blue is the default, Pure HUD the green alternate.
+        // shipped set (2026-08-01) — Stationeers Blue is the default, its Minimalist cut trims the
+        // chrome, Zirillian Red is the red alternate and Pure HUD the green one. Four names, three
+        // columns: the grid wraps to a second row, and PickFeatured's cap (6) still has headroom.
         private static readonly string[] Featured =
-            { "Stationeers Blue", "Pure HUD" };
+            { "Stationeers Blue", "Stationeers Blue Minimalist", "Zirillian Red", "Pure HUD" };
 
         // Manage-a-profile state. INSTANCE fields on purpose: the tab object lives exactly as long
         // as the Control Center's built UI (UiaControlCenter.Shutdown drops the tab list and
@@ -83,6 +85,15 @@ namespace StationeersUIMod.UI.Menu.Tabs
                 d.Font = i <= 0 ? null : fonts[i];
                 HudProfileStore.MarkChanged();
             });
+
+            // A HUD Theme WE ship is read-only for players (the store refuses every player-edit
+            // write — see HudProfileStore.Save), and that font picker is the ONLY control on this tab
+            // that edits the ACTIVE theme, so it is the one place here where a change can look like
+            // it stuck when the store quietly dropped it. The centre-screen toast says so at edit
+            // time; this says so before the click. Asking the store keeps one source of truth for
+            // "is this one of ours" — there is no name list here to drift as the shipped set grows.
+            if (!string.IsNullOrEmpty(active) && !UiaDevMode.Active && HudProfileStore.IsShippedName(active))
+                UiaControls.Note(col, "'" + active + "' is a HUD Theme we ship, so it is read-only - a font picked here is not saved. Duplicate it and change the copy instead.");
 
             if (advanced)
             {

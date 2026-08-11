@@ -953,10 +953,14 @@ namespace StationeersUIMod.UI.Hud
                 sharedOnly: true, tip: "Peak of the caution flash and swing of the critical breath."),
             Flt("alertCautionBright", HudFxCategory.Alerts, SecAlertBright, "  caution brightness##alertCautionBright",
                 () => HudConfig.FxAlertCautionBright, 0.25f, 3f, master: () => HudConfig.FxAlertPulseOn,
-                sharedOnly: true, tip: "Gain on the picked caution colour."),
+                sharedOnly: true,
+                tip: "Gain on the picked caution colour. Hue-preserving: past full brightness it "
+                   + "buys a solider line and a bigger halo, never a whiter amber."),
             Flt("alertCriticalBright", HudFxCategory.Alerts, SecAlertBright, "  critical brightness##alertCriticalBright",
                 () => HudConfig.FxAlertCriticalBright, 0.25f, 3f, master: () => HudConfig.FxAlertPulseOn,
-                sharedOnly: true, tip: "Gain on the picked critical colour."),
+                sharedOnly: true,
+                tip: "Gain on the picked critical colour. Hue-preserving: past full brightness it "
+                   + "buys a solider line and a bigger halo, never a pink or white alarm."),
         };
 
         /// <summary>THE bridge to the power-transition registry (see the type comment). Consumers

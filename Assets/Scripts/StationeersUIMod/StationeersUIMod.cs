@@ -18,8 +18,8 @@ namespace StationeersUIMod
     /// </summary>
     public sealed class StationeersUIMod : MonoBehaviour
     {
-        public const string ModVersion = "0.9.7.3";
-        public const string VersionDisplay = "0.9.7.3 Experimental";
+        public const string ModVersion = "0.9.7.4";
+        public const string VersionDisplay = "0.9.7.4 Experimental";
         public const string ModGuid = "com.stationeersuimod.ui";
 
         public static StationeersUIMod Instance { get; private set; }
@@ -717,7 +717,7 @@ namespace StationeersUIMod
                 try { key = KeyManager.GetKey(names[i]); }
                 catch { continue; }
                 if (key == KeyCode.None || !Input.GetKeyDown(key)) continue;
-                PinSlotContainer(EquipSlotAt(human, i), true);   // keyboard half TOGGLES
+                OpenSlotContainer(EquipSlotAt(human, i), true);   // keyboard half TOGGLES the in-grid region
                 return true;   // one gesture per frame; the press belongs to the pin either way
             }
             return false;
@@ -794,7 +794,7 @@ namespace StationeersUIMod
             if (!Guards.CanToggleMenus()) return;
             if (!ReferenceEquals(EquipSlotUnderPointer(), pressed)) return;   // released over another box
 
-            PinSlotContainer(pressed, false);
+            OpenSlotContainer(pressed, false);
         }
 
         /// <summary>The equipment slot whose HUD box is under the cursor right now, or null. The hit
@@ -847,21 +847,23 @@ namespace StationeersUIMod
             return null;
         }
 
-        /// <summary>Pin the ONE container occupying <paramref name="slot"/> — that container only, not
+        /// <summary>Open the ONE container occupying <paramref name="slot"/> — that container only, not
         /// the bags nested inside it. Read-only on the game side: <c>slot.Get()</c> for identity (never
-        /// the obsolete Occupant), then that single persistent ReferenceId into
-        /// <see cref="UI.Grid.TheGridPanel.PinContainer"/>, which records the one pin and FOCUSES an
-        /// existing window rather than duplicating it, so a repeat Shift+# raises the bag you already
-        /// tore out. The window then outlives the main one (only the vanilla close-all takes pins down;
-        /// a pin's own X / shrink button unpins it). An empty slot, or one holding something The Grid
-        /// would not render as its own region, is a NO-OP with the vanilla action-fail sound — a pinned
-        /// window for a leaf item would come up empty.
+        /// the obsolete Occupant), then that single persistent ReferenceId into The Grid. An empty slot,
+        /// or one holding something The Grid would not render as its own region, is a NO-OP with the
+        /// vanilla action-fail sound.
         ///
-        /// <para><paramref name="toggle"/> (the keyboard half): if this container is ALREADY pinned the
-        /// call UNPINS it instead — <c>TheGridPanel.UnpinContainer</c> closes the window and folds the
-        /// container back into the main tree, exactly what that window's X / shrink button does. The
-        /// mouse half passes false and keeps the pin-or-focus behaviour.</para></summary>
-        private static void PinSlotContainer(Assets.Scripts.Objects.Slot slot, bool toggle)
+        /// <para>WHERE it opens depends on what the PLAYER chose (FlorpyDorp): by DEFAULT the container
+        /// opens INSIDE the Universal Inventory — its region is expanded in the main list
+        /// (<see cref="UI.Grid.TheGridPanel.OpenContainerInGrid"/>). But once the player has MANUALLY
+        /// pinned it into its own window, that choice is remembered: the key then FOCUSES that pinned
+        /// window (<see cref="UI.Grid.TheGridPanel.PinContainer"/>) instead. Closing the pinned window (its
+        /// X / shrink) unpins it, so it reverts to opening in-grid next time.</para>
+        ///
+        /// <para><paramref name="toggle"/> (the keyboard half): on a NON-pinned container it toggles the
+        /// in-grid region open/closed on a repeat press; the mouse half passes false and only ever opens.
+        /// A pinned container ignores it — the key always opens/focuses the remembered window.</para></summary>
+        private static void OpenSlotContainer(Assets.Scripts.Objects.Slot slot, bool toggle)
         {
             if (slot == null) return;
 
@@ -877,13 +879,15 @@ namespace StationeersUIMod
             }
 
             long refId = occupant.ReferenceId;
-            if (toggle && UI.Grid.TheGridPanel.IsPinned(refId))
+            if (UI.Grid.TheGridPanel.IsPinned(refId))
             {
-                UI.Grid.TheGridPanel.UnpinContainer(refId);
+                // The player tore this one out — remember that: open/focus the pinned window.
+                UI.Grid.TheGridPanel.PinContainer(refId);   // focuses an existing pinned window
                 return;
             }
 
-            UI.Grid.TheGridPanel.PinContainer(refId);
+            // Default: reveal it inside the Universal Inventory (expand its region).
+            UI.Grid.TheGridPanel.OpenContainerInGrid(refId, toggle);
         }
 
         /// <summary>Would The Grid build a container REGION for this thing? Mirrors

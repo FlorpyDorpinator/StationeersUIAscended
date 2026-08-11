@@ -57,13 +57,25 @@ namespace StationeersUIMod.UI.Menu.Tabs
             // the playtester incident — "my shipped theme is a mess and I don't know how to fix it").
             UiaUi.Go("sp2", col).AddComponent<LayoutElement>().preferredHeight = 6f;
             UiaControls.Header(col, "Maintenance (advanced)");
+
+            // The NON-destructive repair goes first, above the two-click nuke: it is the one a
+            // player in trouble should reach for, and it can never make anything worse.
+            UiaControls.Note(col, "Recreates every folder the mod keeps settings in (HUD Themes, Stow Profiles, bag assignments, per-world layouts) and re-seeds the shipped HUD Themes and Stow Profiles. It only ever ADDS what is missing - nothing you made is touched, so there is no confirm. Use it if you deleted part of the config folder while the game was running.");
+            UiaControls.Button(col, "Repair config folders", RepairConfigFolders, -1f, UiaTheme.RowH);
+            // The persistent half of the report (the toast is the at-a-glance half). Rendered only
+            // once the button has been pressed this session; Refresh() rebuilds the tab, which is
+            // how the result appears without the player reopening F10.
+            string lastRepair = Core.ConfigTreeRepair.LastResult;
+            if (!string.IsNullOrEmpty(lastRepair)) UiaControls.Note(col, lastRepair);
+
+            UiaUi.Go("sp3", col).AddComponent<LayoutElement>().preferredHeight = 6f;
             // Ask the STORE, not StationeersUIMod.ModDirectory: a mod folder that exists but has no
             // HudProfiles subfolder is just as unrestorable as no mod folder at all, and only the
             // store knows the shape it needs. (The store refuses the wipe in that case too.)
             bool devOffline = !Features.HudProfileStore.ShippedFolderAvailable;
             UiaControls.Note(col, devOffline
                 ? "Restore shipped themes needs the mod's installed folder, which isn't available right now (the F6 dev flow has none) - the button below will just explain that if you click it."
-                : "Puts Stationeers Blue and Pure HUD back exactly as shipped, undoing any edits you made to either. Your own HUD Themes are never touched. Click twice to confirm.");
+                : "Puts all four shipped themes back exactly as shipped, undoing any edits you made to them. Your own HUD Themes are never touched. Click twice to confirm.");
             UiaControls.Button(col, "Restore shipped themes", RestoreShippedThemes, -1f, UiaTheme.RowH, UiaControls.ButtonStyle.Danger);
         }
 
@@ -75,6 +87,31 @@ namespace StationeersUIMod.UI.Menu.Tabs
                 if (inst != null) { UiaControlCenter.Close(); inst.ToggleHudEditor(); }
             }
             catch { }
+        }
+
+        /// <summary>SINGLE click, no confirm — <see cref="Core.ConfigTreeRepair.Run"/> is strictly
+        /// additive (folders created only when absent, shipped content seeded only when missing), so
+        /// there is nothing to arm against. Reports twice, deliberately: a transient centre-screen
+        /// toast for the at-a-glance "it worked", and the persistent note rebuilt into this tab by
+        /// <see cref="UiaControlCenter.Refresh"/> for the detail a player can still read a minute
+        /// later. Both read the SAME string off the store, so they can never disagree. Run() is
+        /// already fail-soft per step; the catch here is the same belt-and-braces the restore button
+        /// carries, so a surprise from the UI half still lands as a toast rather than a dead
+        /// button.</summary>
+        private void RepairConfigFolders()
+        {
+            try
+            {
+                int created = Core.ConfigTreeRepair.Run();
+                Toast.Show(Core.ConfigTreeRepair.LastResult,
+                    created > 0 ? Theme.TextPrimary : Theme.TextDim, 3f);
+                UiaControlCenter.Refresh();
+            }
+            catch (System.Exception e)
+            {
+                Core.UIALog.Warn("Repair config folders failed: " + e.Message);
+                Toast.Show("Repair config folders failed - see the log.", Theme.Critical, 3.5f);
+            }
         }
 
         /// <summary>The F10 half of the shipped-theme reset affordance (the console has its own
@@ -98,7 +135,7 @@ namespace StationeersUIMod.UI.Menu.Tabs
             if (now > _restoreShippedArmUntil)
             {
                 _restoreShippedArmUntil = now + 5f;
-                Toast.Show("Click 'Restore shipped themes' again within 5s to confirm - this reverts any edits to Stationeers Blue / Pure HUD.", Theme.Critical, 5f);
+                Toast.Show("Click 'Restore shipped themes' again within 5s to confirm - this reverts any edits to the shipped themes.", Theme.Critical, 5f);
                 return;
             }
             _restoreShippedArmUntil = 0f;

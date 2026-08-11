@@ -1,17 +1,20 @@
 namespace StationeersUIMod.UI.Hud
 {
     /// <summary>
-    /// The two SHIPPED themes ("Stationeers Blue" — the default — and "Pure HUD"), embedded
-    /// verbatim so a missing/corrupt config copy self-heals from the REAL shipped design
-    /// instead of the generic starter (audit 06 P1 — "broken Stationeers Blue forever"). Same
-    /// pattern as <see cref="Glassy40Default"/>: single-quoted XML attributes so the whole
-    /// document lives in a C# verbatim string with zero escaping. The source of truth for the
-    /// SHIPPED FILES themselves is the repo's own <c>HudProfiles/</c> folder (see the contract
-    /// documented atop <see cref="StationeersUIMod.Features.HudProfileStore"/>) — these two
-    /// constants are a byte-faithful copy of that folder's XML at embed time (only the XML
-    /// attribute quote CONVENTION changed, double to single; content, formatting and every
-    /// value are otherwise untouched). If the shipped design changes, re-embed here too, or the
-    /// self-heal path silently reverts a corrupt file to a stale look.
+    /// The four SHIPPED themes ("Stationeers Blue" — the default — "Stationeers Blue
+    /// Minimalist", "Zirillian Red" and "Pure HUD"), embedded verbatim so a missing/corrupt
+    /// config copy self-heals from the REAL shipped design instead of the generic starter
+    /// (audit 06 P1 — "broken Stationeers Blue forever"). Same pattern as
+    /// <see cref="Glassy40Default"/>: single-quoted XML attributes so the whole document lives
+    /// in a C# verbatim string with zero escaping. The source of truth for the SHIPPED FILES
+    /// themselves is the repo's own <c>HudProfiles/</c> folder (see the contract documented
+    /// atop <see cref="StationeersUIMod.Features.HudProfileStore"/>) — these four constants are
+    /// a byte-faithful copy of that folder's XML at embed time (only the XML declaration line is
+    /// dropped and the attribute quote CONVENTION changed, double to single; content, formatting
+    /// and every value are otherwise untouched, and neither transform is lossy because no shipped
+    /// XML contains an apostrophe, an ampersand or a non-ASCII byte). If the shipped design
+    /// changes, re-embed here too, or the self-heal path silently reverts a corrupt file to a
+    /// stale look.
     ///
     /// ONLY consumed by <see cref="StationeersUIMod.Features.HudProfileStore.LoadActive"/>'s
     /// self-heal branch (missing/corrupt file whose NAME matches one of these) and by the F10
@@ -25,13 +28,15 @@ namespace StationeersUIMod.UI.Hud
     {
         public const string StationeersBlueName = "Stationeers Blue";
         public const string PureHudName = "Pure HUD";
+        public const string StationeersBlueMinimalistName = "Stationeers Blue Minimalist";
+        public const string ZirillianRedName = "Zirillian Red";
 
         public const string StationeersBlueXml =
-@"<HudDocument xmlns:xsd='http://www.w3.org/2001/XMLSchema' xmlns:xsi='http://www.w3.org/2001/XMLSchema-instance' Schema='16' Name='Stationeers Blue' RefW='0' RefH='0'>
-  <El Id='g2-topbar' Type='Box' Anchor='TopCenter' X='0' Y='-38' W='1860' H='62' WPct='0.99' HPct='-1' Z='0' Tiers='Suited Robot' Fill='#001727D5' Border='#54D5FE65' TextColor='#FFFFFFF5' BorderWidth='0.076' RTL='32.778' RTR='23.263' RBR='64' RBL='64' FontScale='1' Align='Center'>
+@"<HudDocument xmlns:xsd='http://www.w3.org/2001/XMLSchema' xmlns:xsi='http://www.w3.org/2001/XMLSchema-instance' Schema='7' Name='Stationeers Blue' RefW='0' RefH='0'>
+  <El Id='g2-topbar' Type='Box' Anchor='TopCenter' X='0' Y='-38' W='1860' H='62' WPct='0.99' HPct='-1' Z='0' Tiers='Suited Robot' Fill='#001727D5' Border='#54D5FE65' TextColor='#FFFFFFF5' BorderWidth='0.076' RTL='11.771' RTR='11.771' RBR='11.771' RBL='11.771' FontScale='1' Align='Center'>
     <P K='insetBottom' V='9.418' />
     <P K='sheen' V='0' />
-    <P K='spec' V='0' />
+    <P K='spec' V='0.689399958' />
     <P K='fxCollapse' V='false' />
     <P K='mAL' V='true' />
     <P K='mAAnchor' V='1' />
@@ -44,7 +49,7 @@ namespace StationeersUIMod.UI.Hud
     <P K='edgeFadeY' V='0.06' />
     <P K='edgeFadeX' V='0.191' />
     <P K='bfade' V='0.775' />
-    <P K='feather' V='0.932' />
+    <P K='feather' V='1.27' />
     <P K='rippleSmooth' V='0' />
     <P K='ripple' V='2.27' />
     <P K='glowWidth' V='31.468' />
@@ -75,15 +80,17 @@ namespace StationeersUIMod.UI.Hud
     <P K='customIridOn' V='false' />
     <P K='customIrid' V='0.008' />
     <P K='customChromaOn' V='true' />
-    <P K='customChroma' V='0.564' />
+    <P K='customChroma' V='0.492' />
     <P K='customFrostOn' V='true' />
-    <P K='customFrost' V='0.49764' />
+    <P K='customFrost' V='0.426' />
     <P K='customDissolve' V='true' />
     <P K='customStyleReady' V='true' />
     <P K='styleSource' V='2' />
     <P K='fxWarp' V='true' />
     <P K='fxCollapseMode' V='2' />
-    <P K='styleSrc' V='682' />
+    <P K='styleSrc' V='674' />
+    <P K='cornerStyle' V='0' />
+    <P K='insetTop' V='0' />
   </El>
   <El Id='g2-clock' Type='Clock' Anchor='TopLeft' X='150' Y='-38' W='200' H='40' WPct='-1' HPct='-1' Z='2' Tiers='Suited Robot' Fill='#0017279A' Border='#54D5FE65' TextColor='#FFFFFF5B' BorderWidth='0.076' RTL='11.771' RTR='11.771' RBR='11.771' RBL='11.771' FontScale='1' Align='Center'>
     <P K='fxCollapse' V='false' />
@@ -437,7 +444,7 @@ namespace StationeersUIMod.UI.Hud
     <P K='customStyleReady' V='true' />
     <P K='bLayout' V='true' />
     <P K='bAnchor' V='1' />
-    <P K='bX' V='-68' />
+    <P K='bX' V='-11' />
     <P K='bY' V='-768' />
     <P K='bW' V='1414' />
     <P K='bH' V='64' />
@@ -516,7 +523,41 @@ namespace StationeersUIMod.UI.Hud
     <P K='fxCollapseMode' V='2' />
     <P K='fxGlitchMode' V='2' />
     <P K='tierStyle' V='1' />
-    <P K='tierStyleNeedsSeed' V='true' />
+    <P K='b_styleSource' V='2' />
+    <P K='b_bw' V='0.67' />
+    <P K='b_feather' V='0.932' />
+    <P K='b_rtl' V='11.771' />
+    <P K='b_rtr' V='11.771' />
+    <P K='b_rbr' V='11.771' />
+    <P K='b_rbl' V='11.771' />
+    <P K='b_sheen' V='0' />
+    <P K='b_spec' V='0.689399958' />
+    <P K='b_squircle' V='3.517' />
+    <P K='b_gaussianHalo' V='false' />
+    <P K='b_fs' V='1.041' />
+    <P K='b_customBorderFadeOn' V='true' />
+    <P K='b_bfade' V='0.757' />
+    <P K='b_customSoftEdgeOn' V='false' />
+    <P K='b_edgeFadeX' V='0' />
+    <P K='b_edgeFadeY' V='0' />
+    <P K='b_customShineOn' V='false' />
+    <P K='b_customIridOn' V='false' />
+    <P K='b_customChromaOn' V='true' />
+    <P K='b_customChroma' V='0.564' />
+    <P K='b_customFrostOn' V='true' />
+    <P K='b_customFrost' V='0.87' />
+    <P K='b_frostDepth' V='0.359' />
+    <P K='b_gap' V='5.446' />
+    <P K='b_horizontal' V='true' />
+    <P K='b_iconScale' V='0.559' />
+    <P K='b_iconDX' V='0' />
+    <P K='b_iconDY' V='0' />
+    <P K='b_labels' V='true' />
+    <P K='b_damageWarn' V='true' />
+    <P K='b_damageBarThick' V='0.085' />
+    <P K='b_warnScale' V='0.72' />
+    <P K='b_iconTintMode' V='0' />
+    <P K='b_dropWholeBox' V='false' />
     <P K='b_glowExtraDiffuse' V='0' />
     <P K='b_glowHaze' V='0.424' />
     <P K='b_glowBreath' V='0.299' />
@@ -526,6 +567,7 @@ namespace StationeersUIMod.UI.Hud
     <P K='b_customGlowBreathOn' V='true' />
     <P K='b_customGlowUnevenOn' V='true' />
     <P K='b_customGlowFlowOn' V='true' />
+    <P K='b_styleSrc' V='682' />
     <P K='styleSrc' V='682' />
   </El>
   <El Id='g2-hands' Type='HandBoxes' Anchor='BottomCenter' X='-16' Y='62' W='358' H='118' WPct='-1' HPct='-1' Z='2' Tiers='All' Fill='#0017279A' Border='#54D5FE65' TextColor='#FFFFFFF5' BorderWidth='0.076' RTL='11.771' RTR='11.771' RBR='11.771' RBL='11.771' FontScale='0.599' Align='Center'>
@@ -598,7 +640,40 @@ namespace StationeersUIMod.UI.Hud
     <P K='fxDissolveMode' V='2' />
     <P K='fxGlitchMode' V='2' />
     <P K='tierStyle' V='1' />
-    <P K='tierStyleNeedsSeed' V='true' />
+    <P K='b_styleSource' V='2' />
+    <P K='b_text' V='#FFFFFFF5' />
+    <P K='b_bw' V='0.076' />
+    <P K='b_feather' V='0.932' />
+    <P K='b_rtl' V='11.771' />
+    <P K='b_rtr' V='11.771' />
+    <P K='b_rbr' V='11.771' />
+    <P K='b_rbl' V='11.771' />
+    <P K='b_sheen' V='0' />
+    <P K='b_spec' V='0' />
+    <P K='b_squircle' V='3.517' />
+    <P K='b_gaussianHalo' V='false' />
+    <P K='b_fs' V='0.599' />
+    <P K='b_customRippleOn' V='false' />
+    <P K='b_customBorderFadeOn' V='false' />
+    <P K='b_customSoftEdgeOn' V='false' />
+    <P K='b_edgeFadeX' V='0' />
+    <P K='b_edgeFadeY' V='0' />
+    <P K='b_customGlowOn' V='false' />
+    <P K='b_customShineOn' V='false' />
+    <P K='b_customIridOn' V='false' />
+    <P K='b_customChromaOn' V='false' />
+    <P K='b_customFrostOn' V='false' />
+    <P K='b_gap' V='24.576' />
+    <P K='b_titleDX' V='0' />
+    <P K='b_titleDY' V='-0.735' />
+    <P K='b_stateDX' V='1.179' />
+    <P K='b_stateDY' V='-3.324' />
+    <P K='b_iconScale' V='0.542' />
+    <P K='b_iconDX' V='0' />
+    <P K='b_iconDY' V='-1.572' />
+    <P K='b_tray' V='false' />
+    <P K='b_iconTintMode' V='0' />
+    <P K='b_dropWholeBox' V='false' />
     <P K='b_glowExtraDiffuse' V='0' />
     <P K='b_glowHaze' V='0' />
     <P K='b_glowBreath' V='0' />
@@ -608,6 +683,7 @@ namespace StationeersUIMod.UI.Hud
     <P K='b_customGlowBreathOn' V='false' />
     <P K='b_customGlowUnevenOn' V='false' />
     <P K='b_customGlowFlowOn' V='false' />
+    <P K='b_styleSrc' V='682' />
     <P K='styleSrc' V='682' />
   </El>
   <El Id='g2-eqright' Type='EquipmentColumn' Anchor='BottomCenter' X='360' Y='56' W='264' H='78' WPct='-1' HPct='-1' Z='2' Tiers='All' Fill='HudPanelFill' Border='HudPanelBorder' TextColor='HudTextValue' BorderWidth='0.076' RTL='11.771' RTR='11.771' RBR='11.771' RBL='11.771' FontScale='1' Align='Center'>
@@ -673,7 +749,41 @@ namespace StationeersUIMod.UI.Hud
     <P K='fxCollapseMode' V='2' />
     <P K='fxGlitchMode' V='2' />
     <P K='tierStyle' V='1' />
-    <P K='tierStyleNeedsSeed' V='true' />
+    <P K='b_styleSource' V='2' />
+    <P K='b_bw' V='0.076' />
+    <P K='b_feather' V='0.932' />
+    <P K='b_rtl' V='11.771' />
+    <P K='b_rtr' V='11.771' />
+    <P K='b_rbr' V='11.771' />
+    <P K='b_rbl' V='11.771' />
+    <P K='b_sheen' V='0' />
+    <P K='b_spec' V='0.689399958' />
+    <P K='b_squircle' V='3.517' />
+    <P K='b_gaussianHalo' V='false' />
+    <P K='b_fs' V='1' />
+    <P K='b_customBorderFadeOn' V='true' />
+    <P K='b_bfade' V='0.757' />
+    <P K='b_customSoftEdgeOn' V='false' />
+    <P K='b_edgeFadeX' V='0' />
+    <P K='b_edgeFadeY' V='0' />
+    <P K='b_customShineOn' V='false' />
+    <P K='b_customIridOn' V='false' />
+    <P K='b_customChromaOn' V='true' />
+    <P K='b_customChroma' V='0.564' />
+    <P K='b_customFrostOn' V='true' />
+    <P K='b_customFrost' V='0.87' />
+    <P K='b_frostDepth' V='0.359' />
+    <P K='b_gap' V='8' />
+    <P K='b_horizontal' V='true' />
+    <P K='b_iconScale' V='0.559' />
+    <P K='b_iconDX' V='0' />
+    <P K='b_iconDY' V='0' />
+    <P K='b_labels' V='true' />
+    <P K='b_damageWarn' V='true' />
+    <P K='b_damageBarThick' V='0.085' />
+    <P K='b_warnScale' V='0.72' />
+    <P K='b_iconTintMode' V='0' />
+    <P K='b_dropWholeBox' V='false' />
     <P K='b_glowExtraDiffuse' V='0' />
     <P K='b_glowHaze' V='0.424' />
     <P K='b_glowBreath' V='0.299' />
@@ -683,9 +793,10 @@ namespace StationeersUIMod.UI.Hud
     <P K='b_customGlowBreathOn' V='true' />
     <P K='b_customGlowUnevenOn' V='true' />
     <P K='b_customGlowFlowOn' V='true' />
+    <P K='b_styleSrc' V='682' />
     <P K='styleSrc' V='682' />
   </El>
-  <El Id='g2-portrait' Type='Portrait' Anchor='BottomRight' X='-96' Y='100' W='186' H='178' WPct='-1' HPct='-1' Z='3' Tiers='Suited Robot' Fill='HudPanelFill' Border='#54D5FE83' TextColor='HudTextValue' BorderWidth='0.728' RTL='11.771' RTR='11.771' RBR='11.771' RBL='11.771' FontScale='0.679' Align='Center'>
+  <El Id='g2-portrait' Type='Portrait' Anchor='BottomRight' X='-96' Y='100' W='186' H='178' WPct='-1' HPct='-1' Z='10' Tiers='Suited Robot' Fill='HudPanelFill' Border='HudPanelBorder' TextColor='HudTextValue' BorderWidth='1.534' RTL='11.771' RTR='11.771' RBR='11.771' RBL='11.771' FontScale='0.679' Align='Center'>
     <P K='camFov' V='25.08' />
     <P K='holo' V='false' />
     <P K='scanlines' V='true' />
@@ -1032,10 +1143,10 @@ namespace StationeersUIMod.UI.Hud
     <P K='styleSrc' V='0' />
   </El>
   <El Id='e4d9d8873c1b46fab33d7ccb368865d4' Type='PngDoll' Anchor='Center' X='673.326' Y='-500.72702' W='90' H='218' WPct='-1' HPct='-1' Z='50' Tiers='Suited Robot' Fill='HudPanelFill' Border='HudPanelBorder' TextColor='HudTextValue' BorderWidth='0.076' RTL='11.771' RTR='11.771' RBR='11.771' RBL='11.771' FontScale='1' Align='Center'>
-    <P K='armY' V='0.002' />
+    <P K='armY' V='0.008' />
     <P K='legSpread' V='0.088' />
     <P K='legY' V='-0.114' />
-    <P K='armSpread' V='1.517' />
+    <P K='armSpread' V='1.531' />
     <P K='figScale' V='0.909' />
     <P K='box' V='true' />
     <P K='mAL' V='true' />
@@ -1051,7 +1162,7 @@ namespace StationeersUIMod.UI.Hud
     <P K='glow' V='0' />
     <P K='glowIn' V='0' />
     <P K='softEdge' V='0' />
-    <P K='wholeBody' V='true' />
+    <P K='wholeBody' V='false' />
     <P K='feather' V='0.932' />
     <P K='squircle' V='3.517' />
     <P K='gaussianHalo' V='false' />
@@ -1384,31 +1495,14 @@ namespace StationeersUIMod.UI.Hud
     <E k='cfg:CurveInvert' v='false' />
     <E k='cfg:WorldCanvasDistance' v='0.6' />
     <E k='cfg:BareFlattens' v='true' />
-    <E k='cfg:ShowTopBar' v='false' />
-    <E k='cfg:ShowCompass' v='false' />
-    <E k='cfg:ShowEquipment' v='false' />
-    <E k='cfg:ShowHands' v='false' />
-    <E k='cfg:ShowVitals' v='false' />
     <E k='cfg:ShowVignette' v='false' />
-    <E k='cfg:ShowHologram' v='false' />
     <E k='cfg:ShowScanlines' v='false' />
     <E k='cfg:TintItemIcons' v='false' />
     <E k='cfg:HudScale' v='1.209' />
-    <E k='cfg:TopBarHeight' v='75.89' />
-    <E k='cfg:TopBarCurve' v='117.306' />
-    <E k='cfg:TopBarWidthPct' v='0.781' />
-    <E k='cfg:CompassWidthPct' v='0.15' />
-    <E k='cfg:CompassHeight' v='33.699' />
-    <E k='cfg:CompassFovDeg' v='116.674' />
-    <E k='cfg:EquipBoxSize' v='83.814' />
-    <E k='cfg:EquipSpacing' v='15.374' />
-    <E k='cfg:HandBoxWidth' v='130.557' />
-    <E k='cfg:HandBoxHeight' v='88.292' />
-    <E k='cfg:VitalsWidth' v='264.95' />
-    <E k='cfg:VitalsHeight' v='160.639' />
     <E k='cfg:CornerRadius' v='11.771' />
+    <E k='cfg:HudCornerStyle' v='0' />
     <E k='cfg:BorderWidth' v='0.076' />
-    <E k='cfg:EdgeFeather' v='0.932' />
+    <E k='cfg:EdgeFeather' v='1.27' />
     <E k='cfg:GlassSheen' v='0' />
     <E k='cfg:GlassEdge' v='0' />
     <E k='cfg:SdfPanels' v='true' />
@@ -1417,21 +1511,15 @@ namespace StationeersUIMod.UI.Hud
     <E k='cfg:FontName' v='RBNoBold' />
     <E k='cfg:FontScale' v='1.004' />
     <E k='cfg:LabelFontSize' v='13.626' />
-    <E k='cfg:ValueFontSize' v='19.784' />
-    <E k='cfg:CompassFontSize' v='14.185' />
-    <E k='cfg:BareWordFontSize' v='22.601' />
-    <E k='cfg:VitalsRowFontSize' v='15.5' />
     <E k='cfg:DiegeticTiers' v='true' />
+    <E k='cfg:DetailedVitalsTooltips' v='true' />
     <E k='cfg:FlickerAnimations' v='true' />
     <E k='cfg:LowPowerDropouts' v='true' />
     <E k='cfg:LowPowerThreshold' v='27.034' />
-    <E k='cfg:GlitchEnabled' v='true' />
-    <E k='cfg:GlitchDuration' v='1.777' />
-    <E k='cfg:GlitchIntensity' v='0.457' />
     <E k='cfg:GlitchOnPowerDown' v='true' />
     <E k='cfg:GlitchOnPowerUp' v='false' />
     <E k='cfg:FxTierA' v='true' />
-    <E k='cfg:FxTierB' v='false' />
+    <E k='cfg:FxTierB' v='true' />
     <E k='cfg:FxTierC' v='true' />
     <E k='cfg:FxHairlinesOn' v='true' />
     <E k='cfg:FxEdgeLightOn' v='true' />
@@ -1465,6 +1553,7 @@ namespace StationeersUIMod.UI.Hud
     <E k='cfg:FxCollapseAmt' v='1' />
     <E k='cfg:FxGlitchOn' v='true' />
     <E k='cfg:FxGlitchAmt' v='1' />
+    <E k='cfg:FxGlitchDuration' v='1.777' />
     <E k='cfg:FxWarpOn' v='true' />
     <E k='cfg:FxWarpAmt' v='1' />
     <E k='cfg:FxTvOffOn' v='false' />
@@ -1499,21 +1588,16 @@ namespace StationeersUIMod.UI.Hud
     <E k='cfg:FxAlertCriticalBright' v='3' />
     <E k='cfg:FrostStrength' v='0.87' />
     <E k='cfg:FrostDepth' v='0.359' />
-    <E k='cfg:FrostDownsample' v='4' />
-    <E k='cfg:FrostUpdateEveryN' v='2' />
     <E k='cfg:FrostDarken' v='0.605' />
     <E k='cfg:FrostTint' v='#FFFFFF' />
     <E k='cfg:FxBloomOn' v='false' />
     <E k='cfg:FxBloomStrength' v='1.245' />
     <E k='cfg:FxBloomThreshold' v='0.996' />
     <E k='cfg:FxBloomKnee' v='0.589' />
-    <E k='cfg:FxBloomBlurSteps' v='2' />
     <E k='cfg:FxBloomSpread' v='0.808' />
-    <E k='cfg:FxBloomFineDetail' v='true' />
     <E k='cfg:FxBloomSaturation' v='1.013' />
     <E k='cfg:FxBloomTint' v='#DBF1F6' />
     <E k='cfg:FxBloomAnamorph' v='0.194' />
-    <E k='cfg:FxBloomRes' v='2' />
     <E k='cfg:FxBloomPulseOn' v='false' />
     <E k='cfg:FxBloomPulseSpeed' v='0.704' />
     <E k='cfg:FxBloomPulseDepth' v='0.552' />
@@ -1535,11 +1619,11 @@ namespace StationeersUIMod.UI.Hud
     <E k='pal:HudTextLabel' v='8FB4C2D0' />
     <E k='pal:HudTextValue' v='FFFFFFF5' />
     <E k='pal:HudTextDim' v='6A8E9BA8' />
-    <E k='pal:HudGood' v='4CE07AE6' />
-    <E k='pal:HudWarn' v='F9FF00FF' />
+    <E k='pal:HudGood' v='23FF00E6' />
+    <E k='pal:HudWarn' v='FFEF00FF' />
     <E k='pal:HudCritical' v='FF1200F0' />
-    <E k='pal:HudAlertCaution' v='FFB13DFF' />
-    <E k='pal:HudAlertCritical' v='FF4A3DFF' />
+    <E k='pal:HudAlertCaution' v='FFEF00FF' />
+    <E k='pal:HudAlertCritical' v='FF0300FF' />
     <E k='pal:HudCompassTick' v='35C8E870' />
     <E k='pal:HudCompassCardinal' v='D8F0F8EE' />
     <E k='pal:HudCompassNeedle' v='FF8C29D9' />
@@ -1575,11 +1659,114 @@ namespace StationeersUIMod.UI.Hud
     <E k='rad:HintBarFill' v='000000C4' />
     <E k='rad:HintBarBorder' v='00000000' />
     <E k='rad:HintBarText' v='FFFFFFFF' />
+    <E k='radial:RadialOuterRadius' v='294.182' />
+    <E k='radial:RadialInnerRadius' v='116.814' />
+    <E k='radial:IconFlipV' v='false' />
+    <E k='radial:RadialIconRatio' v='0.62' />
+    <E k='radial:RadialShineIntensity' v='0.599' />
+    <E k='radial:ParkedChipRadius' v='49.229' />
+    <E k='radial:RadialShowWedgeLabels' v='false' />
+    <E k='radial:RadialEdgeFeather' v='2.198' />
+    <E k='radial:RadialBorderWidth' v='3.12' />
+    <E k='radial:RadialSideBorders' v='true' />
+    <E k='radial:RadialSideWidthInner' v='0.5' />
+    <E k='radial:RadialSideWidthOuter' v='3.215' />
+    <E k='radial:RadialWedgeGapDeg' v='0' />
+    <E k='radial:RadialDimShading' v='false' />
+    <E k='radial:RadialDimStrength' v='0.5' />
+    <E k='radial:RadialFontName' v='RBNoBook' />
+    <E k='radial:RadialUppercaseLabels' v='true' />
+    <E k='radial:RadialShowStateText' v='true' />
+    <E k='radial:RadialShowBindingLabels' v='true' />
+    <E k='radial:RadialSatelliteScale' v='0.994' />
+    <E k='radial:RadialHubTitleSize' v='20.914' />
+    <E k='radial:RadialTextVerb' v='17.587' />
+    <E k='radial:RadialTextLabel' v='16.516' />
+    <E k='radial:RadialTextSub' v='14.065' />
+    <E k='radial:RadialTextWarn' v='12' />
+    <E k='radial:RadialRotateLongLabels' v='true' />
+    <E k='radial:RadialSatelliteHubRatio' v='0.34' />
+    <E k='radial:RadialDynamicReadoutText' v='true' />
+    <E k='radial:RadialFrost' v='true' />
+    <E k='radial:RadialFrostStrength' v='1' />
+    <E k='radial:RadialSheen' v='0.023' />
+    <E k='radial:RadialEdgeLight' v='0' />
+    <E k='radial:HintBarCorner' v='12' />
+    <E k='radial:HintBarBorderWidth' v='0' />
+    <E k='radial:HintBarFeather' v='1.486667' />
+    <E k='radial:HintBarSheen' v='0' />
+    <E k='radial:HintBarSpec' v='0' />
+    <E k='radial:HintBarGlow' v='0' />
+    <E k='radial:HintBarGlowWidth' v='24' />
+    <E k='radial:HintBarFontSize' v='11.2' />
+    <E k='radial:HintBarBold' v='true' />
+    <E k='radial:HintBarHeight' v='30' />
+    <E k='radial:HintBarPadding' v='24' />
+    <E k='radial:HintBarDrop' v='34' />
+    <E k='radial:HintBarFrost' v='false' />
+    <E k='radial:HintBarFrostStrength' v='0.85' />
+    <E k='grid:Follow' v='false' />
+    <E k='grid:FillRef' v='HudPanelFill' />
+    <E k='grid:BorderRef' v='HudPanelBorder' />
+    <E k='grid:TextRef' v='HudTextValue' />
+    <E k='grid:CornerRadiusOv' v='3.711' />
+    <E k='grid:SheenOv' v='-1' />
+    <E k='grid:SpecOv' v='-1' />
+    <E k='grid:BorderWidthOv' v='1.321' />
+    <E k='grid:FeatherOv' v='0.971' />
+    <E k='grid:SquircleOv' v='-1' />
+    <E k='grid:GaussianMode' v='2' />
+    <E k='grid:BorderFadeOv' v='-1' />
+    <E k='grid:SoftEdgeOv' v='-1' />
+    <E k='grid:GlowMode' v='2' />
+    <E k='grid:GlowOv' v='-1' />
+    <E k='grid:GlowInnerOv' v='-1' />
+    <E k='grid:GlowHazeOv' v='-1' />
+    <E k='grid:GlowWidthOv' v='-1' />
+    <E k='grid:GlowDiffuseOv' v='-1' />
+    <E k='grid:GlowExtraDiffuseOv' v='-1' />
+    <E k='grid:RippleMode' v='2' />
+    <E k='grid:RippleOv' v='-1' />
+    <E k='grid:RippleFreqOv' v='-1' />
+    <E k='grid:RippleSmoothOv' v='-1' />
+    <E k='grid:FlowOv' v='-1' />
+    <E k='grid:FrostOn' v='true' />
+    <E k='grid:FrostOv' v='-1' />
+    <E k='grid:FrostDepthOv' v='-1' />
+    <E k='grid:ShineOv' v='-1' />
+    <E k='grid:IridOv' v='-1' />
+    <E k='grid:ChromaOv' v='-1' />
+    <E k='grid:PerTier' v='false' />
+    <E k='grid:BareFillRef' v='' />
+    <E k='grid:BareBorderRef' v='' />
+    <E k='grid:BareTextRef' v='' />
+    <E k='grid:BareOpacity' v='-1' />
+    <E k='grid:BareFrostMode' v='0' />
+    <E k='menu:Follow' v='true' />
+    <E k='menu:Scrim' v='#05050580' />
+    <E k='menu:Window' v='#292B2EE6' />
+    <E k='menu:Bar' v='#333638F2' />
+    <E k='menu:Panel' v='#36383BEB' />
+    <E k='menu:PanelRaised' v='#45474AFA' />
+    <E k='menu:PanelHover' v='#54575CFF' />
+    <E k='menu:Track' v='#5C5E63FF' />
+    <E k='menu:Divider' v='#FFFFFF14' />
+    <E k='menu:Border' v='#2E7A94AB' />
+    <E k='menu:Accent' v='#59C7E6FF' />
+    <E k='menu:Selected' v='#FF8C29FF' />
+    <E k='menu:On' v='#5CD17AFF' />
+    <E k='menu:Off' v='#596673FF' />
+    <E k='menu:Text' v='#F0F7FFFF' />
+    <E k='menu:TextDim' v='#B8CCDEFF' />
+    <E k='menu:TextMute' v='#8599ADFF' />
+    <E k='menu:Good' v='#6BD985FF' />
+    <E k='menu:Warn' v='#FAC74CFF' />
+    <E k='menu:Critical' v='#F26661FF' />
   </Theme>
 </HudDocument>";
 
         public const string PureHudXml =
-@"<HudDocument xmlns:xsd='http://www.w3.org/2001/XMLSchema' xmlns:xsi='http://www.w3.org/2001/XMLSchema-instance' Schema='16' Name='Pure HUD' RefW='0' RefH='0'>
+@"<HudDocument xmlns:xsd='http://www.w3.org/2001/XMLSchema' xmlns:xsi='http://www.w3.org/2001/XMLSchema-instance' Schema='7' Name='Pure HUD' RefW='0' RefH='0'>
   <El Id='g2-clock' Type='Clock' Anchor='TopLeft' X='150' Y='-38' W='200' H='40' WPct='-1' HPct='-1' Z='2' Tiers='Suited Robot' Fill='#0017279A' Border='#54D5FE65' TextColor='HudTextLabel' BorderWidth='0.076' RTL='11.771' RTR='11.771' RBR='11.771' RBL='11.771' FontScale='1' Align='Center'>
     <P K='fxCollapse' V='false' />
     <P K='sheen' V='0' />
@@ -1769,9 +1956,9 @@ namespace StationeersUIMod.UI.Hud
     <P K='textScale' V='1.257' />
     <P K='mAL' V='true' />
     <P K='mAAnchor' V='2' />
-    <P K='mAX' V='-542' />
+    <P K='mAX' V='-530' />
     <P K='mAY' V='-48' />
-    <P K='mAW' V='184' />
+    <P K='mAW' V='160' />
     <P K='mAH' V='42' />
     <P K='mAWPct' V='-1' />
     <P K='mAHPct' V='-1' />
@@ -1816,6 +2003,7 @@ namespace StationeersUIMod.UI.Hud
     <P K='customStyleReady' V='true' />
     <P K='styleSource' V='1' />
     <P K='fxCollapseMode' V='2' />
+    <P K='icon' V='false' />
     <P K='styleSrc' V='512' />
   </El>
   <El Id='g2-day' Type='DayCounter' Anchor='TopRight' X='-120' Y='-38' W='130' H='40' WPct='-1' HPct='-1' Z='2' Tiers='Suited Robot' Fill='#0017279A' Border='#54D5FE65' TextColor='HudTextLabel' BorderWidth='0.076' RTL='11.771' RTR='11.771' RBR='11.771' RBL='11.771' FontScale='1' Align='Center'>
@@ -1891,8 +2079,8 @@ namespace StationeersUIMod.UI.Hud
     <P K='fxWarp' V='true' />
     <P K='mAL' V='true' />
     <P K='mAAnchor' V='1' />
-    <P K='mAX' V='-11' />
-    <P K='mAY' V='-140' />
+    <P K='mAX' V='-4' />
+    <P K='mAY' V='-114' />
     <P K='mAW' V='340' />
     <P K='mAH' V='50' />
     <P K='mAWPct' V='-1' />
@@ -1937,10 +2125,10 @@ namespace StationeersUIMod.UI.Hud
     <P K='customStyleReady' V='true' />
     <P K='bLayout' V='true' />
     <P K='bAnchor' V='1' />
-    <P K='bX' V='-68' />
-    <P K='bY' V='-768' />
-    <P K='bW' V='1414' />
-    <P K='bH' V='64' />
+    <P K='bX' V='-10' />
+    <P K='bY' V='-746' />
+    <P K='bW' V='380' />
+    <P K='bH' V='128' />
     <P K='bWPct' V='-1' />
     <P K='bHPct' V='-1' />
     <P K='glowExtraDiffuse' V='0' />
@@ -1949,9 +2137,23 @@ namespace StationeersUIMod.UI.Hud
     <P K='fxGlitchMode' V='2' />
     <P K='fxWarpMode' V='1' />
     <P K='words' V='true' />
+    <P K='b_vertical' V='true' />
+    <P K='b_wordCols' V='2' />
+    <P K='b_wordGap' V='6.427' />
+    <P K='b_wordSize' V='12.245' />
+    <P K='b_wordAlign' V='1' />
+    <P K='tierStyle' V='1' />
+    <P K='b_styleSource' V='1' />
+    <P K='b_text' V='#FFFFFFF5' />
+    <P K='b_fs' V='1.138' />
+    <P K='b_words' V='true' />
+    <P K='b_moodletScale' V='0.398' />
+    <P K='b_moodletTransparency' V='0.143' />
+    <P K='b_moodletBrightness' V='1' />
+    <P K='b_styleSrc' V='512' />
     <P K='styleSrc' V='512' />
   </El>
-  <El Id='g2-eqleft' Type='EquipmentColumn' Anchor='BottomCenter' X='-360' Y='56' W='264' H='78' WPct='-1' HPct='-1' Z='2' Tiers='All' Fill='HudPanelFill' Border='HudGood' TextColor='HudTextValue' BorderWidth='0.67' RTL='11.771' RTR='11.771' RBR='11.771' RBL='11.771' FontScale='1.041' Align='Center'>
+  <El Id='g2-eqleft' Type='EquipmentColumn' Anchor='BottomCenter' X='-360' Y='56' W='264' H='78' WPct='-1' HPct='-1' Z='2' Tiers='All' Fill='#33CE000D' Border='HudGood' TextColor='HudTextValue' BorderWidth='0.67' RTL='11.771' RTR='11.771' RBR='11.771' RBL='11.771' FontScale='1.041' Align='Center'>
     <P K='horizontal' V='true' />
     <P K='first' V='0' />
     <P K='count' V='3' />
@@ -2019,7 +2221,44 @@ namespace StationeersUIMod.UI.Hud
     <P K='numColor' V='HudPanelBorder' />
     <P K='labelEmptyColor' V='HudPanelBorder' />
     <P K='tierStyle' V='1' />
-    <P K='tierStyleNeedsSeed' V='true' />
+    <P K='b_styleSource' V='2' />
+    <P K='b_text' V='HudTextValue' />
+    <P K='b_bw' V='0.67' />
+    <P K='b_feather' V='0.932' />
+    <P K='b_rtl' V='11.771' />
+    <P K='b_rtr' V='11.771' />
+    <P K='b_rbr' V='11.771' />
+    <P K='b_rbl' V='11.771' />
+    <P K='b_sheen' V='0' />
+    <P K='b_spec' V='0.689399958' />
+    <P K='b_squircle' V='3.517' />
+    <P K='b_gaussianHalo' V='false' />
+    <P K='b_fs' V='1.041' />
+    <P K='b_customBorderFadeOn' V='true' />
+    <P K='b_bfade' V='0.757' />
+    <P K='b_customSoftEdgeOn' V='false' />
+    <P K='b_edgeFadeX' V='0' />
+    <P K='b_edgeFadeY' V='0' />
+    <P K='b_customShineOn' V='false' />
+    <P K='b_customIridOn' V='false' />
+    <P K='b_customChromaOn' V='true' />
+    <P K='b_customChroma' V='0.564' />
+    <P K='b_customFrostOn' V='true' />
+    <P K='b_customFrost' V='0.87' />
+    <P K='b_frostDepth' V='0.359' />
+    <P K='b_gap' V='5.446' />
+    <P K='b_horizontal' V='true' />
+    <P K='b_iconScale' V='0.559' />
+    <P K='b_iconDX' V='0' />
+    <P K='b_iconDY' V='0' />
+    <P K='b_labels' V='true' />
+    <P K='b_damageWarn' V='true' />
+    <P K='b_damageBarThick' V='0.085' />
+    <P K='b_warnScale' V='0.72' />
+    <P K='b_numColor' V='HudPanelBorder' />
+    <P K='b_labelEmptyColor' V='HudPanelBorder' />
+    <P K='b_iconTintMode' V='2' />
+    <P K='b_dropWholeBox' V='false' />
     <P K='b_glowExtraDiffuse' V='0' />
     <P K='b_glowHaze' V='0.424' />
     <P K='b_glowBreath' V='0.299' />
@@ -2029,7 +2268,13 @@ namespace StationeersUIMod.UI.Hud
     <P K='b_customGlowBreathOn' V='true' />
     <P K='b_customGlowUnevenOn' V='true' />
     <P K='b_customGlowFlowOn' V='true' />
+    <P K='b_styleSrc' V='682' />
     <P K='styleSrc' V='682' />
+    <P K='b_ripple' V='2.27' />
+    <P K='b_rippleFreq' V='0.316' />
+    <P K='b_rippleSmooth' V='0' />
+    <P K='b_edgeFlow' V='0.229' />
+    <P K='b_customStyleReady' V='true' />
   </El>
   <El Id='g2-hands' Type='HandBoxes' Anchor='BottomCenter' X='-16' Y='62' W='358' H='118' WPct='-1' HPct='-1' Z='2' Tiers='All' Fill='#33CE0005' Border='#33CE00E3' TextColor='#23FF00F5' BorderWidth='0.076' RTL='11.771' RTR='11.771' RBR='11.771' RBL='11.771' FontScale='0.599' Align='Center'>
     <P K='tray' V='false' />
@@ -2101,8 +2346,44 @@ namespace StationeersUIMod.UI.Hud
     <P K='fxDissolveMode' V='2' />
     <P K='fxGlitchMode' V='2' />
     <P K='activeBorderColor' V='#52FF29E6' />
+    <P K='stateEmptyColor' V='HudTextLabel' />
     <P K='tierStyle' V='1' />
-    <P K='tierStyleNeedsSeed' V='true' />
+    <P K='b_styleSource' V='2' />
+    <P K='b_text' V='#23FF00F5' />
+    <P K='b_bw' V='0.076' />
+    <P K='b_feather' V='0.932' />
+    <P K='b_rtl' V='11.771' />
+    <P K='b_rtr' V='11.771' />
+    <P K='b_rbr' V='11.771' />
+    <P K='b_rbl' V='11.771' />
+    <P K='b_sheen' V='0' />
+    <P K='b_spec' V='0' />
+    <P K='b_squircle' V='3.517' />
+    <P K='b_gaussianHalo' V='false' />
+    <P K='b_fs' V='0.599' />
+    <P K='b_customRippleOn' V='false' />
+    <P K='b_customBorderFadeOn' V='false' />
+    <P K='b_customSoftEdgeOn' V='false' />
+    <P K='b_edgeFadeX' V='0' />
+    <P K='b_edgeFadeY' V='0' />
+    <P K='b_customGlowOn' V='false' />
+    <P K='b_customShineOn' V='false' />
+    <P K='b_customIridOn' V='false' />
+    <P K='b_customChromaOn' V='false' />
+    <P K='b_customFrostOn' V='false' />
+    <P K='b_gap' V='24.576' />
+    <P K='b_titleDX' V='0' />
+    <P K='b_titleDY' V='-0.735' />
+    <P K='b_stateDX' V='1.179' />
+    <P K='b_stateDY' V='-3.324' />
+    <P K='b_iconScale' V='0.542' />
+    <P K='b_iconDX' V='0' />
+    <P K='b_iconDY' V='-1.572' />
+    <P K='b_tray' V='false' />
+    <P K='b_activeBorderColor' V='#52FF29E6' />
+    <P K='b_stateEmptyColor' V='HudTextLabel' />
+    <P K='b_iconTintMode' V='2' />
+    <P K='b_dropWholeBox' V='false' />
     <P K='b_glowExtraDiffuse' V='0' />
     <P K='b_glowHaze' V='0' />
     <P K='b_glowBreath' V='0' />
@@ -2112,9 +2393,10 @@ namespace StationeersUIMod.UI.Hud
     <P K='b_customGlowBreathOn' V='false' />
     <P K='b_customGlowUnevenOn' V='false' />
     <P K='b_customGlowFlowOn' V='false' />
+    <P K='b_styleSrc' V='682' />
     <P K='styleSrc' V='682' />
   </El>
-  <El Id='g2-eqright' Type='EquipmentColumn' Anchor='BottomCenter' X='360' Y='56' W='264' H='78' WPct='-1' HPct='-1' Z='2' Tiers='All' Fill='HudPanelFill' Border='HudPanelBorder' TextColor='HudTextValue' BorderWidth='0.076' RTL='11.771' RTR='11.771' RBR='11.771' RBL='11.771' FontScale='1' Align='Center'>
+  <El Id='g2-eqright' Type='EquipmentColumn' Anchor='BottomCenter' X='360' Y='56' W='264' H='78' WPct='-1' HPct='-1' Z='2' Tiers='All' Fill='#33CE000D' Border='HudPanelBorder' TextColor='HudTextValue' BorderWidth='0.076' RTL='11.771' RTR='11.771' RBR='11.771' RBL='11.771' FontScale='1' Align='Center'>
     <P K='horizontal' V='true' />
     <P K='first' V='3' />
     <P K='count' V='3' />
@@ -2179,7 +2461,44 @@ namespace StationeersUIMod.UI.Hud
     <P K='labelEmptyColor' V='HudPanelBorder' />
     <P K='numColor' V='HudPanelBorder' />
     <P K='tierStyle' V='1' />
-    <P K='tierStyleNeedsSeed' V='true' />
+    <P K='b_styleSource' V='2' />
+    <P K='b_text' V='HudTextValue' />
+    <P K='b_bw' V='0.076' />
+    <P K='b_feather' V='0.932' />
+    <P K='b_rtl' V='11.771' />
+    <P K='b_rtr' V='11.771' />
+    <P K='b_rbr' V='11.771' />
+    <P K='b_rbl' V='11.771' />
+    <P K='b_sheen' V='0' />
+    <P K='b_spec' V='0.689399958' />
+    <P K='b_squircle' V='3.517' />
+    <P K='b_gaussianHalo' V='false' />
+    <P K='b_fs' V='1' />
+    <P K='b_customBorderFadeOn' V='true' />
+    <P K='b_bfade' V='0.757' />
+    <P K='b_customSoftEdgeOn' V='false' />
+    <P K='b_edgeFadeX' V='0' />
+    <P K='b_edgeFadeY' V='0' />
+    <P K='b_customShineOn' V='false' />
+    <P K='b_customIridOn' V='false' />
+    <P K='b_customChromaOn' V='true' />
+    <P K='b_customChroma' V='0.564' />
+    <P K='b_customFrostOn' V='true' />
+    <P K='b_customFrost' V='0.87' />
+    <P K='b_frostDepth' V='0.359' />
+    <P K='b_gap' V='8' />
+    <P K='b_horizontal' V='true' />
+    <P K='b_iconScale' V='0.559' />
+    <P K='b_iconDX' V='0' />
+    <P K='b_iconDY' V='0' />
+    <P K='b_labels' V='true' />
+    <P K='b_damageWarn' V='true' />
+    <P K='b_damageBarThick' V='0.085' />
+    <P K='b_warnScale' V='0.72' />
+    <P K='b_numColor' V='HudPanelBorder' />
+    <P K='b_labelEmptyColor' V='HudPanelBorder' />
+    <P K='b_iconTintMode' V='2' />
+    <P K='b_dropWholeBox' V='false' />
     <P K='b_glowExtraDiffuse' V='0' />
     <P K='b_glowHaze' V='0.424' />
     <P K='b_glowBreath' V='0.299' />
@@ -2189,6 +2508,7 @@ namespace StationeersUIMod.UI.Hud
     <P K='b_customGlowBreathOn' V='true' />
     <P K='b_customGlowUnevenOn' V='true' />
     <P K='b_customGlowFlowOn' V='true' />
+    <P K='b_styleSrc' V='682' />
     <P K='styleSrc' V='682' />
   </El>
   <El Id='g2-portrait' Type='Portrait' Anchor='BottomRight' X='-96' Y='100' W='186' H='178' WPct='-1' HPct='-1' Z='3' Tiers='Suited Robot' Fill='HudPanelFill' Border='#33CE000B' TextColor='HudTextValue' BorderWidth='0.728' RTL='11.771' RTR='11.771' RBR='11.771' RBL='11.771' FontScale='0.679' Align='Center'>
@@ -2247,6 +2567,14 @@ namespace StationeersUIMod.UI.Hud
     <P K='fxDissolveMode' V='2' />
     <P K='fxWarpMode' V='0' />
     <P K='holoTint' V='#0AB400AD' />
+    <P K='mDL' V='true' />
+    <P K='mDAnchor' V='8' />
+    <P K='mDX' V='-92' />
+    <P K='mDY' V='112' />
+    <P K='mDW' V='126' />
+    <P K='mDH' V='112' />
+    <P K='mDWPct' V='-1' />
+    <P K='mDHPct' V='-1' />
     <P K='styleSrc' V='682' />
   </El>
   <El Id='g2-chips' Type='StateChips' Anchor='BottomRight' X='-98' Y='208' W='115.479019' H='27.8273258' WPct='-1' HPct='-1' Z='3' Tiers='Suited Robot' Fill='HudPanelFill' Border='HudPanelBorder' TextColor='HudTextValue' BorderWidth='-1' RTL='-1' RTR='-1' RBR='-1' RBL='-1' FontScale='0.97' Align='Center'>
@@ -2255,8 +2583,8 @@ namespace StationeersUIMod.UI.Hud
     <P K='mAL' V='true' />
     <P K='mAAnchor' V='8' />
     <P K='mAX' V='-68' />
-    <P K='mAY' V='159' />
-    <P K='mAW' V='122' />
+    <P K='mAY' V='166' />
+    <P K='mAW' V='162' />
     <P K='mAH' V='24' />
     <P K='mAWPct' V='-1' />
     <P K='mAHPct' V='-1' />
@@ -2264,6 +2592,15 @@ namespace StationeersUIMod.UI.Hud
     <P K='iconTintOn' V='true' />
     <P K='iconTint' V='HudPanelBorder' />
     <P K='inset' V='0.045' />
+    <P K='words' V='true' />
+    <P K='mDL' V='true' />
+    <P K='mDAnchor' V='8' />
+    <P K='mDX' V='-100' />
+    <P K='mDY' V='232' />
+    <P K='mDW' V='166' />
+    <P K='mDH' V='40' />
+    <P K='mDWPct' V='-1' />
+    <P K='mDHPct' V='-1' />
     <P K='styleSrc' V='0' />
   </El>
   <El Id='g2-intpress' Type='Readout' Anchor='BottomRight' X='-226.599' Y='125.067' W='72' H='56' WPct='-0.741' HPct='-0.758' Z='-7' Tiers='Suited Robot' Fill='HudPanelFill' Border='HudPanelBorder' TextColor='HudTextValue' BorderWidth='-1' RTL='-1' RTR='-1' RBR='-1' RBL='-1' FontScale='1.47' Align='Center'>
@@ -2289,6 +2626,8 @@ namespace StationeersUIMod.UI.Hud
     <P K='rowTitleY' V='0.835' />
     <P K='rowValueY' V='0.173' />
     <P K='wrap' V='true' />
+    <P K='targetColor' V='HudTextLabel' />
+    <P K='labelColor' V='HudTextLabel' />
     <P K='styleSrc' V='0' />
   </El>
   <El Id='g2-inttemp' Type='Readout' Anchor='BottomRight' X='-226.599' Y='69.687' W='74.763' H='49.8420029' WPct='-1' HPct='-1' Z='3' Tiers='Suited Robot' Fill='HudPanelFill' Border='HudPanelBorder' TextColor='HudTextValue' BorderWidth='-1' RTL='-1' RTR='-1' RBR='-1' RBL='-1' FontScale='2.116' Align='Center' Icon='Temp'>
@@ -2313,6 +2652,8 @@ namespace StationeersUIMod.UI.Hud
     <P K='styleSource' V='1' />
     <P K='rowValueY' V='0.169' />
     <P K='rowTargetY' V='0.517' />
+    <P K='targetColor' V='HudTextLabel' />
+    <P K='labelColor' V='HudTextLabel' />
     <P K='styleSrc' V='0' />
   </El>
   <El Id='g2-jetpack' Type='JetpackBox' Anchor='BottomRight' X='-226.599' Y='183.216' W='71.994' H='55.38' WPct='-1' HPct='-1' Z='3' Tiers='Suited Robot' Fill='HudPanelFill' Border='HudPanelBorder' TextColor='HudTextValue' BorderWidth='-1' RTL='-1' RTR='-1' RBR='-1' RBL='-1' FontScale='0.75' Align='Center'>
@@ -2383,15 +2724,24 @@ namespace StationeersUIMod.UI.Hud
     <P K='customChroma' V='0.564' />
     <P K='customFrostOn' V='true' />
     <P K='customFrost' V='0.87' />
-    <P K='customDissolve' V='true' />
+    <P K='customDissolve' V='false' />
     <P K='customStyleReady' V='true' />
-    <P K='styleSource' V='1' />
+    <P K='styleSource' V='2' />
     <P K='icons' V='false' />
     <P K='rowLines' V='false' />
     <P K='iconWords' V='true' />
-    <P K='styleSrc' V='0' />
+    <P K='mDL' V='true' />
+    <P K='mDAnchor' V='8' />
+    <P K='mDX' V='-265.910553' />
+    <P K='mDY' V='364' />
+    <P K='mDW' V='122' />
+    <P K='mDH' V='152' />
+    <P K='mDWPct' V='-1' />
+    <P K='mDHPct' V='-1' />
+    <P K='fxDissolveMode' V='2' />
+    <P K='styleSrc' V='682' />
   </El>
-  <El Id='g2-bare-senses' Type='BareSenses' Anchor='Center' X='-564.876038' Y='13.845' W='304.59' H='415.35' WPct='-1' HPct='-1' Z='73' Tiers='Bare' Fill='#0000002C' Border='#54D5FE00' TextColor='HudTextValue' BorderWidth='0.076' RTL='11.771' RTR='11.771' RBR='11.771' RBL='11.771' FontScale='1' Align='Center'>
+  <El Id='g2-bare-senses' Type='BareSenses' Anchor='Center' X='-564.876038' Y='13.845' W='304.59' H='415.35' WPct='-1' HPct='-1' Z='73' Tiers='Bare' Fill='#0000002C' Border='#54D5FE00' TextColor='HudTextValue' BorderWidth='0.076' RTL='11.771' RTR='11.771' RBR='11.771' RBL='11.771' FontScale='0.766' Align='Center'>
     <P K='order' V='temp,air,pressure,thirst,hunger,health,toilet,cognition' />
     <P K='mAL' V='true' />
     <P K='mAAnchor' V='4' />
@@ -2442,12 +2792,13 @@ namespace StationeersUIMod.UI.Hud
     <P K='customStyleReady' V='true' />
     <P K='styleSource' V='2' />
     <P K='layoutMode' V='2' />
-    <P K='align' V='0' />
+    <P K='align' V='4' />
     <P K='gridCols' V='3' />
-    <P K='gap' V='0' />
-    <P K='pad' V='22.776' />
+    <P K='gap' V='7.392' />
+    <P K='pad' V='7.991' />
     <P K='showDay' V='false' />
     <P K='box' V='true' />
+    <P K='insetBottom' V='0' />
     <P K='styleSrc' V='170' />
   </El>
   <El Id='cfe7acaf9a1e4ee0af3e7bf373ad9c3b' Type='Readout' Anchor='Center' X='836.697' Y='-575.49' W='77.532' H='38.766' WPct='-1' HPct='-1' Z='50' Tiers='Suited Robot' Fill='HudPanelFill' Border='HudPanelBorder' TextColor='HudTextValue' BorderWidth='0.076' RTL='11.771' RTR='11.771' RBR='11.771' RBL='11.771' FontScale='2.381' Align='Center' Icon='speed'>
@@ -2509,6 +2860,14 @@ namespace StationeersUIMod.UI.Hud
     <P K='customStyleReady' V='true' />
     <P K='styleSource' V='1' />
     <P K='icon' V='false' />
+    <P K='mDL' V='true' />
+    <P K='mDAnchor' V='4' />
+    <P K='mDX' V='812.9595' />
+    <P K='mDY' V='-446.181946' />
+    <P K='mDW' V='77.532' />
+    <P K='mDH' V='38.766' />
+    <P K='mDWPct' V='-1' />
+    <P K='mDHPct' V='-1' />
     <P K='styleSrc' V='0' />
   </El>
   <El Id='e4d9d8873c1b46fab33d7ccb368865d4' Type='PngDoll' Anchor='Center' X='673.326' Y='-500.72702' W='90' H='218' WPct='-1' HPct='-1' Z='50' Tiers='Suited Robot' Fill='HudPanelFill' Border='HudPanelBorder' TextColor='HudTextValue' BorderWidth='0.076' RTL='11.771' RTR='11.771' RBR='11.771' RBL='11.771' FontScale='1' Align='Center'>
@@ -2531,7 +2890,7 @@ namespace StationeersUIMod.UI.Hud
     <P K='glow' V='0' />
     <P K='glowIn' V='0' />
     <P K='softEdge' V='0' />
-    <P K='wholeBody' V='true' />
+    <P K='wholeBody' V='false' />
     <P K='feather' V='0.932' />
     <P K='squircle' V='3.517' />
     <P K='gaussianHalo' V='false' />
@@ -2568,6 +2927,14 @@ namespace StationeersUIMod.UI.Hud
     <P K='customStyleReady' V='true' />
     <P K='styleSource' V='1' />
     <P K='cWarn' V='#F5FF00E6' />
+    <P K='mDL' V='true' />
+    <P K='mDAnchor' V='4' />
+    <P K='mDX' V='396' />
+    <P K='mDY' V='-142' />
+    <P K='mDW' V='90' />
+    <P K='mDH' V='218' />
+    <P K='mDWPct' V='-1' />
+    <P K='mDHPct' V='-1' />
     <P K='styleSrc' V='0' />
   </El>
   <El Id='d78f4bc71d534617b57769c7dc63ecaa' Type='Box' Anchor='Center' X='6.7859993' Y='467.210022' W='1603.971' H='64.428' WPct='-1' HPct='-0.134' Z='-45' Tiers='Suited Robot' Fill='#00172700' Border='#6FFE54FF' TextColor='#23FF00F5' BorderWidth='0.076' RTL='2.061' RTR='1.881' RBR='10.524' RBL='9.803' FontScale='1' Align='Center'>
@@ -2690,33 +3057,16 @@ namespace StationeersUIMod.UI.Hud
   </El>
   <Theme>
     <E k='cfg:Curvature' v='VertexWarp' />
-    <E k='cfg:CurveStrength' v='0.794' />
+    <E k='cfg:CurveStrength' v='0.821' />
     <E k='cfg:CurveInvert' v='false' />
     <E k='cfg:WorldCanvasDistance' v='0.6' />
     <E k='cfg:BareFlattens' v='true' />
-    <E k='cfg:ShowTopBar' v='false' />
-    <E k='cfg:ShowCompass' v='false' />
-    <E k='cfg:ShowEquipment' v='false' />
-    <E k='cfg:ShowHands' v='false' />
-    <E k='cfg:ShowVitals' v='false' />
     <E k='cfg:ShowVignette' v='false' />
-    <E k='cfg:ShowHologram' v='false' />
     <E k='cfg:ShowScanlines' v='false' />
     <E k='cfg:TintItemIcons' v='true' />
     <E k='cfg:HudScale' v='1.209' />
-    <E k='cfg:TopBarHeight' v='75.89' />
-    <E k='cfg:TopBarCurve' v='117.306' />
-    <E k='cfg:TopBarWidthPct' v='0.781' />
-    <E k='cfg:CompassWidthPct' v='0.15' />
-    <E k='cfg:CompassHeight' v='33.699' />
-    <E k='cfg:CompassFovDeg' v='116.674' />
-    <E k='cfg:EquipBoxSize' v='83.814' />
-    <E k='cfg:EquipSpacing' v='15.374' />
-    <E k='cfg:HandBoxWidth' v='130.557' />
-    <E k='cfg:HandBoxHeight' v='88.292' />
-    <E k='cfg:VitalsWidth' v='264.95' />
-    <E k='cfg:VitalsHeight' v='160.639' />
     <E k='cfg:CornerRadius' v='11.771' />
+    <E k='cfg:HudCornerStyle' v='0' />
     <E k='cfg:BorderWidth' v='0.076' />
     <E k='cfg:EdgeFeather' v='0.932' />
     <E k='cfg:GlassSheen' v='0' />
@@ -2727,17 +3077,11 @@ namespace StationeersUIMod.UI.Hud
     <E k='cfg:FontName' v='RBNoBold' />
     <E k='cfg:FontScale' v='1.004' />
     <E k='cfg:LabelFontSize' v='13.626' />
-    <E k='cfg:ValueFontSize' v='19.784' />
-    <E k='cfg:CompassFontSize' v='14.185' />
-    <E k='cfg:BareWordFontSize' v='22.601' />
-    <E k='cfg:VitalsRowFontSize' v='15.5' />
-    <E k='cfg:DiegeticTiers' v='false' />
+    <E k='cfg:DiegeticTiers' v='true' />
+    <E k='cfg:DetailedVitalsTooltips' v='true' />
     <E k='cfg:FlickerAnimations' v='true' />
     <E k='cfg:LowPowerDropouts' v='false' />
     <E k='cfg:LowPowerThreshold' v='27.034' />
-    <E k='cfg:GlitchEnabled' v='true' />
-    <E k='cfg:GlitchDuration' v='1.777' />
-    <E k='cfg:GlitchIntensity' v='0.457' />
     <E k='cfg:GlitchOnPowerDown' v='true' />
     <E k='cfg:GlitchOnPowerUp' v='false' />
     <E k='cfg:FxTierA' v='false' />
@@ -2775,6 +3119,7 @@ namespace StationeersUIMod.UI.Hud
     <E k='cfg:FxCollapseAmt' v='1' />
     <E k='cfg:FxGlitchOn' v='true' />
     <E k='cfg:FxGlitchAmt' v='1' />
+    <E k='cfg:FxGlitchDuration' v='1.777' />
     <E k='cfg:FxWarpOn' v='true' />
     <E k='cfg:FxWarpAmt' v='1' />
     <E k='cfg:FxTvOffOn' v='false' />
@@ -2809,21 +3154,16 @@ namespace StationeersUIMod.UI.Hud
     <E k='cfg:FxAlertCriticalBright' v='3' />
     <E k='cfg:FrostStrength' v='0.87' />
     <E k='cfg:FrostDepth' v='0.359' />
-    <E k='cfg:FrostDownsample' v='4' />
-    <E k='cfg:FrostUpdateEveryN' v='2' />
     <E k='cfg:FrostDarken' v='0.605' />
     <E k='cfg:FrostTint' v='#FFFFFF' />
     <E k='cfg:FxBloomOn' v='false' />
     <E k='cfg:FxBloomStrength' v='1.245' />
     <E k='cfg:FxBloomThreshold' v='0.996' />
     <E k='cfg:FxBloomKnee' v='0.589' />
-    <E k='cfg:FxBloomBlurSteps' v='2' />
     <E k='cfg:FxBloomSpread' v='0.808' />
-    <E k='cfg:FxBloomFineDetail' v='true' />
     <E k='cfg:FxBloomSaturation' v='1.013' />
     <E k='cfg:FxBloomTint' v='#DBF1F6' />
     <E k='cfg:FxBloomAnamorph' v='0.194' />
-    <E k='cfg:FxBloomRes' v='2' />
     <E k='cfg:FxBloomPulseOn' v='false' />
     <E k='cfg:FxBloomPulseSpeed' v='0.704' />
     <E k='cfg:FxBloomPulseDepth' v='0.552' />
@@ -2841,10 +3181,10 @@ namespace StationeersUIMod.UI.Hud
     <E k='cfg:FxBloom2SatBias' v='1' />
     <E k='pal:HudPanelFill' v='27272700' />
     <E k='pal:HudPanelBorder' v='33CE00E3' />
-    <E k='pal:HudLineAccent' v='33CE00CC' />
+    <E k='pal:HudLineAccent' v='35C8E8CC' />
     <E k='pal:HudTextLabel' v='33CE00E3' />
     <E k='pal:HudTextValue' v='33CE00E3' />
-    <E k='pal:HudTextDim' v='6B8C5BA8' />
+    <E k='pal:HudTextDim' v='6A8E9BA8' />
     <E k='pal:HudGood' v='33E20BD0' />
     <E k='pal:HudWarn' v='FFF300E6' />
     <E k='pal:HudCritical' v='FF1400F0' />
@@ -2861,6 +3201,1623 @@ namespace StationeersUIMod.UI.Hud
     <E k='pal:HudVignette' v='01070AB8' />
     <E k='pal:HudScanline' v='0A20281C' />
     <E k='pal:HudItemIconTint' v='2EFF0080' />
+    <E k='rad:WedgeBackground' v='14330E73' />
+    <E k='rad:WedgeSelected' v='15330E67' />
+    <E k='rad:WedgeDisabled' v='07610067' />
+    <E k='rad:WedgeStowTarget' v='31D91A6B' />
+    <E k='rad:WedgeStowTargetSelected' v='3CFF29AF' />
+    <E k='rad:WedgeBorder' v='18FF00C9' />
+    <E k='rad:WedgeBorderSelected' v='4DFF299C' />
+    <E k='rad:RimShine' v='87C68700' />
+    <E k='rad:GroupWedgeFill' v='10330E73' />
+    <E k='rad:GroupWedgeBorder' v='5BF05AE6' />
+    <E k='rad:DeviceSlotBorderColor' v='41E63DFF' />
+    <E k='rad:HubFill' v='0E3311F6' />
+    <E k='rad:HubBorder' v='44FF29AE' />
+    <E k='rad:HubCloseButton' v='13330E80' />
+    <E k='rad:HubCloseButtonHover' v='16FF00A0' />
+    <E k='rad:HubCloseText' v='FFFFFFE6' />
+    <E k='rad:TextPrimary' v='FFFFFFFF' />
+    <E k='rad:TextDim' v='FFFFFFFF' />
+    <E k='rad:TextAccent' v='FFFFFFFF' />
+    <E k='rad:TextDisabled' v='C2C2C2B3' />
+    <E k='rad:TextBindingLabel' v='9FA6ADFF' />
+    <E k='rad:HintBarFill' v='000000C4' />
+    <E k='rad:HintBarBorder' v='00000000' />
+    <E k='rad:HintBarText' v='FFFFFFFF' />
+    <E k='radial:RadialOuterRadius' v='294.182' />
+    <E k='radial:RadialInnerRadius' v='116.814' />
+    <E k='radial:IconFlipV' v='false' />
+    <E k='radial:RadialIconRatio' v='0.62' />
+    <E k='radial:RadialShineIntensity' v='0.599' />
+    <E k='radial:ParkedChipRadius' v='49.229' />
+    <E k='radial:RadialShowWedgeLabels' v='false' />
+    <E k='radial:RadialEdgeFeather' v='2.198' />
+    <E k='radial:RadialBorderWidth' v='3.12' />
+    <E k='radial:RadialSideBorders' v='true' />
+    <E k='radial:RadialSideWidthInner' v='0.5' />
+    <E k='radial:RadialSideWidthOuter' v='3.215' />
+    <E k='radial:RadialWedgeGapDeg' v='0' />
+    <E k='radial:RadialDimShading' v='false' />
+    <E k='radial:RadialDimStrength' v='0.5' />
+    <E k='radial:RadialFontName' v='RBNoBook' />
+    <E k='radial:RadialUppercaseLabels' v='true' />
+    <E k='radial:RadialShowStateText' v='true' />
+    <E k='radial:RadialShowBindingLabels' v='true' />
+    <E k='radial:RadialSatelliteScale' v='0.994' />
+    <E k='radial:RadialHubTitleSize' v='20.914' />
+    <E k='radial:RadialTextVerb' v='17.587' />
+    <E k='radial:RadialTextLabel' v='16.516' />
+    <E k='radial:RadialTextSub' v='14.065' />
+    <E k='radial:RadialTextWarn' v='12' />
+    <E k='radial:RadialRotateLongLabels' v='true' />
+    <E k='radial:RadialSatelliteHubRatio' v='0.34' />
+    <E k='radial:RadialDynamicReadoutText' v='true' />
+    <E k='radial:RadialFrost' v='true' />
+    <E k='radial:RadialFrostStrength' v='1' />
+    <E k='radial:RadialSheen' v='0.023' />
+    <E k='radial:RadialEdgeLight' v='0' />
+    <E k='radial:HintBarCorner' v='12' />
+    <E k='radial:HintBarBorderWidth' v='0' />
+    <E k='radial:HintBarFeather' v='1.486667' />
+    <E k='radial:HintBarSheen' v='0' />
+    <E k='radial:HintBarSpec' v='0' />
+    <E k='radial:HintBarGlow' v='0' />
+    <E k='radial:HintBarGlowWidth' v='24' />
+    <E k='radial:HintBarFontSize' v='11.2' />
+    <E k='radial:HintBarBold' v='true' />
+    <E k='radial:HintBarHeight' v='30' />
+    <E k='radial:HintBarPadding' v='24' />
+    <E k='radial:HintBarDrop' v='34' />
+    <E k='radial:HintBarFrost' v='false' />
+    <E k='radial:HintBarFrostStrength' v='0.85' />
+    <E k='grid:Follow' v='false' />
+    <E k='grid:FillRef' v='#2727277D' />
+    <E k='grid:BorderRef' v='HudPanelBorder' />
+    <E k='grid:TextRef' v='HudTextValue' />
+    <E k='grid:CornerRadiusOv' v='3.711' />
+    <E k='grid:SheenOv' v='-1' />
+    <E k='grid:SpecOv' v='-1' />
+    <E k='grid:BorderWidthOv' v='1.321' />
+    <E k='grid:FeatherOv' v='0.971' />
+    <E k='grid:SquircleOv' v='-1' />
+    <E k='grid:GaussianMode' v='2' />
+    <E k='grid:BorderFadeOv' v='-1' />
+    <E k='grid:SoftEdgeOv' v='-1' />
+    <E k='grid:GlowMode' v='2' />
+    <E k='grid:GlowOv' v='-1' />
+    <E k='grid:GlowInnerOv' v='-1' />
+    <E k='grid:GlowHazeOv' v='-1' />
+    <E k='grid:GlowWidthOv' v='-1' />
+    <E k='grid:GlowDiffuseOv' v='-1' />
+    <E k='grid:GlowExtraDiffuseOv' v='-1' />
+    <E k='grid:RippleMode' v='2' />
+    <E k='grid:RippleOv' v='-1' />
+    <E k='grid:RippleFreqOv' v='-1' />
+    <E k='grid:RippleSmoothOv' v='-1' />
+    <E k='grid:FlowOv' v='-1' />
+    <E k='grid:FrostOn' v='true' />
+    <E k='grid:FrostOv' v='-1' />
+    <E k='grid:FrostDepthOv' v='-1' />
+    <E k='grid:ShineOv' v='-1' />
+    <E k='grid:IridOv' v='-1' />
+    <E k='grid:ChromaOv' v='-1' />
+    <E k='grid:PerTier' v='false' />
+    <E k='grid:BareFillRef' v='' />
+    <E k='grid:BareBorderRef' v='' />
+    <E k='grid:BareTextRef' v='' />
+    <E k='grid:BareOpacity' v='-1' />
+    <E k='grid:BareFrostMode' v='0' />
+    <E k='grid:ProfilePopupOpacity' v='1' />
+    <E k='menu:Follow' v='true' />
+    <E k='menu:Scrim' v='#05050580' />
+    <E k='menu:Window' v='#292B2EE6' />
+    <E k='menu:Bar' v='#333638F2' />
+    <E k='menu:Panel' v='#36383BEB' />
+    <E k='menu:PanelRaised' v='#45474AFA' />
+    <E k='menu:PanelHover' v='#54575CFF' />
+    <E k='menu:Track' v='#5C5E63FF' />
+    <E k='menu:Divider' v='#FFFFFF14' />
+    <E k='menu:Border' v='#2E7A94AB' />
+    <E k='menu:Accent' v='#59C7E6FF' />
+    <E k='menu:Selected' v='#FF8C29FF' />
+    <E k='menu:On' v='#5CD17AFF' />
+    <E k='menu:Off' v='#596673FF' />
+    <E k='menu:Text' v='#F0F7FFFF' />
+    <E k='menu:TextDim' v='#B8CCDEFF' />
+    <E k='menu:TextMute' v='#8599ADFF' />
+    <E k='menu:Good' v='#6BD985FF' />
+    <E k='menu:Warn' v='#FAC74CFF' />
+    <E k='menu:Critical' v='#F26661FF' />
+  </Theme>
+</HudDocument>";
+
+        public const string StationeersBlueMinimalistXml =
+@"<HudDocument xmlns:xsd='http://www.w3.org/2001/XMLSchema' xmlns:xsi='http://www.w3.org/2001/XMLSchema-instance' Schema='7' Name='Stationeers Blue Minimalist' RefW='0' RefH='0'>
+  <El Id='g2-topbar' Type='Box' Anchor='TopCenter' X='0' Y='-38' W='1860' H='62' WPct='0.99' HPct='-1' Z='0' Tiers='Suited Robot' Fill='#001727D5' Border='#54D5FE65' TextColor='#FFFFFFF5' BorderWidth='0.076' RTL='32.778' RTR='23.263' RBR='64' RBL='64' FontScale='1' Align='Center'>
+    <P K='insetBottom' V='9.418' />
+    <P K='sheen' V='0' />
+    <P K='spec' V='0' />
+    <P K='fxCollapse' V='false' />
+    <P K='mAL' V='true' />
+    <P K='mAAnchor' V='1' />
+    <P K='mAX' V='-14.4805222' />
+    <P K='mAY' V='-27.37789' />
+    <P K='mAW' V='1501.39722' />
+    <P K='mAH' V='66.5361938' />
+    <P K='mAWPct' V='-1' />
+    <P K='mAHPct' V='-1' />
+    <P K='edgeFadeY' V='0.06' />
+    <P K='edgeFadeX' V='0.191' />
+    <P K='bfade' V='0.775' />
+    <P K='feather' V='1.506' />
+    <P K='rippleSmooth' V='0' />
+    <P K='ripple' V='2.27' />
+    <P K='glowWidth' V='31.468' />
+    <P K='glow' V='0.046' />
+    <P K='glowIn' V='0.019' />
+    <P K='glowDiffuse' V='0.836' />
+    <P K='softEdge' V='0' />
+    <P K='rippleFreq' V='0.316' />
+    <P K='glowHaze' V='0.03' />
+    <P K='glowBreath' V='0.393' />
+    <P K='glowUneven' V='1' />
+    <P K='glowFlowAura' V='0.065' />
+    <P K='frostDepth' V='1' />
+    <P K='squircle' V='3.517' />
+    <P K='gaussianHalo' V='false' />
+    <P K='customBorderFadeOn' V='true' />
+    <P K='customSoftEdgeOn' V='false' />
+    <P K='customGlowOn' V='true' />
+    <P K='customRippleOn' V='true' />
+    <P K='customGlowBreathOn' V='true' />
+    <P K='customGlowUnevenOn' V='true' />
+    <P K='customGlowFlowOn' V='true' />
+    <P K='glowExtraDiffuse' V='0' />
+    <P K='glowOrganicScale' V='1' />
+    <P K='edgeFlow' V='0.229' />
+    <P K='customShineOn' V='false' />
+    <P K='customShine' V='0.841' />
+    <P K='customIridOn' V='false' />
+    <P K='customIrid' V='0.008' />
+    <P K='customChromaOn' V='true' />
+    <P K='customChroma' V='0.564' />
+    <P K='customFrostOn' V='true' />
+    <P K='customFrost' V='0.49764' />
+    <P K='customDissolve' V='true' />
+    <P K='customStyleReady' V='true' />
+    <P K='styleSource' V='2' />
+    <P K='fxWarp' V='true' />
+    <P K='fxCollapseMode' V='2' />
+    <P K='styleSrc' V='682' />
+  </El>
+  <El Id='g2-clock' Type='Clock' Anchor='TopLeft' X='150' Y='-38' W='200' H='40' WPct='-1' HPct='-1' Z='2' Tiers='Suited Robot' Fill='#0017279A' Border='#54D5FE65' TextColor='#FFFFFF5B' BorderWidth='0.076' RTL='11.771' RTR='11.771' RBR='11.771' RBL='11.771' FontScale='1' Align='Center'>
+    <P K='fxCollapse' V='false' />
+    <P K='sheen' V='0' />
+    <P K='spec' V='0' />
+    <P K='glow' V='0' />
+    <P K='glowIn' V='0' />
+    <P K='softEdge' V='0' />
+    <P K='mAL' V='true' />
+    <P K='mAAnchor' V='0' />
+    <P K='mAX' V='230' />
+    <P K='mAY' V='-33' />
+    <P K='mAW' V='200' />
+    <P K='mAH' V='40' />
+    <P K='mAWPct' V='-1' />
+    <P K='mAHPct' V='-1' />
+    <P K='feather' V='0.932' />
+    <P K='squircle' V='3.517' />
+    <P K='gaussianHalo' V='false' />
+    <P K='customBorderFadeOn' V='true' />
+    <P K='customSoftEdgeOn' V='false' />
+    <P K='customGlowOn' V='true' />
+    <P K='customRippleOn' V='true' />
+    <P K='customGlowBreathOn' V='true' />
+    <P K='customGlowUnevenOn' V='true' />
+    <P K='customGlowFlowOn' V='true' />
+    <P K='bfade' V='0.757' />
+    <P K='glowWidth' V='31.468' />
+    <P K='glowDiffuse' V='0.836' />
+    <P K='glowExtraDiffuse' V='0' />
+    <P K='glowHaze' V='0.03' />
+    <P K='glowBreath' V='0.393' />
+    <P K='glowUneven' V='1' />
+    <P K='glowOrganicScale' V='1' />
+    <P K='glowFlowAura' V='0.065' />
+    <P K='ripple' V='2.27' />
+    <P K='rippleFreq' V='0.316' />
+    <P K='rippleSmooth' V='0' />
+    <P K='edgeFlow' V='0.229' />
+    <P K='frostDepth' V='0.359' />
+    <P K='customShineOn' V='false' />
+    <P K='customShine' V='0.841' />
+    <P K='customIridOn' V='false' />
+    <P K='customIrid' V='0.008' />
+    <P K='customChromaOn' V='true' />
+    <P K='customChroma' V='0.564' />
+    <P K='customFrostOn' V='true' />
+    <P K='customFrost' V='0.87' />
+    <P K='customDissolve' V='true' />
+    <P K='customStyleReady' V='true' />
+    <P K='styleSource' V='1' />
+    <P K='fxCollapseMode' V='2' />
+    <P K='styleSrc' V='512' />
+  </El>
+  <El Id='g2-extpress' Type='Readout' Anchor='TopLeft' X='488.8861' Y='-31.7937088' W='287.217' H='61.11' WPct='-1' HPct='-1' Z='2' Tiers='Suited Robot' Fill='HudPanelFill' Border='HudPanelBorder' TextColor='HudTextValue' BorderWidth='0.076' RTL='11.771' RTR='11.771' RBR='11.771' RBL='11.771' FontScale='1' Align='Center'>
+    <P K='src' V='ExternalPressure' />
+    <P K='label' V='EXTERNAL PRESSURE' />
+    <P K='box' V='false' />
+    <P K='bar' V='true' />
+    <P K='barStyle' V='game' />
+    <P K='barVertical' V='false' />
+    <P K='target' V='false' />
+    <P K='textScale' V='1.217' />
+    <P K='fxCollapse' V='false' />
+    <P K='mAL' V='true' />
+    <P K='mAAnchor' V='0' />
+    <P K='mAX' V='536.976' />
+    <P K='mAY' V='-19.008' />
+    <P K='mAW' V='137.546753' />
+    <P K='mAH' V='39.0522537' />
+    <P K='mAWPct' V='-1' />
+    <P K='mAHPct' V='-1' />
+    <P K='sheen' V='0' />
+    <P K='spec' V='0.689399958' />
+    <P K='glow' V='0' />
+    <P K='glowIn' V='0' />
+    <P K='softEdge' V='0' />
+    <P K='feather' V='0.932' />
+    <P K='squircle' V='3.517' />
+    <P K='gaussianHalo' V='false' />
+    <P K='customBorderFadeOn' V='true' />
+    <P K='customSoftEdgeOn' V='false' />
+    <P K='customGlowOn' V='true' />
+    <P K='customRippleOn' V='true' />
+    <P K='customGlowBreathOn' V='true' />
+    <P K='customGlowUnevenOn' V='true' />
+    <P K='customGlowFlowOn' V='true' />
+    <P K='bfade' V='0.757' />
+    <P K='glowWidth' V='31.468' />
+    <P K='glowDiffuse' V='0.836' />
+    <P K='glowExtraDiffuse' V='0' />
+    <P K='glowHaze' V='0.03' />
+    <P K='glowBreath' V='0.393' />
+    <P K='glowUneven' V='1' />
+    <P K='glowOrganicScale' V='1' />
+    <P K='glowFlowAura' V='0.065' />
+    <P K='ripple' V='2.27' />
+    <P K='rippleFreq' V='0.316' />
+    <P K='rippleSmooth' V='0' />
+    <P K='edgeFlow' V='0.229' />
+    <P K='frostDepth' V='0.359' />
+    <P K='customShineOn' V='false' />
+    <P K='customShine' V='0.841' />
+    <P K='customIridOn' V='false' />
+    <P K='customIrid' V='0.008' />
+    <P K='customChromaOn' V='true' />
+    <P K='customChroma' V='0.564' />
+    <P K='customFrostOn' V='true' />
+    <P K='customFrost' V='0.87' />
+    <P K='customDissolve' V='true' />
+    <P K='customStyleReady' V='true' />
+    <P K='styleSource' V='1' />
+    <P K='fxCollapseMode' V='2' />
+    <P K='styleSrc' V='512' />
+  </El>
+  <El Id='g2-compass' Type='Compass' Anchor='TopCenter' X='-24' Y='-38' W='329.813' H='68' WPct='-0.995' HPct='-1' Z='3' Tiers='Suited Robot' Fill='HudPanelFill' Border='HudPanelBorder' TextColor='HudTextValue' BorderWidth='0.076' RTL='11.771' RTR='11.771' RBR='11.771' RBL='11.771' FontScale='1.08' Align='Center'>
+    <P K='box' V='false' />
+    <P K='fov' V='125.983' />
+    <P K='tickDeg' V='14.597' />
+    <P K='cardinalDeg' V='62.535' />
+    <P K='fxCollapse' V='false' />
+    <P K='mAL' V='true' />
+    <P K='mAAnchor' V='1' />
+    <P K='mAX' V='-14.0960007' />
+    <P K='mAY' V='-8.504' />
+    <P K='mAW' V='137.808' />
+    <P K='mAH' V='19.008' />
+    <P K='mAWPct' V='-0.995' />
+    <P K='mAHPct' V='-1' />
+    <P K='insetBottom' V='0' />
+    <P K='degrees' V='true' />
+    <P K='bfade' V='0.757' />
+    <P K='softEdge' V='0' />
+    <P K='glow' V='0' />
+    <P K='glowIn' V='0' />
+    <P K='sheen' V='0' />
+    <P K='spec' V='0.689399958' />
+    <P K='feather' V='0.932' />
+    <P K='squircle' V='3.517' />
+    <P K='gaussianHalo' V='false' />
+    <P K='customBorderFadeOn' V='true' />
+    <P K='customSoftEdgeOn' V='false' />
+    <P K='customGlowOn' V='true' />
+    <P K='customRippleOn' V='true' />
+    <P K='customGlowBreathOn' V='true' />
+    <P K='customGlowUnevenOn' V='true' />
+    <P K='customGlowFlowOn' V='true' />
+    <P K='glowWidth' V='31.468' />
+    <P K='glowDiffuse' V='0.836' />
+    <P K='glowExtraDiffuse' V='0' />
+    <P K='glowHaze' V='0.03' />
+    <P K='glowBreath' V='0.393' />
+    <P K='glowUneven' V='1' />
+    <P K='glowOrganicScale' V='1' />
+    <P K='glowFlowAura' V='0.065' />
+    <P K='ripple' V='2.27' />
+    <P K='rippleFreq' V='0.316' />
+    <P K='rippleSmooth' V='0' />
+    <P K='edgeFlow' V='0.229' />
+    <P K='frostDepth' V='0.359' />
+    <P K='customShineOn' V='false' />
+    <P K='customShine' V='0.841' />
+    <P K='customIridOn' V='false' />
+    <P K='customIrid' V='0.008' />
+    <P K='customChromaOn' V='true' />
+    <P K='customChroma' V='0.564' />
+    <P K='customFrostOn' V='true' />
+    <P K='customFrost' V='0.87' />
+    <P K='customDissolve' V='true' />
+    <P K='customStyleReady' V='true' />
+    <P K='styleSource' V='1' />
+    <P K='fxCollapseMode' V='2' />
+    <P K='styleSrc' V='512' />
+  </El>
+  <El Id='g2-exttemp' Type='Readout' Anchor='TopRight' X='-360' Y='-38' W='240' H='50' WPct='-1' HPct='-1' Z='2' Tiers='Suited Robot' Fill='HudPanelFill' Border='HudPanelBorder' TextColor='HudTextValue' BorderWidth='0.076' RTL='11.771' RTR='11.771' RBR='11.771' RBL='11.771' FontScale='0.836' Align='Center' Icon='Temp'>
+    <P K='src' V='ExternalTemp' />
+    <P K='label' V='EXTERNAL TEMP' />
+    <P K='box' V='false' />
+    <P K='bar' V='false' />
+    <P K='target' V='false' />
+    <P K='tempIcon' V='true' />
+    <P K='fxCollapse' V='false' />
+    <P K='textScale' V='1.257' />
+    <P K='mAL' V='true' />
+    <P K='mAAnchor' V='2' />
+    <P K='mAX' V='-579.743958' />
+    <P K='mAY' V='-23.7599983' />
+    <P K='mAW' V='156.106384' />
+    <P K='mAH' V='36.197155' />
+    <P K='mAWPct' V='-1' />
+    <P K='mAHPct' V='-1' />
+    <P K='sheen' V='0' />
+    <P K='spec' V='0.689399958' />
+    <P K='glow' V='0' />
+    <P K='glowIn' V='0' />
+    <P K='softEdge' V='0' />
+    <P K='feather' V='0.932' />
+    <P K='squircle' V='3.517' />
+    <P K='gaussianHalo' V='false' />
+    <P K='customBorderFadeOn' V='true' />
+    <P K='customSoftEdgeOn' V='false' />
+    <P K='customGlowOn' V='true' />
+    <P K='customRippleOn' V='true' />
+    <P K='customGlowBreathOn' V='true' />
+    <P K='customGlowUnevenOn' V='true' />
+    <P K='customGlowFlowOn' V='true' />
+    <P K='bfade' V='0.757' />
+    <P K='glowWidth' V='31.468' />
+    <P K='glowDiffuse' V='0.836' />
+    <P K='glowExtraDiffuse' V='0' />
+    <P K='glowHaze' V='0.03' />
+    <P K='glowBreath' V='0.393' />
+    <P K='glowUneven' V='1' />
+    <P K='glowOrganicScale' V='1' />
+    <P K='glowFlowAura' V='0.065' />
+    <P K='ripple' V='2.27' />
+    <P K='rippleFreq' V='0.316' />
+    <P K='rippleSmooth' V='0' />
+    <P K='edgeFlow' V='0.229' />
+    <P K='frostDepth' V='0.359' />
+    <P K='customShineOn' V='false' />
+    <P K='customShine' V='0.841' />
+    <P K='customIridOn' V='false' />
+    <P K='customIrid' V='0.008' />
+    <P K='customChromaOn' V='true' />
+    <P K='customChroma' V='0.564' />
+    <P K='customFrostOn' V='true' />
+    <P K='customFrost' V='0.87' />
+    <P K='customDissolve' V='true' />
+    <P K='customStyleReady' V='true' />
+    <P K='styleSource' V='1' />
+    <P K='fxCollapseMode' V='2' />
+    <P K='styleSrc' V='512' />
+  </El>
+  <El Id='g2-day' Type='DayCounter' Anchor='TopRight' X='-120' Y='-38' W='130' H='40' WPct='-1' HPct='-1' Z='2' Tiers='Suited Robot' Fill='#0017279A' Border='#54D5FE65' TextColor='#FFFFFF5B' BorderWidth='0.076' RTL='11.771' RTR='11.771' RBR='11.771' RBL='11.771' FontScale='1' Align='Center'>
+    <P K='fxCollapse' V='false' />
+    <P K='sheen' V='0' />
+    <P K='spec' V='0' />
+    <P K='glow' V='0' />
+    <P K='glowIn' V='0' />
+    <P K='softEdge' V='0' />
+    <P K='mAL' V='true' />
+    <P K='mAAnchor' V='2' />
+    <P K='mAX' V='-303.510742' />
+    <P K='mAY' V='-31.73848' />
+    <P K='mAW' V='134' />
+    <P K='mAH' V='40' />
+    <P K='mAWPct' V='-1' />
+    <P K='mAHPct' V='-1' />
+    <P K='feather' V='0.932' />
+    <P K='squircle' V='3.517' />
+    <P K='gaussianHalo' V='false' />
+    <P K='customBorderFadeOn' V='true' />
+    <P K='customSoftEdgeOn' V='false' />
+    <P K='customGlowOn' V='true' />
+    <P K='customRippleOn' V='true' />
+    <P K='customGlowBreathOn' V='true' />
+    <P K='customGlowUnevenOn' V='true' />
+    <P K='customGlowFlowOn' V='true' />
+    <P K='bfade' V='0.757' />
+    <P K='glowWidth' V='31.468' />
+    <P K='glowDiffuse' V='0.836' />
+    <P K='glowExtraDiffuse' V='0' />
+    <P K='glowHaze' V='0.03' />
+    <P K='glowBreath' V='0.393' />
+    <P K='glowUneven' V='1' />
+    <P K='glowOrganicScale' V='1' />
+    <P K='glowFlowAura' V='0.065' />
+    <P K='ripple' V='2.27' />
+    <P K='rippleFreq' V='0.316' />
+    <P K='rippleSmooth' V='0' />
+    <P K='edgeFlow' V='0.229' />
+    <P K='frostDepth' V='0.359' />
+    <P K='customShineOn' V='false' />
+    <P K='customShine' V='0.841' />
+    <P K='customIridOn' V='false' />
+    <P K='customIrid' V='0.008' />
+    <P K='customChromaOn' V='true' />
+    <P K='customChroma' V='0.564' />
+    <P K='customFrostOn' V='true' />
+    <P K='customFrost' V='0.87' />
+    <P K='customDissolve' V='true' />
+    <P K='customStyleReady' V='true' />
+    <P K='styleSource' V='1' />
+    <P K='fxCollapseMode' V='2' />
+    <P K='styleSrc' V='512' />
+  </El>
+  <El Id='g2-moodlets' Type='MoodletDashboard' Anchor='TopCenter' X='-26' Y='-105' W='1414' H='64' WPct='-1' HPct='-1' Z='91' Tiers='All' Fill='#070B17D8' Border='#08567A65' TextColor='#FFFFFFF5' BorderWidth='0.511' RTL='11.771' RTR='11.771' RBR='11.771' RBL='11.771' FontScale='1.334' Align='Center'>
+    <P K='box' V='false' />
+    <P K='stackWords' V='true' />
+    <P K='labels' V='true' />
+    <P K='iconScale' V='0.732' />
+    <P K='textScale' V='0.267' />
+    <P K='rowGap' V='11.295' />
+    <P K='colGap' V='8.977' />
+    <P K='sheen' V='0' />
+    <P K='glyphs' V='false' />
+    <P K='chipWidth' V='171.877' />
+    <P K='chipH' V='115.586' />
+    <P K='moodletScale' V='0.308' />
+    <P K='moodletTransparency' V='0.143' />
+    <P K='moodletBrightness' V='1' />
+    <P K='fxCollapse' V='false' />
+    <P K='fxGlitch' V='false' />
+    <P K='fxWarp' V='true' />
+    <P K='mAL' V='true' />
+    <P K='mAAnchor' V='1' />
+    <P K='mAX' V='-12.3040028' />
+    <P K='mAY' V='-78.79199' />
+    <P K='mAW' V='356.4' />
+    <P K='mAH' V='38.016' />
+    <P K='mAWPct' V='-1' />
+    <P K='mAHPct' V='-1' />
+    <P K='spec' V='1' />
+    <P K='glow' V='0.556' />
+    <P K='glowIn' V='0.119' />
+    <P K='softEdge' V='7.503' />
+    <P K='glowUneven' V='0.734' />
+    <P K='glowFlowAura' V='1.157' />
+    <P K='glowBreath' V='0.095' />
+    <P K='glowHaze' V='0.278' />
+    <P K='glowWidth' V='22.337' />
+    <P K='bfade' V='0.171' />
+    <P K='glowDiffuse' V='1' />
+    <P K='ripple' V='0.746' />
+    <P K='rippleFreq' V='0.141' />
+    <P K='frostDepth' V='1' />
+    <P K='fxWarpAmt' V='1.055' />
+    <P K='styleSource' V='1' />
+    <P K='feather' V='2.155' />
+    <P K='squircle' V='6.459' />
+    <P K='gaussianHalo' V='false' />
+    <P K='customBorderFadeOn' V='true' />
+    <P K='customSoftEdgeOn' V='false' />
+    <P K='customGlowOn' V='true' />
+    <P K='customRippleOn' V='true' />
+    <P K='customGlowBreathOn' V='true' />
+    <P K='customGlowUnevenOn' V='true' />
+    <P K='customGlowFlowOn' V='true' />
+    <P K='rippleSmooth' V='0' />
+    <P K='edgeFlow' V='0.589' />
+    <P K='customShineOn' V='false' />
+    <P K='customShine' V='0.841' />
+    <P K='customIridOn' V='false' />
+    <P K='customIrid' V='0.008' />
+    <P K='customChromaOn' V='true' />
+    <P K='customChroma' V='0.564' />
+    <P K='customFrostOn' V='true' />
+    <P K='customFrost' V='0.87' />
+    <P K='customDissolve' V='true' />
+    <P K='customStyleReady' V='true' />
+    <P K='bLayout' V='true' />
+    <P K='bAnchor' V='1' />
+    <P K='bX' V='-11' />
+    <P K='bY' V='-768' />
+    <P K='bW' V='1414' />
+    <P K='bH' V='64' />
+    <P K='bWPct' V='-1' />
+    <P K='bHPct' V='-1' />
+    <P K='glowExtraDiffuse' V='0' />
+    <P K='glowOrganicScale' V='1' />
+    <P K='fxCollapseMode' V='2' />
+    <P K='fxGlitchMode' V='2' />
+    <P K='fxWarpMode' V='1' />
+    <P K='styleSrc' V='512' />
+  </El>
+  <El Id='g2-eqleft' Type='EquipmentColumn' Anchor='BottomCenter' X='-360' Y='56' W='264' H='78' WPct='-1' HPct='-1' Z='2' Tiers='All' Fill='HudPanelFill' Border='#54D5FE65' TextColor='HudTextValue' BorderWidth='0.67' RTL='11.771' RTR='11.771' RBR='11.771' RBL='11.771' FontScale='1.041' Align='Center'>
+    <P K='horizontal' V='true' />
+    <P K='first' V='0' />
+    <P K='count' V='3' />
+    <P K='sheen' V='0' />
+    <P K='spec' V='0.689399958' />
+    <P K='fxCollapse' V='false' />
+    <P K='fxGlitch' V='false' />
+    <P K='fxWarp' V='true' />
+    <P K='feather' V='0.932' />
+    <P K='bfade' V='0.757' />
+    <P K='softEdge' V='0' />
+    <P K='glow' V='0' />
+    <P K='glowIn' V='0.057' />
+    <P K='glowWidth' V='6' />
+    <P K='glowDiffuse' V='0.823' />
+    <P K='ripple' V='2.27' />
+    <P K='rippleFreq' V='0.316' />
+    <P K='gap' V='5.446' />
+    <P K='dropWholeBox' V='false' />
+    <P K='edgeFadeY' V='0' />
+    <P K='rippleSmooth' V='0' />
+    <P K='glowHaze' V='0.424' />
+    <P K='glowBreath' V='0.299' />
+    <P K='glowUneven' V='0.436' />
+    <P K='glowFlowAura' V='0.065' />
+    <P K='mAL' V='true' />
+    <P K='mAAnchor' V='7' />
+    <P K='mAX' V='-196' />
+    <P K='mAY' V='38' />
+    <P K='mAW' V='174' />
+    <P K='mAH' V='72' />
+    <P K='mAWPct' V='-1' />
+    <P K='mAHPct' V='-1' />
+    <P K='iconScale' V='0.559' />
+    <P K='squircle' V='3.517' />
+    <P K='gaussianHalo' V='false' />
+    <P K='customBorderFadeOn' V='true' />
+    <P K='customSoftEdgeOn' V='false' />
+    <P K='customGlowOn' V='true' />
+    <P K='customRippleOn' V='true' />
+    <P K='customGlowBreathOn' V='true' />
+    <P K='customGlowUnevenOn' V='true' />
+    <P K='customGlowFlowOn' V='true' />
+    <P K='glowExtraDiffuse' V='0' />
+    <P K='glowOrganicScale' V='1' />
+    <P K='edgeFlow' V='0.229' />
+    <P K='frostDepth' V='0.359' />
+    <P K='customShineOn' V='false' />
+    <P K='customShine' V='0.841' />
+    <P K='customIridOn' V='false' />
+    <P K='customIrid' V='0.008' />
+    <P K='customChromaOn' V='true' />
+    <P K='customChroma' V='0.564' />
+    <P K='customFrostOn' V='true' />
+    <P K='customFrost' V='0.87' />
+    <P K='customDissolve' V='true' />
+    <P K='customStyleReady' V='true' />
+    <P K='styleSource' V='2' />
+    <P K='b_fill' V='#0000005C' />
+    <P K='b_border' V='#54D5FE00' />
+    <P K='b_customRippleOn' V='false' />
+    <P K='b_customGlowOn' V='false' />
+    <P K='fxCollapseMode' V='2' />
+    <P K='fxGlitchMode' V='2' />
+    <P K='tierStyle' V='1' />
+    <P K='b_styleSource' V='2' />
+    <P K='b_bw' V='0.67' />
+    <P K='b_feather' V='0.932' />
+    <P K='b_rtl' V='11.771' />
+    <P K='b_rtr' V='11.771' />
+    <P K='b_rbr' V='11.771' />
+    <P K='b_rbl' V='11.771' />
+    <P K='b_sheen' V='0' />
+    <P K='b_spec' V='0.689399958' />
+    <P K='b_squircle' V='3.517' />
+    <P K='b_gaussianHalo' V='false' />
+    <P K='b_fs' V='1.041' />
+    <P K='b_customBorderFadeOn' V='true' />
+    <P K='b_bfade' V='0.757' />
+    <P K='b_customSoftEdgeOn' V='false' />
+    <P K='b_edgeFadeX' V='0' />
+    <P K='b_edgeFadeY' V='0' />
+    <P K='b_customShineOn' V='false' />
+    <P K='b_customIridOn' V='false' />
+    <P K='b_customChromaOn' V='true' />
+    <P K='b_customChroma' V='0.564' />
+    <P K='b_customFrostOn' V='true' />
+    <P K='b_customFrost' V='0.87' />
+    <P K='b_frostDepth' V='0.359' />
+    <P K='b_gap' V='5.446' />
+    <P K='b_horizontal' V='true' />
+    <P K='b_iconScale' V='0.559' />
+    <P K='b_iconDX' V='0' />
+    <P K='b_iconDY' V='0' />
+    <P K='b_labels' V='true' />
+    <P K='b_damageWarn' V='true' />
+    <P K='b_damageBarThick' V='0.085' />
+    <P K='b_warnScale' V='0.72' />
+    <P K='b_iconTintMode' V='0' />
+    <P K='b_dropWholeBox' V='false' />
+    <P K='b_glowExtraDiffuse' V='0' />
+    <P K='b_glowHaze' V='0.03' />
+    <P K='b_glowBreath' V='0.393' />
+    <P K='b_glowUneven' V='1' />
+    <P K='b_glowOrganicScale' V='1' />
+    <P K='b_glowFlowAura' V='0.065' />
+    <P K='b_customGlowBreathOn' V='true' />
+    <P K='b_customGlowUnevenOn' V='true' />
+    <P K='b_customGlowFlowOn' V='true' />
+    <P K='b_styleSrc' V='682' />
+    <P K='styleSrc' V='682' />
+  </El>
+  <El Id='g2-hands' Type='HandBoxes' Anchor='BottomCenter' X='-16' Y='62' W='358' H='118' WPct='-1' HPct='-1' Z='2' Tiers='All' Fill='#0017279A' Border='#54D5FE65' TextColor='#FFFFFFF5' BorderWidth='0.076' RTL='11.771' RTR='11.771' RBR='11.771' RBL='11.771' FontScale='0.599' Align='Center'>
+    <P K='tray' V='false' />
+    <P K='sheen' V='0' />
+    <P K='spec' V='0' />
+    <P K='fxCollapse' V='false' />
+    <P K='fxGlitch' V='false' />
+    <P K='fxWarp' V='true' />
+    <P K='glow' V='0' />
+    <P K='glowIn' V='0' />
+    <P K='gap' V='24.576' />
+    <P K='titleDY' V='-0.735' />
+    <P K='stateDX' V='1.179' />
+    <P K='stateDY' V='-3.324' />
+    <P K='dropWholeBox' V='false' />
+    <P K='ripple' V='0' />
+    <P K='rippleSmooth' V='0' />
+    <P K='edgeFadeY' V='0' />
+    <P K='edgeFadeX' V='0' />
+    <P K='softEdge' V='0' />
+    <P K='bfade' V='0' />
+    <P K='fxPulse' V='false' />
+    <P K='fxPulseAmt' V='0.859' />
+    <P K='glowWidth' V='6' />
+    <P K='glowDiffuse' V='0' />
+    <P K='glowHaze' V='0' />
+    <P K='glowBreath' V='0' />
+    <P K='glowUneven' V='0' />
+    <P K='glowFlowAura' V='0' />
+    <P K='rippleFreq' V='0.316' />
+    <P K='mAL' V='true' />
+    <P K='mAAnchor' V='7' />
+    <P K='mAX' V='-10' />
+    <P K='mAY' V='56' />
+    <P K='mAW' V='228' />
+    <P K='mAH' V='78' />
+    <P K='mAWPct' V='-1' />
+    <P K='mAHPct' V='-1' />
+    <P K='iconScale' V='0.542' />
+    <P K='iconDY' V='-1.572' />
+    <P K='feather' V='0.932' />
+    <P K='squircle' V='3.517' />
+    <P K='gaussianHalo' V='false' />
+    <P K='customBorderFadeOn' V='false' />
+    <P K='customSoftEdgeOn' V='false' />
+    <P K='customGlowOn' V='false' />
+    <P K='customRippleOn' V='false' />
+    <P K='customGlowBreathOn' V='false' />
+    <P K='customGlowUnevenOn' V='false' />
+    <P K='customGlowFlowOn' V='false' />
+    <P K='glowExtraDiffuse' V='0' />
+    <P K='glowOrganicScale' V='1' />
+    <P K='edgeFlow' V='0.229' />
+    <P K='frostDepth' V='0.359' />
+    <P K='customShineOn' V='false' />
+    <P K='customShine' V='0' />
+    <P K='customIridOn' V='false' />
+    <P K='customIrid' V='0' />
+    <P K='customChromaOn' V='false' />
+    <P K='customChroma' V='0' />
+    <P K='customFrostOn' V='false' />
+    <P K='customFrost' V='0' />
+    <P K='customDissolve' V='false' />
+    <P K='customStyleReady' V='true' />
+    <P K='styleSource' V='2' />
+    <P K='b_fill' V='#0000004A' />
+    <P K='b_border' V='#54D5FE00' />
+    <P K='fxCollapseMode' V='2' />
+    <P K='fxDissolveMode' V='2' />
+    <P K='fxGlitchMode' V='2' />
+    <P K='tierStyle' V='1' />
+    <P K='b_styleSource' V='2' />
+    <P K='b_text' V='#FFFFFFF5' />
+    <P K='b_bw' V='0.076' />
+    <P K='b_feather' V='0.932' />
+    <P K='b_rtl' V='11.771' />
+    <P K='b_rtr' V='11.771' />
+    <P K='b_rbr' V='11.771' />
+    <P K='b_rbl' V='11.771' />
+    <P K='b_sheen' V='0' />
+    <P K='b_spec' V='0' />
+    <P K='b_squircle' V='3.517' />
+    <P K='b_gaussianHalo' V='false' />
+    <P K='b_fs' V='0.599' />
+    <P K='b_customRippleOn' V='false' />
+    <P K='b_customBorderFadeOn' V='false' />
+    <P K='b_customSoftEdgeOn' V='false' />
+    <P K='b_edgeFadeX' V='0' />
+    <P K='b_edgeFadeY' V='0' />
+    <P K='b_customGlowOn' V='false' />
+    <P K='b_customShineOn' V='false' />
+    <P K='b_customIridOn' V='false' />
+    <P K='b_customChromaOn' V='false' />
+    <P K='b_customFrostOn' V='false' />
+    <P K='b_gap' V='24.576' />
+    <P K='b_titleDX' V='0' />
+    <P K='b_titleDY' V='-0.735' />
+    <P K='b_stateDX' V='1.179' />
+    <P K='b_stateDY' V='-3.324' />
+    <P K='b_iconScale' V='0.542' />
+    <P K='b_iconDX' V='0' />
+    <P K='b_iconDY' V='-1.572' />
+    <P K='b_tray' V='false' />
+    <P K='b_iconTintMode' V='0' />
+    <P K='b_dropWholeBox' V='false' />
+    <P K='b_glowExtraDiffuse' V='0' />
+    <P K='b_glowHaze' V='0.03' />
+    <P K='b_glowBreath' V='0.393' />
+    <P K='b_glowUneven' V='1' />
+    <P K='b_glowOrganicScale' V='1' />
+    <P K='b_glowFlowAura' V='0.065' />
+    <P K='b_customGlowBreathOn' V='true' />
+    <P K='b_customGlowUnevenOn' V='true' />
+    <P K='b_customGlowFlowOn' V='true' />
+    <P K='b_styleSrc' V='682' />
+    <P K='styleSrc' V='682' />
+  </El>
+  <El Id='g2-eqright' Type='EquipmentColumn' Anchor='BottomCenter' X='360' Y='56' W='264' H='78' WPct='-1' HPct='-1' Z='2' Tiers='All' Fill='HudPanelFill' Border='HudPanelBorder' TextColor='HudTextValue' BorderWidth='0.076' RTL='11.771' RTR='11.771' RBR='11.771' RBL='11.771' FontScale='1' Align='Center'>
+    <P K='horizontal' V='true' />
+    <P K='first' V='3' />
+    <P K='count' V='3' />
+    <P K='sheen' V='0' />
+    <P K='spec' V='0.689399958' />
+    <P K='fxCollapse' V='false' />
+    <P K='fxGlitch' V='false' />
+    <P K='fxWarp' V='true' />
+    <P K='rippleSmooth' V='0' />
+    <P K='glowWidth' V='6' />
+    <P K='softEdge' V='0' />
+    <P K='bfade' V='0.757' />
+    <P K='glow' V='0' />
+    <P K='glowIn' V='0.057' />
+    <P K='glowDiffuse' V='0' />
+    <P K='ripple' V='2.27' />
+    <P K='rippleFreq' V='0.316' />
+    <P K='glowHaze' V='0.424' />
+    <P K='glowBreath' V='0.299' />
+    <P K='glowUneven' V='0.436' />
+    <P K='glowFlowAura' V='0.065' />
+    <P K='mAL' V='true' />
+    <P K='mAAnchor' V='7' />
+    <P K='mAX' V='176' />
+    <P K='mAY' V='40' />
+    <P K='mAW' V='174.546' />
+    <P K='mAH' V='72.576' />
+    <P K='mAWPct' V='-1' />
+    <P K='mAHPct' V='-1' />
+    <P K='iconScale' V='0.559' />
+    <P K='feather' V='0.932' />
+    <P K='squircle' V='3.517' />
+    <P K='gaussianHalo' V='false' />
+    <P K='customBorderFadeOn' V='true' />
+    <P K='customSoftEdgeOn' V='false' />
+    <P K='customGlowOn' V='true' />
+    <P K='customRippleOn' V='true' />
+    <P K='customGlowBreathOn' V='true' />
+    <P K='customGlowUnevenOn' V='true' />
+    <P K='customGlowFlowOn' V='true' />
+    <P K='glowExtraDiffuse' V='0' />
+    <P K='glowOrganicScale' V='1' />
+    <P K='edgeFlow' V='0.229' />
+    <P K='frostDepth' V='0.359' />
+    <P K='customShineOn' V='false' />
+    <P K='customShine' V='0.841' />
+    <P K='customIridOn' V='false' />
+    <P K='customIrid' V='0.008' />
+    <P K='customChromaOn' V='true' />
+    <P K='customChroma' V='0.564' />
+    <P K='customFrostOn' V='true' />
+    <P K='customFrost' V='0.87' />
+    <P K='customDissolve' V='true' />
+    <P K='customStyleReady' V='true' />
+    <P K='styleSource' V='2' />
+    <P K='b_fill' V='#0000005C' />
+    <P K='b_border' V='#54D5FE00' />
+    <P K='b_customRippleOn' V='false' />
+    <P K='b_customGlowOn' V='false' />
+    <P K='fxCollapseMode' V='2' />
+    <P K='fxGlitchMode' V='2' />
+    <P K='tierStyle' V='1' />
+    <P K='b_styleSource' V='2' />
+    <P K='b_bw' V='0.076' />
+    <P K='b_feather' V='0.932' />
+    <P K='b_rtl' V='11.771' />
+    <P K='b_rtr' V='11.771' />
+    <P K='b_rbr' V='11.771' />
+    <P K='b_rbl' V='11.771' />
+    <P K='b_sheen' V='0' />
+    <P K='b_spec' V='0.689399958' />
+    <P K='b_squircle' V='3.517' />
+    <P K='b_gaussianHalo' V='false' />
+    <P K='b_fs' V='1' />
+    <P K='b_customBorderFadeOn' V='true' />
+    <P K='b_bfade' V='0.757' />
+    <P K='b_customSoftEdgeOn' V='false' />
+    <P K='b_edgeFadeX' V='0' />
+    <P K='b_edgeFadeY' V='0' />
+    <P K='b_customShineOn' V='false' />
+    <P K='b_customIridOn' V='false' />
+    <P K='b_customChromaOn' V='true' />
+    <P K='b_customChroma' V='0.564' />
+    <P K='b_customFrostOn' V='true' />
+    <P K='b_customFrost' V='0.87' />
+    <P K='b_frostDepth' V='0.359' />
+    <P K='b_gap' V='8' />
+    <P K='b_horizontal' V='true' />
+    <P K='b_iconScale' V='0.559' />
+    <P K='b_iconDX' V='0' />
+    <P K='b_iconDY' V='0' />
+    <P K='b_labels' V='true' />
+    <P K='b_damageWarn' V='true' />
+    <P K='b_damageBarThick' V='0.085' />
+    <P K='b_warnScale' V='0.72' />
+    <P K='b_iconTintMode' V='0' />
+    <P K='b_dropWholeBox' V='false' />
+    <P K='b_glowExtraDiffuse' V='0' />
+    <P K='b_glowHaze' V='0.03' />
+    <P K='b_glowBreath' V='0.393' />
+    <P K='b_glowUneven' V='1' />
+    <P K='b_glowOrganicScale' V='1' />
+    <P K='b_glowFlowAura' V='0.065' />
+    <P K='b_customGlowBreathOn' V='true' />
+    <P K='b_customGlowUnevenOn' V='true' />
+    <P K='b_customGlowFlowOn' V='true' />
+    <P K='b_styleSrc' V='682' />
+    <P K='styleSrc' V='682' />
+  </El>
+  <El Id='g2-portrait' Type='Portrait' Anchor='BottomRight' X='-96' Y='100' W='186' H='178' WPct='-1' HPct='-1' Z='10' Tiers='Suited Robot' Fill='HudPanelFill' Border='HudPanelBorder' TextColor='HudTextValue' BorderWidth='1.534' RTL='11.771' RTR='11.771' RBR='11.771' RBL='11.771' FontScale='0.679' Align='Center'>
+    <P K='camFov' V='25.08' />
+    <P K='holo' V='false' />
+    <P K='scanlines' V='true' />
+    <P K='camDistance' V='-0.014' />
+    <P K='sheen' V='0' />
+    <P K='bfade' V='0.757' />
+    <P K='glow' V='0' />
+    <P K='mAL' V='true' />
+    <P K='mAAnchor' V='8' />
+    <P K='mAX' V='-65' />
+    <P K='mAY' V='82' />
+    <P K='mAW' V='130' />
+    <P K='mAH' V='126' />
+    <P K='mAWPct' V='-1' />
+    <P K='mAHPct' V='-1' />
+    <P K='spec' V='0' />
+    <P K='glowIn' V='0' />
+    <P K='softEdge' V='0' />
+    <P K='feather' V='0.932' />
+    <P K='squircle' V='3.517' />
+    <P K='gaussianHalo' V='false' />
+    <P K='customBorderFadeOn' V='true' />
+    <P K='customSoftEdgeOn' V='false' />
+    <P K='customGlowOn' V='true' />
+    <P K='customRippleOn' V='true' />
+    <P K='customGlowBreathOn' V='true' />
+    <P K='customGlowUnevenOn' V='true' />
+    <P K='customGlowFlowOn' V='true' />
+    <P K='glowWidth' V='31.468' />
+    <P K='glowDiffuse' V='0.836' />
+    <P K='glowExtraDiffuse' V='0' />
+    <P K='glowHaze' V='0.03' />
+    <P K='glowBreath' V='0.393' />
+    <P K='glowUneven' V='1' />
+    <P K='glowOrganicScale' V='1' />
+    <P K='glowFlowAura' V='0.065' />
+    <P K='ripple' V='2.27' />
+    <P K='rippleFreq' V='0.316' />
+    <P K='rippleSmooth' V='0' />
+    <P K='edgeFlow' V='0.229' />
+    <P K='frostDepth' V='0.359' />
+    <P K='customShineOn' V='false' />
+    <P K='customShine' V='0.841' />
+    <P K='customIridOn' V='false' />
+    <P K='customIrid' V='0.008' />
+    <P K='customChromaOn' V='true' />
+    <P K='customChroma' V='0.564' />
+    <P K='customFrostOn' V='false' />
+    <P K='customFrost' V='0.462840021' />
+    <P K='customDissolve' V='false' />
+    <P K='customStyleReady' V='true' />
+    <P K='styleSource' V='2' />
+    <P K='fxDissolveMode' V='2' />
+    <P K='styleSrc' V='682' />
+  </El>
+  <El Id='g2-chips' Type='StateChips' Anchor='BottomRight' X='-98' Y='208' W='115.479019' H='27.8273258' WPct='-1' HPct='-1' Z='3' Tiers='Suited Robot' Fill='HudPanelFill' Border='HudPanelBorder' TextColor='HudTextValue' BorderWidth='-1' RTL='-1' RTR='-1' RBR='-1' RBL='-1' FontScale='1' Align='Center'>
+    <P K='light' V='true' />
+    <P K='jetpack' V='true' />
+    <P K='mAL' V='true' />
+    <P K='mAAnchor' V='8' />
+    <P K='mAX' V='-67.6000061' />
+    <P K='mAY' V='161.12' />
+    <P K='mAW' V='118.799995' />
+    <P K='mAH' V='23.7599983' />
+    <P K='mAWPct' V='-1' />
+    <P K='mAHPct' V='-1' />
+    <P K='styleSource' V='1' />
+    <P K='styleSrc' V='0' />
+  </El>
+  <El Id='g2-intpress' Type='Readout' Anchor='BottomRight' X='-226.599' Y='125.067' W='72' H='56' WPct='-0.741' HPct='-0.758' Z='-7' Tiers='Suited Robot' Fill='HudPanelFill' Border='HudPanelBorder' TextColor='HudTextValue' BorderWidth='-1' RTL='-1' RTR='-1' RBR='-1' RBL='-1' FontScale='1.47' Align='Center'>
+    <P K='src' V='InternalPressure' />
+    <P K='label' V='INTERNAL PRESSURE' />
+    <P K='box' V='true' />
+    <P K='stack' V='true' />
+    <P K='bar' V='true' />
+    <P K='barStyle' V='game' />
+    <P K='barVertical' V='false' />
+    <P K='target' V='true' />
+    <P K='mAL' V='true' />
+    <P K='mAAnchor' V='8' />
+    <P K='mAX' V='-66.05025' />
+    <P K='mAY' V='311.49054' />
+    <P K='mAW' V='118.799995' />
+    <P K='mAH' V='57.024' />
+    <P K='mAWPct' V='-0.741' />
+    <P K='mAHPct' V='-0.758' />
+    <P K='textScale' V='1.307' />
+    <P K='styleSource' V='1' />
+    <P K='iconScale' V='0.76' />
+    <P K='rowTitleY' V='0.835' />
+    <P K='rowValueY' V='0.173' />
+    <P K='styleSrc' V='0' />
+  </El>
+  <El Id='g2-inttemp' Type='Readout' Anchor='BottomRight' X='-226.599' Y='69.687' W='74.763' H='49.8420029' WPct='-1' HPct='-1' Z='3' Tiers='Suited Robot' Fill='HudPanelFill' Border='HudPanelBorder' TextColor='HudTextValue' BorderWidth='-1' RTL='-1' RTR='-1' RBR='-1' RBL='-1' FontScale='2.116' Align='Center' Icon='Temp'>
+    <P K='src' V='InternalTemp' />
+    <P K='label' V='INTERNAL TEMP' />
+    <P K='box' V='true' />
+    <P K='stack' V='true' />
+    <P K='bar' V='false' />
+    <P K='target' V='true' />
+    <P K='tempIcon' V='true' />
+    <P K='barVertical' V='false' />
+    <P K='mAL' V='true' />
+    <P K='mAAnchor' V='8' />
+    <P K='mAX' V='-67.528' />
+    <P K='mAY' V='254.608' />
+    <P K='mAW' V='118.799995' />
+    <P K='mAH' V='47.5199966' />
+    <P K='mAWPct' V='-1' />
+    <P K='mAHPct' V='-1' />
+    <P K='textScale' V='0.834' />
+    <P K='iconScale' V='1.047' />
+    <P K='styleSource' V='1' />
+    <P K='rowValueY' V='0.169' />
+    <P K='rowTargetY' V='0.517' />
+    <P K='styleSrc' V='0' />
+  </El>
+  <El Id='g2-jetpack' Type='JetpackBox' Anchor='BottomRight' X='-226.599' Y='183.216' W='71.994' H='55.38' WPct='-1' HPct='-1' Z='3' Tiers='Suited Robot' Fill='HudPanelFill' Border='HudPanelBorder' TextColor='HudTextValue' BorderWidth='0.076' RTL='11.771' RTR='11.771' RBR='11.771' RBL='11.771' FontScale='0.75' Align='Center'>
+    <P K='mAL' V='true' />
+    <P K='mAAnchor' V='8' />
+    <P K='mAX' V='-68.128006' />
+    <P K='mAY' V='202.576' />
+    <P K='mAW' V='118.799995' />
+    <P K='mAH' V='47.5199966' />
+    <P K='mAWPct' V='-1' />
+    <P K='mAHPct' V='-1' />
+    <P K='iconScale' V='0.581' />
+    <P K='valueSize' V='13.793' />
+    <P K='styleSource' V='1' />
+    <P K='feather' V='0.932' />
+    <P K='sheen' V='0' />
+    <P K='spec' V='0' />
+    <P K='squircle' V='3.517' />
+    <P K='gaussianHalo' V='false' />
+    <P K='customBorderFadeOn' V='true' />
+    <P K='customSoftEdgeOn' V='false' />
+    <P K='customGlowOn' V='true' />
+    <P K='customRippleOn' V='false' />
+    <P K='customGlowBreathOn' V='true' />
+    <P K='customGlowUnevenOn' V='true' />
+    <P K='customGlowFlowOn' V='true' />
+    <P K='bfade' V='0.836' />
+    <P K='softEdge' V='0' />
+    <P K='glow' V='0.046' />
+    <P K='glowIn' V='0.019' />
+    <P K='glowWidth' V='31.468' />
+    <P K='glowDiffuse' V='0.836' />
+    <P K='glowExtraDiffuse' V='0' />
+    <P K='glowHaze' V='0.03' />
+    <P K='glowBreath' V='0.393' />
+    <P K='glowUneven' V='1' />
+    <P K='glowOrganicScale' V='1' />
+    <P K='glowFlowAura' V='0.065' />
+    <P K='ripple' V='2.27' />
+    <P K='rippleFreq' V='0.316' />
+    <P K='rippleSmooth' V='0' />
+    <P K='edgeFlow' V='0.229' />
+    <P K='frostDepth' V='0.359' />
+    <P K='customShineOn' V='false' />
+    <P K='customShine' V='0.841' />
+    <P K='customIridOn' V='false' />
+    <P K='customIrid' V='0.008' />
+    <P K='customChromaOn' V='true' />
+    <P K='customChroma' V='0.564' />
+    <P K='customFrostOn' V='true' />
+    <P K='customFrost' V='0.87' />
+    <P K='customStyleReady' V='true' />
+    <P K='styleSrc' V='0' />
+  </El>
+  <El Id='g2-vitals' Type='VitalsPanel' Anchor='BottomRight' X='-304.131' Y='133.374' W='73.82112' H='152' WPct='-1' HPct='-1' Z='3' Tiers='Suited Robot' Fill='HudPanelFill' Border='HudPanelBorder' TextColor='HudTextValue' BorderWidth='0.076' RTL='11.771' RTR='11.771' RBR='11.771' RBL='11.771' FontScale='0.858' Align='Center'>
+    <P K='sheen' V='0' />
+    <P K='spec' V='0.689399958' />
+    <P K='words' V='false' />
+    <P K='rowPressure' V='false' />
+    <P K='rowTemp' V='false' />
+    <P K='box' V='true' />
+    <P K='iconScale' V='0.643' />
+    <P K='rowHeight' V='29.768' />
+    <P K='mAL' V='true' />
+    <P K='mAAnchor' V='8' />
+    <P K='mAX' V='-172.916367' />
+    <P K='mAY' V='135.9043' />
+    <P K='mAW' V='72' />
+    <P K='mAH' V='176' />
+    <P K='mAWPct' V='-1' />
+    <P K='mAHPct' V='-1' />
+    <P K='glow' V='0.046' />
+    <P K='glowIn' V='0.019' />
+    <P K='softEdge' V='0' />
+    <P K='bfade' V='0.757' />
+    <P K='ripple' V='2.27' />
+    <P K='glowWidth' V='31.468' />
+    <P K='glowDiffuse' V='0.836' />
+    <P K='glowHaze' V='0.03' />
+    <P K='glowBreath' V='0.393' />
+    <P K='glowUneven' V='1' />
+    <P K='glowFlowAura' V='0.065' />
+    <P K='rippleFreq' V='0.316' />
+    <P K='feather' V='0.932' />
+    <P K='squircle' V='3.517' />
+    <P K='gaussianHalo' V='false' />
+    <P K='customBorderFadeOn' V='true' />
+    <P K='customSoftEdgeOn' V='false' />
+    <P K='customGlowOn' V='true' />
+    <P K='customRippleOn' V='true' />
+    <P K='customGlowBreathOn' V='true' />
+    <P K='customGlowUnevenOn' V='true' />
+    <P K='customGlowFlowOn' V='true' />
+    <P K='glowExtraDiffuse' V='0' />
+    <P K='glowOrganicScale' V='1' />
+    <P K='rippleSmooth' V='0' />
+    <P K='edgeFlow' V='0.229' />
+    <P K='frostDepth' V='0.359' />
+    <P K='customShineOn' V='false' />
+    <P K='customShine' V='0.687097' />
+    <P K='customIridOn' V='false' />
+    <P K='customIrid' V='0.008' />
+    <P K='customChromaOn' V='true' />
+    <P K='customChroma' V='0.564' />
+    <P K='customFrostOn' V='true' />
+    <P K='customFrost' V='0.87' />
+    <P K='customDissolve' V='true' />
+    <P K='customStyleReady' V='true' />
+    <P K='styleSource' V='1' />
+    <P K='styleSrc' V='0' />
+  </El>
+  <El Id='g2-bare-senses' Type='BareSenses' Anchor='Center' X='-564.876038' Y='13.845' W='304.59' H='415.35' WPct='-1' HPct='-1' Z='73' Tiers='Bare' Fill='#0000002C' Border='#54D5FE00' TextColor='HudTextValue' BorderWidth='0.076' RTL='11.771' RTR='11.771' RBR='11.771' RBL='11.771' FontScale='1' Align='Center'>
+    <P K='order' V='temp,air,pressure,thirst,hunger,health,toilet,cognition' />
+    <P K='mAL' V='true' />
+    <P K='mAAnchor' V='4' />
+    <P K='mAX' V='-556' />
+    <P K='mAY' V='-366' />
+    <P K='mAW' V='466' />
+    <P K='mAH' V='156' />
+    <P K='mAWPct' V='-1' />
+    <P K='mAHPct' V='-1' />
+    <P K='sheen' V='0' />
+    <P K='spec' V='0.689399958' />
+    <P K='glow' V='0' />
+    <P K='glowIn' V='0' />
+    <P K='softEdge' V='0' />
+    <P K='feather' V='0.932' />
+    <P K='squircle' V='4.841' />
+    <P K='gaussianHalo' V='false' />
+    <P K='customBorderFadeOn' V='true' />
+    <P K='customSoftEdgeOn' V='false' />
+    <P K='customGlowOn' V='true' />
+    <P K='customRippleOn' V='true' />
+    <P K='customGlowBreathOn' V='true' />
+    <P K='customGlowUnevenOn' V='true' />
+    <P K='customGlowFlowOn' V='true' />
+    <P K='bfade' V='0.757' />
+    <P K='glowWidth' V='31.468' />
+    <P K='glowDiffuse' V='0.836' />
+    <P K='glowExtraDiffuse' V='0' />
+    <P K='glowHaze' V='0.03' />
+    <P K='glowBreath' V='0.393' />
+    <P K='glowUneven' V='1' />
+    <P K='glowOrganicScale' V='1' />
+    <P K='glowFlowAura' V='0.065' />
+    <P K='ripple' V='2.27' />
+    <P K='rippleFreq' V='0.316' />
+    <P K='rippleSmooth' V='0' />
+    <P K='edgeFlow' V='0.229' />
+    <P K='frostDepth' V='0.359' />
+    <P K='customShineOn' V='false' />
+    <P K='customShine' V='0.841' />
+    <P K='customIridOn' V='false' />
+    <P K='customIrid' V='0.008' />
+    <P K='customChromaOn' V='true' />
+    <P K='customChroma' V='0.564' />
+    <P K='customFrostOn' V='true' />
+    <P K='customFrost' V='0.87' />
+    <P K='customDissolve' V='true' />
+    <P K='customStyleReady' V='true' />
+    <P K='styleSource' V='2' />
+    <P K='layoutMode' V='2' />
+    <P K='align' V='0' />
+    <P K='gridCols' V='3' />
+    <P K='gap' V='0' />
+    <P K='pad' V='22.776' />
+    <P K='showDay' V='false' />
+    <P K='box' V='true' />
+    <P K='styleSrc' V='170' />
+  </El>
+  <El Id='cfe7acaf9a1e4ee0af3e7bf373ad9c3b' Type='Readout' Anchor='Center' X='836.697' Y='-575.49' W='77.532' H='38.766' WPct='-1' HPct='-1' Z='50' Tiers='Suited Robot' Fill='HudPanelFill' Border='HudPanelBorder' TextColor='HudTextValue' BorderWidth='0.076' RTL='11.771' RTR='11.771' RBR='11.771' RBL='11.771' FontScale='2.381' Align='Center' Icon='speed'>
+    <P K='src' V='Speed' />
+    <P K='label' V='SPEED' />
+    <P K='box' V='true' />
+    <P K='bar' V='false' />
+    <P K='target' V='false' />
+    <P K='sheen' V='0' />
+    <P K='spec' V='0.689399958' />
+    <P K='stack' V='true' />
+    <P K='iconScale' V='1.402' />
+    <P K='textScale' V='1.599' />
+    <P K='mAL' V='true' />
+    <P K='mAAnchor' V='4' />
+    <P K='mAX' V='728.0324' />
+    <P K='mAY' V='-89.65449' />
+    <P K='mAW' V='118.799995' />
+    <P K='mAH' V='23.7599983' />
+    <P K='mAWPct' V='-1' />
+    <P K='mAHPct' V='-1' />
+    <P K='glow' V='0.046' />
+    <P K='glowIn' V='0.019' />
+    <P K='softEdge' V='0' />
+    <P K='bfade' V='0.757' />
+    <P K='glowWidth' V='31.468' />
+    <P K='glowDiffuse' V='0.836' />
+    <P K='ripple' V='2.27' />
+    <P K='rippleFreq' V='0.316' />
+    <P K='rippleSmooth' V='0.209' />
+    <P K='barStyle' V='game' />
+    <P K='glowHaze' V='0.03' />
+    <P K='glowBreath' V='0.393' />
+    <P K='glowUneven' V='1' />
+    <P K='glowFlowAura' V='0.065' />
+    <P K='feather' V='0.932' />
+    <P K='squircle' V='3.517' />
+    <P K='gaussianHalo' V='false' />
+    <P K='customBorderFadeOn' V='true' />
+    <P K='customSoftEdgeOn' V='false' />
+    <P K='customGlowOn' V='true' />
+    <P K='customRippleOn' V='true' />
+    <P K='customGlowBreathOn' V='true' />
+    <P K='customGlowUnevenOn' V='true' />
+    <P K='customGlowFlowOn' V='true' />
+    <P K='glowExtraDiffuse' V='0' />
+    <P K='glowOrganicScale' V='1' />
+    <P K='edgeFlow' V='0.229' />
+    <P K='frostDepth' V='0.359' />
+    <P K='customShineOn' V='false' />
+    <P K='customShine' V='0.841' />
+    <P K='customIridOn' V='false' />
+    <P K='customIrid' V='0.008' />
+    <P K='customChromaOn' V='true' />
+    <P K='customChroma' V='0.564' />
+    <P K='customFrostOn' V='true' />
+    <P K='customFrost' V='0.87' />
+    <P K='customDissolve' V='true' />
+    <P K='customStyleReady' V='true' />
+    <P K='styleSource' V='1' />
+    <P K='styleSrc' V='0' />
+  </El>
+  <El Id='e4d9d8873c1b46fab33d7ccb368865d4' Type='PngDoll' Anchor='Center' X='673.326' Y='-500.72702' W='90' H='218' WPct='-1' HPct='-1' Z='50' Tiers='Suited Robot' Fill='HudPanelFill' Border='HudPanelBorder' TextColor='HudTextValue' BorderWidth='0.076' RTL='11.771' RTR='11.771' RBR='11.771' RBL='11.771' FontScale='1' Align='Center'>
+    <P K='armY' V='0.002' />
+    <P K='legSpread' V='0.088' />
+    <P K='legY' V='-0.114' />
+    <P K='armSpread' V='1.517' />
+    <P K='figScale' V='0.909' />
+    <P K='box' V='false' />
+    <P K='mAL' V='true' />
+    <P K='mAAnchor' V='4' />
+    <P K='mAX' V='536.6388' />
+    <P K='mAY' V='-320.430939' />
+    <P K='mAW' V='74' />
+    <P K='mAH' V='194' />
+    <P K='mAWPct' V='-1' />
+    <P K='mAHPct' V='-1' />
+    <P K='sheen' V='0' />
+    <P K='spec' V='0.689399958' />
+    <P K='glow' V='0' />
+    <P K='glowIn' V='0' />
+    <P K='softEdge' V='0' />
+    <P K='wholeBody' V='false' />
+    <P K='feather' V='0.932' />
+    <P K='squircle' V='3.517' />
+    <P K='gaussianHalo' V='false' />
+    <P K='customBorderFadeOn' V='true' />
+    <P K='customSoftEdgeOn' V='false' />
+    <P K='customGlowOn' V='true' />
+    <P K='customRippleOn' V='true' />
+    <P K='customGlowBreathOn' V='true' />
+    <P K='customGlowUnevenOn' V='true' />
+    <P K='customGlowFlowOn' V='true' />
+    <P K='bfade' V='0.757' />
+    <P K='glowWidth' V='31.468' />
+    <P K='glowDiffuse' V='0.836' />
+    <P K='glowExtraDiffuse' V='0' />
+    <P K='glowHaze' V='0.03' />
+    <P K='glowBreath' V='0.393' />
+    <P K='glowUneven' V='1' />
+    <P K='glowOrganicScale' V='1' />
+    <P K='glowFlowAura' V='0.065' />
+    <P K='ripple' V='2.27' />
+    <P K='rippleFreq' V='0.316' />
+    <P K='rippleSmooth' V='0' />
+    <P K='edgeFlow' V='0.229' />
+    <P K='frostDepth' V='0.359' />
+    <P K='customShineOn' V='false' />
+    <P K='customShine' V='0.841' />
+    <P K='customIridOn' V='false' />
+    <P K='customIrid' V='0.008' />
+    <P K='customChromaOn' V='true' />
+    <P K='customChroma' V='0.564' />
+    <P K='customFrostOn' V='true' />
+    <P K='customFrost' V='0.87' />
+    <P K='customDissolve' V='true' />
+    <P K='customStyleReady' V='true' />
+    <P K='styleSource' V='1' />
+    <P K='styleSrc' V='0' />
+  </El>
+  <El Id='d78f4bc71d534617b57769c7dc63ecaa' Type='Box' Anchor='Center' X='6.7859993' Y='467.210022' W='1603.971' H='64.428' WPct='-1' HPct='-0.134' Z='-45' Tiers='Suited Robot' Fill='#0017279A' Border='#54D5FEFF' TextColor='#FFFFFFF5' BorderWidth='0.076' RTL='2.061' RTR='1.881' RBR='10.524' RBL='9.803' FontScale='1' Align='Center'>
+    <P K='insetTop' V='27.701' />
+    <P K='insetBottom' V='46.537' />
+    <P K='fxCollapse' V='false' />
+    <P K='mAL' V='true' />
+    <P K='mAAnchor' V='4' />
+    <P K='mAX' V='-13' />
+    <P K='mAY' V='427.352417' />
+    <P K='mAW' V='308' />
+    <P K='mAH' V='43.29518' />
+    <P K='mAWPct' V='-0.634' />
+    <P K='mAHPct' V='-0.127' />
+    <P K='glowIn' V='0.019' />
+    <P K='glow' V='0.046' />
+    <P K='ripple' V='2.27' />
+    <P K='bfade' V='0.757' />
+    <P K='softEdge' V='0' />
+    <P K='bTop' V='false' />
+    <P K='glowWidth' V='31.468' />
+    <P K='glowDiffuse' V='0.836' />
+    <P K='spec' V='0' />
+    <P K='bBottom' V='true' />
+    <P K='sheen' V='0' />
+    <P K='glowHaze' V='0.03' />
+    <P K='glowBreath' V='0.393' />
+    <P K='glowUneven' V='1' />
+    <P K='glowFlowAura' V='0.065' />
+    <P K='rippleFreq' V='0.316' />
+    <P K='feather' V='1.154' />
+    <P K='squircle' V='3.517' />
+    <P K='gaussianHalo' V='false' />
+    <P K='customBorderFadeOn' V='true' />
+    <P K='customSoftEdgeOn' V='false' />
+    <P K='customGlowOn' V='true' />
+    <P K='customRippleOn' V='true' />
+    <P K='customGlowBreathOn' V='true' />
+    <P K='customGlowUnevenOn' V='true' />
+    <P K='customGlowFlowOn' V='true' />
+    <P K='glowExtraDiffuse' V='0' />
+    <P K='glowOrganicScale' V='1' />
+    <P K='rippleSmooth' V='0' />
+    <P K='edgeFlow' V='0.229' />
+    <P K='frostDepth' V='0.359' />
+    <P K='customShineOn' V='false' />
+    <P K='customShine' V='0.841' />
+    <P K='customIridOn' V='false' />
+    <P K='customIrid' V='0.008' />
+    <P K='customChromaOn' V='true' />
+    <P K='customChroma' V='0.564' />
+    <P K='customFrostOn' V='true' />
+    <P K='customFrost' V='0.856950045' />
+    <P K='customDissolve' V='true' />
+    <P K='customStyleReady' V='true' />
+    <P K='styleSource' V='1' />
+    <P K='fxCollapseMode' V='2' />
+    <P K='styleSrc' V='512' />
+  </El>
+  <El Id='7fe6ca4964ec4808bc58d33ac38d072a' Type='Box' Anchor='Center' X='34.786' Y='439.210022' W='1603.971' H='64.428' WPct='-1' HPct='-0.134' Z='-76' Tiers='Suited Robot' Fill='HudPanelFill' Border='HudPanelBorder' TextColor='HudTextValue' BorderWidth='0.076' RTL='3.141' RTR='1.341' RBR='21.777' RBL='13.764' FontScale='1' Align='Center'>
+    <P K='insetTop' V='27.701' />
+    <P K='insetBottom' V='46.537' />
+    <P K='fxCollapse' V='false' />
+    <P K='mAL' V='true' />
+    <P K='mAAnchor' V='4' />
+    <P K='mAX' V='-14.0413284' />
+    <P K='mAY' V='426.00293' />
+    <P K='mAW' V='759.5207' />
+    <P K='mAH' V='50.59907' />
+    <P K='mAWPct' V='-0.634' />
+    <P K='mAHPct' V='-0.127' />
+    <P K='glow' V='0.046' />
+    <P K='softEdge' V='0' />
+    <P K='bfade' V='0.757' />
+    <P K='glowIn' V='0.019' />
+    <P K='spec' V='0.689399958' />
+    <P K='feather' V='1.343' />
+    <P K='sheen' V='0' />
+    <P K='glowWidth' V='31.468' />
+    <P K='glowDiffuse' V='0.836' />
+    <P K='glowHaze' V='0.03' />
+    <P K='glowBreath' V='0.393' />
+    <P K='glowUneven' V='1' />
+    <P K='glowFlowAura' V='0.065' />
+    <P K='ripple' V='2.27' />
+    <P K='rippleFreq' V='0.316' />
+    <P K='squircle' V='3.517' />
+    <P K='gaussianHalo' V='false' />
+    <P K='customBorderFadeOn' V='true' />
+    <P K='customSoftEdgeOn' V='false' />
+    <P K='customGlowOn' V='true' />
+    <P K='customRippleOn' V='true' />
+    <P K='customGlowBreathOn' V='true' />
+    <P K='customGlowUnevenOn' V='true' />
+    <P K='customGlowFlowOn' V='true' />
+    <P K='glowExtraDiffuse' V='0' />
+    <P K='glowOrganicScale' V='1' />
+    <P K='rippleSmooth' V='0' />
+    <P K='edgeFlow' V='0.229' />
+    <P K='frostDepth' V='0.359' />
+    <P K='customShineOn' V='false' />
+    <P K='customShine' V='0.841' />
+    <P K='customIridOn' V='false' />
+    <P K='customIrid' V='0.008' />
+    <P K='customChromaOn' V='true' />
+    <P K='customChroma' V='0.564' />
+    <P K='customFrostOn' V='false' />
+    <P K='customFrost' V='0.12528' />
+    <P K='customDissolve' V='false' />
+    <P K='customStyleReady' V='true' />
+    <P K='styleSource' V='1' />
+    <P K='fxCollapseMode' V='2' />
+    <P K='fxDissolveMode' V='2' />
+    <P K='styleSrc' V='512' />
+  </El>
+  <El Id='bd7856c8bad94f32befa9185b6b2faea' Type='Box' Anchor='Center' X='20.786' Y='453.210022' W='1603.971' H='64.428' WPct='-1' HPct='-0.134' Z='-31' Tiers='Suited Robot' Fill='#000000CB' Border='#E0E1E100' TextColor='#FFFFFFF5' BorderWidth='0.076' RTL='0.8' RTR='0.62' RBR='10.524' RBL='9.803' FontScale='1' Align='Center'>
+    <P K='insetTop' V='27.701' />
+    <P K='insetBottom' V='46.537' />
+    <P K='fxCollapse' V='false' />
+    <P K='mAL' V='true' />
+    <P K='mAAnchor' V='4' />
+    <P K='mAX' V='-13.256' />
+    <P K='mAY' V='366.143982' />
+    <P K='mAW' V='600' />
+    <P K='mAH' V='38.016' />
+    <P K='mAWPct' V='-0.634' />
+    <P K='mAHPct' V='-0.127' />
+    <P K='glowIn' V='0' />
+    <P K='glow' V='0' />
+    <P K='ripple' V='0' />
+    <P K='bfade' V='0' />
+    <P K='softEdge' V='0' />
+    <P K='bTop' V='false' />
+    <P K='glowWidth' V='31.468' />
+    <P K='glowDiffuse' V='0.836' />
+    <P K='spec' V='0' />
+    <P K='feather' V='0.932' />
+    <P K='edgeFadeX' V='0' />
+    <P K='sheen' V='0' />
+    <P K='bRight' V='false' />
+    <P K='bLeft' V='false' />
+    <P K='bBottom' V='false' />
+    <P K='glowHaze' V='0.893' />
+    <P K='squircle' V='3.517' />
+    <P K='gaussianHalo' V='false' />
+    <P K='customBorderFadeOn' V='true' />
+    <P K='customSoftEdgeOn' V='false' />
+    <P K='customGlowOn' V='true' />
+    <P K='customRippleOn' V='true' />
+    <P K='customGlowBreathOn' V='true' />
+    <P K='customGlowUnevenOn' V='true' />
+    <P K='customGlowFlowOn' V='true' />
+    <P K='glowExtraDiffuse' V='0' />
+    <P K='glowBreath' V='0.393' />
+    <P K='glowUneven' V='1' />
+    <P K='glowOrganicScale' V='1' />
+    <P K='glowFlowAura' V='0.065' />
+    <P K='rippleFreq' V='0.316' />
+    <P K='rippleSmooth' V='0' />
+    <P K='edgeFlow' V='0.229' />
+    <P K='frostDepth' V='0.559' />
+    <P K='customShineOn' V='false' />
+    <P K='customShine' V='0.841' />
+    <P K='customIridOn' V='false' />
+    <P K='customIrid' V='0.008' />
+    <P K='customChromaOn' V='true' />
+    <P K='customChroma' V='0.564' />
+    <P K='customFrostOn' V='true' />
+    <P K='customFrost' V='0.831' />
+    <P K='customDissolve' V='true' />
+    <P K='customStyleReady' V='true' />
+    <P K='styleSource' V='2' />
+    <P K='fxCollapseMode' V='2' />
+    <P K='styleSrc' V='682' />
+  </El>
+  <Theme>
+    <E k='cfg:Curvature' v='VertexWarp' />
+    <E k='cfg:CurveStrength' v='0.794' />
+    <E k='cfg:CurveInvert' v='false' />
+    <E k='cfg:WorldCanvasDistance' v='0.6' />
+    <E k='cfg:BareFlattens' v='true' />
+    <E k='cfg:ShowVignette' v='false' />
+    <E k='cfg:ShowScanlines' v='false' />
+    <E k='cfg:TintItemIcons' v='false' />
+    <E k='cfg:HudScale' v='1.209' />
+    <E k='cfg:CornerRadius' v='11.771' />
+    <E k='cfg:HudCornerStyle' v='0' />
+    <E k='cfg:BorderWidth' v='0.076' />
+    <E k='cfg:EdgeFeather' v='1.27' />
+    <E k='cfg:GlassSheen' v='0' />
+    <E k='cfg:GlassEdge' v='0' />
+    <E k='cfg:SdfPanels' v='true' />
+    <E k='cfg:SdfSquircle' v='3.517' />
+    <E k='cfg:SdfGaussianHalo' v='false' />
+    <E k='cfg:FontName' v='RBNoBold' />
+    <E k='cfg:FontScale' v='1.004' />
+    <E k='cfg:LabelFontSize' v='13.626' />
+    <E k='cfg:DiegeticTiers' v='true' />
+    <E k='cfg:DetailedVitalsTooltips' v='true' />
+    <E k='cfg:FlickerAnimations' v='true' />
+    <E k='cfg:LowPowerDropouts' v='true' />
+    <E k='cfg:LowPowerThreshold' v='27.034' />
+    <E k='cfg:GlitchOnPowerDown' v='true' />
+    <E k='cfg:GlitchOnPowerUp' v='false' />
+    <E k='cfg:FxTierA' v='true' />
+    <E k='cfg:FxTierB' v='true' />
+    <E k='cfg:FxTierC' v='true' />
+    <E k='cfg:FxHairlinesOn' v='true' />
+    <E k='cfg:FxEdgeLightOn' v='true' />
+    <E k='cfg:FxPulseOn' v='false' />
+    <E k='cfg:FxShineOn' v='false' />
+    <E k='cfg:FxIridOn' v='false' />
+    <E k='cfg:FxChromaOn' v='true' />
+    <E k='cfg:FxHairlineMin' v='0.05' />
+    <E k='cfg:FxEdgeLight' v='1.532' />
+    <E k='cfg:FxEdgeLightColor' v='#A9EBFF' />
+    <E k='cfg:FxEdgeLightAngle' v='252.983' />
+    <E k='cfg:FxEdgeLightRim' v='1.094' />
+    <E k='cfg:FxEdgeLightSharp' v='4.219' />
+    <E k='cfg:FxEdgeFadeCurve' v='0.782' />
+    <E k='cfg:FxEdgeFadeBorder' v='1.2' />
+    <E k='cfg:FxEdgeRipple' v='2.27' />
+    <E k='cfg:FxEdgeRippleFreq' v='0.316' />
+    <E k='cfg:FxEdgeFlowSpeed' v='0.229' />
+    <E k='cfg:FxRippleDesync' v='true' />
+    <E k='cfg:FxRippleDesyncAmount' v='0.4' />
+    <E k='cfg:FxPulseSpeed' v='0.576' />
+    <E k='cfg:FxPulseDepth' v='0.296' />
+    <E k='cfg:FxShine' v='0.841' />
+    <E k='cfg:FxShinePeriod' v='2' />
+    <E k='cfg:FxIridescence' v='0.008' />
+    <E k='cfg:FxChroma' v='0.564' />
+    <E k='cfg:FxDissolveBoot' v='true' />
+    <E k='cfg:FxPowerDownMirrorsBoot' v='true' />
+    <E k='cfg:FxDissolveOnPowerDown' v='true' />
+    <E k='cfg:FxCollapseOn' v='false' />
+    <E k='cfg:FxCollapseAmt' v='1' />
+    <E k='cfg:FxGlitchOn' v='true' />
+    <E k='cfg:FxGlitchAmt' v='1' />
+    <E k='cfg:FxGlitchDuration' v='1.777' />
+    <E k='cfg:FxWarpOn' v='true' />
+    <E k='cfg:FxWarpAmt' v='1' />
+    <E k='cfg:FxTvOffOn' v='false' />
+    <E k='cfg:FxTvOffAmt' v='1' />
+    <E k='cfg:FxFlickerAmt' v='1' />
+    <E k='cfg:FxDissolveAmt' v='1' />
+    <E k='cfg:FxPulseAmt' v='0' />
+    <E k='cfg:FxBorderFadeOn' v='true' />
+    <E k='cfg:FxSoftEdgeOn' v='false' />
+    <E k='cfg:FxGlowOn' v='true' />
+    <E k='cfg:FxBorderFade' v='0.836' />
+    <E k='cfg:FxSoftEdge' v='0' />
+    <E k='cfg:FxGlow' v='0.046' />
+    <E k='cfg:FxGlowInner' v='0.019' />
+    <E k='cfg:FxGlowWidth' v='31.468' />
+    <E k='cfg:FxGlowDiffuse' v='0.836' />
+    <E k='cfg:FxGlowExtraDiffuse' v='0' />
+    <E k='cfg:FxGlowHaze' v='0.03' />
+    <E k='cfg:FxGlowBreathOn' v='true' />
+    <E k='cfg:FxGlowBreath' v='0.393' />
+    <E k='cfg:FxGlowBreathSpeed' v='1.077' />
+    <E k='cfg:FxGlowUnevenOn' v='true' />
+    <E k='cfg:FxGlowUneven' v='1' />
+    <E k='cfg:FxGlowOrganicScale' v='1' />
+    <E k='cfg:FxGlowFlowAuraOn' v='true' />
+    <E k='cfg:FxGlowFlowAura' v='0.065' />
+    <E k='cfg:FxAlertPulseOn' v='true' />
+    <E k='cfg:FxAlertBreathSeconds' v='1.4' />
+    <E k='cfg:FxAlertCautionBreaths' v='3' />
+    <E k='cfg:FxAlertPulseStrength' v='1' />
+    <E k='cfg:FxAlertCautionBright' v='1' />
+    <E k='cfg:FxAlertCriticalBright' v='3' />
+    <E k='cfg:FrostStrength' v='0.87' />
+    <E k='cfg:FrostDepth' v='0.359' />
+    <E k='cfg:FrostDarken' v='0.605' />
+    <E k='cfg:FrostTint' v='#FFFFFF' />
+    <E k='cfg:FxBloomOn' v='false' />
+    <E k='cfg:FxBloomStrength' v='1.245' />
+    <E k='cfg:FxBloomThreshold' v='0.996' />
+    <E k='cfg:FxBloomKnee' v='0.589' />
+    <E k='cfg:FxBloomSpread' v='0.808' />
+    <E k='cfg:FxBloomSaturation' v='1.013' />
+    <E k='cfg:FxBloomTint' v='#DBF1F6' />
+    <E k='cfg:FxBloomAnamorph' v='0.194' />
+    <E k='cfg:FxBloomPulseOn' v='false' />
+    <E k='cfg:FxBloomPulseSpeed' v='0.704' />
+    <E k='cfg:FxBloomPulseDepth' v='0.552' />
+    <E k='cfg:FxBloomReactOn' v='false' />
+    <E k='cfg:FxBloomReactPower' v='0.6' />
+    <E k='cfg:FxBloomReactAlarm' v='0.6' />
+    <E k='cfg:FxBloomReactBoot' v='0.8' />
+    <E k='cfg:FxBloom2On' v='false' />
+    <E k='cfg:FxBloom2Threshold' v='0.704' />
+    <E k='cfg:FxBloom2Strength' v='0.646' />
+    <E k='cfg:FxBloom2Steps' v='2' />
+    <E k='cfg:FxBloom2Spread' v='1.254' />
+    <E k='cfg:FxBloom2Tint' v='#5A1515' />
+    <E k='cfg:FxBloomSatBias' v='0.6' />
+    <E k='cfg:FxBloom2SatBias' v='1' />
+    <E k='pal:HudPanelFill' v='05090ECC' />
+    <E k='pal:HudPanelBorder' v='2E7A94AA' />
+    <E k='pal:HudLineAccent' v='35C8E8CC' />
+    <E k='pal:HudTextLabel' v='8FB4C2D0' />
+    <E k='pal:HudTextValue' v='FFFFFFF5' />
+    <E k='pal:HudTextDim' v='6A8E9BA8' />
+    <E k='pal:HudGood' v='23FF00E6' />
+    <E k='pal:HudWarn' v='FFEF00FF' />
+    <E k='pal:HudCritical' v='FF1200F0' />
+    <E k='pal:HudAlertCaution' v='FFEF00FF' />
+    <E k='pal:HudAlertCritical' v='FF0300FF' />
+    <E k='pal:HudCompassTick' v='35C8E870' />
+    <E k='pal:HudCompassCardinal' v='D8F0F8EE' />
+    <E k='pal:HudCompassNeedle' v='FF8C29D9' />
+    <E k='pal:HudHologramTint' v='8FE0F0B0' />
+    <E k='pal:HudBareWord' v='D8F4FAE0' />
+    <E k='pal:HudSlotNumber' v='FFFFFFE6' />
+    <E k='pal:HudActiveHand' v='FF8C29E6' />
+    <E k='pal:HudDropHighlight' v='4CE07AF0' />
+    <E k='pal:HudVignette' v='01070AB8' />
+    <E k='pal:HudScanline' v='0A20281C' />
+    <E k='pal:HudItemIconTint' v='FFFFFFFF' />
     <E k='rad:WedgeBackground' v='0E213373' />
     <E k='rad:WedgeSelected' v='0E213367' />
     <E k='rad:WedgeDisabled' v='00376167' />
@@ -2885,6 +4842,1812 @@ namespace StationeersUIMod.UI.Hud
     <E k='rad:HintBarFill' v='000000C4' />
     <E k='rad:HintBarBorder' v='00000000' />
     <E k='rad:HintBarText' v='FFFFFFFF' />
+    <E k='radial:RadialOuterRadius' v='294.182' />
+    <E k='radial:RadialInnerRadius' v='116.814' />
+    <E k='radial:IconFlipV' v='false' />
+    <E k='radial:RadialIconRatio' v='0.62' />
+    <E k='radial:RadialShineIntensity' v='0.599' />
+    <E k='radial:ParkedChipRadius' v='49.229' />
+    <E k='radial:RadialShowWedgeLabels' v='false' />
+    <E k='radial:RadialEdgeFeather' v='2.198' />
+    <E k='radial:RadialBorderWidth' v='3.12' />
+    <E k='radial:RadialSideBorders' v='true' />
+    <E k='radial:RadialSideWidthInner' v='0.5' />
+    <E k='radial:RadialSideWidthOuter' v='3.215' />
+    <E k='radial:RadialWedgeGapDeg' v='0' />
+    <E k='radial:RadialDimShading' v='false' />
+    <E k='radial:RadialDimStrength' v='0.5' />
+    <E k='radial:RadialFontName' v='RBNoBook' />
+    <E k='radial:RadialUppercaseLabels' v='true' />
+    <E k='radial:RadialShowStateText' v='true' />
+    <E k='radial:RadialShowBindingLabels' v='true' />
+    <E k='radial:RadialSatelliteScale' v='0.994' />
+    <E k='radial:RadialHubTitleSize' v='20.914' />
+    <E k='radial:RadialTextVerb' v='17.587' />
+    <E k='radial:RadialTextLabel' v='16.516' />
+    <E k='radial:RadialTextSub' v='14.065' />
+    <E k='radial:RadialTextWarn' v='12' />
+    <E k='radial:RadialRotateLongLabels' v='true' />
+    <E k='radial:RadialSatelliteHubRatio' v='0.34' />
+    <E k='radial:RadialDynamicReadoutText' v='true' />
+    <E k='radial:RadialFrost' v='true' />
+    <E k='radial:RadialFrostStrength' v='1' />
+    <E k='radial:RadialSheen' v='0.023' />
+    <E k='radial:RadialEdgeLight' v='0' />
+    <E k='radial:HintBarCorner' v='12' />
+    <E k='radial:HintBarBorderWidth' v='0' />
+    <E k='radial:HintBarFeather' v='1.486667' />
+    <E k='radial:HintBarSheen' v='0' />
+    <E k='radial:HintBarSpec' v='0' />
+    <E k='radial:HintBarGlow' v='0' />
+    <E k='radial:HintBarGlowWidth' v='24' />
+    <E k='radial:HintBarFontSize' v='11.2' />
+    <E k='radial:HintBarBold' v='true' />
+    <E k='radial:HintBarHeight' v='30' />
+    <E k='radial:HintBarPadding' v='24' />
+    <E k='radial:HintBarDrop' v='34' />
+    <E k='radial:HintBarFrost' v='false' />
+    <E k='radial:HintBarFrostStrength' v='0.85' />
+    <E k='grid:Follow' v='false' />
+    <E k='grid:FillRef' v='HudPanelFill' />
+    <E k='grid:BorderRef' v='HudPanelBorder' />
+    <E k='grid:TextRef' v='HudTextValue' />
+    <E k='grid:CornerRadiusOv' v='3.711' />
+    <E k='grid:SheenOv' v='-1' />
+    <E k='grid:SpecOv' v='-1' />
+    <E k='grid:BorderWidthOv' v='1.321' />
+    <E k='grid:FeatherOv' v='0.971' />
+    <E k='grid:SquircleOv' v='-1' />
+    <E k='grid:GaussianMode' v='2' />
+    <E k='grid:BorderFadeOv' v='-1' />
+    <E k='grid:SoftEdgeOv' v='-1' />
+    <E k='grid:GlowMode' v='2' />
+    <E k='grid:GlowOv' v='-1' />
+    <E k='grid:GlowInnerOv' v='-1' />
+    <E k='grid:GlowHazeOv' v='-1' />
+    <E k='grid:GlowWidthOv' v='-1' />
+    <E k='grid:GlowDiffuseOv' v='-1' />
+    <E k='grid:GlowExtraDiffuseOv' v='-1' />
+    <E k='grid:RippleMode' v='2' />
+    <E k='grid:RippleOv' v='-1' />
+    <E k='grid:RippleFreqOv' v='-1' />
+    <E k='grid:RippleSmoothOv' v='-1' />
+    <E k='grid:FlowOv' v='-1' />
+    <E k='grid:FrostOn' v='true' />
+    <E k='grid:FrostOv' v='-1' />
+    <E k='grid:FrostDepthOv' v='-1' />
+    <E k='grid:ShineOv' v='-1' />
+    <E k='grid:IridOv' v='-1' />
+    <E k='grid:ChromaOv' v='-1' />
+    <E k='grid:PerTier' v='false' />
+    <E k='grid:BareFillRef' v='' />
+    <E k='grid:BareBorderRef' v='' />
+    <E k='grid:BareTextRef' v='' />
+    <E k='grid:BareOpacity' v='-1' />
+    <E k='grid:BareFrostMode' v='0' />
+    <E k='menu:Follow' v='true' />
+    <E k='menu:Scrim' v='#05050580' />
+    <E k='menu:Window' v='#292B2EE6' />
+    <E k='menu:Bar' v='#333638F2' />
+    <E k='menu:Panel' v='#36383BEB' />
+    <E k='menu:PanelRaised' v='#45474AFA' />
+    <E k='menu:PanelHover' v='#54575CFF' />
+    <E k='menu:Track' v='#5C5E63FF' />
+    <E k='menu:Divider' v='#FFFFFF14' />
+    <E k='menu:Border' v='#2E7A94AB' />
+    <E k='menu:Accent' v='#59C7E6FF' />
+    <E k='menu:Selected' v='#FF8C29FF' />
+    <E k='menu:On' v='#5CD17AFF' />
+    <E k='menu:Off' v='#596673FF' />
+    <E k='menu:Text' v='#F0F7FFFF' />
+    <E k='menu:TextDim' v='#B8CCDEFF' />
+    <E k='menu:TextMute' v='#8599ADFF' />
+    <E k='menu:Good' v='#6BD985FF' />
+    <E k='menu:Warn' v='#FAC74CFF' />
+    <E k='menu:Critical' v='#F26661FF' />
+  </Theme>
+</HudDocument>";
+
+        public const string ZirillianRedXml =
+@"<HudDocument xmlns:xsd='http://www.w3.org/2001/XMLSchema' xmlns:xsi='http://www.w3.org/2001/XMLSchema-instance' Schema='7' Name='Zirillian Red' RefW='0' RefH='0'>
+  <El Id='g2-topbar' Type='Box' Anchor='TopCenter' X='0' Y='-38' W='1860' H='62' WPct='0.99' HPct='-1' Z='0' Tiers='Suited Robot' Fill='HudPanelFill' Border='HudPanelBorder' TextColor='#FFFFFFF5' BorderWidth='0.076' RTL='32.778' RTR='23.263' RBR='64' RBL='64' FontScale='1' Align='Center'>
+    <P K='insetBottom' V='9.418' />
+    <P K='sheen' V='0' />
+    <P K='spec' V='0' />
+    <P K='fxCollapse' V='false' />
+    <P K='mAL' V='true' />
+    <P K='mAAnchor' V='1' />
+    <P K='mAX' V='0' />
+    <P K='mAY' V='-76' />
+    <P K='mAW' V='1276' />
+    <P K='mAH' V='108' />
+    <P K='mAWPct' V='-1' />
+    <P K='mAHPct' V='-1' />
+    <P K='edgeFadeY' V='0' />
+    <P K='edgeFadeX' V='0' />
+    <P K='bfade' V='0.775' />
+    <P K='feather' V='0.932' />
+    <P K='rippleSmooth' V='0' />
+    <P K='ripple' V='2.27' />
+    <P K='glowWidth' V='29.629' />
+    <P K='glow' V='0.545' />
+    <P K='glowIn' V='0.124' />
+    <P K='glowDiffuse' V='0.836' />
+    <P K='softEdge' V='0' />
+    <P K='rippleFreq' V='0.316' />
+    <P K='glowHaze' V='0.17' />
+    <P K='glowBreath' V='0.393' />
+    <P K='glowUneven' V='1' />
+    <P K='glowFlowAura' V='0.228' />
+    <P K='frostDepth' V='1' />
+    <P K='squircle' V='3.517' />
+    <P K='gaussianHalo' V='false' />
+    <P K='customBorderFadeOn' V='true' />
+    <P K='customSoftEdgeOn' V='false' />
+    <P K='customGlowOn' V='true' />
+    <P K='customRippleOn' V='true' />
+    <P K='customGlowBreathOn' V='true' />
+    <P K='customGlowUnevenOn' V='true' />
+    <P K='customGlowFlowOn' V='true' />
+    <P K='glowExtraDiffuse' V='0.126' />
+    <P K='glowOrganicScale' V='1' />
+    <P K='edgeFlow' V='0.229' />
+    <P K='customShineOn' V='false' />
+    <P K='customShine' V='0.841' />
+    <P K='customIridOn' V='false' />
+    <P K='customIrid' V='0' />
+    <P K='customChromaOn' V='true' />
+    <P K='customChroma' V='0.471' />
+    <P K='customFrostOn' V='true' />
+    <P K='customFrost' V='0.54' />
+    <P K='customDissolve' V='true' />
+    <P K='customStyleReady' V='true' />
+    <P K='styleSource' V='1' />
+    <P K='fxWarp' V='true' />
+    <P K='fxCollapseMode' V='2' />
+    <P K='styleSrc' V='512' />
+  </El>
+  <El Id='g2-clock' Type='Clock' Anchor='TopLeft' X='150' Y='-38' W='200' H='40' WPct='-1' HPct='-1' Z='2' Tiers='Suited Robot' Fill='#0017279A' Border='#54D5FE65' TextColor='HudTextLabel' BorderWidth='0.076' RTL='11.771' RTR='11.771' RBR='11.771' RBL='11.771' FontScale='1' Align='Center'>
+    <P K='fxCollapse' V='false' />
+    <P K='sheen' V='0' />
+    <P K='spec' V='0' />
+    <P K='glow' V='0' />
+    <P K='glowIn' V='0' />
+    <P K='softEdge' V='0' />
+    <P K='mAL' V='true' />
+    <P K='mAAnchor' V='0' />
+    <P K='mAX' V='250' />
+    <P K='mAY' V='-78' />
+    <P K='mAW' V='200' />
+    <P K='mAH' V='40' />
+    <P K='mAWPct' V='-1' />
+    <P K='mAHPct' V='-1' />
+    <P K='feather' V='0.932' />
+    <P K='squircle' V='3.517' />
+    <P K='gaussianHalo' V='false' />
+    <P K='customBorderFadeOn' V='true' />
+    <P K='customSoftEdgeOn' V='false' />
+    <P K='customGlowOn' V='true' />
+    <P K='customRippleOn' V='true' />
+    <P K='customGlowBreathOn' V='true' />
+    <P K='customGlowUnevenOn' V='true' />
+    <P K='customGlowFlowOn' V='true' />
+    <P K='bfade' V='0.757' />
+    <P K='glowWidth' V='31.468' />
+    <P K='glowDiffuse' V='0.836' />
+    <P K='glowExtraDiffuse' V='0' />
+    <P K='glowHaze' V='0.03' />
+    <P K='glowBreath' V='0.393' />
+    <P K='glowUneven' V='1' />
+    <P K='glowOrganicScale' V='1' />
+    <P K='glowFlowAura' V='0.065' />
+    <P K='ripple' V='2.27' />
+    <P K='rippleFreq' V='0.316' />
+    <P K='rippleSmooth' V='0' />
+    <P K='edgeFlow' V='0.229' />
+    <P K='frostDepth' V='0.359' />
+    <P K='customShineOn' V='false' />
+    <P K='customShine' V='0.841' />
+    <P K='customIridOn' V='false' />
+    <P K='customIrid' V='0.008' />
+    <P K='customChromaOn' V='true' />
+    <P K='customChroma' V='0.564' />
+    <P K='customFrostOn' V='true' />
+    <P K='customFrost' V='0.87' />
+    <P K='customDissolve' V='true' />
+    <P K='customStyleReady' V='true' />
+    <P K='styleSource' V='1' />
+    <P K='fxCollapseMode' V='2' />
+    <P K='styleSrc' V='512' />
+  </El>
+  <El Id='g2-extpress' Type='Readout' Anchor='TopLeft' X='488.8861' Y='-31.7937088' W='287.217' H='61.11' WPct='-1' HPct='-1' Z='2' Tiers='Suited Robot' Fill='HudPanelFill' Border='HudPanelBorder' TextColor='HudTextValue' BorderWidth='0.076' RTL='11.771' RTR='11.771' RBR='11.771' RBL='11.771' FontScale='1' Align='Center'>
+    <P K='src' V='ExternalPressure' />
+    <P K='label' V='EXTERNAL PRESSURE' />
+    <P K='box' V='false' />
+    <P K='bar' V='true' />
+    <P K='barStyle' V='game' />
+    <P K='barVertical' V='false' />
+    <P K='target' V='false' />
+    <P K='textScale' V='1.217' />
+    <P K='fxCollapse' V='false' />
+    <P K='mAL' V='true' />
+    <P K='mAAnchor' V='0' />
+    <P K='mAX' V='535' />
+    <P K='mAY' V='-46' />
+    <P K='mAW' V='154' />
+    <P K='mAH' V='48' />
+    <P K='mAWPct' V='-1' />
+    <P K='mAHPct' V='-1' />
+    <P K='sheen' V='0' />
+    <P K='spec' V='0.689399958' />
+    <P K='glow' V='0' />
+    <P K='glowIn' V='0' />
+    <P K='softEdge' V='0' />
+    <P K='feather' V='0.932' />
+    <P K='squircle' V='3.517' />
+    <P K='gaussianHalo' V='false' />
+    <P K='customBorderFadeOn' V='true' />
+    <P K='customSoftEdgeOn' V='false' />
+    <P K='customGlowOn' V='true' />
+    <P K='customRippleOn' V='true' />
+    <P K='customGlowBreathOn' V='true' />
+    <P K='customGlowUnevenOn' V='true' />
+    <P K='customGlowFlowOn' V='true' />
+    <P K='bfade' V='0.757' />
+    <P K='glowWidth' V='31.468' />
+    <P K='glowDiffuse' V='0.836' />
+    <P K='glowExtraDiffuse' V='0' />
+    <P K='glowHaze' V='0.03' />
+    <P K='glowBreath' V='0.393' />
+    <P K='glowUneven' V='1' />
+    <P K='glowOrganicScale' V='1' />
+    <P K='glowFlowAura' V='0.065' />
+    <P K='ripple' V='2.27' />
+    <P K='rippleFreq' V='0.316' />
+    <P K='rippleSmooth' V='0' />
+    <P K='edgeFlow' V='0.229' />
+    <P K='frostDepth' V='0.359' />
+    <P K='customShineOn' V='false' />
+    <P K='customShine' V='0.841' />
+    <P K='customIridOn' V='false' />
+    <P K='customIrid' V='0.008' />
+    <P K='customChromaOn' V='true' />
+    <P K='customChroma' V='0.564' />
+    <P K='customFrostOn' V='true' />
+    <P K='customFrost' V='0.87' />
+    <P K='customDissolve' V='true' />
+    <P K='customStyleReady' V='true' />
+    <P K='styleSource' V='1' />
+    <P K='fxCollapseMode' V='2' />
+    <P K='styleSrc' V='512' />
+  </El>
+  <El Id='g2-compass' Type='Compass' Anchor='TopCenter' X='-24' Y='-38' W='329.813' H='68' WPct='-0.995' HPct='-1' Z='3' Tiers='Suited Robot' Fill='HudPanelFill' Border='HudPanelBorder' TextColor='HudTextValue' BorderWidth='0.076' RTL='11.771' RTR='11.771' RBR='11.771' RBL='11.771' FontScale='1.08' Align='Center'>
+    <P K='box' V='false' />
+    <P K='fov' V='125.983' />
+    <P K='tickDeg' V='14.597' />
+    <P K='cardinalDeg' V='62.535' />
+    <P K='fxCollapse' V='false' />
+    <P K='mAL' V='true' />
+    <P K='mAAnchor' V='1' />
+    <P K='mAX' V='0' />
+    <P K='mAY' V='-40' />
+    <P K='mAW' V='166' />
+    <P K='mAH' V='30' />
+    <P K='mAWPct' V='-0.995' />
+    <P K='mAHPct' V='-1' />
+    <P K='insetBottom' V='0' />
+    <P K='degrees' V='true' />
+    <P K='bfade' V='0.757' />
+    <P K='softEdge' V='0' />
+    <P K='glow' V='0' />
+    <P K='glowIn' V='0' />
+    <P K='sheen' V='0' />
+    <P K='spec' V='0.689399958' />
+    <P K='feather' V='0.932' />
+    <P K='squircle' V='3.517' />
+    <P K='gaussianHalo' V='false' />
+    <P K='customBorderFadeOn' V='true' />
+    <P K='customSoftEdgeOn' V='false' />
+    <P K='customGlowOn' V='true' />
+    <P K='customRippleOn' V='true' />
+    <P K='customGlowBreathOn' V='true' />
+    <P K='customGlowUnevenOn' V='true' />
+    <P K='customGlowFlowOn' V='true' />
+    <P K='glowWidth' V='31.468' />
+    <P K='glowDiffuse' V='0.836' />
+    <P K='glowExtraDiffuse' V='0' />
+    <P K='glowHaze' V='0.03' />
+    <P K='glowBreath' V='0.393' />
+    <P K='glowUneven' V='1' />
+    <P K='glowOrganicScale' V='1' />
+    <P K='glowFlowAura' V='0.065' />
+    <P K='ripple' V='2.27' />
+    <P K='rippleFreq' V='0.316' />
+    <P K='rippleSmooth' V='0' />
+    <P K='edgeFlow' V='0.229' />
+    <P K='frostDepth' V='0.359' />
+    <P K='customShineOn' V='false' />
+    <P K='customShine' V='0.841' />
+    <P K='customIridOn' V='false' />
+    <P K='customIrid' V='0.008' />
+    <P K='customChromaOn' V='true' />
+    <P K='customChroma' V='0.564' />
+    <P K='customFrostOn' V='true' />
+    <P K='customFrost' V='0.87' />
+    <P K='customDissolve' V='true' />
+    <P K='customStyleReady' V='true' />
+    <P K='styleSource' V='1' />
+    <P K='fxCollapseMode' V='2' />
+    <P K='styleSrc' V='512' />
+  </El>
+  <El Id='g2-exttemp' Type='Readout' Anchor='TopRight' X='-360' Y='-38' W='240' H='50' WPct='-1' HPct='-1' Z='2' Tiers='Suited Robot' Fill='HudPanelFill' Border='HudPanelBorder' TextColor='HudTextValue' BorderWidth='0.076' RTL='11.771' RTR='11.771' RBR='11.771' RBL='11.771' FontScale='0.836' Align='Center' Icon='Temp'>
+    <P K='src' V='ExternalTemp' />
+    <P K='label' V='EXTERNAL TEMP' />
+    <P K='box' V='false' />
+    <P K='bar' V='false' />
+    <P K='target' V='false' />
+    <P K='tempIcon' V='true' />
+    <P K='fxCollapse' V='false' />
+    <P K='textScale' V='1.257' />
+    <P K='mAL' V='true' />
+    <P K='mAAnchor' V='2' />
+    <P K='mAX' V='-549' />
+    <P K='mAY' V='-51' />
+    <P K='mAW' V='170' />
+    <P K='mAH' V='42' />
+    <P K='mAWPct' V='-1' />
+    <P K='mAHPct' V='-1' />
+    <P K='sheen' V='0' />
+    <P K='spec' V='0.689399958' />
+    <P K='glow' V='0' />
+    <P K='glowIn' V='0' />
+    <P K='softEdge' V='0' />
+    <P K='feather' V='0.932' />
+    <P K='squircle' V='3.517' />
+    <P K='gaussianHalo' V='false' />
+    <P K='customBorderFadeOn' V='true' />
+    <P K='customSoftEdgeOn' V='false' />
+    <P K='customGlowOn' V='true' />
+    <P K='customRippleOn' V='true' />
+    <P K='customGlowBreathOn' V='true' />
+    <P K='customGlowUnevenOn' V='true' />
+    <P K='customGlowFlowOn' V='true' />
+    <P K='bfade' V='0.757' />
+    <P K='glowWidth' V='31.468' />
+    <P K='glowDiffuse' V='0.836' />
+    <P K='glowExtraDiffuse' V='0' />
+    <P K='glowHaze' V='0.03' />
+    <P K='glowBreath' V='0.393' />
+    <P K='glowUneven' V='1' />
+    <P K='glowOrganicScale' V='1' />
+    <P K='glowFlowAura' V='0.065' />
+    <P K='ripple' V='2.27' />
+    <P K='rippleFreq' V='0.316' />
+    <P K='rippleSmooth' V='0' />
+    <P K='edgeFlow' V='0.229' />
+    <P K='frostDepth' V='0.359' />
+    <P K='customShineOn' V='false' />
+    <P K='customShine' V='0.841' />
+    <P K='customIridOn' V='false' />
+    <P K='customIrid' V='0.008' />
+    <P K='customChromaOn' V='true' />
+    <P K='customChroma' V='0.564' />
+    <P K='customFrostOn' V='true' />
+    <P K='customFrost' V='0.87' />
+    <P K='customDissolve' V='true' />
+    <P K='customStyleReady' V='true' />
+    <P K='styleSource' V='1' />
+    <P K='fxCollapseMode' V='2' />
+    <P K='styleSrc' V='512' />
+  </El>
+  <El Id='g2-day' Type='DayCounter' Anchor='TopRight' X='-120' Y='-38' W='130' H='40' WPct='-1' HPct='-1' Z='2' Tiers='Suited Robot' Fill='#0017279A' Border='#54D5FE65' TextColor='HudTextLabel' BorderWidth='0.076' RTL='11.771' RTR='11.771' RBR='11.771' RBL='11.771' FontScale='1' Align='Center'>
+    <P K='fxCollapse' V='false' />
+    <P K='sheen' V='0' />
+    <P K='spec' V='0' />
+    <P K='glow' V='0' />
+    <P K='glowIn' V='0' />
+    <P K='softEdge' V='0' />
+    <P K='mAL' V='true' />
+    <P K='mAAnchor' V='2' />
+    <P K='mAX' V='-262' />
+    <P K='mAY' V='-76' />
+    <P K='mAW' V='134' />
+    <P K='mAH' V='40' />
+    <P K='mAWPct' V='-1' />
+    <P K='mAHPct' V='-1' />
+    <P K='feather' V='0.932' />
+    <P K='squircle' V='3.517' />
+    <P K='gaussianHalo' V='false' />
+    <P K='customBorderFadeOn' V='true' />
+    <P K='customSoftEdgeOn' V='false' />
+    <P K='customGlowOn' V='true' />
+    <P K='customRippleOn' V='true' />
+    <P K='customGlowBreathOn' V='true' />
+    <P K='customGlowUnevenOn' V='true' />
+    <P K='customGlowFlowOn' V='true' />
+    <P K='bfade' V='0.757' />
+    <P K='glowWidth' V='31.468' />
+    <P K='glowDiffuse' V='0.836' />
+    <P K='glowExtraDiffuse' V='0' />
+    <P K='glowHaze' V='0.03' />
+    <P K='glowBreath' V='0.393' />
+    <P K='glowUneven' V='1' />
+    <P K='glowOrganicScale' V='1' />
+    <P K='glowFlowAura' V='0.065' />
+    <P K='ripple' V='2.27' />
+    <P K='rippleFreq' V='0.316' />
+    <P K='rippleSmooth' V='0' />
+    <P K='edgeFlow' V='0.229' />
+    <P K='frostDepth' V='0.359' />
+    <P K='customShineOn' V='false' />
+    <P K='customShine' V='0.841' />
+    <P K='customIridOn' V='false' />
+    <P K='customIrid' V='0.008' />
+    <P K='customChromaOn' V='true' />
+    <P K='customChroma' V='0.564' />
+    <P K='customFrostOn' V='true' />
+    <P K='customFrost' V='0.87' />
+    <P K='customDissolve' V='true' />
+    <P K='customStyleReady' V='true' />
+    <P K='styleSource' V='1' />
+    <P K='fxCollapseMode' V='2' />
+    <P K='styleSrc' V='512' />
+  </El>
+  <El Id='g2-moodlets' Type='MoodletDashboard' Anchor='TopCenter' X='-26' Y='-105' W='1414' H='64' WPct='-1' HPct='-1' Z='91' Tiers='All' Fill='#070B17D8' Border='#08567A65' TextColor='#FFFFFFF5' BorderWidth='0.511' RTL='11.771' RTR='11.771' RBR='11.771' RBL='11.771' FontScale='1.138' Align='Center'>
+    <P K='box' V='false' />
+    <P K='stackWords' V='true' />
+    <P K='labels' V='true' />
+    <P K='iconScale' V='0.732' />
+    <P K='textScale' V='0.267' />
+    <P K='rowGap' V='11.295' />
+    <P K='colGap' V='8.977' />
+    <P K='sheen' V='0' />
+    <P K='glyphs' V='false' />
+    <P K='chipWidth' V='171.877' />
+    <P K='chipH' V='115.586' />
+    <P K='moodletScale' V='0.398' />
+    <P K='moodletTransparency' V='0.143' />
+    <P K='moodletBrightness' V='1' />
+    <P K='fxCollapse' V='false' />
+    <P K='fxGlitch' V='false' />
+    <P K='fxWarp' V='true' />
+    <P K='mAL' V='true' />
+    <P K='mAAnchor' V='1' />
+    <P K='mAX' V='-2' />
+    <P K='mAY' V='-151' />
+    <P K='mAW' V='358' />
+    <P K='mAH' V='46' />
+    <P K='mAWPct' V='-1' />
+    <P K='mAHPct' V='-1' />
+    <P K='spec' V='1' />
+    <P K='glow' V='0.556' />
+    <P K='glowIn' V='0.119' />
+    <P K='softEdge' V='7.503' />
+    <P K='glowUneven' V='0.734' />
+    <P K='glowFlowAura' V='1.157' />
+    <P K='glowBreath' V='0.095' />
+    <P K='glowHaze' V='0.278' />
+    <P K='glowWidth' V='22.337' />
+    <P K='bfade' V='0.171' />
+    <P K='glowDiffuse' V='1' />
+    <P K='ripple' V='0.746' />
+    <P K='rippleFreq' V='0.141' />
+    <P K='frostDepth' V='1' />
+    <P K='fxWarpAmt' V='1.055' />
+    <P K='styleSource' V='1' />
+    <P K='feather' V='2.155' />
+    <P K='squircle' V='6.459' />
+    <P K='gaussianHalo' V='false' />
+    <P K='customBorderFadeOn' V='true' />
+    <P K='customSoftEdgeOn' V='false' />
+    <P K='customGlowOn' V='true' />
+    <P K='customRippleOn' V='true' />
+    <P K='customGlowBreathOn' V='true' />
+    <P K='customGlowUnevenOn' V='true' />
+    <P K='customGlowFlowOn' V='true' />
+    <P K='rippleSmooth' V='0' />
+    <P K='edgeFlow' V='0.589' />
+    <P K='customShineOn' V='false' />
+    <P K='customShine' V='0.841' />
+    <P K='customIridOn' V='false' />
+    <P K='customIrid' V='0.008' />
+    <P K='customChromaOn' V='true' />
+    <P K='customChroma' V='0.564' />
+    <P K='customFrostOn' V='true' />
+    <P K='customFrost' V='0.87' />
+    <P K='customDissolve' V='true' />
+    <P K='customStyleReady' V='true' />
+    <P K='bLayout' V='true' />
+    <P K='bAnchor' V='1' />
+    <P K='bX' V='-11' />
+    <P K='bY' V='-768' />
+    <P K='bW' V='1414' />
+    <P K='bH' V='64' />
+    <P K='bWPct' V='-1' />
+    <P K='bHPct' V='-1' />
+    <P K='glowExtraDiffuse' V='0' />
+    <P K='glowOrganicScale' V='1' />
+    <P K='fxCollapseMode' V='2' />
+    <P K='fxGlitchMode' V='2' />
+    <P K='fxWarpMode' V='1' />
+    <P K='styleSrc' V='512' />
+  </El>
+  <El Id='g2-eqleft' Type='EquipmentColumn' Anchor='BottomCenter' X='-360' Y='56' W='264' H='78' WPct='-1' HPct='-1' Z='2' Tiers='All' Fill='HudPanelFill' Border='HudPanelBorder' TextColor='HudTextValue' BorderWidth='0.67' RTL='11.771' RTR='11.771' RBR='11.771' RBL='11.771' FontScale='1.041' Align='Center'>
+    <P K='horizontal' V='true' />
+    <P K='first' V='0' />
+    <P K='count' V='3' />
+    <P K='sheen' V='0' />
+    <P K='spec' V='0.689399958' />
+    <P K='fxCollapse' V='false' />
+    <P K='fxGlitch' V='false' />
+    <P K='fxWarp' V='true' />
+    <P K='feather' V='0.932' />
+    <P K='bfade' V='0.757' />
+    <P K='softEdge' V='0' />
+    <P K='glow' V='0.473' />
+    <P K='glowIn' V='0.057' />
+    <P K='glowWidth' V='6' />
+    <P K='glowDiffuse' V='0.823' />
+    <P K='ripple' V='2.27' />
+    <P K='rippleFreq' V='0.316' />
+    <P K='gap' V='5.446' />
+    <P K='dropWholeBox' V='false' />
+    <P K='edgeFadeY' V='0' />
+    <P K='rippleSmooth' V='0' />
+    <P K='glowHaze' V='0.424' />
+    <P K='glowBreath' V='0.299' />
+    <P K='glowUneven' V='0.436' />
+    <P K='glowFlowAura' V='0.065' />
+    <P K='mAL' V='true' />
+    <P K='mAAnchor' V='7' />
+    <P K='mAX' V='-196' />
+    <P K='mAY' V='38' />
+    <P K='mAW' V='188.366' />
+    <P K='mAH' V='72' />
+    <P K='mAWPct' V='-1' />
+    <P K='mAHPct' V='-1' />
+    <P K='iconScale' V='0.559' />
+    <P K='squircle' V='3.517' />
+    <P K='gaussianHalo' V='false' />
+    <P K='customBorderFadeOn' V='true' />
+    <P K='customSoftEdgeOn' V='false' />
+    <P K='customGlowOn' V='true' />
+    <P K='customRippleOn' V='true' />
+    <P K='customGlowBreathOn' V='true' />
+    <P K='customGlowUnevenOn' V='true' />
+    <P K='customGlowFlowOn' V='true' />
+    <P K='glowExtraDiffuse' V='0' />
+    <P K='glowOrganicScale' V='1' />
+    <P K='edgeFlow' V='0.229' />
+    <P K='frostDepth' V='0.359' />
+    <P K='customShineOn' V='false' />
+    <P K='customShine' V='0.841' />
+    <P K='customIridOn' V='false' />
+    <P K='customIrid' V='0.008' />
+    <P K='customChromaOn' V='true' />
+    <P K='customChroma' V='0.564' />
+    <P K='customFrostOn' V='true' />
+    <P K='customFrost' V='0.87' />
+    <P K='customDissolve' V='true' />
+    <P K='customStyleReady' V='true' />
+    <P K='styleSource' V='1' />
+    <P K='b_fill' V='#0000005C' />
+    <P K='b_border' V='#54D5FE00' />
+    <P K='b_customRippleOn' V='false' />
+    <P K='b_customGlowOn' V='false' />
+    <P K='fxCollapseMode' V='2' />
+    <P K='fxGlitchMode' V='2' />
+    <P K='tierStyle' V='1' />
+    <P K='b_styleSource' V='2' />
+    <P K='b_bw' V='0.67' />
+    <P K='b_feather' V='0.932' />
+    <P K='b_rtl' V='11.771' />
+    <P K='b_rtr' V='11.771' />
+    <P K='b_rbr' V='11.771' />
+    <P K='b_rbl' V='11.771' />
+    <P K='b_sheen' V='0' />
+    <P K='b_spec' V='0.689399958' />
+    <P K='b_squircle' V='3.517' />
+    <P K='b_gaussianHalo' V='false' />
+    <P K='b_fs' V='1.041' />
+    <P K='b_customBorderFadeOn' V='true' />
+    <P K='b_bfade' V='0.757' />
+    <P K='b_customSoftEdgeOn' V='false' />
+    <P K='b_edgeFadeX' V='0' />
+    <P K='b_edgeFadeY' V='0' />
+    <P K='b_customShineOn' V='false' />
+    <P K='b_customIridOn' V='false' />
+    <P K='b_customChromaOn' V='true' />
+    <P K='b_customChroma' V='0.564' />
+    <P K='b_customFrostOn' V='true' />
+    <P K='b_customFrost' V='0.87' />
+    <P K='b_frostDepth' V='0.359' />
+    <P K='b_gap' V='5.446' />
+    <P K='b_horizontal' V='true' />
+    <P K='b_iconScale' V='0.559' />
+    <P K='b_iconDX' V='0' />
+    <P K='b_iconDY' V='0' />
+    <P K='b_labels' V='true' />
+    <P K='b_damageWarn' V='true' />
+    <P K='b_damageBarThick' V='0.085' />
+    <P K='b_warnScale' V='0.72' />
+    <P K='b_iconTintMode' V='0' />
+    <P K='b_dropWholeBox' V='false' />
+    <P K='fxPulseMode' V='1' />
+    <P K='fxPulse' V='true' />
+    <P K='edgeFadeX' V='0' />
+    <P K='b_glowWidth' V='6' />
+    <P K='b_glowExtraDiffuse' V='0' />
+    <P K='b_glow' V='0' />
+    <P K='b_glowHaze' V='0.424' />
+    <P K='b_glowBreath' V='0.299' />
+    <P K='b_glowUneven' V='0.436' />
+    <P K='b_glowOrganicScale' V='1' />
+    <P K='b_glowFlowAura' V='0.065' />
+    <P K='b_customGlowBreathOn' V='true' />
+    <P K='b_customGlowUnevenOn' V='true' />
+    <P K='b_customGlowFlowOn' V='true' />
+    <P K='b_styleSrc' V='682' />
+    <P K='styleSrc' V='512' />
+  </El>
+  <El Id='g2-hands' Type='HandBoxes' Anchor='BottomCenter' X='-16' Y='62' W='358' H='118' WPct='-1' HPct='-1' Z='2' Tiers='All' Fill='HudPanelFill' Border='HudPanelBorder' TextColor='HudTextValue' BorderWidth='0.076' RTL='11.771' RTR='11.771' RBR='11.771' RBL='11.771' FontScale='0.599' Align='Center'>
+    <P K='tray' V='false' />
+    <P K='sheen' V='0' />
+    <P K='spec' V='0' />
+    <P K='fxCollapse' V='false' />
+    <P K='fxGlitch' V='false' />
+    <P K='fxWarp' V='true' />
+    <P K='glow' V='0.106' />
+    <P K='glowIn' V='0.064' />
+    <P K='gap' V='24.576' />
+    <P K='titleDY' V='-0.735' />
+    <P K='stateDX' V='1.179' />
+    <P K='stateDY' V='-3.324' />
+    <P K='dropWholeBox' V='false' />
+    <P K='ripple' V='0' />
+    <P K='rippleSmooth' V='0' />
+    <P K='edgeFadeY' V='0' />
+    <P K='edgeFadeX' V='0' />
+    <P K='softEdge' V='0' />
+    <P K='bfade' V='0' />
+    <P K='fxPulse' V='false' />
+    <P K='fxPulseAmt' V='0.859' />
+    <P K='glowWidth' V='19.154' />
+    <P K='glowDiffuse' V='0' />
+    <P K='glowHaze' V='0.047' />
+    <P K='glowBreath' V='0' />
+    <P K='glowUneven' V='0' />
+    <P K='glowFlowAura' V='0' />
+    <P K='rippleFreq' V='0.316' />
+    <P K='mAL' V='true' />
+    <P K='mAAnchor' V='7' />
+    <P K='mAX' V='-10' />
+    <P K='mAY' V='56' />
+    <P K='mAW' V='228' />
+    <P K='mAH' V='78' />
+    <P K='mAWPct' V='-1' />
+    <P K='mAHPct' V='-1' />
+    <P K='iconScale' V='0.542' />
+    <P K='iconDY' V='-1.572' />
+    <P K='feather' V='0.932' />
+    <P K='squircle' V='3.517' />
+    <P K='gaussianHalo' V='false' />
+    <P K='customBorderFadeOn' V='false' />
+    <P K='customSoftEdgeOn' V='false' />
+    <P K='customGlowOn' V='true' />
+    <P K='customRippleOn' V='false' />
+    <P K='customGlowBreathOn' V='false' />
+    <P K='customGlowUnevenOn' V='false' />
+    <P K='customGlowFlowOn' V='false' />
+    <P K='glowExtraDiffuse' V='0' />
+    <P K='glowOrganicScale' V='1' />
+    <P K='edgeFlow' V='0.229' />
+    <P K='frostDepth' V='0.359' />
+    <P K='customShineOn' V='false' />
+    <P K='customShine' V='0' />
+    <P K='customIridOn' V='false' />
+    <P K='customIrid' V='0' />
+    <P K='customChromaOn' V='false' />
+    <P K='customChroma' V='0' />
+    <P K='customFrostOn' V='false' />
+    <P K='customFrost' V='0' />
+    <P K='customDissolve' V='false' />
+    <P K='customStyleReady' V='true' />
+    <P K='styleSource' V='1' />
+    <P K='b_fill' V='#0000004A' />
+    <P K='b_border' V='#54D5FE00' />
+    <P K='fxCollapseMode' V='2' />
+    <P K='fxDissolveMode' V='2' />
+    <P K='fxGlitchMode' V='2' />
+    <P K='tierStyle' V='1' />
+    <P K='b_styleSource' V='2' />
+    <P K='b_text' V='#FFFFFFF5' />
+    <P K='b_bw' V='0.076' />
+    <P K='b_feather' V='0.932' />
+    <P K='b_rtl' V='11.771' />
+    <P K='b_rtr' V='11.771' />
+    <P K='b_rbr' V='11.771' />
+    <P K='b_rbl' V='11.771' />
+    <P K='b_sheen' V='0' />
+    <P K='b_spec' V='0' />
+    <P K='b_squircle' V='3.517' />
+    <P K='b_gaussianHalo' V='false' />
+    <P K='b_fs' V='0.599' />
+    <P K='b_customRippleOn' V='false' />
+    <P K='b_customBorderFadeOn' V='false' />
+    <P K='b_customSoftEdgeOn' V='false' />
+    <P K='b_edgeFadeX' V='0' />
+    <P K='b_edgeFadeY' V='0' />
+    <P K='b_customGlowOn' V='false' />
+    <P K='b_customShineOn' V='false' />
+    <P K='b_customIridOn' V='false' />
+    <P K='b_customChromaOn' V='false' />
+    <P K='b_customFrostOn' V='false' />
+    <P K='b_gap' V='24.576' />
+    <P K='b_titleDX' V='0' />
+    <P K='b_titleDY' V='-0.735' />
+    <P K='b_stateDX' V='1.179' />
+    <P K='b_stateDY' V='-3.324' />
+    <P K='b_iconScale' V='0.542' />
+    <P K='b_iconDX' V='0' />
+    <P K='b_iconDY' V='-1.572' />
+    <P K='b_tray' V='false' />
+    <P K='b_iconTintMode' V='0' />
+    <P K='b_dropWholeBox' V='false' />
+    <P K='b_glow' V='0' />
+    <P K='b_glowIn' V='0' />
+    <P K='b_glowWidth' V='6' />
+    <P K='b_glowHaze' V='0' />
+    <P K='b_glowExtraDiffuse' V='0' />
+    <P K='b_glowBreath' V='0' />
+    <P K='b_glowUneven' V='0' />
+    <P K='b_glowOrganicScale' V='1' />
+    <P K='b_glowFlowAura' V='0' />
+    <P K='b_customGlowBreathOn' V='false' />
+    <P K='b_customGlowUnevenOn' V='false' />
+    <P K='b_customGlowFlowOn' V='false' />
+    <P K='b_styleSrc' V='682' />
+    <P K='styleSrc' V='512' />
+  </El>
+  <El Id='g2-eqright' Type='EquipmentColumn' Anchor='BottomCenter' X='360' Y='56' W='264' H='78' WPct='-1' HPct='-1' Z='2' Tiers='All' Fill='HudPanelFill' Border='HudPanelBorder' TextColor='HudTextValue' BorderWidth='0.076' RTL='11.771' RTR='11.771' RBR='11.771' RBL='11.771' FontScale='1' Align='Center'>
+    <P K='horizontal' V='true' />
+    <P K='first' V='3' />
+    <P K='count' V='3' />
+    <P K='sheen' V='0' />
+    <P K='spec' V='0.689399958' />
+    <P K='fxCollapse' V='false' />
+    <P K='fxGlitch' V='false' />
+    <P K='fxWarp' V='true' />
+    <P K='rippleSmooth' V='0' />
+    <P K='glowWidth' V='11.603' />
+    <P K='softEdge' V='0' />
+    <P K='bfade' V='0.757' />
+    <P K='glow' V='0.289' />
+    <P K='glowIn' V='0.5' />
+    <P K='glowDiffuse' V='0' />
+    <P K='ripple' V='2.27' />
+    <P K='rippleFreq' V='0.316' />
+    <P K='glowHaze' V='0.424' />
+    <P K='glowBreath' V='0.299' />
+    <P K='glowUneven' V='0.436' />
+    <P K='glowFlowAura' V='0.065' />
+    <P K='mAL' V='true' />
+    <P K='mAAnchor' V='7' />
+    <P K='mAX' V='176' />
+    <P K='mAY' V='40' />
+    <P K='mAW' V='198.489' />
+    <P K='mAH' V='72.576' />
+    <P K='mAWPct' V='-1' />
+    <P K='mAHPct' V='-1' />
+    <P K='iconScale' V='0.559' />
+    <P K='feather' V='0.932' />
+    <P K='squircle' V='3.517' />
+    <P K='gaussianHalo' V='false' />
+    <P K='customBorderFadeOn' V='true' />
+    <P K='customSoftEdgeOn' V='false' />
+    <P K='customGlowOn' V='true' />
+    <P K='customRippleOn' V='true' />
+    <P K='customGlowBreathOn' V='true' />
+    <P K='customGlowUnevenOn' V='true' />
+    <P K='customGlowFlowOn' V='true' />
+    <P K='glowExtraDiffuse' V='0' />
+    <P K='glowOrganicScale' V='1' />
+    <P K='edgeFlow' V='0.229' />
+    <P K='frostDepth' V='0.359' />
+    <P K='customShineOn' V='false' />
+    <P K='customShine' V='0.841' />
+    <P K='customIridOn' V='false' />
+    <P K='customIrid' V='0.008' />
+    <P K='customChromaOn' V='true' />
+    <P K='customChroma' V='0.564' />
+    <P K='customFrostOn' V='true' />
+    <P K='customFrost' V='0.87' />
+    <P K='customDissolve' V='true' />
+    <P K='customStyleReady' V='true' />
+    <P K='styleSource' V='1' />
+    <P K='b_fill' V='#0000005C' />
+    <P K='b_border' V='#54D5FE00' />
+    <P K='b_customRippleOn' V='false' />
+    <P K='b_customGlowOn' V='false' />
+    <P K='fxCollapseMode' V='2' />
+    <P K='fxGlitchMode' V='2' />
+    <P K='tierStyle' V='1' />
+    <P K='b_styleSource' V='2' />
+    <P K='b_bw' V='0.076' />
+    <P K='b_feather' V='0.932' />
+    <P K='b_rtl' V='11.771' />
+    <P K='b_rtr' V='11.771' />
+    <P K='b_rbr' V='11.771' />
+    <P K='b_rbl' V='11.771' />
+    <P K='b_sheen' V='0' />
+    <P K='b_spec' V='0.689399958' />
+    <P K='b_squircle' V='3.517' />
+    <P K='b_gaussianHalo' V='false' />
+    <P K='b_fs' V='1' />
+    <P K='b_customBorderFadeOn' V='true' />
+    <P K='b_bfade' V='0.757' />
+    <P K='b_customSoftEdgeOn' V='false' />
+    <P K='b_edgeFadeX' V='0' />
+    <P K='b_edgeFadeY' V='0' />
+    <P K='b_customShineOn' V='false' />
+    <P K='b_customIridOn' V='false' />
+    <P K='b_customChromaOn' V='true' />
+    <P K='b_customChroma' V='0.564' />
+    <P K='b_customFrostOn' V='true' />
+    <P K='b_customFrost' V='0.87' />
+    <P K='b_frostDepth' V='0.359' />
+    <P K='b_gap' V='8' />
+    <P K='b_horizontal' V='true' />
+    <P K='b_iconScale' V='0.559' />
+    <P K='b_iconDX' V='0' />
+    <P K='b_iconDY' V='0' />
+    <P K='b_labels' V='true' />
+    <P K='b_damageWarn' V='true' />
+    <P K='b_damageBarThick' V='0.085' />
+    <P K='b_warnScale' V='0.72' />
+    <P K='b_iconTintMode' V='0' />
+    <P K='b_dropWholeBox' V='false' />
+    <P K='b_glowIn' V='0.057' />
+    <P K='b_glow' V='0' />
+    <P K='b_glowWidth' V='6' />
+    <P K='b_glowExtraDiffuse' V='0' />
+    <P K='b_glowHaze' V='0.424' />
+    <P K='b_glowBreath' V='0.299' />
+    <P K='b_glowUneven' V='0.436' />
+    <P K='b_glowOrganicScale' V='1' />
+    <P K='b_glowFlowAura' V='0.065' />
+    <P K='b_customGlowBreathOn' V='true' />
+    <P K='b_customGlowUnevenOn' V='true' />
+    <P K='b_customGlowFlowOn' V='true' />
+    <P K='b_styleSrc' V='682' />
+    <P K='styleSrc' V='512' />
+  </El>
+  <El Id='g2-portrait' Type='Portrait' Anchor='BottomRight' X='-96' Y='100' W='186' H='178' WPct='-1' HPct='-1' Z='10' Tiers='Suited Robot' Fill='HudPanelFill' Border='HudPanelBorder' TextColor='HudTextValue' BorderWidth='1.425' RTL='11.771' RTR='11.771' RBR='11.771' RBL='11.771' FontScale='0.679' Align='Center'>
+    <P K='camFov' V='26.728' />
+    <P K='holo' V='true' />
+    <P K='scanlines' V='true' />
+    <P K='camDistance' V='-0.014' />
+    <P K='sheen' V='0' />
+    <P K='bfade' V='0.757' />
+    <P K='glow' V='0' />
+    <P K='mAL' V='true' />
+    <P K='mAAnchor' V='8' />
+    <P K='mAX' V='-69.6927' />
+    <P K='mAY' V='83.87787' />
+    <P K='mAW' V='119.262955' />
+    <P K='mAH' V='101.826172' />
+    <P K='mAWPct' V='-1' />
+    <P K='mAHPct' V='-1' />
+    <P K='spec' V='0' />
+    <P K='glowIn' V='0' />
+    <P K='softEdge' V='0' />
+    <P K='feather' V='0.932' />
+    <P K='squircle' V='3.517' />
+    <P K='gaussianHalo' V='false' />
+    <P K='customBorderFadeOn' V='true' />
+    <P K='customSoftEdgeOn' V='false' />
+    <P K='customGlowOn' V='true' />
+    <P K='customRippleOn' V='true' />
+    <P K='customGlowBreathOn' V='true' />
+    <P K='customGlowUnevenOn' V='true' />
+    <P K='customGlowFlowOn' V='true' />
+    <P K='glowWidth' V='31.468' />
+    <P K='glowDiffuse' V='0.836' />
+    <P K='glowExtraDiffuse' V='0' />
+    <P K='glowHaze' V='0.03' />
+    <P K='glowBreath' V='0.393' />
+    <P K='glowUneven' V='1' />
+    <P K='glowOrganicScale' V='1' />
+    <P K='glowFlowAura' V='0.065' />
+    <P K='ripple' V='2.27' />
+    <P K='rippleFreq' V='0.316' />
+    <P K='rippleSmooth' V='0' />
+    <P K='edgeFlow' V='0.229' />
+    <P K='frostDepth' V='0.359' />
+    <P K='customShineOn' V='false' />
+    <P K='customShine' V='0.841' />
+    <P K='customIridOn' V='false' />
+    <P K='customIrid' V='0.008' />
+    <P K='customChromaOn' V='true' />
+    <P K='customChroma' V='0.564' />
+    <P K='customFrostOn' V='false' />
+    <P K='customFrost' V='0.462840021' />
+    <P K='customDissolve' V='false' />
+    <P K='customStyleReady' V='true' />
+    <P K='styleSource' V='2' />
+    <P K='fxDissolveMode' V='2' />
+    <P K='shape' V='2' />
+    <P K='holoStrength' V='0.367' />
+    <P K='styleSrc' V='682' />
+  </El>
+  <El Id='g2-chips' Type='StateChips' Anchor='BottomRight' X='-98' Y='208' W='115.479019' H='27.8273258' WPct='-1' HPct='-1' Z='3' Tiers='Suited Robot' Fill='HudPanelFill' Border='HudPanelBorder' TextColor='HudTextValue' BorderWidth='-1' RTL='-1' RTR='-1' RBR='-1' RBL='-1' FontScale='1' Align='Center'>
+    <P K='light' V='true' />
+    <P K='jetpack' V='true' />
+    <P K='mAL' V='true' />
+    <P K='mAAnchor' V='8' />
+    <P K='mAX' V='-68' />
+    <P K='mAY' V='159' />
+    <P K='mAW' V='122' />
+    <P K='mAH' V='24' />
+    <P K='mAWPct' V='-1' />
+    <P K='mAHPct' V='-1' />
+    <P K='styleSource' V='1' />
+    <P K='styleSrc' V='0' />
+  </El>
+  <El Id='g2-intpress' Type='Readout' Anchor='BottomRight' X='-226.599' Y='125.067' W='72' H='56' WPct='-0.741' HPct='-0.758' Z='-7' Tiers='Suited Robot' Fill='HudPanelFill' Border='HudPanelBorder' TextColor='HudTextValue' BorderWidth='-1' RTL='-1' RTR='-1' RBR='-1' RBL='-1' FontScale='1.47' Align='Center'>
+    <P K='src' V='InternalPressure' />
+    <P K='label' V='INTERNAL PRESSURE' />
+    <P K='box' V='true' />
+    <P K='stack' V='true' />
+    <P K='bar' V='true' />
+    <P K='barStyle' V='game' />
+    <P K='barVertical' V='false' />
+    <P K='target' V='true' />
+    <P K='mAL' V='true' />
+    <P K='mAAnchor' V='8' />
+    <P K='mAX' V='-218' />
+    <P K='mAY' V='50' />
+    <P K='mAW' V='126' />
+    <P K='mAH' V='58' />
+    <P K='mAWPct' V='-0.741' />
+    <P K='mAHPct' V='-0.758' />
+    <P K='textScale' V='1.307' />
+    <P K='styleSource' V='1' />
+    <P K='iconScale' V='0.76' />
+    <P K='rowTitleY' V='0.835' />
+    <P K='rowValueY' V='0.173' />
+    <P K='styleSrc' V='0' />
+  </El>
+  <El Id='g2-inttemp' Type='Readout' Anchor='BottomRight' X='-226.599' Y='69.687' W='74.763' H='49.8420029' WPct='-1' HPct='-1' Z='3' Tiers='Suited Robot' Fill='HudPanelFill' Border='HudPanelBorder' TextColor='HudTextValue' BorderWidth='-1' RTL='-1' RTR='-1' RBR='-1' RBL='-1' FontScale='2.116' Align='Center' Icon='Temp'>
+    <P K='src' V='InternalTemp' />
+    <P K='label' V='INTERNAL TEMP' />
+    <P K='box' V='true' />
+    <P K='stack' V='true' />
+    <P K='bar' V='false' />
+    <P K='target' V='true' />
+    <P K='tempIcon' V='true' />
+    <P K='barVertical' V='false' />
+    <P K='mAL' V='true' />
+    <P K='mAAnchor' V='8' />
+    <P K='mAX' V='-218' />
+    <P K='mAY' V='110' />
+    <P K='mAW' V='124' />
+    <P K='mAH' V='46' />
+    <P K='mAWPct' V='-1' />
+    <P K='mAHPct' V='-1' />
+    <P K='textScale' V='0.834' />
+    <P K='iconScale' V='1.047' />
+    <P K='styleSource' V='1' />
+    <P K='rowValueY' V='0.169' />
+    <P K='rowTargetY' V='0.517' />
+    <P K='styleSrc' V='0' />
+  </El>
+  <El Id='g2-jetpack' Type='JetpackBox' Anchor='BottomRight' X='-226.599' Y='183.216' W='71.994' H='55.38' WPct='-1' HPct='-1' Z='3' Tiers='Suited Robot' Fill='HudPanelFill' Border='HudPanelBorder' TextColor='HudTextValue' BorderWidth='0.076' RTL='11.771' RTR='11.771' RBR='11.771' RBL='11.771' FontScale='0.75' Align='Center'>
+    <P K='mAL' V='true' />
+    <P K='mAAnchor' V='8' />
+    <P K='mAX' V='-217' />
+    <P K='mAY' V='167' />
+    <P K='mAW' V='122' />
+    <P K='mAH' V='50' />
+    <P K='mAWPct' V='-1' />
+    <P K='mAHPct' V='-1' />
+    <P K='iconScale' V='0.581' />
+    <P K='valueSize' V='13.793' />
+    <P K='styleSource' V='1' />
+    <P K='feather' V='0.932' />
+    <P K='sheen' V='0' />
+    <P K='spec' V='0' />
+    <P K='squircle' V='3.517' />
+    <P K='gaussianHalo' V='false' />
+    <P K='customBorderFadeOn' V='true' />
+    <P K='customSoftEdgeOn' V='false' />
+    <P K='customGlowOn' V='true' />
+    <P K='customRippleOn' V='false' />
+    <P K='customGlowBreathOn' V='true' />
+    <P K='customGlowUnevenOn' V='true' />
+    <P K='customGlowFlowOn' V='true' />
+    <P K='bfade' V='0.836' />
+    <P K='softEdge' V='0' />
+    <P K='glow' V='0.046' />
+    <P K='glowIn' V='0.019' />
+    <P K='glowWidth' V='31.468' />
+    <P K='glowDiffuse' V='0.836' />
+    <P K='glowExtraDiffuse' V='0' />
+    <P K='glowHaze' V='0.03' />
+    <P K='glowBreath' V='0.393' />
+    <P K='glowUneven' V='1' />
+    <P K='glowOrganicScale' V='1' />
+    <P K='glowFlowAura' V='0.065' />
+    <P K='ripple' V='2.27' />
+    <P K='rippleFreq' V='0.316' />
+    <P K='rippleSmooth' V='0' />
+    <P K='edgeFlow' V='0.229' />
+    <P K='frostDepth' V='0.359' />
+    <P K='customShineOn' V='false' />
+    <P K='customShine' V='0.841' />
+    <P K='customIridOn' V='false' />
+    <P K='customIrid' V='0.008' />
+    <P K='customChromaOn' V='true' />
+    <P K='customChroma' V='0.564' />
+    <P K='customFrostOn' V='true' />
+    <P K='customFrost' V='0.87' />
+    <P K='customStyleReady' V='true' />
+    <P K='styleSrc' V='0' />
+  </El>
+  <El Id='g2-vitals' Type='VitalsPanel' Anchor='BottomRight' X='-304.131' Y='133.374' W='73.82112' H='152' WPct='-1' HPct='-1' Z='3' Tiers='Suited Robot' Fill='HudPanelFill' Border='HudPanelBorder' TextColor='HudTextValue' BorderWidth='0.076' RTL='11.771' RTR='11.771' RBR='11.771' RBL='11.771' FontScale='0.858' Align='Center'>
+    <P K='sheen' V='0' />
+    <P K='spec' V='0.689399958' />
+    <P K='words' V='false' />
+    <P K='rowPressure' V='false' />
+    <P K='rowTemp' V='false' />
+    <P K='box' V='true' />
+    <P K='iconScale' V='0.643' />
+    <P K='rowHeight' V='29.768' />
+    <P K='mAL' V='true' />
+    <P K='mAAnchor' V='8' />
+    <P K='mAX' V='-333' />
+    <P K='mAY' V='104' />
+    <P K='mAW' V='72' />
+    <P K='mAH' V='176' />
+    <P K='mAWPct' V='-1' />
+    <P K='mAHPct' V='-1' />
+    <P K='glow' V='0.046' />
+    <P K='glowIn' V='0.019' />
+    <P K='softEdge' V='0' />
+    <P K='bfade' V='0.757' />
+    <P K='ripple' V='2.27' />
+    <P K='glowWidth' V='31.468' />
+    <P K='glowDiffuse' V='0.836' />
+    <P K='glowHaze' V='0.03' />
+    <P K='glowBreath' V='0.393' />
+    <P K='glowUneven' V='1' />
+    <P K='glowFlowAura' V='0.065' />
+    <P K='rippleFreq' V='0.316' />
+    <P K='feather' V='0.932' />
+    <P K='squircle' V='3.517' />
+    <P K='gaussianHalo' V='false' />
+    <P K='customBorderFadeOn' V='true' />
+    <P K='customSoftEdgeOn' V='false' />
+    <P K='customGlowOn' V='true' />
+    <P K='customRippleOn' V='true' />
+    <P K='customGlowBreathOn' V='true' />
+    <P K='customGlowUnevenOn' V='true' />
+    <P K='customGlowFlowOn' V='true' />
+    <P K='glowExtraDiffuse' V='0' />
+    <P K='glowOrganicScale' V='1' />
+    <P K='rippleSmooth' V='0' />
+    <P K='edgeFlow' V='0.229' />
+    <P K='frostDepth' V='0.359' />
+    <P K='customShineOn' V='false' />
+    <P K='customShine' V='0.687097' />
+    <P K='customIridOn' V='false' />
+    <P K='customIrid' V='0.008' />
+    <P K='customChromaOn' V='true' />
+    <P K='customChroma' V='0.564' />
+    <P K='customFrostOn' V='true' />
+    <P K='customFrost' V='0.87' />
+    <P K='customDissolve' V='true' />
+    <P K='customStyleReady' V='true' />
+    <P K='styleSource' V='1' />
+    <P K='styleSrc' V='0' />
+  </El>
+  <El Id='g2-bare-senses' Type='BareSenses' Anchor='Center' X='-564.876038' Y='13.845' W='304.59' H='415.35' WPct='-1' HPct='-1' Z='73' Tiers='Bare' Fill='#0000002C' Border='#54D5FE00' TextColor='HudTextValue' BorderWidth='0.076' RTL='11.771' RTR='11.771' RBR='11.771' RBL='11.771' FontScale='1' Align='Center'>
+    <P K='order' V='temp,air,pressure,thirst,hunger,health,toilet,cognition' />
+    <P K='mAL' V='true' />
+    <P K='mAAnchor' V='4' />
+    <P K='mAX' V='-556' />
+    <P K='mAY' V='-366' />
+    <P K='mAW' V='466' />
+    <P K='mAH' V='156' />
+    <P K='mAWPct' V='-1' />
+    <P K='mAHPct' V='-1' />
+    <P K='sheen' V='0' />
+    <P K='spec' V='0.689399958' />
+    <P K='glow' V='0' />
+    <P K='glowIn' V='0' />
+    <P K='softEdge' V='0' />
+    <P K='feather' V='0.932' />
+    <P K='squircle' V='4.841' />
+    <P K='gaussianHalo' V='false' />
+    <P K='customBorderFadeOn' V='true' />
+    <P K='customSoftEdgeOn' V='false' />
+    <P K='customGlowOn' V='true' />
+    <P K='customRippleOn' V='true' />
+    <P K='customGlowBreathOn' V='true' />
+    <P K='customGlowUnevenOn' V='true' />
+    <P K='customGlowFlowOn' V='true' />
+    <P K='bfade' V='0.757' />
+    <P K='glowWidth' V='31.468' />
+    <P K='glowDiffuse' V='0.836' />
+    <P K='glowExtraDiffuse' V='0' />
+    <P K='glowHaze' V='0.03' />
+    <P K='glowBreath' V='0.393' />
+    <P K='glowUneven' V='1' />
+    <P K='glowOrganicScale' V='1' />
+    <P K='glowFlowAura' V='0.065' />
+    <P K='ripple' V='2.27' />
+    <P K='rippleFreq' V='0.316' />
+    <P K='rippleSmooth' V='0' />
+    <P K='edgeFlow' V='0.229' />
+    <P K='frostDepth' V='0.359' />
+    <P K='customShineOn' V='false' />
+    <P K='customShine' V='0.841' />
+    <P K='customIridOn' V='false' />
+    <P K='customIrid' V='0.008' />
+    <P K='customChromaOn' V='true' />
+    <P K='customChroma' V='0.564' />
+    <P K='customFrostOn' V='true' />
+    <P K='customFrost' V='0.87' />
+    <P K='customDissolve' V='true' />
+    <P K='customStyleReady' V='true' />
+    <P K='styleSource' V='2' />
+    <P K='layoutMode' V='2' />
+    <P K='align' V='0' />
+    <P K='gridCols' V='3' />
+    <P K='gap' V='0' />
+    <P K='pad' V='22.776' />
+    <P K='showDay' V='false' />
+    <P K='box' V='true' />
+    <P K='styleSrc' V='170' />
+  </El>
+  <El Id='cfe7acaf9a1e4ee0af3e7bf373ad9c3b' Type='Readout' Anchor='Center' X='836.697' Y='-575.49' W='77.532' H='38.766' WPct='-1' HPct='-1' Z='50' Tiers='Suited Robot' Fill='HudPanelFill' Border='HudPanelBorder' TextColor='HudTextValue' BorderWidth='0.076' RTL='11.771' RTR='11.771' RBR='11.771' RBL='11.771' FontScale='2.381' Align='Center' Icon='speed'>
+    <P K='src' V='Speed' />
+    <P K='label' V='SPEED' />
+    <P K='box' V='true' />
+    <P K='bar' V='false' />
+    <P K='target' V='false' />
+    <P K='sheen' V='0' />
+    <P K='spec' V='0.689399958' />
+    <P K='stack' V='true' />
+    <P K='iconScale' V='1.402' />
+    <P K='textScale' V='1.599' />
+    <P K='mAL' V='true' />
+    <P K='mAAnchor' V='4' />
+    <P K='mAX' V='727' />
+    <P K='mAY' V='-260' />
+    <P K='mAW' V='110' />
+    <P K='mAH' V='24' />
+    <P K='mAWPct' V='-1' />
+    <P K='mAHPct' V='-1' />
+    <P K='glow' V='0.046' />
+    <P K='glowIn' V='0.019' />
+    <P K='softEdge' V='0' />
+    <P K='bfade' V='0.757' />
+    <P K='glowWidth' V='31.468' />
+    <P K='glowDiffuse' V='0.836' />
+    <P K='ripple' V='2.27' />
+    <P K='rippleFreq' V='0.316' />
+    <P K='rippleSmooth' V='0.209' />
+    <P K='barStyle' V='game' />
+    <P K='glowHaze' V='0.03' />
+    <P K='glowBreath' V='0.393' />
+    <P K='glowUneven' V='1' />
+    <P K='glowFlowAura' V='0.065' />
+    <P K='feather' V='0.932' />
+    <P K='squircle' V='3.517' />
+    <P K='gaussianHalo' V='false' />
+    <P K='customBorderFadeOn' V='true' />
+    <P K='customSoftEdgeOn' V='false' />
+    <P K='customGlowOn' V='true' />
+    <P K='customRippleOn' V='true' />
+    <P K='customGlowBreathOn' V='true' />
+    <P K='customGlowUnevenOn' V='true' />
+    <P K='customGlowFlowOn' V='true' />
+    <P K='glowExtraDiffuse' V='0' />
+    <P K='glowOrganicScale' V='1' />
+    <P K='edgeFlow' V='0.229' />
+    <P K='frostDepth' V='0.359' />
+    <P K='customShineOn' V='false' />
+    <P K='customShine' V='0.841' />
+    <P K='customIridOn' V='false' />
+    <P K='customIrid' V='0.008' />
+    <P K='customChromaOn' V='true' />
+    <P K='customChroma' V='0.564' />
+    <P K='customFrostOn' V='true' />
+    <P K='customFrost' V='0.87' />
+    <P K='customDissolve' V='true' />
+    <P K='customStyleReady' V='true' />
+    <P K='styleSource' V='1' />
+    <P K='styleSrc' V='0' />
+  </El>
+  <El Id='e4d9d8873c1b46fab33d7ccb368865d4' Type='PngDoll' Anchor='Center' X='673.326' Y='-500.72702' W='90' H='218' WPct='-1' HPct='-1' Z='50' Tiers='Suited Robot' Fill='HudPanelFill' Border='HudPanelBorder' TextColor='HudTextValue' BorderWidth='0.076' RTL='11.771' RTR='11.771' RBR='11.771' RBL='11.771' FontScale='1' Align='Center'>
+    <P K='armY' V='0.002' />
+    <P K='legSpread' V='0.088' />
+    <P K='legY' V='-0.114' />
+    <P K='armSpread' V='1.517' />
+    <P K='figScale' V='0.909' />
+    <P K='box' V='true' />
+    <P K='mAL' V='true' />
+    <P K='mAAnchor' V='4' />
+    <P K='mAX' V='370' />
+    <P K='mAY' V='-342' />
+    <P K='mAW' V='74' />
+    <P K='mAH' V='194' />
+    <P K='mAWPct' V='-1' />
+    <P K='mAHPct' V='-1' />
+    <P K='sheen' V='0' />
+    <P K='spec' V='0.689399958' />
+    <P K='glow' V='0' />
+    <P K='glowIn' V='0' />
+    <P K='softEdge' V='0' />
+    <P K='wholeBody' V='false' />
+    <P K='feather' V='0.932' />
+    <P K='squircle' V='3.517' />
+    <P K='gaussianHalo' V='false' />
+    <P K='customBorderFadeOn' V='true' />
+    <P K='customSoftEdgeOn' V='false' />
+    <P K='customGlowOn' V='true' />
+    <P K='customRippleOn' V='true' />
+    <P K='customGlowBreathOn' V='true' />
+    <P K='customGlowUnevenOn' V='true' />
+    <P K='customGlowFlowOn' V='true' />
+    <P K='bfade' V='0.757' />
+    <P K='glowWidth' V='31.468' />
+    <P K='glowDiffuse' V='0.836' />
+    <P K='glowExtraDiffuse' V='0' />
+    <P K='glowHaze' V='0.03' />
+    <P K='glowBreath' V='0.393' />
+    <P K='glowUneven' V='1' />
+    <P K='glowOrganicScale' V='1' />
+    <P K='glowFlowAura' V='0.065' />
+    <P K='ripple' V='2.27' />
+    <P K='rippleFreq' V='0.316' />
+    <P K='rippleSmooth' V='0' />
+    <P K='edgeFlow' V='0.229' />
+    <P K='frostDepth' V='0.359' />
+    <P K='customShineOn' V='false' />
+    <P K='customShine' V='0.841' />
+    <P K='customIridOn' V='false' />
+    <P K='customIrid' V='0.008' />
+    <P K='customChromaOn' V='true' />
+    <P K='customChroma' V='0.564' />
+    <P K='customFrostOn' V='true' />
+    <P K='customFrost' V='0.87' />
+    <P K='customDissolve' V='true' />
+    <P K='customStyleReady' V='true' />
+    <P K='styleSource' V='1' />
+    <P K='styleSrc' V='0' />
+  </El>
+  <El Id='d78f4bc71d534617b57769c7dc63ecaa' Type='Box' Anchor='Center' X='6.7859993' Y='467.210022' W='1603.971' H='64.428' WPct='-1' HPct='-0.134' Z='-54' Tiers='Suited Robot' Fill='HudPanelFill' Border='#6E0004B8' TextColor='#FFFFFFF5' BorderWidth='0.076' RTL='2.061' RTR='1.881' RBR='10.524' RBL='9.803' FontScale='1' Align='Center'>
+    <P K='insetTop' V='39.03' />
+    <P K='insetBottom' V='46.537' />
+    <P K='fxCollapse' V='false' />
+    <P K='mAL' V='true' />
+    <P K='mAAnchor' V='4' />
+    <P K='mAX' V='0' />
+    <P K='mAY' V='399' />
+    <P K='mAW' V='308' />
+    <P K='mAH' V='52' />
+    <P K='mAWPct' V='-0.634' />
+    <P K='mAHPct' V='-0.127' />
+    <P K='glowIn' V='0.019' />
+    <P K='glow' V='0.046' />
+    <P K='ripple' V='2.27' />
+    <P K='bfade' V='0.757' />
+    <P K='softEdge' V='0' />
+    <P K='bTop' V='false' />
+    <P K='glowWidth' V='31.468' />
+    <P K='glowDiffuse' V='0.836' />
+    <P K='spec' V='0.686' />
+    <P K='bBottom' V='true' />
+    <P K='sheen' V='0' />
+    <P K='glowHaze' V='0.03' />
+    <P K='glowBreath' V='0.393' />
+    <P K='glowUneven' V='1' />
+    <P K='glowFlowAura' V='0.065' />
+    <P K='rippleFreq' V='0.316' />
+    <P K='feather' V='1.154' />
+    <P K='squircle' V='3.517' />
+    <P K='gaussianHalo' V='false' />
+    <P K='customBorderFadeOn' V='true' />
+    <P K='customSoftEdgeOn' V='false' />
+    <P K='customGlowOn' V='true' />
+    <P K='customRippleOn' V='true' />
+    <P K='customGlowBreathOn' V='true' />
+    <P K='customGlowUnevenOn' V='true' />
+    <P K='customGlowFlowOn' V='true' />
+    <P K='glowExtraDiffuse' V='0' />
+    <P K='glowOrganicScale' V='1' />
+    <P K='rippleSmooth' V='0' />
+    <P K='edgeFlow' V='0.229' />
+    <P K='frostDepth' V='0.359' />
+    <P K='customShineOn' V='false' />
+    <P K='customShine' V='0.841' />
+    <P K='customIridOn' V='false' />
+    <P K='customIrid' V='0.008' />
+    <P K='customChromaOn' V='true' />
+    <P K='customChroma' V='0.564' />
+    <P K='customFrostOn' V='true' />
+    <P K='customFrost' V='0.856950045' />
+    <P K='customDissolve' V='true' />
+    <P K='customStyleReady' V='true' />
+    <P K='styleSource' V='2' />
+    <P K='fxCollapseMode' V='2' />
+    <P K='styleSrc' V='682' />
+  </El>
+  <El Id='7fe6ca4964ec4808bc58d33ac38d072a' Type='Box' Anchor='Center' X='34.786' Y='439.210022' W='1603.971' H='64.428' WPct='-1' HPct='-0.134' Z='-76' Tiers='Suited Robot' Fill='HudPanelFill' Border='HudPanelBorder' TextColor='HudTextValue' BorderWidth='0.076' RTL='3.141' RTR='1.341' RBR='21.777' RBL='13.764' FontScale='1' Align='Center'>
+    <P K='insetTop' V='27.701' />
+    <P K='insetBottom' V='46.537' />
+    <P K='fxCollapse' V='false' />
+    <P K='mAL' V='true' />
+    <P K='mAAnchor' V='4' />
+    <P K='mAX' V='0' />
+    <P K='mAY' V='392' />
+    <P K='mAW' V='872.132' />
+    <P K='mAH' V='66' />
+    <P K='mAWPct' V='-0.634' />
+    <P K='mAHPct' V='-0.127' />
+    <P K='glow' V='0.046' />
+    <P K='softEdge' V='0' />
+    <P K='bfade' V='0.757' />
+    <P K='glowIn' V='0.019' />
+    <P K='spec' V='0.689399958' />
+    <P K='feather' V='1.343' />
+    <P K='sheen' V='0' />
+    <P K='glowWidth' V='31.468' />
+    <P K='glowDiffuse' V='0.836' />
+    <P K='glowHaze' V='0.03' />
+    <P K='glowBreath' V='0.393' />
+    <P K='glowUneven' V='1' />
+    <P K='glowFlowAura' V='0.065' />
+    <P K='ripple' V='2.27' />
+    <P K='rippleFreq' V='0.316' />
+    <P K='squircle' V='3.517' />
+    <P K='gaussianHalo' V='false' />
+    <P K='customBorderFadeOn' V='true' />
+    <P K='customSoftEdgeOn' V='false' />
+    <P K='customGlowOn' V='true' />
+    <P K='customRippleOn' V='true' />
+    <P K='customGlowBreathOn' V='true' />
+    <P K='customGlowUnevenOn' V='true' />
+    <P K='customGlowFlowOn' V='true' />
+    <P K='glowExtraDiffuse' V='0' />
+    <P K='glowOrganicScale' V='1' />
+    <P K='rippleSmooth' V='0' />
+    <P K='edgeFlow' V='0.229' />
+    <P K='frostDepth' V='0.359' />
+    <P K='customShineOn' V='false' />
+    <P K='customShine' V='0.841' />
+    <P K='customIridOn' V='false' />
+    <P K='customIrid' V='0.008' />
+    <P K='customChromaOn' V='true' />
+    <P K='customChroma' V='0.564' />
+    <P K='customFrostOn' V='false' />
+    <P K='customFrost' V='0.12528' />
+    <P K='customDissolve' V='false' />
+    <P K='customStyleReady' V='true' />
+    <P K='styleSource' V='1' />
+    <P K='fxCollapseMode' V='2' />
+    <P K='fxDissolveMode' V='2' />
+    <P K='styleSrc' V='512' />
+  </El>
+  <El Id='bd7856c8bad94f32befa9185b6b2faea' Type='Box' Anchor='Center' X='20.786' Y='453.210022' W='1603.971' H='64.428' WPct='-1' HPct='-0.134' Z='-31' Tiers='Suited Robot' Fill='#17000094' Border='#E0E1E100' TextColor='#FFFFFFF5' BorderWidth='0.349' RTL='0' RTR='0' RBR='44.898' RBL='44.828' FontScale='1' Align='Center'>
+    <P K='insetTop' V='27.701' />
+    <P K='insetBottom' V='46.537' />
+    <P K='fxCollapse' V='false' />
+    <P K='mAL' V='true' />
+    <P K='mAAnchor' V='4' />
+    <P K='mAX' V='0' />
+    <P K='mAY' V='293.188019' />
+    <P K='mAW' V='600' />
+    <P K='mAH' V='48' />
+    <P K='mAWPct' V='-0.634' />
+    <P K='mAHPct' V='-0.127' />
+    <P K='glowIn' V='0' />
+    <P K='glow' V='0' />
+    <P K='ripple' V='0' />
+    <P K='bfade' V='0' />
+    <P K='softEdge' V='0' />
+    <P K='bTop' V='false' />
+    <P K='glowWidth' V='31.468' />
+    <P K='glowDiffuse' V='0.836' />
+    <P K='spec' V='0' />
+    <P K='feather' V='1.207' />
+    <P K='edgeFadeX' V='0' />
+    <P K='sheen' V='0' />
+    <P K='bRight' V='false' />
+    <P K='bLeft' V='false' />
+    <P K='bBottom' V='false' />
+    <P K='glowHaze' V='0.893' />
+    <P K='squircle' V='3.517' />
+    <P K='gaussianHalo' V='false' />
+    <P K='customBorderFadeOn' V='true' />
+    <P K='customSoftEdgeOn' V='false' />
+    <P K='customGlowOn' V='true' />
+    <P K='customRippleOn' V='true' />
+    <P K='customGlowBreathOn' V='true' />
+    <P K='customGlowUnevenOn' V='true' />
+    <P K='customGlowFlowOn' V='true' />
+    <P K='glowExtraDiffuse' V='0' />
+    <P K='glowBreath' V='0.393' />
+    <P K='glowUneven' V='1' />
+    <P K='glowOrganicScale' V='1' />
+    <P K='glowFlowAura' V='0.065' />
+    <P K='rippleFreq' V='0.316' />
+    <P K='rippleSmooth' V='0' />
+    <P K='edgeFlow' V='0.229' />
+    <P K='frostDepth' V='0.559' />
+    <P K='customShineOn' V='false' />
+    <P K='customShine' V='0.841' />
+    <P K='customIridOn' V='false' />
+    <P K='customIrid' V='0.008' />
+    <P K='customChromaOn' V='true' />
+    <P K='customChroma' V='0.564' />
+    <P K='customFrostOn' V='true' />
+    <P K='customFrost' V='0.831' />
+    <P K='customDissolve' V='true' />
+    <P K='customStyleReady' V='true' />
+    <P K='styleSource' V='1' />
+    <P K='fxCollapseMode' V='2' />
+    <P K='cornerStyle' V='2' />
+    <P K='styleSrc' V='512' />
+  </El>
+  <El Id='9e793ae9588642b98e3aab5a592c649b' Type='Box' Anchor='Center' X='0' Y='0' W='180' H='60' WPct='-1' HPct='-1' Z='-85' Tiers='Suited Robot' Fill='HudPanelFill' Border='HudPanelBorder' TextColor='HudTextValue' BorderWidth='0.076' RTL='11.771' RTR='11.771' RBR='11.771' RBL='11.771' FontScale='1' Align='Center'>
+    <P K='mAL' V='true' />
+    <P K='mAAnchor' V='4' />
+    <P K='mAX' V='607' />
+    <P K='mAY' V='-340' />
+    <P K='mAW' V='388' />
+    <P K='mAH' V='192' />
+    <P K='mAWPct' V='-1' />
+    <P K='mAHPct' V='-1' />
+    <P K='styleSource' V='1' />
+    <P K='feather' V='0.932' />
+    <P K='sheen' V='0' />
+    <P K='spec' V='0.689399958' />
+    <P K='squircle' V='3.517' />
+    <P K='gaussianHalo' V='false' />
+    <P K='customBorderFadeOn' V='true' />
+    <P K='customSoftEdgeOn' V='false' />
+    <P K='customGlowOn' V='true' />
+    <P K='customRippleOn' V='true' />
+    <P K='customGlowBreathOn' V='true' />
+    <P K='customGlowUnevenOn' V='true' />
+    <P K='customGlowFlowOn' V='true' />
+    <P K='bfade' V='0.836' />
+    <P K='softEdge' V='0' />
+    <P K='glow' V='0.046' />
+    <P K='glowIn' V='0.019' />
+    <P K='glowWidth' V='31.468' />
+    <P K='glowDiffuse' V='0.836' />
+    <P K='glowExtraDiffuse' V='0' />
+    <P K='glowHaze' V='0.03' />
+    <P K='glowBreath' V='0.393' />
+    <P K='glowUneven' V='1' />
+    <P K='glowOrganicScale' V='1' />
+    <P K='glowFlowAura' V='0.065' />
+    <P K='ripple' V='2.27' />
+    <P K='rippleFreq' V='0.316' />
+    <P K='rippleSmooth' V='0' />
+    <P K='edgeFlow' V='0.229' />
+    <P K='frostDepth' V='0.359' />
+    <P K='customShineOn' V='false' />
+    <P K='customShine' V='0.841' />
+    <P K='customIridOn' V='false' />
+    <P K='customIrid' V='0.008' />
+    <P K='customChromaOn' V='true' />
+    <P K='customChroma' V='0.564' />
+    <P K='customFrostOn' V='true' />
+    <P K='customFrost' V='0.87' />
+    <P K='customDissolve' V='true' />
+    <P K='fxCollapse' V='true' />
+    <P K='fxCollapseAmt' V='1' />
+    <P K='fxGlitch' V='true' />
+    <P K='fxGlitchAmt' V='1' />
+    <P K='fxWarp' V='true' />
+    <P K='fxWarpAmt' V='1' />
+    <P K='fxPulse' V='false' />
+    <P K='fxPulseAmt' V='1' />
+    <P K='customStyleReady' V='true' />
+    <P K='styleSrc' V='0' />
+  </El>
+  <El Id='42b2d0d13e6541819e9840047438f1cf' Type='Polyline' Anchor='Center' X='-13.2421589' Y='-417.717529' W='661.929932' H='131.8162' WPct='-1' HPct='-1' Z='60' Tiers='Suited Robot' Fill='HudPanelFill' Border='HudPanelBorder' TextColor='HudPanelBorder' BorderWidth='-1' RTL='-1' RTR='-1' RBR='-1' RBL='-1' FontScale='1' Align='Center'>
+    <P K='pts' V='-330.964966,-65.6459961;-270.614624,44.6117134;-96.922554,44.10507;-72.61105,65.9081;79.58162,65.75051;101.38044,44.5277328;275.034729,43.94048;330.964966,-65.9081' />
+    <P K='width' V='0.955' />
+    <P K='curveSteps' V='15' />
+    <P K='mAL' V='true' />
+    <P K='mAAnchor' V='4' />
+    <P K='mAX' V='-8.154116' />
+    <P K='mAY' V='-409.097626' />
+    <P K='mAW' V='722.106' />
+    <P K='mAH' V='175.056' />
+    <P K='mAWPct' V='-1' />
+    <P K='mAHPct' V='-1' />
+    <P K='styleSource' V='1' />
+    <P K='styleSrc' V='0' />
+  </El>
+  <Theme>
+    <E k='cfg:Curvature' v='VertexWarp' />
+    <E k='cfg:CurveStrength' v='0.794' />
+    <E k='cfg:CurveInvert' v='false' />
+    <E k='cfg:WorldCanvasDistance' v='0.6' />
+    <E k='cfg:BareFlattens' v='true' />
+    <E k='cfg:ShowVignette' v='false' />
+    <E k='cfg:ShowScanlines' v='false' />
+    <E k='cfg:TintItemIcons' v='false' />
+    <E k='cfg:HudScale' v='1.205' />
+    <E k='cfg:CornerRadius' v='19.191' />
+    <E k='cfg:HudCornerStyle' v='1' />
+    <E k='cfg:BorderWidth' v='0.653' />
+    <E k='cfg:EdgeFeather' v='1.305' />
+    <E k='cfg:GlassSheen' v='0' />
+    <E k='cfg:GlassEdge' v='0' />
+    <E k='cfg:SdfPanels' v='true' />
+    <E k='cfg:SdfSquircle' v='3.632' />
+    <E k='cfg:SdfGaussianHalo' v='true' />
+    <E k='cfg:FontName' v='RBNoBold' />
+    <E k='cfg:FontScale' v='0.921' />
+    <E k='cfg:LabelFontSize' v='13.787' />
+    <E k='cfg:DiegeticTiers' v='true' />
+    <E k='cfg:FlickerAnimations' v='true' />
+    <E k='cfg:LowPowerDropouts' v='true' />
+    <E k='cfg:LowPowerThreshold' v='27.034' />
+    <E k='cfg:GlitchOnPowerDown' v='true' />
+    <E k='cfg:GlitchOnPowerUp' v='false' />
+    <E k='cfg:FxTierA' v='true' />
+    <E k='cfg:FxTierB' v='true' />
+    <E k='cfg:FxTierC' v='true' />
+    <E k='cfg:FxHairlinesOn' v='true' />
+    <E k='cfg:FxEdgeLightOn' v='true' />
+    <E k='cfg:FxPulseOn' v='true' />
+    <E k='cfg:FxShineOn' v='false' />
+    <E k='cfg:FxIridOn' v='false' />
+    <E k='cfg:FxChromaOn' v='true' />
+    <E k='cfg:FxHairlineMin' v='0.05' />
+    <E k='cfg:FxEdgeLight' v='1.169' />
+    <E k='cfg:FxEdgeLightColor' v='#FF0E00' />
+    <E k='cfg:FxEdgeLightAngle' v='273.681' />
+    <E k='cfg:FxEdgeLightRim' v='1.057' />
+    <E k='cfg:FxEdgeLightSharp' v='5.988' />
+    <E k='cfg:FxEdgeFadeCurve' v='0.829' />
+    <E k='cfg:FxEdgeFadeBorder' v='1.2' />
+    <E k='cfg:FxEdgeRipple' v='2.222' />
+    <E k='cfg:FxEdgeRippleFreq' v='0.316' />
+    <E k='cfg:FxEdgeFlowSpeed' v='0.229' />
+    <E k='cfg:FxRippleDesync' v='true' />
+    <E k='cfg:FxRippleDesyncAmount' v='0.68' />
+    <E k='cfg:FxPulseSpeed' v='0.225' />
+    <E k='cfg:FxPulseDepth' v='0.271' />
+    <E k='cfg:FxShine' v='0.841' />
+    <E k='cfg:FxShinePeriod' v='2' />
+    <E k='cfg:FxIridescence' v='0.008' />
+    <E k='cfg:FxChroma' v='0.564' />
+    <E k='cfg:FxDissolveBoot' v='false' />
+    <E k='cfg:FxPowerDownMirrorsBoot' v='true' />
+    <E k='cfg:FxDissolveOnPowerDown' v='true' />
+    <E k='cfg:FxCollapseOn' v='false' />
+    <E k='cfg:FxCollapseAmt' v='1' />
+    <E k='cfg:FxGlitchOn' v='false' />
+    <E k='cfg:FxGlitchAmt' v='1' />
+    <E k='cfg:FxGlitchDuration' v='1.777' />
+    <E k='cfg:FxWarpOn' v='true' />
+    <E k='cfg:FxWarpAmt' v='1' />
+    <E k='cfg:FxTvOffOn' v='true' />
+    <E k='cfg:FxTvOffAmt' v='1' />
+    <E k='cfg:FxFlickerAmt' v='1' />
+    <E k='cfg:FxDissolveAmt' v='1' />
+    <E k='cfg:FxPulseAmt' v='0.415' />
+    <E k='cfg:FxBorderFadeOn' v='true' />
+    <E k='cfg:FxSoftEdgeOn' v='false' />
+    <E k='cfg:FxGlowOn' v='true' />
+    <E k='cfg:FxBorderFade' v='0.836' />
+    <E k='cfg:FxSoftEdge' v='0' />
+    <E k='cfg:FxGlow' v='0.255' />
+    <E k='cfg:FxGlowInner' v='0.167' />
+    <E k='cfg:FxGlowWidth' v='9.558' />
+    <E k='cfg:FxGlowDiffuse' v='0.084' />
+    <E k='cfg:FxGlowExtraDiffuse' v='0' />
+    <E k='cfg:FxGlowHaze' v='0.09' />
+    <E k='cfg:FxGlowBreathOn' v='true' />
+    <E k='cfg:FxGlowBreath' v='0.063' />
+    <E k='cfg:FxGlowBreathSpeed' v='0.989' />
+    <E k='cfg:FxGlowUnevenOn' v='true' />
+    <E k='cfg:FxGlowUneven' v='1' />
+    <E k='cfg:FxGlowOrganicScale' v='1' />
+    <E k='cfg:FxGlowFlowAuraOn' v='true' />
+    <E k='cfg:FxGlowFlowAura' v='0.284' />
+    <E k='cfg:FxAlertPulseOn' v='true' />
+    <E k='cfg:FxAlertBreathSeconds' v='1.4' />
+    <E k='cfg:FxAlertCautionBreaths' v='3' />
+    <E k='cfg:FxAlertPulseStrength' v='1' />
+    <E k='cfg:FxAlertCautionBright' v='1' />
+    <E k='cfg:FxAlertCriticalBright' v='1.181' />
+    <E k='cfg:FrostStrength' v='0.87' />
+    <E k='cfg:FrostDepth' v='0.359' />
+    <E k='cfg:FrostDarken' v='0.605' />
+    <E k='cfg:FrostTint' v='#FFFFFF' />
+    <E k='cfg:FxBloomOn' v='false' />
+    <E k='cfg:FxBloomStrength' v='1.344' />
+    <E k='cfg:FxBloomThreshold' v='0.996' />
+    <E k='cfg:FxBloomKnee' v='0.589' />
+    <E k='cfg:FxBloomSpread' v='0.808' />
+    <E k='cfg:FxBloomSaturation' v='1.013' />
+    <E k='cfg:FxBloomTint' v='#DBF1F6' />
+    <E k='cfg:FxBloomAnamorph' v='0.194' />
+    <E k='cfg:FxBloomPulseOn' v='true' />
+    <E k='cfg:FxBloomPulseSpeed' v='0.704' />
+    <E k='cfg:FxBloomPulseDepth' v='0.552' />
+    <E k='cfg:FxBloomReactOn' v='false' />
+    <E k='cfg:FxBloomReactPower' v='0.6' />
+    <E k='cfg:FxBloomReactAlarm' v='0.6' />
+    <E k='cfg:FxBloomReactBoot' v='0.8' />
+    <E k='cfg:FxBloom2On' v='false' />
+    <E k='cfg:FxBloom2Threshold' v='0.704' />
+    <E k='cfg:FxBloom2Strength' v='0.646' />
+    <E k='cfg:FxBloom2Steps' v='2' />
+    <E k='cfg:FxBloom2Spread' v='1.254' />
+    <E k='cfg:FxBloom2Tint' v='#5A1515' />
+    <E k='cfg:FxBloomSatBias' v='0.6' />
+    <E k='cfg:FxBloom2SatBias' v='1' />
+    <E k='pal:HudPanelFill' v='1E0001A4' />
+    <E k='pal:HudPanelBorder' v='6E0004AA' />
+    <E k='pal:HudLineAccent' v='3551E8CC' />
+    <E k='pal:HudTextLabel' v='C28F93D0' />
+    <E k='pal:HudTextValue' v='FF7C7CF5' />
+    <E k='pal:HudTextDim' v='9B6A6BA8' />
+    <E k='pal:HudGood' v='FF1100E6' />
+    <E k='pal:HudWarn' v='FF0081FF' />
+    <E k='pal:HudCritical' v='BD0EFFF0' />
+    <E k='pal:HudAlertCaution' v='FF6400FF' />
+    <E k='pal:HudAlertCritical' v='58007CFF' />
+    <E k='pal:HudCompassTick' v='FF6D6D70' />
+    <E k='pal:HudCompassCardinal' v='C90300EE' />
+    <E k='pal:HudCompassNeedle' v='FF8429D9' />
+    <E k='pal:HudHologramTint' v='F08F8FB0' />
+    <E k='pal:HudBareWord' v='D8F4FAE0' />
+    <E k='pal:HudSlotNumber' v='FFFFFFE6' />
+    <E k='pal:HudActiveHand' v='FF8C29E6' />
+    <E k='pal:HudDropHighlight' v='4CE07AF0' />
+    <E k='pal:HudVignette' v='01070AB8' />
+    <E k='pal:HudScanline' v='0A20281C' />
+    <E k='pal:HudItemIconTint' v='FFFFFFFF' />
+    <E k='rad:WedgeBackground' v='330E0E73' />
+    <E k='rad:WedgeSelected' v='330E1167' />
+    <E k='rad:WedgeDisabled' v='61000A67' />
+    <E k='rad:WedgeStowTarget' v='D9221A6B' />
+    <E k='rad:WedgeStowTargetSelected' v='FF2929AF' />
+    <E k='rad:WedgeBorder' v='FF0500C9' />
+    <E k='rad:WedgeBorderSelected' v='FF8C299C' />
+    <E k='rad:RimShine' v='FF000000' />
+    <E k='rad:GroupWedgeFill' v='330E0F73' />
+    <E k='rad:GroupWedgeBorder' v='5AA0F0E6' />
+    <E k='rad:DeviceSlotBorderColor' v='D1148EFF' />
+    <E k='rad:HubFill' v='30100DF6' />
+    <E k='rad:HubBorder' v='FF2948AE' />
+    <E k='rad:HubCloseButton' v='0E213380' />
+    <E k='rad:HubCloseButtonHover' v='FF0300A0' />
+    <E k='rad:HubCloseText' v='FFFFFFE6' />
+    <E k='rad:TextPrimary' v='FFFFFFFF' />
+    <E k='rad:TextDim' v='FFFFFFFF' />
+    <E k='rad:TextAccent' v='FFFFFFFF' />
+    <E k='rad:TextDisabled' v='C2C2C2B3' />
+    <E k='rad:TextBindingLabel' v='9FA6ADFF' />
+    <E k='rad:HintBarFill' v='000000C4' />
+    <E k='rad:HintBarBorder' v='00000000' />
+    <E k='rad:HintBarText' v='FFFFFFFF' />
+    <E k='radial:RadialOuterRadius' v='294.182' />
+    <E k='radial:RadialInnerRadius' v='116.814' />
+    <E k='radial:IconFlipV' v='false' />
+    <E k='radial:RadialIconRatio' v='0.62' />
+    <E k='radial:RadialShineIntensity' v='0.599' />
+    <E k='radial:ParkedChipRadius' v='49.229' />
+    <E k='radial:RadialShowWedgeLabels' v='false' />
+    <E k='radial:RadialEdgeFeather' v='2.198' />
+    <E k='radial:RadialBorderWidth' v='3.12' />
+    <E k='radial:RadialSideBorders' v='true' />
+    <E k='radial:RadialSideWidthInner' v='0.5' />
+    <E k='radial:RadialSideWidthOuter' v='3.215' />
+    <E k='radial:RadialWedgeGapDeg' v='0' />
+    <E k='radial:RadialDimShading' v='false' />
+    <E k='radial:RadialDimStrength' v='0.5' />
+    <E k='radial:RadialFontName' v='RBNoBook' />
+    <E k='radial:RadialUppercaseLabels' v='true' />
+    <E k='radial:RadialShowStateText' v='true' />
+    <E k='radial:RadialShowBindingLabels' v='true' />
+    <E k='radial:RadialSatelliteScale' v='0.994' />
+    <E k='radial:RadialHubTitleSize' v='20.914' />
+    <E k='radial:RadialTextVerb' v='17.587' />
+    <E k='radial:RadialTextLabel' v='16.516' />
+    <E k='radial:RadialTextSub' v='14.065' />
+    <E k='radial:RadialTextWarn' v='12' />
+    <E k='radial:RadialRotateLongLabels' v='true' />
+    <E k='radial:RadialSatelliteHubRatio' v='0.34' />
+    <E k='radial:RadialDynamicReadoutText' v='true' />
+    <E k='radial:RadialFrost' v='true' />
+    <E k='radial:RadialFrostStrength' v='1' />
+    <E k='radial:RadialSheen' v='0.023' />
+    <E k='radial:RadialEdgeLight' v='0' />
+    <E k='radial:HintBarCorner' v='12' />
+    <E k='radial:HintBarBorderWidth' v='0' />
+    <E k='radial:HintBarFeather' v='1.486667' />
+    <E k='radial:HintBarSheen' v='0' />
+    <E k='radial:HintBarSpec' v='0' />
+    <E k='radial:HintBarGlow' v='0' />
+    <E k='radial:HintBarGlowWidth' v='24' />
+    <E k='radial:HintBarFontSize' v='11.2' />
+    <E k='radial:HintBarBold' v='true' />
+    <E k='radial:HintBarHeight' v='30' />
+    <E k='radial:HintBarPadding' v='24' />
+    <E k='radial:HintBarDrop' v='34' />
+    <E k='radial:HintBarFrost' v='false' />
+    <E k='radial:HintBarFrostStrength' v='0.85' />
+    <E k='grid:Follow' v='false' />
+    <E k='grid:FillRef' v='HudPanelFill' />
+    <E k='grid:BorderRef' v='HudPanelBorder' />
+    <E k='grid:TextRef' v='HudTextValue' />
+    <E k='grid:CornerRadiusOv' v='3.711' />
+    <E k='grid:SheenOv' v='-1' />
+    <E k='grid:SpecOv' v='-1' />
+    <E k='grid:BorderWidthOv' v='1.321' />
+    <E k='grid:FeatherOv' v='0.971' />
+    <E k='grid:SquircleOv' v='-1' />
+    <E k='grid:GaussianMode' v='2' />
+    <E k='grid:BorderFadeOv' v='-1' />
+    <E k='grid:SoftEdgeOv' v='-1' />
+    <E k='grid:GlowMode' v='2' />
+    <E k='grid:GlowOv' v='-1' />
+    <E k='grid:GlowInnerOv' v='-1' />
+    <E k='grid:GlowHazeOv' v='-1' />
+    <E k='grid:GlowWidthOv' v='-1' />
+    <E k='grid:GlowDiffuseOv' v='-1' />
+    <E k='grid:GlowExtraDiffuseOv' v='-1' />
+    <E k='grid:RippleMode' v='2' />
+    <E k='grid:RippleOv' v='-1' />
+    <E k='grid:RippleFreqOv' v='-1' />
+    <E k='grid:RippleSmoothOv' v='-1' />
+    <E k='grid:FlowOv' v='-1' />
+    <E k='grid:FrostOn' v='true' />
+    <E k='grid:FrostOv' v='-1' />
+    <E k='grid:FrostDepthOv' v='-1' />
+    <E k='grid:ShineOv' v='-1' />
+    <E k='grid:IridOv' v='-1' />
+    <E k='grid:ChromaOv' v='-1' />
+    <E k='grid:PerTier' v='false' />
+    <E k='grid:BareFillRef' v='' />
+    <E k='grid:BareBorderRef' v='' />
+    <E k='grid:BareTextRef' v='' />
+    <E k='grid:BareOpacity' v='-1' />
+    <E k='grid:BareFrostMode' v='0' />
+    <E k='menu:Follow' v='true' />
+    <E k='menu:Scrim' v='#05050580' />
+    <E k='menu:Window' v='#292B2EE6' />
+    <E k='menu:Bar' v='#333638F2' />
+    <E k='menu:Panel' v='#36383BEB' />
+    <E k='menu:PanelRaised' v='#45474AFA' />
+    <E k='menu:PanelHover' v='#54575CFF' />
+    <E k='menu:Track' v='#5C5E63FF' />
+    <E k='menu:Divider' v='#FFFFFF14' />
+    <E k='menu:Border' v='#2E7A94AB' />
+    <E k='menu:Accent' v='#59C7E6FF' />
+    <E k='menu:Selected' v='#FF8C29FF' />
+    <E k='menu:On' v='#5CD17AFF' />
+    <E k='menu:Off' v='#596673FF' />
+    <E k='menu:Text' v='#F0F7FFFF' />
+    <E k='menu:TextDim' v='#B8CCDEFF' />
+    <E k='menu:TextMute' v='#8599ADFF' />
+    <E k='menu:Good' v='#6BD985FF' />
+    <E k='menu:Warn' v='#FAC74CFF' />
+    <E k='menu:Critical' v='#F26661FF' />
   </Theme>
 </HudDocument>";
 
@@ -2917,5 +6680,7 @@ namespace StationeersUIMod.UI.Hud
 
         public static HudDocument BuildStationeersBlue() => Build(StationeersBlueXml, StationeersBlueName);
         public static HudDocument BuildPureHud() => Build(PureHudXml, PureHudName);
+        public static HudDocument BuildStationeersBlueMinimalist() => Build(StationeersBlueMinimalistXml, StationeersBlueMinimalistName);
+        public static HudDocument BuildZirillianRed() => Build(ZirillianRedXml, ZirillianRedName);
     }
 }
