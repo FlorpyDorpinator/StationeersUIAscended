@@ -36,7 +36,10 @@ namespace StationeersUIMod.UI.Hud
     ///     <see cref="global::StationeersUIMod.UI.Menu.Kit.UiaMenuTheme"/>'s own
     ///     SnapshotInto/ApplyFrom, keyed "menu:&lt;Name&gt;".
     /// A key present in the snapshot but absent in this build is ignored; a key absent from the
-    /// snapshot leaves that setting untouched. So an older profile applies cleanly and a themeless
+    /// snapshot leaves that setting untouched — EXCEPT inside a family the snapshot carries at all
+    /// ("cfg:" and "rad:"): there a missing key is a setting that did not exist when the theme was
+    /// stamped, and it applies as that setting's DEFAULT (see <see cref="Apply"/>). So an older
+    /// profile applies cleanly, never inherits a newer knob from the previous theme, and a themeless
     /// profile changes nothing.
     /// </summary>
     public static class HudTheme
@@ -179,8 +182,10 @@ namespace StationeersUIMod.UI.Hud
             }
         }
 
-        /// <summary>Restore globals from a snapshot. Missing keys leave their setting untouched;
-        /// unknown keys are ignored. Fail-soft per entry — one bad value never aborts the load.</summary>
+        /// <summary>Restore globals from a snapshot. Missing keys leave their setting untouched —
+        /// except in the "cfg:" / "rad:" families when the snapshot carries that family at all, where
+        /// a missing key applies as the setting's default (see the rule below); unknown keys are
+        /// ignored. Fail-soft per entry — one bad value never aborts the load.</summary>
         public static void Apply(List<HudDocument.ThemeEntry> snapshot)
         {
             if (snapshot == null || snapshot.Count == 0) return;
@@ -201,9 +206,21 @@ namespace StationeersUIMod.UI.Hud
             // added in an update bleeds the CURRENT value through every older profile
             // (FlorpyDorp's repro: corner Cut set under Zirillian Red survived a switch back
             // to Stationeers Blue, whose stored theme predates the corner-style knob).
-            bool themedCfg = false;
+            //
+            // B2: the SAME rule for the radial palette ("rad:"). A theme carrying ANY rad: key took the
+            // whole palette when it was stamped, so a missing rad: key there is an entry that did not
+            // exist yet — it renders as that entry's DEFAULT (RadialPalette.Entry.DefaultValue): the
+            // four curved-label colours (ArcPlateFill/ArcPlateBorder/ArcText/ArcAccent) go back to
+            // AUTO. Without this, an Arc colour pinned under one theme stuck to EVERY theme forever —
+            // no shipped profile carries those keys, so switching never touched them. A theme with no
+            // rad: key at all (palette-less / pre-fold) still changes nothing.
+            bool themedCfg = false, themedRad = false;
             foreach (var k in map.Keys)
-                if (k.StartsWith("cfg:", StringComparison.Ordinal)) { themedCfg = true; break; }
+            {
+                if (!themedCfg && k.StartsWith("cfg:", StringComparison.Ordinal)) themedCfg = true;
+                else if (!themedRad && k.StartsWith("rad:", StringComparison.Ordinal)) themedRad = true;
+                if (themedCfg && themedRad) break;
+            }
 
             foreach (var f in CfgFields)
             {
@@ -229,6 +246,8 @@ namespace StationeersUIMod.UI.Hud
             {
                 string v;
                 if (map.TryGetValue("rad:" + e.Name, out v) && v != null) e.Config.Value = v;
+                else if (themedRad)
+                    try { e.Config.Value = e.DefaultValue; } catch { }
             }
             ApplyRadial(map);
             try { global::StationeersUIMod.UI.Grid.GridTheme.ApplyFrom(map, "grid:"); }

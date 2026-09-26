@@ -1515,7 +1515,7 @@ namespace StationeersUIMod.UI.Hud
     <E k='cfg:DetailedVitalsTooltips' v='true' />
     <E k='cfg:FlickerAnimations' v='true' />
     <E k='cfg:LowPowerDropouts' v='true' />
-    <E k='cfg:LowPowerThreshold' v='27.034' />
+    <E k='cfg:LowPowerThreshold' v='10' />
     <E k='cfg:GlitchOnPowerDown' v='true' />
     <E k='cfg:GlitchOnPowerUp' v='false' />
     <E k='cfg:FxTierA' v='true' />
@@ -3081,7 +3081,7 @@ namespace StationeersUIMod.UI.Hud
     <E k='cfg:DetailedVitalsTooltips' v='true' />
     <E k='cfg:FlickerAnimations' v='true' />
     <E k='cfg:LowPowerDropouts' v='false' />
-    <E k='cfg:LowPowerThreshold' v='27.034' />
+    <E k='cfg:LowPowerThreshold' v='10' />
     <E k='cfg:GlitchOnPowerDown' v='true' />
     <E k='cfg:GlitchOnPowerUp' v='false' />
     <E k='cfg:FxTierA' v='false' />
@@ -4698,7 +4698,7 @@ namespace StationeersUIMod.UI.Hud
     <E k='cfg:DetailedVitalsTooltips' v='true' />
     <E k='cfg:FlickerAnimations' v='true' />
     <E k='cfg:LowPowerDropouts' v='true' />
-    <E k='cfg:LowPowerThreshold' v='27.034' />
+    <E k='cfg:LowPowerThreshold' v='10' />
     <E k='cfg:GlitchOnPowerDown' v='true' />
     <E k='cfg:GlitchOnPowerUp' v='false' />
     <E k='cfg:FxTierA' v='true' />
@@ -6401,7 +6401,7 @@ namespace StationeersUIMod.UI.Hud
     <E k='cfg:DiegeticTiers' v='true' />
     <E k='cfg:FlickerAnimations' v='true' />
     <E k='cfg:LowPowerDropouts' v='true' />
-    <E k='cfg:LowPowerThreshold' v='27.034' />
+    <E k='cfg:LowPowerThreshold' v='10' />
     <E k='cfg:GlitchOnPowerDown' v='true' />
     <E k='cfg:GlitchOnPowerUp' v='false' />
     <E k='cfg:FxTierA' v='true' />

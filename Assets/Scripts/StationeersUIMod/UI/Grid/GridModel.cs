@@ -162,16 +162,27 @@ namespace StationeersUIMod.UI.Grid
         }
 
         /// <summary>Add one slot to <paramref name="node"/> (skipping organ anchors), recording its
-        /// occupant into the structural hash and recursing into a container occupant as a child.</summary>
+        /// occupant into the structural hash and recursing into a container occupant as a child.
+        ///
+        /// <para>D-005: inside a CONTAINER node only the slots vanilla would draw become cells
+        /// (<see cref="IsCellSlot"/>) — a hidden slot never, a stack's slot only while something is
+        /// trapped in it (a take-out-only rescue cell). A skipped slot is neither a cell NOR a recursion
+        /// point; its occupant is still folded into the hash, and <see cref="SigSlot"/> applies the
+        /// SAME skip at the same depth, so the two walks stay identical (a mismatch would rebuild the
+        /// tree every frame). The root (the human's worn slots, depth 0) is never filtered.</para></summary>
         private static long AddSlot(ContainerNode node, Slot slot, HashSet<Thing> visited, int depth, GridDisplayMode mode, ref long sig)
         {
             if (slot == null || IsOrganSlot(slot)) return sig;
 
-            node.Slots.Add(slot);
-            node.TotalCount++;
-
             DynamicThing occ = slot.Get();
             sig = Mix(sig, occ != null ? occ.ReferenceId : 0L);
+
+            // Container slots only (depth >= 1 — the root's are the human's own): a slot vanilla never
+            // draws is neither a cell nor a recursion point. SigSlot mirrors this exactly.
+            if (node.Container != null && !IsCellSlot(slot, occ)) return sig;
+
+            node.Slots.Add(slot);
+            node.TotalCount++;
             if (occ == null) return sig;
 
             node.UsedCount++;
@@ -250,6 +261,9 @@ namespace StationeersUIMod.UI.Grid
             DynamicThing occ = slot.Get();
             h = Mix(h, occ != null ? occ.ReferenceId : 0L);
             if (occ == null) return h;
+            // D-005: the SAME container-slot skip AddSlot applies (depth >= 1 is exactly AddSlot's
+            // node.Container != null), so a hidden slot is never a recursion point in either walk.
+            if (depth > 0 && !IsCellSlot(slot, occ)) return h;
 
             if (depth < MaxDepth && ShouldRecurse(occ, mode) && _sigVisited.Add(occ))
             {
@@ -299,13 +313,25 @@ namespace StationeersUIMod.UI.Grid
             // pin-set probe, so a plain (inert) item never pays for it. The item stays a leaf cell too —
             // the node is pruned into its own window (PrunePinned), exactly like a pinned bag.
             if ((HasSlots(occ) || HasKeyInteractions(occ)) && GridPinStore.IsPinnedLoaded(occ.ReferenceId)) return true;
-            return mode == GridDisplayMode.Grid ? IsStorageContainer(occ) : HasSlots(occ);
+            if (mode != GridDisplayMode.Grid) return HasSlots(occ);
+            // D-005 rescue: a STACK (the "Cable Coil" phantom grid) that still has something TRAPPED in
+            // one of its slots keeps a region holding ONLY the trapped item(s), as take-out-only cells,
+            // until it is emptied. Without this the item would vanish from view — and a consumed or
+            // merged-away stack DESTROYS its children (Thing.OnDestroy skips the drop-to-world rescue
+            // when DestroyChildrenOnDead, which is true on the coil prefab and by default).
+            return IsStorageContainer(occ) || IsRescueContainer(occ);
         }
 
         /// <summary>
         /// True when <paramref name="t"/> is a general-storage container (its own bordered region
         /// of cells in Grid mode); false for a tool/device whose slots are its own components
         /// (a single leaf cell). Client-safe: reads only networked/prefab state.
+        ///
+        /// <para>D-005 (vanilla parity): only slots vanilla itself would DRAW count
+        /// (<see cref="Core.ItemActions.IsVanillaVisibleSlot"/> — <c>Slot.IsInteractable</c>, the gate of
+        /// <c>InventoryWindow.SetSlots</c> / <c>Thing.HasSlots</c>), and a STACK is never storage. A cable
+        /// coil used to pass on a non-interactable slot and rendered as an empty grid that accepted
+        /// items; vanilla shows it only its Split buttons.</para>
         /// </summary>
         public static bool IsStorageContainer(DynamicThing t)
         {
@@ -324,6 +350,31 @@ namespace StationeersUIMod.UI.Grid
             // CardboardBox / CardboardBoxLarge are deliberately NOT excluded — they stay real storage.
             if (t is DisposableCardboardBox || t is EmergencySuppliesBox
                 || t is ItemContainer || t is CerealBarBox) return false;
+            // D-005: a STACK (cable coil, ore, ingots, kits...) is never a container — merge/split/
+            // consume know nothing of contents, and a consumed stack destroys its children. No
+            // Stackable prefab in the 27701 asset rip carries a slot; the live coil evidently does.
+            if (t is Stackable) return false;
+
+            // Only slots vanilla would draw count. The prefab-lock read stays the ONE dual-shape
+            // reflection accessor (Core.InventoryScanner.SlotIsPrefabRestricted — the 0.9.7.1 fix);
+            // this file never names SpecificTypePrefabHash(es) directly.
+            var s = t.Slots;
+            bool anyShown = false;                                               // a slot vanilla would draw
+            bool anyUnrestricted = false;
+            bool anyGeneral = false;                                             // a None/Ore slot = general capacity
+            for (int i = 0; i < s.Count; i++)
+            {
+                Slot slot = s[i];
+                if (slot == null) continue;
+                // Vanilla draws ONLY interactable slots (InventoryWindow.SetSlots); a hidden slot is
+                // built-in / untouchable (the emergency suit's tanks, an emergency drill's battery, a
+                // package's contents — 27701 rip), so it never makes a thing a container.
+                if (!Core.ItemActions.IsVanillaVisibleSlot(slot)) continue;
+                anyShown = true;
+                if (!Core.InventoryScanner.SlotIsPrefabRestricted(slot)) anyUnrestricted = true;
+                if (slot.Type == Slot.Class.None || slot.Type == Slot.Class.Ore) anyGeneral = true;
+            }
+            if (!anyShown) return false;                                          // nothing a player could use
             switch (t.SlotType)                                                   // worn container (incl. suit)
             {
                 case Slot.Class.Back:
@@ -340,16 +391,47 @@ namespace StationeersUIMod.UI.Grid
             // unrestricted slots (mining bag slots are Type=Ore but prefab-unrestricted), so this
             // can never exclude genuine storage; the burger box (its lone None slot restricted to
             // ItemBurger) is exactly what it catches.
-            var s = t.Slots;                                                      // general storage (bags)
-            bool anyUnrestricted = false;
-            bool anyGeneral = false;                                             // a None/Ore slot = general capacity
-            for (int i = 0; i < s.Count; i++)
-            {
-                if (!Core.InventoryScanner.SlotIsPrefabRestricted(s[i])) anyUnrestricted = true;
-                if (s[i].Type == Slot.Class.None || s[i].Type == Slot.Class.Ore) anyGeneral = true;
-            }
             if (!anyUnrestricted) return false;                                  // every slot prefab-locked -> not storage
             return anyGeneral;
+        }
+
+        /// <summary>D-005 rescue: a STACK with something sitting in one of its slots. Before D-005 the
+        /// grid drew a stack's slot (the cable coil's) as an empty cell that accepted items; anything
+        /// put there must stay visible and retrievable — a used-up or merged-away stack DESTROYS its
+        /// children. Its region shows ONLY the trapped items, take-out-only, and disappears once the
+        /// stack is empty. A stack never legitimately holds anything, so this is unambiguous (unlike a
+        /// hidden slot on a tool or suit, which is built-in and stays hidden — vanilla parity).</summary>
+        private static bool IsRescueContainer(DynamicThing t)
+        {
+            if (!(t is Stackable) || t.Slots == null || t.Slots.Count == 0) return false;
+            if (Core.InventoryScanner.ContentsOffLimits(t)) return false;
+            var s = t.Slots;
+            for (int i = 0; i < s.Count; i++)
+            {
+                Slot slot = s[i];
+                if (slot != null && !IsOrganSlot(slot) && slot.Get() != null) return true;
+            }
+            return false;
+        }
+
+        /// <summary>Does this slot of a CONTAINER node render as a cell? D-005 vanilla parity: only the
+        /// slots vanilla draws (<see cref="Core.ItemActions.IsVanillaVisibleSlot"/>) — a hidden slot is
+        /// built-in and never renders, empty or not — and never a stack's slot, EXCEPT while something is
+        /// trapped in it (the take-out-only rescue cell; see <see cref="IsRescueContainer"/>). So a thing
+        /// with no real storage never renders an empty grid that could swallow an item.</summary>
+        internal static bool IsCellSlot(Slot slot, DynamicThing occupant)
+        {
+            if (slot == null) return false;
+            if (!Core.ItemActions.IsSealedSlot(slot)) return true;              // an ordinary, vanilla-drawn slot
+            return occupant != null && slot.Parent is Stackable;               // a stack's trapped item: rescue
+        }
+
+        /// <summary>Is this cell's slot TAKE-OUT-ONLY? True for a sealed slot (<see cref="Core.ItemActions.IsSealedSlot"/>)
+        /// — in practice a stack's rescue cell. Such a cell is never a drop target, and its click/F take
+        /// the item to a FREE hand instead of swapping (a swap would refill the sealed slot).</summary>
+        internal static bool IsTakeOnlySlot(Slot slot)
+        {
+            return Core.ItemActions.IsSealedSlot(slot);
         }
 
         // --- helpers ---

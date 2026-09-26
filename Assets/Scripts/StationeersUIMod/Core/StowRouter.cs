@@ -316,6 +316,8 @@ namespace StationeersUIMod.Core
                 if (scanned.Slot == selectedSlot) continue;
                 // Hands are never stow destinations ("stowing" into your other hand).
                 if (scanned.Slot == human.LeftHandSlot || scanned.Slot == human.RightHandSlot) continue;
+                // D-005: never feed a stack sitting in a SEALED (hidden / stack) slot — see IsDestSlot.
+                if (!IsDestSlot(scanned)) continue;
                 // Never top up a stack living inside a consumable/dispenser/starter box.
                 if (!HolderIsRealStorage(scanned.Holder)) continue;
                 if (IsExcluded(scanned.Holder)) continue;
@@ -355,6 +357,7 @@ namespace StationeersUIMod.Core
             {
                 if (scanned.Slot == selectedSlot || scanned.Occupant != null) continue;
                 if (scanned.Slot == human.LeftHandSlot || scanned.Slot == human.RightHandSlot) continue;
+                if (!IsDestSlot(scanned)) continue;   // D-005: a hidden socket is not a socket
                 // A TRUE socket only: the slot's own class equals the item's type. Excludes None
                 // (generic bag) slots by construction, which is the whole point of the stage.
                 if (scanned.Slot.Type != st) continue;
@@ -443,6 +446,7 @@ namespace StationeersUIMod.Core
                 if (!memo.HasMatch) continue;
                 if (memo.Priority < bestPriority) continue;
                 if (memo.Priority == bestPriority && scanned.Depth >= bestDepth) continue;
+                if (!IsDestSlot(scanned)) continue;   // D-005: never a sealed slot
                 if (!Slot.AllowMove(held, scanned.Slot)) continue;
                 best = scanned.Slot;
                 bestBag = bag;
@@ -511,7 +515,7 @@ namespace StationeersUIMod.Core
                     else if (occ.SortingClass == held.SortingClass)
                         entry.CatPts += AffinityCategoryPoints;
                 }
-                else if (Slot.AllowMove(held, scanned.Slot))
+                else if (IsDestSlot(scanned) && Slot.AllowMove(held, scanned.Slot))   // D-005: never a sealed slot
                 {
                     if (scanned.Slot.Type == held.SlotType)
                     {
@@ -626,6 +630,7 @@ namespace StationeersUIMod.Core
                 if (!memo.HasMatch) continue;
                 if (memo.Priority < bestPriority) continue;
                 if (memo.Priority == bestPriority && scanned.Depth >= bestDepth) continue;
+                if (!IsDestSlot(scanned)) continue;   // D-005: never a sealed slot
                 if (!Slot.AllowMove(held, scanned.Slot)) continue;
                 best = scanned.Slot;
                 bestBag = bag;
@@ -662,6 +667,7 @@ namespace StationeersUIMod.Core
                 if (scanned.Holder == null || scanned.Holder.ReferenceId != bagRef.Value) continue;
                 if (!HolderIsRealStorage(scanned.Holder)) continue; // not a consumable/dispenser/starter box
                 if (IsExcluded(scanned.Holder)) continue;          // Q5: "never smart-stow into this"
+                if (!IsDestSlot(scanned)) continue;           // D-005: never a sealed slot
                 if (!Slot.AllowMove(held, scanned.Slot)) continue;
 
                 c.Slot = scanned.Slot;
@@ -717,7 +723,7 @@ namespace StationeersUIMod.Core
                 {
                     if (occ.SortingClass == held.SortingClass) e.CatCount++;
                 }
-                else if (Slot.AllowMove(held, scanned.Slot))
+                else if (IsDestSlot(scanned) && Slot.AllowMove(held, scanned.Slot))   // D-005: never a sealed slot
                 {
                     // held is None-typed, so any accepting free slot is itself a None slot ->
                     // this bag is a genuine generic container.
@@ -799,6 +805,28 @@ namespace StationeersUIMod.Core
         private static bool HolderIsRealStorage(Thing holder)
         {
             return GridModel.IsStorageContainer(holder as DynamicThing);
+        }
+
+        /// <summary>D-005: may a stow LAND in this slot? Never a SEALED slot
+        /// (<see cref="ItemActions.IsSealedSlot"/> — a non-interactable slot vanilla never draws, or any
+        /// slot of a stack): the scan walks every slot, and a hidden slot inside an otherwise real
+        /// container would otherwise be a perfectly "free, AllowMove-able" destination the player can
+        /// neither see nor reach. (The consumable-stack case — the cable coil — is already excluded by
+        /// <see cref="HolderIsRealStorage"/>; this is the belt-and-braces half for hidden slots.)</summary>
+        private static bool IsDestSlot(Slot slot)
+        {
+            return slot != null && !ItemActions.IsSealedSlot(slot);
+        }
+
+        /// <summary>The scan-stage form of <see cref="IsDestSlot(Slot)"/>: reads the flag the scanner
+        /// computed ONCE per slot with the same predicate (<see cref="ScannedSlot.Sealed"/>), so the
+        /// router and every other scan consumer share one answer. The flag is also INHERITED by
+        /// everything beneath a sealed slot, so a bag the old phantom grid tucked into a cable coil is
+        /// no stow destination either — its own slots are ordinary, but a consumed coil destroys it
+        /// with everything inside.</summary>
+        private static bool IsDestSlot(ScannedSlot scanned)
+        {
+            return scanned != null && scanned.Slot != null && !scanned.Sealed;
         }
 
         /// <summary>Design Q5: the player marked this container "never smart-stow into this".
@@ -950,7 +978,7 @@ namespace StationeersUIMod.Core
                         if (s == null || s.SlotIndex != home) continue;
                         // Home slot found: use it only if genuinely free and type-gated open; else
                         // fall through to BestDirectSlot (the postfix rebinds home on landing).
-                        if (!s.IsLocked && s.Get() == null && Slot.AllowMove(held, s)) return s;
+                        if (!s.IsLocked && s.Get() == null && IsDestSlot(s) && Slot.AllowMove(held, s)) return s;
                         break;
                     }
                 }
@@ -969,6 +997,7 @@ namespace StationeersUIMod.Core
             foreach (Slot s in container.Slots)
             {
                 if (s == null || s.IsLocked || s.Get() != null) continue;
+                if (!IsDestSlot(s)) continue;   // D-005: never a sealed slot
                 if (!Slot.AllowMove(held, s)) continue;
                 if (s.Type == held.SlotType) return s;   // exact type match — the tool's real home
                 if (generic == null) generic = s;        // kept as fallback

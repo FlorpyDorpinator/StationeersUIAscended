@@ -74,6 +74,25 @@ namespace StationeersUIMod.UI.Grid
         // CancelDrag/CancelActiveDrag, so teardown leaves no reference to a destroyed cell.
         private static BagGridCell _activeDrag;
 
+        // D-005: this cell shows a SEALED slot (ItemActions.IsSealedSlot) — in practice a STACK's slot,
+        // drawn only because something is trapped in it (GridModel.IsCellSlot never draws a hidden
+        // slot): a take-out-only rescue cell. Never a drop target; its click/F take the item to a FREE
+        // hand (a swap would refill the sealed slot). Set per Bind.
+        private bool _takeOnly;
+
+        // D-002: while a cell drag is in flight vanilla's own world hover (InputMouse.Idle) must not
+        // run under the gesture — it paints the ACTIVE-HAND interaction colour on whatever it hovers
+        // and pops its passive tooltip. Vanilla suppresses exactly that during ITS inventory drag
+        // (InputMouse.Update returns before Idle while DragSlotDisplay is visible, InputMouse.cs
+        // ~348-355). So the gesture parks the world raycast through the arbiter (a named hold,
+        // released on every drag exit path and by CancelActiveDrag / Shutdown) and draws vanilla's
+        // placement box itself (Core.WorldSlotCue — InputMouse.IsValid colours) over the world slot
+        // the release would target. Both statics are reset on every exit path (hot-reload safe; the
+        // arbiter itself force-clears on Shutdown too).
+        private const string DragBlockId = "griddrag";
+        private static bool _dragBlockHeld;
+        private static bool _worldCueLive;
+
         /// <summary>True while a cell drag (an item torn out of a grid or pinned cell) is in flight.
         /// The grid/pinned panels OR this into their GraphicRaycaster gate so the raycaster stays ON
         /// for the whole gesture — <c>EventSystem.RaycastAll</c> must still find a cell under the
@@ -196,6 +215,7 @@ namespace StationeersUIMod.UI.Grid
             // outright (its pinned source no longer describes what this cell shows).
             CancelDrag();
             _slot = slot;
+            _takeOnly = GridModel.IsTakeOnlySlot(slot);   // D-005: a stack's rescue cell (take-out-only)
             _bound = false;              // force the next refresh to repaint
             _lastOccupant = null;
             _lastState = null;
@@ -365,6 +385,10 @@ namespace StationeersUIMod.UI.Grid
                 return;
             }
             if (e.button != PointerEventData.InputButton.Left) return;
+            // D-005: a take-out-only rescue cell (an item trapped in a sealed slot by the old phantom
+            // grid) only ever EMPTIES — the item goes to a free hand, never a swap (that would refill
+            // the sealed slot) and never the device window.
+            if (_takeOnly) { TakeOutToFreeHand(); return; }
             // A device/tool with internal slots opens its VANILLA internals window on click — matching
             // vanilla, where a plain click opens that window rather than jumping the item to the hand.
             // Plain items still go to the hand; a device is taken by DRAGGING it (or F in scroll-nav).
@@ -405,6 +429,22 @@ namespace StationeersUIMod.UI.Grid
             return ok;
         }
 
+        /// <summary>D-005: empty a take-out-only rescue cell into a FREE hand through
+        /// <see cref="ItemActions.TakeToFreeHand"/> (one gated message, occupant pinned now and
+        /// re-verified at execute time; never a swap, never a drop). No-op on an empty cell.</summary>
+        private bool TakeOutToFreeHand()
+        {
+            if (_slot == null) return false;
+            DynamicThing occ = null;
+            try { occ = _slot.Get(); } catch { }
+            if (occ == null) return false;
+            var source = new ScannedSlot { Slot = _slot };
+            source.Pin();
+            bool ok = ItemActions.TakeToFreeHand(source);
+            RefreshIfDirty();
+            return ok;
+        }
+
         /// <summary>Keyboard <c>F</c> (scroll-select #4) on this cell: the SAME action the left-click
         /// runs — equip the occupant to the active hand. Guarded against firing under an open radial
         /// (which owns the keyboard). BIDIRECTIONAL: an OCCUPIED cell takes/swaps its item (same as the
@@ -414,6 +454,8 @@ namespace StationeersUIMod.UI.Grid
         {
             if (RadialController.AnyRadialOpen) return false;
             if (_slot == null) return false;
+            // D-005: a rescue cell only empties (and is only shown while occupied) — never a place.
+            if (_takeOnly) return TakeOutToFreeHand();
 
             DynamicThing occ = null;
             try { occ = _slot.Get(); } catch { }
@@ -571,6 +613,7 @@ namespace StationeersUIMod.UI.Grid
             _dragDim = true;
             _dropTarget = null;
             _activeDrag = this;
+            HoldDragBlock();   // D-002: vanilla's world hover stands down for the gesture
             SpawnGhost(e);
             // Ghost routing hint (O4d): tell the hint pump what is being dragged and from where.
             // Gating (profile mode + config) lives in GridGhostHint.Tick; every drag exit path
@@ -593,7 +636,8 @@ namespace StationeersUIMod.UI.Grid
 
             BagGridCell target;
             GridTab tabTarget;
-            FindDropUnder(e, out target, out tabTarget);
+            bool overUi;
+            FindDropUnder(e, out target, out tabTarget, out overUi);
             if (target != _dropTarget)
             {
                 if (_dropTarget != null) _dropTarget.SetDropHighlight(false);
@@ -608,14 +652,24 @@ namespace StationeersUIMod.UI.Grid
                 _dropTabTarget = tabTarget;
                 if (_dropTabTarget != null) _dropTabTarget.SetDropHighlight(true);
             }
+
+            // D-002: over open world (no UGUI element, no HUD box — the release resolves those
+            // first), light vanilla's placement box on the world slot the release would target.
+            // Anywhere else the box must come down, or it would promise a drop that lands elsewhere.
+            if (target == null && tabTarget == null && !overUi && !OverHudBox())
+                TickWorldCue(_dragSource != null ? _dragSource.Expected : null);
+            else
+                HideWorldCue();
         }
 
         /// <summary>Resolve the drop: find the target cell under the cursor and route the move through
         /// <see cref="ItemActions.DragTo"/> (the ONE-message funnel — it re-verifies the pinned occupant
-        /// and picks move/swap/merge/insert with the Slot gates AT EXECUTE TIME). On success both the
-        /// source and target hold a "pending" dim until the signature-diff rebuild reconciles; an invalid
-        /// or missing target snaps back (the cell never moved) and DragTo plays the fail sound itself.
-        /// Always tears the ghost down, even on cancel/abort.</summary>
+        /// and picks move/swap/merge/insert with the Slot gates AT EXECUTE TIME), or, with vanilla's
+        /// "move all of this type" modifier held on release (Shift by default), through
+        /// <see cref="ItemActions.DragAllOfTypeTo"/> (D-018). On success both the source and target hold
+        /// a "pending" dim until the signature-diff rebuild reconciles; an invalid or missing target
+        /// snaps back (the cell never moved) and DragTo plays the fail sound itself. Always tears the
+        /// ghost, the world placement box and the world-raycast hold down, even on cancel/abort.</summary>
         public void OnEndDrag(PointerEventData e)
         {
             if (_forwardingDrag)
@@ -629,10 +683,16 @@ namespace StationeersUIMod.UI.Grid
             _dragDim = false;
             GridGhostHint.EndDrag();   // the would-receive glow dies with the gesture
             if (ReferenceEquals(_activeDrag, this)) _activeDrag = null;
+            ReleaseDragBlock();        // hands vanilla's world hover back + takes the placement box down
+
+            // D-018: vanilla's "move all of this type" modifier (KeyMap.MoveAllOfType, default Shift),
+            // read on the RELEASE frame exactly as vanilla's Slot.PlayerMoveToSlot reads it.
+            bool allOfType = ItemActions.MoveAllOfTypeHeld();
 
             BagGridCell target = null;
             GridTab dropTab = null;
-            if (e != null) FindDropUnder(e, out target, out dropTab);
+            // (overUi is unused on release: TryDropOffGrid re-resolves the surface itself.)
+            if (e != null) FindDropUnder(e, out target, out dropTab, out _);
             if (_dropTarget != null) { _dropTarget.SetDropHighlight(false); _dropTarget = null; }
             if (_dropTabTarget != null) { _dropTabTarget.SetDropHighlight(false); _dropTabTarget = null; }
             DestroyGhost();
@@ -647,7 +707,7 @@ namespace StationeersUIMod.UI.Grid
 
             if (sourceValid && target != null && target._slot != null && _slot != null)
             {
-                bool ok = ItemActions.DragTo(source, target._slot); // one authoritative message
+                bool ok = Drop(source, target._slot, allOfType); // one authoritative message (+ vanilla's Shift sweep)
                 if (ok)
                 {
                     // Send-only on a client: keep both ends dimmed until the server echo changes the
@@ -671,12 +731,22 @@ namespace StationeersUIMod.UI.Grid
             else if (sourceValid && target == null && dropTab == null)
             {
                 // The release landed OUTSIDE this grid's own cells and tabs — over a HUD hand /
-                // worn-equipment box, an open vanilla window slot, or genuinely open space. Resolve
-                // that cross-surface destination and tear the item OUT of the grid; on success the
-                // source cell dims until the server echo, on any abort surface it just restores.
-                if (!TryDropOffGrid(source)) Repaint();
+                // worn-equipment box, an open vanilla window slot, a slot on a physical-world object
+                // (a charger, a locker), or genuinely open space. Resolve that cross-surface
+                // destination and tear the item OUT of the grid; on success the source cell dims until
+                // the server echo, on any abort surface it just restores.
+                if (!TryDropOffGrid(source, allOfType)) Repaint();
             }
             else Repaint();       // stale source or an unbound target cell: no message, restore the look
+        }
+
+        /// <summary>The one drop dispatch every release path shares: the plain gated single move
+        /// (<see cref="ItemActions.DragTo"/>), or — with vanilla's "move all of this type" modifier held
+        /// on release — <see cref="ItemActions.DragAllOfTypeTo"/>, which resolves the dragged item exactly
+        /// like DragTo and, when that was a plain move, follows with vanilla's per-stack sweep (D-018).</summary>
+        private static bool Drop(ScannedSlot source, Slot dest, bool allOfType)
+        {
+            return allOfType ? ItemActions.DragAllOfTypeTo(source, dest) : ItemActions.DragTo(source, dest);
         }
 
         /// <summary>
@@ -690,50 +760,155 @@ namespace StationeersUIMod.UI.Grid
         /// <see cref="ItemActions.DragTo"/> (the item-drag funnel: insert / merge / swap / move, each
         /// re-gated at execute time). This mirrors the outbound HUD-box release, which routes a vanilla
         /// slot, a grid cell OR a HUD box all through DragTo.</item>
-        /// <item>genuinely open space BEYOND the window → drop it at the player's feet via
-        /// <see cref="ItemActions.DropToWorld"/>, but ONLY when the release is truly off the panel
-        /// (<see cref="TheGridPanel.HitTestWindow"/> = false). That single off-panel gate is what stops
-        /// an irreversible fling to the floor when the release merely grazed the window's own padding —
-        /// and it is a cursor-position test, so a transient HUD alpha flicker/dropout on the release
-        /// frame can no longer swallow a deliberate ground-drop. (The old <c>HudSystem.ZonesAvailable</c>
-        /// conjunct was removed here: box AVAILABILITY is now decoupled from ground-drops, matching
+        /// <item>a slot on a PHYSICAL-WORLD object under the cursor (a battery charger, a locker, a
+        /// crate) → move it there via <see cref="ItemActions.DragTo"/> (D-002). This is vanilla's own
+        /// inventory drag: <c>SlotDisplayButton.OnEndDrag</c> resolves <c>InputMouse.WorldSlot</c> (the
+        /// <c>GetHoverWorldSlot</c> reach-bounded physics pick) BEFORE its drop-to-world case, and runs
+        /// the same insert / merge / swap / move ladder on it (live 27798 SlotDisplayButton.OnEndDrag,
+        /// InputMouse.GetHoverWorldSlot). The grid used to skip this rung and fall straight through to
+        /// the ground drop — the reported "battery lands on the floor instead of in the charger".</item>
+        /// <item>genuinely open space BEYOND the windows (no world slot either) → drop it at the
+        /// player's feet via <see cref="ItemActions.DropToWorld"/>, but ONLY when the release is truly
+        /// off every Grid window (<see cref="TheGridPanel.HitTestWindow"/> /
+        /// <see cref="PinnedInventoryWindow.HitTestAny"/> = false). That off-panel gate is what stops an
+        /// irreversible fling to the floor when the release merely grazed a window's own padding — and
+        /// it is a cursor-position test, so a transient HUD alpha flicker/dropout on the release frame
+        /// can no longer swallow a deliberate ground-drop. (The old <c>HudSystem.ZonesAvailable</c>
+        /// conjunct was removed here: box AVAILABILITY is decoupled from ground-drops, matching
         /// <see cref="HudSlotDrag"/>'s own release.)</item>
         /// </list>
-        /// The grid-cell rung of the resolver can only be the SOURCE cell here (a different cell would
-        /// have been caught upstream by <see cref="FindDropUnder"/>), so it, other-UI chrome, and an
-        /// ambiguous no-zones frame are all ABORT surfaces. Returns true only when exactly ONE
-        /// authoritative message went out (the caller then leaves the source dimmed-pending); false on
-        /// every abort, so the caller merely restores the source look. One user action = at most one
-        /// message. The pinned <paramref name="source"/> is re-verified again inside DragTo/DropToWorld
-        /// at execute time, on top of the caller's <c>_dragSlot</c>/<c>_dragSource</c> staleness gate.
+        /// A world slot that REFUSES the item (wrong type, occupied and not swappable...) is an ABORT,
+        /// never a fall-through to the ground: vanilla likewise does nothing on an invalid world slot.
+        /// The grid-cell rung of the resolver can only be the SOURCE cell or a take-out-only rescue cell
+        /// here (any other cell was caught upstream by <see cref="FindDropUnder"/>), so it, other-UI
+        /// chrome, and an ambiguous no-zones frame are all ABORT surfaces. Returns true only when the
+        /// drop's authoritative message went out (the caller then leaves the source dimmed-pending);
+        /// false on every abort, so the caller merely restores the source look. One user action = one
+        /// message — plus, with vanilla's Shift modifier (<paramref name="allOfType"/>), vanilla's own
+        /// per-stack "move all of this type" sweep (D-018). The pinned <paramref name="source"/> is
+        /// re-verified again inside DragTo/DropToWorld at execute time, on top of the caller's
+        /// <c>_dragSlot</c>/<c>_dragSource</c> staleness gate.
         /// </summary>
-        private bool TryDropOffGrid(ScannedSlot source)
+        private bool TryDropOffGrid(ScannedSlot source, bool allOfType)
         {
             Core.DropResolution r = Core.DropResolver.Resolve();
 
             // A HUD hand/equipment box or an OPEN vanilla window slot is a real move destination.
             if (r.Surface == Core.DropSurface.HudZone || r.Surface == Core.DropSurface.VanillaSlot)
             {
-                if (r.HasSlot && ItemActions.DragTo(source, r.Slot)) { MarkPending(); return true; }
+                if (r.HasSlot && Drop(source, r.Slot, allOfType)) { MarkPending(); return true; }
                 return false;   // DragTo already played ActionFailHash on an invalid target
             }
 
-            // Genuinely open space: drop at the player's feet — gated ONLY on the release being truly
-            // OFF the window (HitTestWindow = false). That off-panel test is the real anti-false-drop
-            // guard here: a HUD flicker does not move the cursor off the panel over the world, so a
-            // deliberate ground-drop no longer needs the HUD to be offering zones this frame. Removing
-            // the old ZonesAvailable() conjunct is the whole point of this path — box AVAILABILITY
-            // (alpha/dropout) is decoupled from ground-drops. The move still funnels through
-            // ItemActions.DropToWorld -> OnServer.MoveToSlotOrWorld, re-gated at execute time.
-            if (r.Surface == Core.DropSurface.None
-                && !TheGridPanel.HitTestWindow((UnityEngine.Vector2)Input.mousePosition))
+            if (r.Surface == Core.DropSurface.None && !OverAnyGridWindow())
             {
+                // D-002: a slot on a physical-world object under the cursor (charger, locker, crate) is
+                // a real destination — vanilla's InputMouse.WorldSlot rung. Resolved at release (execute)
+                // time and bounded by the vanilla reach, like vanilla's own pick.
+                Slot worldSlot = WorldSlotUnderCursor();
+                if (worldSlot != null)
+                {
+                    if (Drop(source, worldSlot, allOfType)) { MarkPending(); return true; }
+                    return false;   // refused by the slot: abort (fail cue already played), never the floor
+                }
+
+                // Genuinely open space: drop at the player's feet — gated ONLY on the release being truly
+                // OFF every Grid window. That off-panel test is the real anti-false-drop guard here: a HUD
+                // flicker does not move the cursor off the panel over the world, so a deliberate
+                // ground-drop no longer needs the HUD to be offering zones this frame. The move still
+                // funnels through ItemActions.DropToWorld -> OnServer.MoveToSlotOrWorld, re-gated at
+                // execute time.
                 if (ItemActions.DropToWorld(source)) { MarkPending(); return true; }
             }
 
-            // GridCell (the source cell itself), OtherUi (window chrome / another panel), or a release
-            // still over the window's own padding: abort with no message.
+            // GridCell (the source cell itself / a rescue cell), OtherUi (window chrome / another
+            // panel), or a release still over a window's own padding: abort with no message.
             return false;
+        }
+
+        /// <summary>Is the cursor over the main Universal Inventory window or any pinned window (their
+        /// whole panel rect, padding included)? Raw screen point — the Grid family is un-warped.</summary>
+        private static bool OverAnyGridWindow()
+        {
+            Vector2 m = Input.mousePosition;
+            return TheGridPanel.HitTestWindow(m) || PinnedInventoryWindow.HitTestAny(m);
+        }
+
+        /// <summary>The slot on a PHYSICAL-WORLD object (charger, locker, crate) under the cursor —
+        /// vanilla's own <c>InputMouse.GetHoverWorldSlot</c> (private, so reproduced; live 27798
+        /// InputMouse.cs, 27758 InputMouse.cs:288-304): a camera ray through the cursor, bounded by
+        /// <c>CursorManager.MaxInteractDistance</c> on the <c>CursorHitMask</c> → the hit collider's
+        /// <see cref="Thing"/> → its <c>GetInteractable(collider)</c> → that Interactable's
+        /// <see cref="Slot"/>. The reach bound IS the range gate (vanilla has no server-side one), and
+        /// it is independent of <c>BlockCursorRaycast</c>. Read-only; null on any miss or failure.
+        /// Internal: <see cref="Hud.HudSlotDrag"/> reuses it for the same missing world-slot step
+        /// on HUD hand/equipment drags (grid agent hook 1) — one picker, one behaviour.</summary>
+        internal static Slot WorldSlotUnderCursor()
+        {
+            try
+            {
+                var cam = Assets.Scripts.CameraController.CurrentCamera;
+                var cm = Assets.Scripts.CursorManager.Instance;
+                if (cam == null || cm == null) return null;
+                float maxDist = Assets.Scripts.CursorManager.MaxInteractDistance;
+                RaycastHit hit;
+                if (!Physics.Raycast(cam.ScreenPointToRay(Input.mousePosition), out hit, maxDist, cm.CursorHitMask))
+                    return null;
+                Thing thing = hit.transform != null ? hit.transform.GetComponentInParent<Thing>() : null;
+                if (thing == null) return null;
+                Interactable interactable = thing.GetInteractable(hit.collider);
+                return interactable != null ? interactable.Slot : null;
+            }
+            catch { return null; }
+        }
+
+        /// <summary>Is the cursor over a HUD hand / worn-equipment box? Those are raycast-transparent to
+        /// the EventSystem, and the release resolves them BEFORE a world slot, so the world placement
+        /// box must not promise a drop there. Called only on drag-move frames, never per idle frame.</summary>
+        private static bool OverHudBox()
+        {
+            try
+            {
+                var zone = UI.Hud.HudSystem.ZoneAt();
+                return zone != null && zone.Slot != null;
+            }
+            catch { return false; }
+        }
+
+        /// <summary>D-002: park vanilla's world raycast for the duration of a cell drag (idempotent).</summary>
+        private static void HoldDragBlock()
+        {
+            if (_dragBlockHeld) return;
+            _dragBlockHeld = true;
+            Core.CursorBlockArbiter.Hold(DragBlockId);
+        }
+
+        /// <summary>Hand vanilla's world raycast back and take our placement box down. Idempotent; safe
+        /// from every drag exit path, from <see cref="CancelActiveDrag"/> and from teardown.</summary>
+        private static void ReleaseDragBlock()
+        {
+            HideWorldCue();
+            if (!_dragBlockHeld) return;
+            _dragBlockHeld = false;
+            Core.CursorBlockArbiter.Release(DragBlockId);
+        }
+
+        /// <summary>Draw vanilla's placement box (green move/swap, yellow merge, blue insert, red refused
+        /// — <c>InputMouse.IsValid</c>) on the world slot under the cursor for the dragged item, or take
+        /// it down when there is none. Delegates to the shared <see cref="Core.WorldSlotCue"/>.</summary>
+        private static void TickWorldCue(DynamicThing carried)
+        {
+            if (carried == null) { HideWorldCue(); return; }
+            Core.WorldSlotCue.Tick(carried);
+            _worldCueLive = true;
+        }
+
+        /// <summary>Take our world placement box down if we raised it. Idempotent.</summary>
+        private static void HideWorldCue()
+        {
+            if (!_worldCueLive) return;
+            _worldCueLive = false;
+            Core.WorldSlotCue.Hide();
         }
 
         /// <summary>Resolve a tab drop into a pinned item rule through
@@ -803,22 +978,30 @@ namespace StationeersUIMod.UI.Grid
         /// profile mode the tab probe never runs, so item-drag behaviour is byte-identical to the
         /// old cell-only pick. Reuses the shared hit list (drag frames aren't steady state, but
         /// still no per-frame allocation); the ghost is not a raycast target, so it never occludes
-        /// the target.</summary>
-        private void FindDropUnder(PointerEventData e, out BagGridCell cell, out GridTab tab)
+        /// the target. A take-out-only rescue cell (D-005) is never a target: it occludes like any
+        /// cell but resolves to "no cell" (the release then aborts on it). <paramref name="overUi"/>
+        /// reports whether ANY UGUI element owns the pixel (the world placement cue stays down).</summary>
+        private void FindDropUnder(PointerEventData e, out BagGridCell cell, out GridTab tab, out bool overUi)
         {
             cell = null;
             tab = null;
+            overUi = false;
             var es = EventSystem.current;
             if (es == null) return;
             bool wantTab = GridProfileMode.Active;
             RayHits.Clear();
             es.RaycastAll(e, RayHits);
+            overUi = RayHits.Count > 0;
             for (int i = 0; i < RayHits.Count; i++)
             {
                 var go = RayHits[i].gameObject;
                 if (go == null) continue;
                 var c = go.GetComponentInParent<BagGridCell>();
-                if (c != null && c != this) { cell = c; break; }
+                if (c != null && c != this)
+                {
+                    if (!c._takeOnly) cell = c;   // a rescue cell occludes, but never receives
+                    break;
+                }
                 if (wantTab)
                 {
                     // Only a hit on the tab polygon itself resolves (icon/name/chevron are
@@ -881,8 +1064,13 @@ namespace StationeersUIMod.UI.Grid
         {
             // Only the drag OWNER clears the ghost hint: CancelDrag also runs on pooled sibling
             // cells being re-Bound mid-gesture (Bind → CancelDrag), and those must not kill the
-            // LIVE drag's glow. _dragging is true only on the source cell.
-            if (_dragging) GridGhostHint.EndDrag();
+            // LIVE drag's glow. _dragging is true only on the source cell. Same rule for the
+            // gesture's world-raycast hold + placement box (D-002).
+            if (_dragging || ReferenceEquals(_activeDrag, this))
+            {
+                GridGhostHint.EndDrag();
+                ReleaseDragBlock();
+            }
             if (ReferenceEquals(_activeDrag, this)) _activeDrag = null;
             // A forwarded (scroll) gesture dies with the cell too — the ScrollRect gets no further
             // relay, so the flag must never survive into the next gesture on a recycled cell.
@@ -906,6 +1094,10 @@ namespace StationeersUIMod.UI.Grid
             _activeDrag = null;
             RayHits.Clear();
             if (cell != null) cell.CancelDrag();
+            // Belt and braces for teardown (Hide / Shutdown / menu suppression): the world-raycast
+            // hold and the placement box can never outlive the gesture, even if the owning cell is
+            // already gone.
+            ReleaseDragBlock();
         }
 
         /// <summary>Deactivating a cell (pool return, panel hide, canvas teardown) stops Unity from
@@ -923,6 +1115,7 @@ namespace StationeersUIMod.UI.Grid
         {
             if (_hover) ClearOccupantTooltip();   // pooled while hovered → don't strand the tooltip
             _slot = null;
+            _takeOnly = false;
             _hover = false;
             _activeHand = false;
             _bound = false;

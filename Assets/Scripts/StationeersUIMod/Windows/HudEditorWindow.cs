@@ -866,6 +866,8 @@ namespace StationeersUIMod.Windows
             "VitalsPanel", "DamageDoll", "JetpackBox", "StateChips",
             // The PNG body doll (assembled from config/StationeersUIMod/HudIcons art):
             "PngDoll",
+            // Crosshair distance readout (D-019 - FlorpyDorp evaluates placement himself):
+            "Rangefinder",
         };
 
         /// <summary>The HUD Designer controls: grid, add/draw, and selection actions.

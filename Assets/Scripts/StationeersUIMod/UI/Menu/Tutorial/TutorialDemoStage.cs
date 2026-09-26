@@ -951,7 +951,8 @@ namespace StationeersUIMod.UI.Menu.Tutorial
             private static readonly string[] Hub =
                 { "SEARCH", "HELMET", "GLASSES", "SUIT", "BACK", "UNIFORM", "BELT", "GRAB" };
             private static readonly string[] Line0 = { "TOOLBELT", "THE HUB" };
-            private static readonly string[] Line1 = { "LMB select", "DRILL to hand", "everything you carry" };
+            // B17: a click TAKES (D-021 retired "LMB select" — a click takes, opens, swaps... per wedge).
+            private static readonly string[] Line1 = { "LMB take", "DRILL to hand", "everything you carry" };
 
             public void Build(RectTransform root)
             {

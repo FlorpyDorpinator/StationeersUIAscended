@@ -960,11 +960,14 @@ namespace StationeersUIMod.UI.Grid
         }
 
         /// <summary>Raise a pinned window above its siblings so a repeat shortcut press reads as
-        /// "focus this one". Cheap sibling reorder; no-op when the window is not live.</summary>
+        /// "focus this one". D-006: through the window's own focus z-order
+        /// (<see cref="PinnedInventoryWindow.BringToFront"/>), which moves draw order AND raycast
+        /// priority together — a bare sibling reorder no longer decides either, because every pin
+        /// sorts on its own overriding canvas. No-op when the window is not live.</summary>
         private static void Focus(long containerRefId)
         {
             var w = PinnedInventoryWindow.Find(containerRefId);
-            if (w != null && w.transform != null) w.transform.SetAsLastSibling();
+            if (w != null) w.BringToFront();
         }
 
         /// <summary>Invalidate the structural signature and rebuild NOW (rather than next Tick), so a

@@ -126,6 +126,10 @@ namespace StationeersUIMod.Features
                 // heldStack goes Unity-null the instant a merge consumes the last of it.
                 if (heldStack == null || heldStack.Quantity <= 0) return;
                 if (s == null || s == firstSlot || s == leftHand || s == rightHand) continue;
+                // D-005 (A10): never feed a stack sitting in a hidden/stack slot — the same skip the
+                // router's merge stage makes (StowRouter.TryStackMerge -> IsDestSlot) and phase 2
+                // below makes for a free slot. A built-in part is not a stow target by merge either.
+                if (Core.ItemActions.IsSealedSlot(s)) continue;
                 var target = s.Get() as IMergeable;
                 if (target == null || target.IsStackFull) continue;
                 if (!target.CanStack(heldStack)) continue;
@@ -139,6 +143,7 @@ namespace StationeersUIMod.Features
             {
                 if (s == null || s == firstSlot || s == leftHand || s == rightHand) continue;
                 if (s.Get() != null) continue;
+                if (Core.ItemActions.IsSealedSlot(s)) continue; // never stow into a hidden/stack slot (D-005)
                 if (!Slot.AllowMove(held, s)) continue;
                 OnServer.MoveToSlot(held, s);
                 SlotFlash.OnStow(s, held);

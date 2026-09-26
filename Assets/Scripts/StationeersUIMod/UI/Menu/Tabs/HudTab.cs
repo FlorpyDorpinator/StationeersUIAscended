@@ -7,8 +7,10 @@ using UnityEngine.UI;
 namespace StationeersUIMod.UI.Menu.Tabs
 {
     /// <summary>HUD-half comfort settings. Simple = a pointer into the F9 HUD Designer (which now
-    /// owns scale/font/curvature) + show/hide toggles + the hide-vanilla group; Advanced adds
-    /// low-power/glitch and another shortcut into the F9 Designer near Maintenance.</summary>
+    /// owns scale/font/curvature) + show/hide toggles + the hide-vanilla group, PLUS Power & glitch
+    /// whenever Diegetic tiers is on (it is meaningless with diegetics off - nothing to see);
+    /// Advanced always shows Power & glitch and adds another shortcut into the F9 Designer near
+    /// Maintenance.</summary>
     public sealed class HudTab : IUiaTab
     {
         public string Title => "HUD";
@@ -31,8 +33,39 @@ namespace StationeersUIMod.UI.Menu.Tabs
             UiaControls.Button(col, "Open the HUD Designer (F9)", OpenDesigner, -1f, UiaTheme.RowH, UiaControls.ButtonStyle.Primary);
 
             UiaControls.Header(col, "Show");
-            UiaControls.ToggleRow(col, "Diegetic tiers (words when unpowered)", HudConfig.DiegeticTiers.Value, v => HudConfig.DiegeticTiers.Value = v);
-            UiaControls.ToggleRow(col, "Flicker / boot animations", HudConfig.FlickerAnimations.Value, v => HudConfig.FlickerAnimations.Value = v);
+            // Diegetics drives whether low-battery flicker/glitch is even visible to a Bare-tier
+            // player, so Power & glitch sits directly beneath it (FlorpyDorp, D-020) instead of
+            // being buried further down under an Advanced-only header that used to separate the
+            // two. Refresh() on toggle so a Simple-mode player sees the section appear/disappear
+            // immediately, without needing to reopen the tab.
+            //
+            // B5: every HudConfig key on this tab (bar HudTheme.Exclude's per-machine/perf knobs)
+            // TRAVELS WITH THE PROFILE THEME, so each write must MarkThemeChanged — exactly what F9's
+            // own Toggle/FloatSlider do (HudEditorWindow.cs:2554-2564). Without it the edit only lives
+            // in the .cfg and the profile's stored theme puts the old value back on the next
+            // relaunch / profile switch. A SHIPPED (read-only) theme needs nothing extra here: the
+            // store's save gate (HudProfileStore.RefuseActiveSave) drops that write and toasts
+            // "Shipped theme - read-only" once, the same path F9 relies on.
+            UiaControls.ToggleRow(col, "Diegetic tiers (words when unpowered)", HudConfig.DiegeticTiers.Value,
+                v => { HudConfig.DiegeticTiers.Value = v; Features.HudProfileStore.MarkThemeChanged(); UiaControlCenter.Refresh(); });
+
+            // SIMPLE mode: only worth showing while Diegetics is actually on (there is nothing to
+            // tune otherwise). ADVANCED mode always shows it, like every other Advanced knob here.
+            if (advanced || HudConfig.DiegeticTiers.Value)
+            {
+                UiaControls.Header(col, "Power & glitch");
+                UiaControls.ToggleRow(col, "Low-power dropouts", HudConfig.LowPowerDropouts.Value,
+                    v => { HudConfig.LowPowerDropouts.Value = v; Features.HudProfileStore.MarkThemeChanged(); });
+                UiaControls.SliderRow(col, "Low-power threshold (%)", 0f, 40f, HudConfig.LowPowerThreshold.Value,
+                    v => { HudConfig.LowPowerThreshold.Value = v; Features.HudProfileStore.MarkThemeChanged(); }, "0");
+                UiaControls.ToggleRow(col, "Power-transition glitch", HudConfig.FxGlitchOn.Value,
+                    v => { HudConfig.FxGlitchOn.Value = v; Features.HudProfileStore.MarkThemeChanged(); });
+            }
+
+            // Same B5 fix: FlickerAnimations travels with the theme too (the shipped profiles carry
+            // cfg:FlickerAnimations), and this pre-existing row had the identical silent revert.
+            UiaControls.ToggleRow(col, "Flicker / boot animations", HudConfig.FlickerAnimations.Value,
+                v => { HudConfig.FlickerAnimations.Value = v; Features.HudProfileStore.MarkThemeChanged(); });
             UiaControls.ToggleRow(col, "Detailed vitals tooltips (mood + hygiene)", HudConfig.DetailedVitalsTooltips.Value,
                 v => { HudConfig.DetailedVitalsTooltips.Value = v; Features.HudProfileStore.MarkThemeChanged(); });
 
@@ -43,11 +76,6 @@ namespace StationeersUIMod.UI.Menu.Tabs
             UiaControls.ToggleRow(col, "Instrument cluster (bottom-right)", UIAConfig.HideVanillaPlayerState.Value, v => UIAConfig.HideVanillaPlayerState.Value = v);
 
             if (!advanced) return;
-
-            UiaControls.Header(col, "Power & glitch (advanced)");
-            UiaControls.ToggleRow(col, "Low-power dropouts", HudConfig.LowPowerDropouts.Value, v => HudConfig.LowPowerDropouts.Value = v);
-            UiaControls.SliderRow(col, "Low-power threshold (%)", 0f, 40f, HudConfig.LowPowerThreshold.Value, v => HudConfig.LowPowerThreshold.Value = v, "0");
-            UiaControls.ToggleRow(col, "Power-transition glitch", HudConfig.FxGlitchOn.Value, v => HudConfig.FxGlitchOn.Value = v);
 
             UiaUi.Go("sp", col).AddComponent<LayoutElement>().preferredHeight = 6f;
             UiaControls.Note(col, "Build your own layout and tune the glass effects in the HUD Designer.");

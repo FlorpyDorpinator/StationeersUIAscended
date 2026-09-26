@@ -31,10 +31,12 @@ namespace StationeersUIMod.Core
     ///
     /// TWO SOURCES, TWO LADDERS. <c>Drag()</c> carries a free-lying world item (ParentSlot == null) →
     /// <see cref="ItemActions.WorldDragTo"/>. <c>DragSlot()</c> carries an item taken from a world
-    /// container's slot, whose <c>ParentSlot</c> is ALWAYS non-null (InputMouse.cs:492) → the existing
-    /// <see cref="ItemActions.DragTo"/>, which already implements that ladder. Routing both to the
-    /// world resolver would hard-fail every DragSlot release AND suppress vanilla's handling of it,
-    /// which is strictly worse than doing nothing (2026-07-20 review).
+    /// container's slot (its <c>ParentSlot</c> is non-null AT ARM TIME, InputMouse.cs:489-493) → the
+    /// existing <see cref="ItemActions.DragTo"/>, which already implements that ladder. Routing both to
+    /// the world resolver would hard-fail every DragSlot release AND suppress vanilla's handling of it,
+    /// which is strictly worse than doing nothing (2026-07-20 review). The DragSlot source is the slot
+    /// the drag was ARMED from (<see cref="TryGetArmedSourceSlot"/>), never the item's parent re-read
+    /// at release — see A7 in <see cref="Route"/>.
     ///
     /// Registered through <see cref="PatchHarness.TryPatchAll"/>: these are PRIVATE vanilla methods,
     /// so a rename in a game update degrades only this feature instead of failing the mod.
@@ -116,11 +118,57 @@ namespace StationeersUIMod.Core
                 try { CursorManager.SetSelectionVisibility(false); } catch { }
         }
 
+        // ---- A7: the world-slot drag's ARM-TIME source ---------------------------------------------
+        // Vanilla arms a world-slot drag in InputMouse.Click() from InputMouse.WorldInteractable.Slot
+        // (27758 InputMouse.cs:489-493: WorldMode = DragSlot, CursorItem = that slot's occupant).
+        // WorldInteractable is written ONLY by Idle() (:394-426), and Update() dispatches Idle() only in
+        // WorldMode.Idle (:356-370) — so across the whole Click -> DragSlot gesture it is frozen, and on
+        // the release frame it still names the exact slot the drag was armed from. Reading it is an
+        // exact arm-time capture without patching the private arm point (no new patch class). The field
+        // is private static (InputMouse.cs:698, identical on 24790 / 27701 / 27758), so it is resolved
+        // by reflection ONCE, fail-soft. A FieldInfo holds no Unity object: nothing to reset on reload.
+        private static FieldInfo _worldInteractableField;
+        private static bool _worldInteractableResolved;
+
+        /// <summary>The slot vanilla ARMED the current world-slot drag from (see above). Returns false
+        /// when this game build's InputMouse no longer carries the field — the caller then degrades to
+        /// the vanilla-equivalent guarantee (single move, no sweep). Returns true otherwise, with
+        /// <paramref name="armed"/> null when there is no armed interactable/slot (the caller aborts).</summary>
+        private static bool TryGetArmedSourceSlot(out Slot armed)
+        {
+            armed = null;
+            if (!_worldInteractableResolved)
+            {
+                _worldInteractableResolved = true;
+                try
+                {
+                    FieldInfo f = typeof(InputMouse).GetField("WorldInteractable",
+                        BindingFlags.Static | BindingFlags.NonPublic | BindingFlags.Public);
+                    if (f != null && typeof(Assets.Scripts.Objects.Interactable).IsAssignableFrom(f.FieldType))
+                        _worldInteractableField = f;
+                }
+                catch { _worldInteractableField = null; }
+                if (_worldInteractableField == null)
+                    UIALog.Warn("World drag: InputMouse.WorldInteractable is missing on this game build - a "
+                        + "container item dropped on a HUD box now falls back to a plain single move (no "
+                        + "mid-drag source check, no Shift sweep).");
+            }
+            if (_worldInteractableField == null) return false;
+            try
+            {
+                var ia = _worldInteractableField.GetValue(null) as Assets.Scripts.Objects.Interactable;
+                armed = ia != null ? ia.Slot : null;
+                return true;
+            }
+            catch { armed = null; return false; }
+        }
+
         /// <summary>Free-lying world item → a UIA box (the <c>Drag()</c> path).</summary>
         internal static bool TryLooseItem(InputMouse mouse) => Route(mouse, worldSourced: true);
 
         /// <summary>Item pulled from a world container's slot → a UIA box (the <c>DragSlot()</c> path).
-        /// Its ParentSlot is always set, so it reuses the ALREADY-REVIEWED slot-to-slot ladder.</summary>
+        /// It has a source slot — the one the drag was ARMED from (<see cref="TryGetArmedSourceSlot"/>) —
+        /// so it reuses the ALREADY-REVIEWED slot-to-slot ladder.</summary>
         internal static bool TrySlotItem(InputMouse mouse) => Route(mouse, worldSourced: false);
 
         /// <summary>
@@ -189,17 +237,43 @@ namespace StationeersUIMod.Core
                 }
                 else
                 {
-                    Slot src = item.ParentSlot;
-                    if (src != null)
-                        // Expected = the item VANILLA grabbed (frozen at drag-arm time), NOT a fresh
-                        // read of the slot. Calling .Pin() here would set Expected from src.Get()
-                        // microseconds before DragTo compares item != Expected against that same
-                        // read — a tautology that can never fail, silently voiding DragTo's
-                        // documented staleness guard. With the real item pinned, a teammate swapping
-                        // the slot's contents mid-drag correctly fails instead of moving whatever
-                        // landed there (the server validates nothing, so this is our only check).
-                        ItemActions.DragTo(
-                            new ScannedSlot { Slot = src, Holder = src.Parent, Expected = item }, dest);
+                    // A7 — the SOURCE is the slot vanilla ARMED this drag from (TryGetArmedSourceSlot),
+                    // never item.ParentSlot re-read now. The old code read ParentSlot here, at RELEASE,
+                    // and pinned Expected = item: those two always agree, so DragTo's staleness check
+                    // could never fail — a teammate who moved the grabbed item mid-drag (into THEIR
+                    // backpack, say) left us moving it out of wherever it now sat, and with Shift held
+                    // SWEEPING that container too (D-018 multiplies the damage). Vanilla's own
+                    // DragSlot() re-reads CursorItem.ParentSlot at release as well (InputMouse.cs:548-561
+                    // -> Slot.cs:627) and shares the single-move weakness; this route no longer does.
+                    Slot armed;
+                    if (TryGetArmedSourceSlot(out armed))
+                    {
+                        // The grabbed item must still sit in the armed slot. Moved, taken, dropped, or
+                        // its container gone: abort — the release stays claimed (Rule 2), nothing is sent.
+                        if (armed == null || item.ParentSlot != armed)
+                        {
+                            UIAudioManager.Play(UIAudioManager.ActionFailHash);
+                            return true;
+                        }
+                        // Slot = the ARMED slot, Expected = the item vanilla grabbed at arm: DragTo's
+                        // occupant check (armed.Get() == item) is now a genuine execute-time re-check.
+                        var scanned = new ScannedSlot { Slot = armed, Holder = armed.Parent, Expected = item };
+                        // D-018 sibling (grid agent hook 4): Shift held on the release sweeps every
+                        // stack of the same type out of the world container — vanilla's "take all
+                        // of this type from a locker". Same per-item gates, skip-not-fail; it only ever
+                        // reads the container the drag was ARMED in (the one verified above).
+                        if (ItemActions.MoveAllOfTypeHeld()) ItemActions.DragAllOfTypeTo(scanned, dest);
+                        else ItemActions.DragTo(scanned, dest);
+                    }
+                    else
+                    {
+                        // Arm-time source unknowable on this build (vanilla's private field moved): the
+                        // vanilla-equivalent guarantee only — one single move from wherever the item
+                        // sits now, and NEVER the sweep, whose blast radius needs the armed container.
+                        Slot src = item.ParentSlot;
+                        if (src != null)
+                            ItemActions.DragTo(new ScannedSlot { Slot = src, Holder = src.Parent, Expected = item }, dest);
+                    }
                 }
                 return true;
             }

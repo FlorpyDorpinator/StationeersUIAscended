@@ -33,7 +33,21 @@ namespace StationeersUIMod.Features
             return Guards.LocalHuman != null;
         }
 
-        public List<RadialEntry> BuildRoot()
+        public List<RadialEntry> BuildRoot() => BuildRootEntries();
+
+        /// <summary>
+        /// The belt ring's actual content: The Hub wedge + one wedge per belt slot. Static
+        /// (uses only <see cref="Guards.LocalHuman"/> and other global/config state, no
+        /// instance state) so <see cref="EquipmentKeyRadialFeature"/> can show this SAME ring
+        /// when its button targets the worn tool belt (the 6 key) instead of the generic
+        /// "manage this equipped item" menu every other equipment key uses (D-007). Before
+        /// this split, tapping 6 built an entirely different entry list via
+        /// <see cref="ItemMenuBuilder.BuildManageEntries"/> — no Hub wedge, no home-slot ghost
+        /// labels — and <see cref="RadialController"/>'s Q-swap gate
+        /// (<c>_active is ToolbeltRadialFeature</c>) never matched an
+        /// <see cref="EquipmentKeyRadialFeature"/> instance, so Q silently did nothing there.
+        /// </summary>
+        public static List<RadialEntry> BuildRootEntries()
         {
             var entries = new List<RadialEntry>();
             var human = Guards.LocalHuman;
@@ -44,7 +58,7 @@ namespace StationeersUIMod.Features
             entries.Add(new RadialEntry
             {
                 Label = "The Hub",
-                ActionText = "Enter",
+                ActionText = "Open",   // D-022: matches the curved action word (branch = "Open")
                 Sublabel = "inventory + search",
                 AccentOverride = Theme.Accent,
                 ChildProvider = BagRadialFeature.BuildHubRoot,
@@ -67,6 +81,9 @@ namespace StationeersUIMod.Features
             foreach (Slot slot in belt.Slots)
             {
                 if (slot == null) continue;
+                // D-005 (A3): a sealed (hidden) belt slot is never a wedge — neither a tool to take
+                // out nor a STOW target. Vanilla belts have none; this keeps a modded one honest.
+                if (!ItemMenuBuilder.IsListableSlot(slot)) continue;
                 string boundLabel = homeSlots ? BeltBindingStore.BoundLabelFor(belt, slot.SlotIndex) : null;
                 DynamicThing occ = slot.Get();
                 if (occ != null)
@@ -152,7 +169,10 @@ namespace StationeersUIMod.Features
             }
 
             // Depth 3 reaches a spare belt lying in the backpack or a crate in hand; belts never
-            // nest inside tools, so tool slots are skipped. Each result is Pin()'d by FindCompatible.
+            // nest inside tools, so tool slots are skipped. Each result is Pin()'d by FindCompatible,
+            // which also never returns a belt sitting in (or beneath) a SEALED slot (D-005, A3) — a
+            // belt the old phantom grid trapped in a cable coil is not offered, because the swap
+            // would put the WORN belt into that coil (SwapWornToolbelt refuses it again at execute).
             foreach (var cand in InventoryScanner.FindCompatible(toolbelt, 3, false))
             {
                 DynamicThing beltThing = cand.Occupant;

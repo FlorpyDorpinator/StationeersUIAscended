@@ -60,6 +60,19 @@ namespace StationeersUIMod.Features
         // closes (that close clears CursorManager.BlockCursorRaycast, which The Grid still wants).
         private System.Action _adHocClosed;
 
+        // D-064: true while the Q belt-picker (OpenBeltPicker) is the displayed sticky radial.
+        // OpenBeltPicker replaces the menu's root via _menu.Open(...) rather than pushing a
+        // child level (RadialMenu exposes no public "push a level" API), so the menu's own
+        // internal back-stack has nothing under the picker to pop to — its RMB handling would
+        // just close everything. This flag lets RMB instead reopen _active's own root (the
+        // belt ring Q was pressed from), which _active still names because OpenBeltPicker never
+        // reassigns it. Cleared by every path that navigates away from the picker or closes the
+        // radial (SwitchToFeature, OpenBagRadial, CloseAll, ShutdownImmediate).
+        // B15b: its menu-side mirror, RadialMenu.RmbReturnsFromRoot (what the hint strip reads), is
+        // reset by every _menu.Open/_menu.Close — i.e. by each of those same paths — and re-asserted
+        // every frame while the picker is up (UpdateOpen), so neither can outlive the other.
+        private bool _inBeltPicker;
+
         public bool IsRadialOpen => _menu.IsOpen;
         public IRadialFeature ActiveFeature => _active;
 
@@ -329,7 +342,10 @@ namespace StationeersUIMod.Features
                 if (pageKey != KeyCode.None && pageKey != (_active != null ? _active.Key : KeyCode.None)
                     && Input.GetKeyDown(pageKey))
                 {
-                    if (_active is ToolbeltRadialFeature) OpenBeltPicker();
+                    // D-007: Q must belt-swap regardless of whether this ring was opened by MMB
+                    // (ToolbeltRadialFeature) or the 6 equipment key (EquipmentKeyRadialFeature
+                    // now showing the identical content) — see IsToolbeltRing.
+                    if (IsToolbeltRing(_active)) OpenBeltPicker();
                     else _menu.NextPage();
                 }
             }
@@ -397,6 +413,25 @@ namespace StationeersUIMod.Features
                     }
                     // (The classic-schema "MMB dismisses a radial it doesn't own" clause went
                     // with the schema chooser in the post-0.9.2.5 play-test round — the menu owns MMB in every radial now.)
+
+                    // D-064: RMB out of the Q belt-picker returns to the belt ring you Q'd away
+                    // from (same belt, live state) instead of falling into the menu's own RMB
+                    // handling below, which would just close everything (the picker is a fresh
+                    // root, not a pushed child — see _inBeltPicker). _active still names the
+                    // origin ring; SwitchToFeature reopens it sticky and clears the flag.
+                    // A5: only when that ring can actually reopen — otherwise RMB falls through to
+                    // the menu's own handling (a close) instead of being swallowed with a fail sound —
+                    // and never while a drag is in flight: RMB mid-drag cancels just the drag (the
+                    // menu's handling below), exactly as the hint strip promises.
+                    // B15b: the same bool tells the menu (and through it the hint strip) that RMB at
+                    // this root is a "back", so the strip can never disagree with what RMB does.
+                    bool pickerReturns = _inBeltPicker && CanReturnTo(_active);
+                    _menu.RmbReturnsFromRoot = pickerReturns;
+                    if (pickerReturns && !_menu.IsDragging && Input.GetMouseButtonDown(1))
+                    {
+                        SwitchToFeature(_active);
+                        return;
+                    }
                 }
                 _menu.UpdateSticky();
                 if (wasOpen && !_menu.IsOpen)
@@ -529,7 +564,21 @@ namespace StationeersUIMod.Features
             }
             if (!_modal.IsOpen) _modal.Open();
             _menu.Open("Swap Belt", ToolbeltRadialFeature.BuildBeltPicker, sticky: true);
+            _inBeltPicker = true; // D-064: RMB from here returns to _active's ring instead of closing
+            // B15b: publish it at once (UpdateOpen re-asserts it every frame from here on), so the
+            // strip reads "RMB back" from the picker's very first frame.
+            _menu.RmbReturnsFromRoot = CanReturnTo(_active);
             UIAudioManager.Play(UIAudioManager.ClickLightHash);
+        }
+
+        /// <summary>A5 / B15b: can RMB out of the belt picker actually reopen <paramref name="f"/> —
+        /// the same gates <see cref="SwitchToFeature"/> applies before it switches. Fail-soft: a
+        /// throwing CanOpen counts as "no" (RMB then closes, like at any other root).</summary>
+        private static bool CanReturnTo(IRadialFeature f)
+        {
+            if (f == null) return false;
+            try { return f.Enabled && f.CanOpen(); }
+            catch { return false; }
         }
 
         // ---------- #3: radial switching + bag hotkeys ----------
@@ -617,7 +666,7 @@ namespace StationeersUIMod.Features
         /// Returns true when it swapped.</summary>
         private bool SwapToolbeltBackpack()
         {
-            if (_active is ToolbeltRadialFeature)
+            if (IsToolbeltRing(_active))
             {
                 var back = EquipFeatureForDigit(4); // BackSlot
                 if (back != null) { SwitchToFeature(back); return true; }
@@ -630,6 +679,19 @@ namespace StationeersUIMod.Features
             return false;
         }
 
+        /// <summary>True when <paramref name="f"/> is "the toolbelt ring" regardless of which
+        /// key opened it — the MMB Belt Wheel (<see cref="ToolbeltRadialFeature"/>) or the 6
+        /// equipment key (<see cref="EquipmentKeyRadialFeature"/> for "ToolBeltSlot"), which
+        /// shows identical content as of D-007. Toolbelt-only gestures (Q belt-swap, Tab
+        /// swap-to-backpack) key off this instead of a bare type check, so they behave the same
+        /// no matter which key opened the ring. Internal so the key-hint strip keys its "Q change
+        /// belt" hint off the SAME test (A12b / B3).</summary>
+        internal static bool IsToolbeltRing(IRadialFeature f)
+        {
+            return f is ToolbeltRadialFeature
+                || (f is EquipmentKeyRadialFeature eq && eq.ButtonName == "ToolBeltSlot");
+        }
+
         /// <summary>Reopen the (sticky) radial on another feature's root, keeping the modal — the
         /// switch used by the Tab swap and 1–6.</summary>
         private void SwitchToFeature(IRadialFeature f)
@@ -640,6 +702,7 @@ namespace StationeersUIMod.Features
                 return;
             }
             _active = f;
+            _inBeltPicker = false; // D-064: any explicit switch leaves the Q belt-picker behind
             if (!_modal.IsOpen) _modal.Open();
             _menu.Open(f.Title, f.BuildRoot, sticky: true);
             UIAudioManager.Play(UIAudioManager.ClickLightHash);
@@ -651,6 +714,7 @@ namespace StationeersUIMod.Features
             if (bag == null) return;
             var b = bag;
             _active = BagFeature(); // owner key = Tab, for close/re-press (null-safe)
+            _inBeltPicker = false; // D-064: Ctrl+number (reachable while the picker is up) leaves it behind
             if (!_modal.IsOpen) _modal.Open();
             _menu.Open(b.DisplayName, () => BagRadialFeature.BuildBagLevel(b), sticky: true);
             UIAudioManager.Play(UIAudioManager.ClickLightHash);
@@ -695,12 +759,17 @@ namespace StationeersUIMod.Features
         public void CloseAll(string reason = null)
         {
             Core.CursorDiag.NoteRadial("CLOSE reason=" + (reason ?? "?") + " sticky=" + _menu.IsSticky);
-            _menu.Close();
+            // A2: whatever the menu's close does, the modal below is ALWAYS released — a throw here
+            // must never strand the cursor/input lock behind a half-closed radial.
+            try { _menu.Close(); }
+            catch (System.Exception e) { UIALog.Warn("Radial close failed: " + e.Message); }
             _releaseKey = _active?.Key ?? KeyCode.None;
             _modal.RequestDeferredClose();
             _modal.Pump(_releaseKey);
             _active = null;
             _pending = null;
+            _inBeltPicker = false; // D-064: never survives a close
+            _menu.RmbReturnsFromRoot = false; // B15b: its menu-side mirror (Close resets it too)
             // E.5: never strand the new radial-feel statics/timers past a close.
             _lastTapFeature = null;
             _lastTapAt = -1f;
@@ -713,7 +782,10 @@ namespace StationeersUIMod.Features
         public void ShutdownImmediate()
         {
             RadialMovement.Active = false; // hot-reload safety: never strand the pass-through
-            _menu.Close();
+            // A2: one failing close must not abort the rest of this teardown (a double-F6 has to
+            // leave no canvas, modal or static behind).
+            try { _menu.Close(); }
+            catch (System.Exception e) { UIALog.Warn("Radial shutdown close failed: " + e.Message); }
             _modal.Close();
             UI.UnityRadialView.Shutdown(); // destroy the canvases, or every hot reload stacks another
             UI.ParkedItemsView.Shutdown();
@@ -724,7 +796,8 @@ namespace StationeersUIMod.Features
             RadialMenu.ResetRepeatCache(); // R3: drop the cached last-commit delegate (it pins live game objects)
             _active = null;
             _pending = null;
-            // E.5 hot-reload: reset the new radial-feel statics/timers (a double-F6 must strand nothing).
+            _inBeltPicker = false; // D-064: hot-reload safety — a double-F6 must strand nothing
+            _menu.RmbReturnsFromRoot = false; // B15b: its menu-side mirror
             _lastTapFeature = null;
             _lastTapAt = -1f;
             // Drop the ad-hoc callback WITHOUT running it (it points into the surface we are tearing

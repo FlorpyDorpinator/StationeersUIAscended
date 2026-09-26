@@ -396,6 +396,8 @@ namespace StationeersUIMod.UI.Hud
                 case HudElementType.JetpackBox: return new Widgets.JetpackBoxWidget();
                 case HudElementType.StateChips: return new Widgets.StateChipsWidget();
                 case HudElementType.PngDoll: return new Widgets.PngDollWidget();
+                // D-019: laser-rangefinder distance readout (pure local raycast).
+                case HudElementType.Rangefinder: return new Widgets.RangefinderWidget();
                 case HudElementType.Clock:
                 case HudElementType.WorldName:
                 case HudElementType.DayCounter:

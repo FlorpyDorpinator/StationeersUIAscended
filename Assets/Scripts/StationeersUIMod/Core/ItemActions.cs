@@ -1,3 +1,5 @@
+using System.Collections.Generic;
+using System.Runtime.CompilerServices;
 using Assets.Scripts;
 using Assets.Scripts.Inventory;
 using Assets.Scripts.Objects;
@@ -10,6 +12,15 @@ namespace StationeersUIMod.Core
     /// multiplayer-safe funnel (OnServer.* / Slot.Player* / Thing.Interact / Thing.Merge),
     /// which applies locally in singleplayer/host and sends authoritative messages on
     /// clients. Nothing here touches DynamicThing.MoveToSlot, Slot.Take or Quantity.
+    ///
+    /// <para>SEALED SLOTS (D-005): no funnel here ever PLACES anything into a slot vanilla never
+    /// exposes to a player — see <see cref="IsSealedSlot"/>. Taking something OUT of one is allowed
+    /// (that is how an item trapped by the old phantom grid is rescued).</para>
+    ///
+    /// <para>Sanctioned multi-message actions (each explicitly designed, each message individually
+    /// gated at execute time): the radial chip dump, the coarse PressInteractable step, and
+    /// <see cref="DragAllOfTypeTo"/> — vanilla's own Shift-drag "move all of this type", which vanilla
+    /// itself transmits as one MoveToSlot per stack (FlorpyDorp approved vanilla parity, D-018).</para>
     /// </summary>
     public static class ItemActions
     {
@@ -27,6 +38,91 @@ namespace StationeersUIMod.Core
             try { InventoryManager.Instance?.CheckCancelMultiConstructor(); } catch { }
             OnServer.MoveToSlot(item, destination);
             try { destination.PlaySlotEnterUiSound(); } catch { }
+        }
+
+        // ---- sealed slots (D-005) ----------------------------------------------------------------
+
+        /// <summary>The ONE compiled read of <see cref="Slot.IsInteractable"/>, isolated in its own
+        /// non-inlined method: were a future game build ever to drop the field, the
+        /// MissingFieldException fires when THIS tiny method JITs and is caught by
+        /// <see cref="IsVanillaVisibleSlot"/> — instead of failing the JIT of a large caller, the exact
+        /// crash class 0.9.7.1 fixed for <c>SpecificTypePrefabHash(es)</c>. (The field is a plain
+        /// public bool on every decompiled build back to the Multiplayer Update — 27701/27758 Slot.cs
+        /// and the live 27798 — so this is insurance, not a known risk.)</summary>
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private static bool ReadSlotInteractable(Slot slot)
+        {
+            return slot.IsInteractable;
+        }
+
+        /// <summary>A11: the <see cref="ReadSlotInteractable"/> read has failed once this session, so
+        /// every later call answers the fail-open value WITHOUT re-attempting it. Without this latch a
+        /// build that dropped the field would throw-and-catch (and re-attempt the failed JIT) on EVERY
+        /// call — and <c>GridModel</c> asks per slot per frame, so that is a performance collapse, not
+        /// a one-off. A plain bool describing the GAME BUILD, so it is harmless stale: an F6 reload
+        /// loads a fresh assembly whose static starts false, and the same build would only trip it
+        /// again.</summary>
+        private static bool _interactableReadUnavailable;
+
+        /// <summary>Would VANILLA ever draw this slot in an item's inventory window? Vanilla's own test is
+        /// <c>Slot.IsInteractable</c>: <c>InventoryWindow.SetSlots</c> builds a button only for an
+        /// interactable slot, <c>Thing.HasSlots</c> is "any interactable slot", the world slot pick
+        /// (<c>Thing._slotLookup</c>) registers only interactable slots, and <c>Thing.HandleSwitch</c>
+        /// refuses a non-interactable one (live 27798 InventoryWindow.SetSlots, Thing.HasSlots,
+        /// Thing.cs ~3688 / ~4244). Fail-OPEN (visible) on any read failure, i.e. the pre-D-005
+        /// behaviour — and the FIRST failure latches (<see cref="_interactableReadUnavailable"/>), so a
+        /// missing field costs one exception per session, never one per call.</summary>
+        public static bool IsVanillaVisibleSlot(Slot slot)
+        {
+            if (slot == null) return false;
+            if (_interactableReadUnavailable) return true;   // A11: remembered failure, fail-open
+            try { return ReadSlotInteractable(slot); }
+            catch (System.Exception e)
+            {
+                _interactableReadUnavailable = true;
+                try
+                {
+                    UIALog.Warn("Slot.IsInteractable is unreadable on this game build (" + e.GetType().Name
+                        + "): hidden-slot detection is off for this session - every slot now counts as "
+                        + "vanilla-visible, and only stack slots stay sealed.");
+                }
+                catch { }
+                return true;
+            }
+        }
+
+        /// <summary>A SEALED slot: one no vanilla UI ever lets a player put anything INTO — a
+        /// non-interactable slot of a carried thing (see <see cref="IsVanillaVisibleSlot"/>), or ANY slot
+        /// of a stack (<see cref="Stackable"/>: FlorpyDorp, D-005 — "there shouldn't be any sort of
+        /// inventory box associated with it"; a stack's merge/split/consume paths know nothing of
+        /// contents, and a consumed coil DESTROYS its children — DestroyChildrenOnDead). Slots on a
+        /// creature (the human's hands/worn slots) and on world structures are never sealed by this
+        /// rule. Every placement funnel below refuses a sealed destination; taking OUT is allowed.</summary>
+        public static bool IsSealedSlot(Slot slot)
+        {
+            if (slot == null) return false;
+            DynamicThing owner = slot.Parent as DynamicThing;
+            if (owner == null || owner is Assets.Scripts.Objects.Entity) return false;
+            if (owner is Assets.Scripts.Objects.Items.Stackable) return true;
+            return !IsVanillaVisibleSlot(slot);
+        }
+
+        /// <summary>The first child slot of <paramref name="dest"/>'s occupant that <paramref name="item"/>
+        /// may be INSERTED into — vanilla's <c>PlayerInsertToFreeSlot</c> loop (Slot.cs, AllowMove per
+        /// child) minus sealed children, so an insert can never tuck the item into a hidden slot or a
+        /// stack. Null when <see cref="Slot.CanInsert"/> is false or only sealed children would take it
+        /// (the caller then continues down the normal merge / swap / move ladder).</summary>
+        private static Slot FindInsertSlot(DynamicThing item, Slot dest)
+        {
+            if (item == null || dest == null || !Slot.CanInsert(item, dest)) return null;
+            DynamicThing host = dest.Get();
+            if (host == null || host.Slots == null) return null;
+            foreach (Slot child in host.Slots)
+            {
+                if (child == null || IsSealedSlot(child)) continue;
+                if (Slot.AllowMove(item, child)) return child;
+            }
+            return null;
         }
 
         /// <summary>Equip a thing into the active hand: move when empty, vanilla-style swap when
@@ -60,6 +156,9 @@ namespace StationeersUIMod.Core
                 MoveOneToSlot(item, hand);
                 return true;
             }
+            // A swap would put the HELD item INTO the source slot. A sealed source (an item rescued
+            // out of a hidden/stack slot) may only be emptied, never refilled: take it to a free hand.
+            if (IsSealedSlot(source.Slot)) return TakeToFreeHand(source);
             if (!Slot.AllowSwap(source.Slot, hand)) return Fail();
             // Wedge-binding rule (FlorpyDorp, 2026-08-06): when taking a tool OUT of a worn-belt
             // wedge with another belt tool in hand, the held tool must NOT be dumped into the
@@ -156,6 +255,7 @@ namespace StationeersUIMod.Core
             Slot hand = InventoryManager.ActiveHandSlot;
             DynamicThing item = hand?.Get();
             if (item == null || destination == null || destination.Get() != null) return Fail();
+            if (IsSealedSlot(destination)) return Fail();   // never refill a hidden / stack slot
             if (!Slot.AllowMove(item, destination)) return Fail();
             OnServer.MoveToSlot(item, destination);
             MaybeCancelPlacement(hand); // the held constructor left the hand: no ghost hologram
@@ -179,6 +279,9 @@ namespace StationeersUIMod.Core
             // from = "changed my mind") is a clean no-op — never OnServer.SwapSlots(s, s).
             if (candidate.Slot == targetSlot) return true;
 
+            // Never place INTO a sealed (hidden / stack) slot — see IsSealedSlot.
+            if (IsSealedSlot(targetSlot)) return Fail();
+
             if (targetSlot.Get() == null)
             {
                 if (!Slot.AllowMove(item, targetSlot)) return Fail();
@@ -188,6 +291,9 @@ namespace StationeersUIMod.Core
             }
             else
             {
+                // The swap would put the target's occupant INTO the candidate's slot: refused when
+                // that slot is sealed (a rescued item's slot may be emptied, never refilled).
+                if (IsSealedSlot(candidate.Slot)) return Fail();
                 if (!Slot.AllowSwap(candidate.Slot, targetSlot)) return Fail();
                 // The drop TARGET is explicit; the DISPLACED side only when the gesture stayed on
                 // the belt (wedge-over-wedge = the sanctioned home exchange). Displaced out of the
@@ -230,6 +336,11 @@ namespace StationeersUIMod.Core
             // Released on the slot it came from ("changed my mind") = clean no-op.
             if (src == dest) return true;
 
+            // Never place INTO a sealed (hidden / stack) slot — see IsSealedSlot. Vanilla's UI
+            // cannot even target one; this covers every surface that resolves a destination for
+            // us (grid cells, HUD boxes, world slots, the inbound world drag).
+            if (IsSealedSlot(dest)) return Fail();
+
             // Vanilla's two Plant guards (InputMouse.cs:154-164): a Plant-class slot is never a
             // drag destination (planting goes through the hydroponics interact path, not the
             // inventory funnel), and a Plant that is currently PLANTED cannot be dragged at all
@@ -239,24 +350,16 @@ namespace StationeersUIMod.Core
             if (plant != null && plant.IsPlanted) return Fail();
 
             // 1. Insert: nest the item into a free child slot of the destination's occupant
-            //    (e.g. drop a battery onto a tool that holds one). Mirrors PlayerInsertToFreeSlot.
-            if (Slot.CanInsert(item, dest))
+            //    (e.g. drop a battery onto a tool that holds one). Mirrors PlayerInsertToFreeSlot,
+            //    minus sealed children (FindInsertSlot): a stack or a hidden slot is never an
+            //    insert target, and such a drop continues down the ladder like a plain item.
+            Slot insertInto = FindInsertSlot(item, dest);
+            if (insertInto != null)
             {
-                DynamicThing host = dest.Get();
-                if (host != null && host.Slots != null)
-                {
-                    foreach (Slot child in host.Slots)
-                    {
-                        if (child != null && Slot.AllowMove(item, child))
-                        {
-                            OnServer.MoveToSlot(item, child);
-                            MaybeCancelPlacement(src); // dragged out of the hand: no ghost hologram
-                            UIAudioManager.Play(UIAudioManager.ObjectPutHash);
-                            return true;
-                        }
-                    }
-                }
-                return Fail();
+                OnServer.MoveToSlot(item, insertInto);
+                MaybeCancelPlacement(src); // dragged out of the hand: no ghost hologram
+                UIAudioManager.Play(UIAudioManager.ObjectPutHash);
+                return true;
             }
 
             // The source must be swappable out of its slot at all (vanilla gates merge AND move
@@ -292,7 +395,9 @@ namespace StationeersUIMod.Core
                     }
                     return Fail();
                 }
-                // 3. Swap with the occupied destination.
+                // 3. Swap with the occupied destination. The swap puts dest's occupant INTO src:
+                //    refused when src is sealed (a rescued item's slot is emptied, never refilled).
+                if (IsSealedSlot(src)) return Fail();
                 if (!Slot.AllowSwap(dest, item)) return Fail();
                 Features.BeltBindingStore.NoteExplicitPlacement(dest, item); // the drop TARGET: explicit
                 // The DISPLACED occupant is an explicit rebind ONLY when the gesture stayed on the
@@ -325,6 +430,190 @@ namespace StationeersUIMod.Core
             return true;
         }
 
+        // ---- Shift-drag: move ALL of this type (D-018, vanilla parity) ---------------------------
+
+        /// <summary>Is vanilla's "move all of this type" modifier held right now? Reads the game's OWN,
+        /// rebindable binding (<c>KeyMap.MoveAllOfType</c>, default LeftShift — KeyManager.cs ~418)
+        /// through <c>KeyManager.GetButton</c>, exactly the read vanilla's
+        /// <c>Slot.PlayerMoveToSlot</c> makes at the moment of the drop (Slot.cs ~636). Read it on the
+        /// RELEASE frame of a deliberate drag gesture only — never for a plain click (see
+        /// <see cref="MoveOneToSlot"/> for why a raw modifier must not turn a click into a bulk move).</summary>
+        public static bool MoveAllOfTypeHeld()
+        {
+            try { return KeyManager.GetButton(KeyMap.MoveAllOfType); }
+            catch { return false; }
+        }
+
+        // Rotated destination candidates for the sweep. Main-thread only; cleared before AND after
+        // every use, so it never holds Slot references between gestures (hot-reload safe).
+        private static readonly List<Slot> _sweepCandidates = new List<Slot>(32);
+
+        /// <summary>
+        /// Vanilla's Shift-drag "move all of this type" (D-018). Vanilla implements it as the tail of
+        /// <c>Slot.PlayerMoveToSlot</c>: after the dragged item moves, <c>TryMoveAllOfType</c> walks the
+        /// SOURCE container's slots and sends one <c>OnServer.MoveToSlot</c> per same-prefab item into
+        /// the first free, compatible slot of the DESTINATION container (live 27798 Slot.cs
+        /// PlayerMoveToSlot / TryMoveAllOfType; 27758 Slot.cs:623-720). There is no bulk network
+        /// message — on an MP client each <c>OnServer.MoveToSlot</c> is its own
+        /// <c>MoveToSlotMessage</c> (OnServer.cs:60-74) — so this mirrors that per-stack loop.
+        ///
+        /// <para>Semantics, mirroring vanilla: the dragged item itself resolves through
+        /// <see cref="DragTo"/> (one gated message). Only when that is a PLAIN MOVE into an empty slot
+        /// (vanilla's <c>DragResult.Valid</c> — the only outcome whose vanilla funnel,
+        /// PlayerMoveToSlot, carries the tail) does the sweep follow; an insert / merge / swap stays a
+        /// single action exactly as in vanilla. No sweep when the source is a creature's own slot
+        /// (vanilla: <c>fromSlot.Parent is Entity</c>) or when the source has no parent slot (a world
+        /// item). Every swept item is re-gated AT EXECUTE TIME (empty, class None-or-matching,
+        /// IsSwappable, <c>Slot.AllowMove</c> on the item that actually moves, neither hidden nor
+        /// sealed — <see cref="SweepMayTouch"/>) and a blocked item is SKIPPED, never failed.</para>
+        ///
+        /// <para>Deliberate deviations (all stricter than vanilla, none adds a mutation): the dragged
+        /// item is never re-sent and its landing slot is never re-used (on an MP client vanilla's loop
+        /// still sees the dragged item in its old slot — the move is send-only — and fires a SECOND
+        /// move for it, leaving a hole at the drop slot); a locked source slot and a planted plant are
+        /// skipped; the sweep neither reads from nor fills any slot vanilla would not DRAW, nor any
+        /// sealed one (<see cref="SweepMayTouch"/> — which, unlike <see cref="IsSealedSlot"/> alone,
+        /// also covers a world structure's hidden slots: a vending machine's stock); a same-container
+        /// drag stays a single move (vanilla would reshuffle the whole type inside the bag). Swept
+        /// items never rebind a belt wedge (only the dragged item is an explicit placement —
+        /// BeltBindingStore's rule).</para>
+        ///
+        /// <para>Radial call site (future): a chip released on a wedge/box/world slot with the modifier
+        /// held can call this in place of its single-move funnel with the chip's pinned
+        /// <see cref="ScannedSlot"/>; world chips (no parent slot) never sweep, exactly like vanilla's
+        /// <c>InputMouse.Drag()</c>.</para>
+        /// </summary>
+        /// <returns>True when the dragged item's own move went out (swept items may add more).</returns>
+        public static bool DragAllOfTypeTo(ScannedSlot source, Slot dest)
+        {
+            if (source == null || dest == null) return Fail();
+            Slot src = source.Slot;
+            DynamicThing item = source.Occupant;
+            if (src == null || item == null) return Fail();
+            // Vanilla's tail runs only on the plain-move rung (dest EMPTY): everything else is DragTo.
+            bool plainMove = src != dest && dest.Get() == null;
+            if (!DragTo(source, dest)) return false;   // DragTo already played the fail cue
+            if (!plainMove) return true;
+            int swept = SweepAllOfType(item, src, dest);
+            if (swept > 0)
+                UIALog.Info("Move all of type: " + swept + " more " + SafeName(item) + " sent after the dragged one.");
+            return true;
+        }
+
+        /// <summary>Vanilla's <c>TryMoveAllOfType</c> sweep (see <see cref="DragAllOfTypeTo"/>), one
+        /// gated <c>OnServer.MoveToSlot</c> per same-prefab item. Returns how many moves went out.</summary>
+        private static int SweepAllOfType(DynamicThing dragged, Slot fromSlot, Slot endSlot)
+        {
+            Item item = dragged as Item;
+            if (item == null || fromSlot == null || endSlot == null) return 0;
+            Thing fromOwner = fromSlot.Parent;
+            Thing endOwner = endSlot.Parent;
+            if (fromOwner == null || endOwner == null) return 0;
+            if (fromOwner is Assets.Scripts.Objects.Entity) return 0;   // vanilla: never a creature's own slots
+            if (ReferenceEquals(fromOwner, endOwner)) return 0;          // same container: plain move only
+            List<Slot> fromSlots = fromOwner.Slots;
+            List<Slot> endSlots = endOwner.Slots;
+            if (fromSlots == null || endSlots == null || endSlots.Count == 0) return 0;
+
+            // Vanilla's fill order: the destination container's slots rotated to start just after the
+            // drop slot, wrapping to 0 when that index reaches the last slot's index (TryMoveAllOfType
+            // + EnumUtil.RotateFrom). Rebuilt here without the two GetRange allocations.
+            int start = endSlot.SlotIndex + 1;
+            if (start < 0 || start >= endSlots[endSlots.Count - 1].SlotIndex || start >= endSlots.Count) start = 0;
+            _sweepCandidates.Clear();
+            for (int i = start; i < endSlots.Count; i++) _sweepCandidates.Add(endSlots[i]);
+            for (int i = 0; i < start; i++) _sweepCandidates.Add(endSlots[i]);
+
+            int prefab = item.PrefabHash;
+            Slot.Class itemClass = item.SlotType;
+            int moved = 0;
+            try
+            {
+                for (int s = 0; s < fromSlots.Count; s++)
+                {
+                    Slot from = fromSlots[s];
+                    // Never sweep out of a locked slot, nor one the sweep may not touch (a built-in
+                    // part — an emergency suit's tank, a package's contents, a vending machine's
+                    // hidden stock): stricter than vanilla's loop, which walks every slot; a side
+                    // effect must never strip a built-in. See SweepMayTouch.
+                    if (from == null || from.IsLocked || !SweepMayTouch(from)) continue;
+                    Item occ = from.Get() as Item;
+                    // The dragged item is already on its way to endSlot (send-only on a client).
+                    if (occ == null || ReferenceEquals(occ, dragged)) continue;
+                    if (occ.PrefabHash != prefab) continue;
+                    Plant plant = occ as Plant;
+                    if (plant != null && plant.IsPlanted) continue;
+
+                    for (int i = 0; i < _sweepCandidates.Count; i++)
+                    {
+                        Slot to = _sweepCandidates[i];
+                        // endSlot is the DRAGGED item's landing (still empty locally on a client).
+                        if (to == null || ReferenceEquals(to, endSlot)) continue;
+                        if (to.Get() != null) continue;
+                        if (to.Type != Slot.Class.None && to.Type != itemClass) continue;
+                        if (!to.IsSwappable) continue;
+                        if (!SweepMayTouch(to)) continue;   // never a hidden or sealed slot
+                        if (!Slot.AllowMove(occ, to)) continue;
+                        OnServer.MoveToSlot(occ, to);   // one authoritative message per stack, like vanilla
+                        _sweepCandidates.RemoveAt(i);
+                        moved++;
+                        break;
+                    }
+                }
+            }
+            finally
+            {
+                _sweepCandidates.Clear();   // never strand Slot refs between gestures
+            }
+            return moved;
+        }
+
+        /// <summary>A8: may the Shift-sweep read from, or fill, this slot? Only a slot vanilla itself
+        /// would DRAW (<see cref="IsVanillaVisibleSlot"/>) that is not sealed. The visibility half is
+        /// the load-bearing one: <see cref="IsSealedSlot"/> is false for EVERY slot of a world
+        /// structure (its owner is not a DynamicThing), yet a structure can keep real contents in
+        /// hidden slots — a vending machine's stock lives in its non-interactable slots (27758
+        /// VendingMachine.cs:64-67, <c>IsSlotTradable</c> = <c>!slot.IsInteractable</c>), so a
+        /// Shift-drag out of its export slot would otherwise sweep the hidden stock. The sealed half
+        /// keeps the old rule for a stack's slot even if a build ever draws one. Genuinely stricter
+        /// than vanilla's <c>TryMoveAllOfType</c>, which walks every slot.</summary>
+        private static bool SweepMayTouch(Slot slot)
+        {
+            return slot != null && IsVanillaVisibleSlot(slot) && !IsSealedSlot(slot);
+        }
+
+        /// <summary>ASCII display name for a log line (never displayed through TMP).</summary>
+        private static string SafeName(Thing thing)
+        {
+            try { return thing != null ? thing.DisplayName : "?"; }
+            catch { return "?"; }
+        }
+
+        /// <summary>Take a slot's occupant into a FREE hand — the active hand when empty, else the other —
+        /// and NEVER a swap, never a drop to the world. The take-out gesture for an item sitting in a
+        /// SEALED slot (<see cref="IsSealedSlot"/>, e.g. something trapped in a cable coil by the old
+        /// phantom grid): a swap would refill that slot, so with both hands busy this fails (the player
+        /// frees a hand, or drags the item somewhere instead). One gated message; the pinned occupant is
+        /// re-verified at execute time.</summary>
+        public static bool TakeToFreeHand(ScannedSlot source)
+        {
+            DynamicThing item = source?.Occupant;
+            var human = InventoryManager.ParentHuman;
+            if (item == null || human == null) return Fail();
+            if (source.Expected != null && item != source.Expected) return Fail(); // stale
+            if (source.Slot != null && source.Slot.IsLocked) return Fail();
+
+            Slot active = InventoryManager.ActiveHandSlot;
+            Slot other = active == null ? null
+                : active == human.LeftHandSlot ? human.RightHandSlot : human.LeftHandSlot;
+            Slot hand = null;
+            if (active != null && active != source.Slot && active.Get() == null && Slot.AllowMove(item, active)) hand = active;
+            else if (other != null && other != source.Slot && other.Get() == null && Slot.AllowMove(item, other)) hand = other;
+            if (hand == null) return Fail();
+            MoveOneToSlot(item, hand);
+            return true;
+        }
+
         /// <summary>
         /// Swap the worn tool-belt for <paramref name="chosenBelt"/> (a spare belt found elsewhere
         /// in the local player's inventory) through vanilla's authoritative swap funnel. One
@@ -333,6 +622,12 @@ namespace StationeersUIMod.Core
         /// AllowSwap/SwapSlots path, which treats an empty destination as a plain move — verified
         /// Slot.cs:343-377). Gated by Slot.AllowSwap at execute time and by an occupancy re-check
         /// so a stale picker wedge can never swap in a belt someone else already took.
+        ///
+        /// <para>D-005 (A4): the swap puts the WORN belt INTO the chosen belt's slot, so that slot must
+        /// not be sealed — a belt the old phantom grid tucked into a cable coil's slot would otherwise
+        /// trade places with the one you are wearing, and a consumed coil DESTROYS its children. The
+        /// picker no longer lists such a belt (<see cref="InventoryScanner.FindCompatible"/> skips
+        /// sealed slots); this is the execute-time half of that defence.</para>
         /// </summary>
         public static bool SwapWornToolbelt(DynamicThing chosenBelt)
         {
@@ -344,6 +639,7 @@ namespace StationeersUIMod.Core
             if (source == toolbelt) return true;                 // already worn: clean no-op
             if (source.Get() != chosenBelt) return Fail();       // picker is stale
             if (!IsCarriedByLocalPlayer(chosenBelt)) return Fail(); // moved/taken since build
+            if (IsSealedSlot(source)) return Fail();             // never refill a hidden / stack slot
             if (!Slot.AllowSwap(source, toolbelt)) return Fail();
             OnServer.SwapSlots(source, toolbelt);
             UIAudioManager.Play(UIAudioManager.ObjectPutHash);
@@ -396,6 +692,7 @@ namespace StationeersUIMod.Core
             if (!(item is Item)) return Fail();
             if (item.ParentSlot != null) return Fail();        // someone took it meanwhile
             if (destination.Get() != null) return Fail();
+            if (IsSealedSlot(destination)) return Fail();      // never refill a hidden / stack slot
             if (!Slot.AllowMove(item, destination)) return Fail();
             float maxDist = 3f;
             try { maxDist = CursorManager.MaxInteractDistance; } catch { }
@@ -437,30 +734,25 @@ namespace StationeersUIMod.Core
             if ((item.ThingTransformPosition - human.ThingTransformPosition).magnitude > maxDist + 0.75f)
                 return Fail();                                   // out of reach = no grab
 
+            // Never place INTO a sealed (hidden / stack) slot — see IsSealedSlot.
+            if (IsSealedSlot(dest)) return Fail();
+
             // Vanilla's two Plant guards (InputMouse.cs:154-164); AllowMove/AllowSwap cover neither.
             if (dest.Type == Slot.Class.Plant) return Fail();
             Plant plant = item as Plant;
             if (plant != null && plant.IsPlanted) return Fail();
 
             // 1. INSERT into the destination's contents — THE BACKPACK CASE. Slot.CanInsert already
-            //    requires the occupant to have child slots and at least one to accept the item.
-            if (Slot.CanInsert(item, dest))
+            //    requires the occupant to have child slots and at least one to accept the item;
+            //    FindInsertSlot additionally skips sealed children (a stack / hidden slot is never an
+            //    insert target — such a drop continues down the ladder like a plain item).
+            Slot insertInto = FindInsertSlot(item, dest);
+            if (insertInto != null)
             {
-                DynamicThing host = dest.Get();
-                if (host != null && host.Slots != null)
-                {
-                    foreach (Slot child in host.Slots)
-                    {
-                        if (child != null && Slot.AllowMove(item, child))
-                        {
-                            OnServer.MoveToSlot(item, child);
-                            SlotFlash.OnStow(child, item);
-                            UIAudioManager.Play(UIAudioManager.ObjectPutHash);
-                            return true;
-                        }
-                    }
-                }
-                return Fail();
+                OnServer.MoveToSlot(item, insertInto);
+                SlotFlash.OnStow(insertInto, item);
+                UIAudioManager.Play(UIAudioManager.ObjectPutHash);
+                return true;
             }
 
             if (dest.Get() != null)
@@ -505,13 +797,30 @@ namespace StationeersUIMod.Core
             return true;
         }
 
-        /// <summary>Drop a parked item at the player's feet (Option A parking dump). Verified
-        /// against the pinned occupant so a stale chip can never drop someone else's item.</summary>
+        /// <summary>Drop a parked item at the player's feet (Option A parking dump; also the grid's and
+        /// the HUD drag's ground-drop). Verified against the pinned occupant so a stale chip can never
+        /// drop someone else's item.
+        ///
+        /// <para>A1 — the funnel's own backstop, whatever the caller already checked:
+        /// <list type="bullet">
+        /// <item>Only an item the LOCAL player is carrying (<see cref="IsCarriedByLocalPlayer"/>). "Drop
+        /// at my feet" of something still sitting in a WORLD container would eject it from that
+        /// container at any range, and the server validates nothing: <c>MoveToWorldMessage.Process</c>
+        /// just finds the thing and calls <c>MoveToWorld</c> (27758 MoveToWorldMessage.cs:46-55) —
+        /// no reach, ownership or parent check. A world item (no parent slot) fails this too.</item>
+        /// <item>Never out of a LOCKED slot — vanilla parity: <c>SlotDisplayButton.PlayerMoveToWorld</c>
+        /// refuses <c>Slot.IsLocked</c> (27758 SlotDisplayButton.cs:472-479), and a lock can be set at
+        /// runtime (the electric jetpack locks its battery slot, JetpackElectric.cs:174).</item>
+        /// </list>
+        /// Both refusals are SILENT (no fail cue, no message on the wire), the method's existing
+        /// contract: the chip dump reports its own count, and the grid / HUD drag just restore.</para></summary>
         public static bool DropToWorld(ScannedSlot source)
         {
             DynamicThing item = source?.Occupant;
             if (item == null) return false; // silent: dump loops report their own result
             if (source.Expected != null && item != source.Expected) return false;
+            if (!IsCarriedByLocalPlayer(item)) return false;                  // A1: never out of the world / a teammate
+            if (source.Slot != null && source.Slot.IsLocked) return false;   // vanilla PlayerMoveToWorld parity
             OnServer.MoveToSlotOrWorld(item, null);
             MaybeCancelPlacement(source.Slot); // a held constructor dropped to the world: no ghost hologram
             return true;
@@ -536,19 +845,33 @@ namespace StationeersUIMod.Core
         }
 
         /// <summary>
-        /// Execute-time possession gate for interact paths — the interactable counterpart of
+        /// Is <paramref name="item"/> carried by the LOCAL player — does its parent chain
+        /// (<c>ParentSlot.Parent</c>, walked up to 10 levels) end at the local player's Human
+        /// (<c>InventoryManager.ParentHuman</c>, 27758 InventoryManager.cs:89 — the <c>Parent</c>
+        /// entity's Human cast, :49)? In a hand, worn, or nested in anything worn/held = true; in the
+        /// world, in a world container, or on a teammate = false. Fail-CLOSED: null item, no local
+        /// Human, or a chain deeper than the cap all answer false.
+        ///
+        /// <para>The mod's ONE possession idiom — public so the radial layer can make the same call
+        /// BEFORE offering a gesture (e.g. a parked chip that is no longer ours cancels quietly)
+        /// instead of growing a second copy that could drift. Every funnel here still re-checks it at
+        /// execute time.</para>
+        ///
+        /// <para>Execute-time possession gate for interact paths — the interactable counterpart of
         /// the ScannedSlot.Expected pin on move paths. Radial entries capture Thing/Interactable
         /// references at build time; by the time the user clicks or scrolls, a teammate may
         /// have taken the item (sticky radials only refresh after our OWN actions), or it may
         /// have despawned. Vanilla's server side does NOT possession-check InteractionMessages
         /// (Thing.PreventInteraction is only IsBroken/AllowInteraction/IsAuthorized), so the
-        /// client must refuse to send: never adjust a device sitting in someone else's bag.
+        /// client must refuse to send: never adjust a device sitting in someone else's bag. It is
+        /// also <see cref="DropToWorld"/>'s backstop (A1): the move-to-world message is not
+        /// server-validated either.</para>
         /// </summary>
-        private static bool IsCarriedByLocalPlayer(Thing thing)
+        public static bool IsCarriedByLocalPlayer(Thing item)
         {
             var human = InventoryManager.ParentHuman;
-            if (human == null || thing == null) return false;
-            Thing node = thing;
+            if (human == null || item == null) return false;
+            Thing node = item;
             int depth = 0;
             while (node != null && depth++ < 10)
             {

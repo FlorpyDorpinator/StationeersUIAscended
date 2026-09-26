@@ -15,6 +15,21 @@ namespace StationeersUIMod.Core
         public string Location;       // human-readable: "Toolbelt", "inside Mining Drill", ...
         public int Depth;
         public bool InsideTool;       // slot's holder is a tool-ish item rather than a bag/human
+
+        /// <summary>D-005 LISTING flag, computed ONCE at scan time by the one predicate
+        /// (<see cref="ItemActions.IsSealedSlot"/>): this slot is sealed — a hidden (non-interactable)
+        /// slot of a carried thing, or any slot of a stack — OR it lies anywhere BENEATH one (a bag the
+        /// old phantom grid tucked into a coil, a tool still packed inside a kit: vanilla's UI can reach
+        /// neither, so nothing inside them is offered either). Enumerating consumers (search, the
+        /// recent-item wedge, <see cref="InventoryScanner.FindCompatible"/>, SmartStow's router) skip
+        /// flagged entries, so a built-in part — an Emergency EVA suit's tanks/filters, an emergency
+        /// tool's battery — is never offered as something to take, swap or stow into. The scan itself
+        /// still RETURNS these entries (nothing is silently dropped); the grid's take-out-only rescue
+        /// section runs its own walk (GridModel) and is unaffected. Execute-time funnels never trust
+        /// this snapshot — they re-ask <see cref="ItemActions.IsSealedSlot"/> on the live slot. False on
+        /// every hand-built ScannedSlot (a pinned action source).</summary>
+        public bool Sealed;
+
         public DynamicThing Expected; // occupant at menu-build time; actions verify it still matches
 
         public DynamicThing Occupant => Slot?.Get();
@@ -31,6 +46,8 @@ namespace StationeersUIMod.Core
     /// Recursive, read-only walk of everything the local player can physically reach:
     /// worn slots, hands, then containers/tools nested below them (depth-capped, locked
     /// slots skipped). Shared by the slot-swap finder, SmartStow+ and the bag radial.
+    /// Sealed slots (and everything beneath them) are still walked and returned, FLAGGED
+    /// (<see cref="ScannedSlot.Sealed"/>) for the enumerating consumers to skip.
     /// </summary>
     public static class InventoryScanner
     {
@@ -58,16 +75,21 @@ namespace StationeersUIMod.Core
             foreach (Slot slot in human.Slots)
             {
                 if (slot == null) continue;
-                AddSlot(result, slot, human, WornLocationName(human, slot), 0, false);
+                // The human's own slots are a creature's: never sealed (IsSealedSlot says so for any
+                // Entity) — asked anyway so the flag has exactly one source.
+                bool sealedHere = ItemActions.IsSealedSlot(slot);
+                AddSlot(result, slot, human, WornLocationName(human, slot), 0, false, sealedHere);
                 DynamicThing occ = slot.Get();
                 if (occ != null)
-                    Walk(result, visited, occ, LocationNameFor(human, slot, occ), 1, maxDepth, includeToolSlots);
+                    Walk(result, visited, occ, LocationNameFor(human, slot, occ), 1, maxDepth, includeToolSlots, sealedHere);
             }
             return result;
         }
 
+        /// <param name="underSealed">The slot holding <paramref name="holder"/> is sealed or lies beneath
+        /// one: every slot found here inherits <see cref="ScannedSlot.Sealed"/>.</param>
         private static void Walk(List<ScannedSlot> result, HashSet<Thing> visited, Thing holder,
-            string holderLocation, int depth, int maxDepth, bool includeToolSlots)
+            string holderLocation, int depth, int maxDepth, bool includeToolSlots, bool underSealed)
         {
             if (depth > maxDepth || holder == null || !visited.Add(holder)) return;
             if (holder.Slots == null) return;
@@ -80,15 +102,16 @@ namespace StationeersUIMod.Core
             {
                 if (slot == null || slot.IsLocked) continue;
                 if (holderIsTool && !includeToolSlots) continue;
-                AddSlot(result, slot, holder, holderLocation, depth, holderIsTool);
+                bool sealedHere = underSealed || ItemActions.IsSealedSlot(slot);
+                AddSlot(result, slot, holder, holderLocation, depth, holderIsTool, sealedHere);
                 DynamicThing occ = slot.Get();
                 if (occ != null)
-                    Walk(result, visited, occ, "inside " + occ.DisplayName, depth + 1, maxDepth, includeToolSlots);
+                    Walk(result, visited, occ, "inside " + occ.DisplayName, depth + 1, maxDepth, includeToolSlots, sealedHere);
             }
         }
 
         private static void AddSlot(List<ScannedSlot> result, Slot slot, Thing holder,
-            string location, int depth, bool insideTool)
+            string location, int depth, bool insideTool, bool isSealed)
         {
             result.Add(new ScannedSlot
             {
@@ -97,6 +120,7 @@ namespace StationeersUIMod.Core
                 Location = location,
                 Depth = depth,
                 InsideTool = insideTool,
+                Sealed = isSealed,
             });
         }
 
@@ -133,9 +157,10 @@ namespace StationeersUIMod.Core
                 foreach (Slot slot in human.Slots)
                 {
                     if (slot == null) continue;
-                    AddPooled(slot, human, 0, false);
+                    bool sealedHere = ItemActions.IsSealedSlot(slot);   // same single source as Scan
+                    AddPooled(slot, human, 0, false, sealedHere);
                     DynamicThing occ = slot.Get();
-                    if (occ != null) WalkPooled(occ, 1, maxDepth, includeToolSlots);
+                    if (occ != null) WalkPooled(occ, 1, maxDepth, includeToolSlots, sealedHere);
                 }
             }
 
@@ -146,13 +171,13 @@ namespace StationeersUIMod.Core
             {
                 ScannedSlot s = _slotPool[i];
                 s.Slot = null; s.Holder = null; s.Location = null; s.Expected = null;
-                s.Depth = 0; s.InsideTool = false;
+                s.Depth = 0; s.InsideTool = false; s.Sealed = false;
             }
             _pooledVisited.Clear(); // don't hold Thing refs between resolves
             return _pooledResult;
         }
 
-        private static void WalkPooled(Thing holder, int depth, int maxDepth, bool includeToolSlots)
+        private static void WalkPooled(Thing holder, int depth, int maxDepth, bool includeToolSlots, bool underSealed)
         {
             if (depth > maxDepth || holder == null || !_pooledVisited.Add(holder)) return;
             if (holder.Slots == null) return;
@@ -164,13 +189,14 @@ namespace StationeersUIMod.Core
             {
                 if (slot == null || slot.IsLocked) continue;
                 if (holderIsTool && !includeToolSlots) continue;
-                AddPooled(slot, holder, depth, holderIsTool);
+                bool sealedHere = underSealed || ItemActions.IsSealedSlot(slot);   // inherited, like Walk
+                AddPooled(slot, holder, depth, holderIsTool, sealedHere);
                 DynamicThing occ = slot.Get();
-                if (occ != null) WalkPooled(occ, depth + 1, maxDepth, includeToolSlots);
+                if (occ != null) WalkPooled(occ, depth + 1, maxDepth, includeToolSlots, sealedHere);
             }
         }
 
-        private static void AddPooled(Slot slot, Thing holder, int depth, bool insideTool)
+        private static void AddPooled(Slot slot, Thing holder, int depth, bool insideTool, bool isSealed)
         {
             ScannedSlot s;
             if (_poolUsed < _slotPool.Count) s = _slotPool[_poolUsed];
@@ -181,6 +207,7 @@ namespace StationeersUIMod.Core
             s.Location = null;
             s.Depth = depth;
             s.InsideTool = insideTool;
+            s.Sealed = isSealed;
             s.Expected = null;
             _pooledResult.Add(s);
         }
@@ -218,6 +245,11 @@ namespace StationeersUIMod.Core
         /// Items compatible with <paramref name="targetSlot"/> found anywhere accessible.
         /// Excludes the target's own occupant. Compatibility mirrors Slot.IsAllowedType:
         /// class match (or None) plus the specific-prefab restriction when present.
+        /// D-005 (A3): never an item sitting in a SEALED slot, or beneath one
+        /// (<see cref="ScannedSlot.Sealed"/>) — a built-in part (an emergency suit's tank, an
+        /// emergency tool's battery) must not be offered as a swap/install candidate it could never
+        /// be put back from, and a belt trapped in a cable coil's slot must not reach the belt picker
+        /// (whose swap would put the WORN belt into that coil — see ItemActions.SwapWornToolbelt).
         /// </summary>
         public static List<ScannedSlot> FindCompatible(Slot targetSlot, int maxDepth, bool includeToolSlots)
         {
@@ -225,6 +257,7 @@ namespace StationeersUIMod.Core
             if (targetSlot == null) return found;
             foreach (var scanned in Scan(maxDepth, includeToolSlots))
             {
+                if (scanned.Sealed) continue;                    // D-005: never list a built-in / trapped item
                 DynamicThing occ = scanned.Occupant;
                 if (occ == null || scanned.Slot == targetSlot) continue;
                 if (!IsTypeCompatible(targetSlot, occ)) continue;

@@ -565,6 +565,22 @@ namespace StationeersUIMod.UI.Menu
             if (_contentArea == null) return false;
             var sr = _contentArea.GetComponentInChildren<ScrollRect>();
             if (sr == null) return false;
+            // Unity's own verticalNormalizedPosition reads as 0 (its "bottom" value) once the
+            // content is short enough that it doesn't need to scroll at all - even though the
+            // player is really looking at the (only) top of the list, with this kit's top-anchored
+            // ScrollView content (see UiaUi.ScrollView). Simple -> Advanced can go straight from a
+            // short, non-scrolling HUD tab to a much taller one (Power & glitch, Maintenance, ...);
+            // capturing that raw 0 and replaying it below dropped the player at the genuine bottom
+            // of the new, taller content instead of back at the top they actually had (FlorpyDorp,
+            // D-020: "if I click advanced it scrolls to the bottom of the menu page"). Match
+            // UiaScrollbar's own "nothing to scroll" test (content-viewport <= 1px) and call that
+            // top, the same way GridSelection already does for the identical Grid-side case.
+            if (sr.content != null && sr.viewport != null
+                && sr.content.rect.height - sr.viewport.rect.height <= 1f)
+            {
+                y = 1f;
+                return true;
+            }
             y = sr.verticalNormalizedPosition;
             return true;
         }

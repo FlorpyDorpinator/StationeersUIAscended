@@ -14,24 +14,54 @@ namespace StationeersUIMod.Overlay
     /// </summary>
     public static class RadialPalette
     {
+        /// <summary>The stored value meaning "follow the theme": an entry bound with an inheritance
+        /// rule resolves it LIVE from other palette entries. ASCII, case-insensitive.</summary>
+        public const string Auto = "AUTO";
+
         public sealed class Entry
         {
             public readonly string Name;
             public readonly ConfigEntry<string> Config;
             private Color _cached;
             private string _cachedFrom;
+            // Non-null only for theme-following entries (bound with a default of AUTO): how the
+            // colour is derived from the rest of the palette while the stored value is AUTO.
+            private readonly Func<Color> _inherit;
 
             public Entry(ConfigFile cfg, string name, string defaultHex, string description)
+                : this(cfg, name, defaultHex, description, null) { }
+
+            public Entry(ConfigFile cfg, string name, string defaultHex, string description, Func<Color> inherit)
             {
                 Name = name;
                 Config = cfg.Bind("9. Radial Colours", name, defaultHex, description);
                 _cachedFrom = null;
+                _inherit = inherit;
             }
+
+            /// <summary>True while this entry follows the theme (stored value AUTO). Editing the
+            /// colour writes a hex and pins it; resetting colours to defaults restores AUTO.</summary>
+            public bool IsAuto => _inherit != null && IsAutoValue(Config.Value);
+
+            /// <summary>Can this entry follow the theme at all (bound with an AUTO inheritance rule)?
+            /// True for exactly the entries whose <see cref="DefaultValue"/> is <see cref="Auto"/>.</summary>
+            public bool FollowsTheme => _inherit != null;
+
+            /// <summary>The value this entry had out of the box, as stored: <see cref="Auto"/> for the
+            /// theme-following entries, the hand-tuned "RRGGBBAA" hex for the rest. What "reset to
+            /// defaults" writes — and what a theme that predates the entry means for it (B2,
+            /// <c>HudTheme.Apply</c>).</summary>
+            public string DefaultValue => (string)Config.DefaultValue;
 
             public Color Value
             {
                 get
                 {
+                    if (_inherit != null && IsAutoValue(Config.Value))
+                    {
+                        try { return _inherit(); }
+                        catch { return Color.magenta; } // obviously wrong beats silently black
+                    }
                     if (!ReferenceEquals(_cachedFrom, Config.Value))
                     {
                         _cached = FromHex(Config.Value);
@@ -42,6 +72,9 @@ namespace StationeersUIMod.Overlay
                 set => Config.Value = ToHex(value);
             }
         }
+
+        private static bool IsAutoValue(string v)
+            => v != null && v.Trim().Equals(Auto, StringComparison.OrdinalIgnoreCase);
 
         public static readonly List<Entry> All = new List<Entry>();
 
@@ -83,6 +116,14 @@ namespace StationeersUIMod.Overlay
         public static Entry HintBarFill;
         public static Entry HintBarBorder;
         public static Entry HintBarText;
+
+        // Curved labels hugging the wheel from OUTSIDE (D-021 key hints under it, D-022 action word
+        // over it). All four default to AUTO — derived live from the theme's own wedge colours, so
+        // every theme (shipped or custom) gets matching curved labels without being re-stamped.
+        public static Entry ArcPlateFill;
+        public static Entry ArcPlateBorder;
+        public static Entry ArcText;
+        public static Entry ArcAccent;
 
         public static void Bind(ConfigFile cfg)
         {
@@ -160,6 +201,24 @@ namespace StationeersUIMod.Overlay
                 "Hint bar rim. Default fully transparent (no border) — raise the alpha to get one.");
             HintBarText = Add(cfg, "HintBarText", "FFFFFFFF",
                 "Hint bar text. Default white.");
+
+            // D-021 / D-022 (2026-09-25): the curved labels that hug the wheel from outside — the key
+            // hints wrapped under it and the action word ("TAKE", "OPEN") over it. They default to
+            // AUTO so they wear whatever theme is active: a theme stamps rad:* values for the entries
+            // it knows, and these new ones stay AUTO until someone picks a colour, so every existing
+            // theme gets matching labels with no re-stamp and no migration. A colour pinned under one
+            // theme never bleeds into another: applying a theme that predates these entries (no
+            // "rad:Arc*" key, e.g. every shipped theme) puts them back to AUTO (B2 — HudTheme.Apply's
+            // missing-key rule). Shared radial colours (the radial is not a per-tier HUD element) —
+            // they travel with the profile theme as "rad:<Name>" like every other entry here.
+            ArcPlateFill = AddAuto(cfg, "ArcPlateFill", ArcPlateFillAuto,
+                "Glass plate behind the curved hint text and action word. AUTO = the theme's wedge fill, a little more opaque so text reads over the world.");
+            ArcPlateBorder = AddAuto(cfg, "ArcPlateBorder", ArcPlateBorderAuto,
+                "Rim of the curved plates. AUTO = the theme's wedge border, slightly softened. Alpha 0 = no rim.");
+            ArcText = AddAuto(cfg, "ArcText", () => TextPrimary.Value,
+                "Words on the curved hint plate (what each key does). AUTO = the theme's primary text colour.");
+            ArcAccent = AddAuto(cfg, "ArcAccent", ArcAccentAuto,
+                "The curved action word over the wheel and the key names in the hints. AUTO = the theme's wedge border colour, fully opaque (falls back to the primary text colour when that border is too dark to read).");
         }
 
         private static Entry Add(ConfigFile cfg, string name, string defaultHex, string desc)
@@ -169,11 +228,47 @@ namespace StationeersUIMod.Overlay
             return e;
         }
 
+        /// <summary>A theme-following entry: stored default is <see cref="Auto"/>, resolved live by
+        /// <paramref name="inherit"/> until the player pins a colour.</summary>
+        private static Entry AddAuto(ConfigFile cfg, string name, Func<Color> inherit, string desc)
+        {
+            var e = new Entry(cfg, name, Auto, desc + " (Type AUTO to follow the theme again.)", inherit);
+            All.Add(e);
+            return e;
+        }
+
+        // ---- AUTO rules (read the live palette; never write it) ----
+
+        private static Color ArcPlateFillAuto()
+        {
+            Color c = WedgeBg.Value;
+            c.a = Mathf.Clamp(c.a * 1.7f, 0.55f, 0.9f);
+            return c;
+        }
+
+        private static Color ArcPlateBorderAuto()
+        {
+            Color c = WedgeBorder.Value;
+            c.a *= 0.75f;
+            return c;
+        }
+
+        private static Color ArcAccentAuto()
+        {
+            Color c = WedgeBorder.Value;
+            c.a = 1f;
+            // A theme with a near-black border would put dark words on a dark plate: read the
+            // primary text colour instead (perceived luminance, sRGB weights — a legibility floor,
+            // not colour science).
+            float lum = 0.2126f * c.r + 0.7152f * c.g + 0.0722f * c.b;
+            return lum < 0.2f ? TextPrimary.Value : c;
+        }
+
         public static void ResetToDefaults()
         {
             History.PushUndo(Snapshot());
             foreach (var e in All)
-                e.Config.Value = (string)e.Config.DefaultValue;
+                e.Config.Value = e.DefaultValue;
         }
 
         public static Dictionary<string, string> Snapshot()

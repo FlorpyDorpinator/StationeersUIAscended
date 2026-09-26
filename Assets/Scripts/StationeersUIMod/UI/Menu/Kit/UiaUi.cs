@@ -130,6 +130,18 @@ namespace StationeersUIMod.UI.Menu.Kit
             System.Action<string> onChanged)
         {
             var go = Go("input", parent);
+            // The root has no intrinsic preferred size of its own (a spriteless Image reports 0,
+            // and TMP_InputField itself does not implement ILayoutElement), so every caller wraps
+            // this in a fixed-height row and gives THAT row an HLayout (UiaUi.HLayout always sets
+            // childControlHeight = true). Without a LayoutElement here, that parent layout group
+            // dutifully controls this child down to its unset ~0 preferred height instead of the
+            // row's real height - rendering as a hairline with its text viewport clipped to
+            // nothing (Ningy/FlorpyDorp, D-009: "renders as a thin line... typed text doesn't
+            // show" - both symptoms are this ONE collapse, since the text area is inset from
+            // whatever height this root actually gets). flexibleHeight stretches it to fill
+            // whatever height the parent row allocates (26-30px across current callers);
+            // preferredHeight is only a fallback for a caller with no controlling parent layout.
+            Size(go, h: UiaTheme.RowH, flexH: 1f);
             var bg = go.AddComponent<Image>(); bg.color = UiaTheme.PanelRaised;
             OutlineOf(bg, UiaTheme.AccentDim, 1f);
             var input = go.AddComponent<TMPro.TMP_InputField>();
@@ -147,6 +159,13 @@ namespace StationeersUIMod.UI.Menu.Kit
             input.textComponent = txt;
             input.placeholder = ph;
             input.lineType = TMPro.TMP_InputField.LineType.SingleLine;
+            // An unset caret/selection colour defaults to near-black, which is as good as invisible
+            // against this kit's dark panels - correct only the text itself would still have left
+            // a player unable to see what they were typing WHILE typing it.
+            input.customCaretColor = true;
+            input.caretColor = UiaTheme.Text;
+            input.caretWidth = 2;
+            input.selectionColor = UiaTheme.SelectedDim;
             input.onValueChanged.AddListener(v => { if (onChanged != null) onChanged(v); });
             return input;
         }

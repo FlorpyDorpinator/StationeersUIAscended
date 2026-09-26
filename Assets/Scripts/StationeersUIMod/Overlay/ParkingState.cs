@@ -7,13 +7,16 @@ namespace StationeersUIMod.Overlay
 {
     /// <summary>
     /// Option A drag-out parking: items dragged off a radial sit on the screen as chips
-    /// while the player keeps navigating, then get dragged into slots or dumped on the
-    /// ground with the closing right-click.
+    /// while the player keeps navigating, then get dragged into slots or dropped on the
+    /// ground when the radial closes — by ANY route (D-004, 2026-09-25: RMB, Escape, MMB, the
+    /// opener key, switching to another radial, guards...; <c>RadialMenu.ReleaseHeldItems</c>).
     ///
     /// PARKING IS CLIENT-SIDE VISUAL ONLY. A parked item never leaves its slot; the
     /// mutation happens when a chip is dropped on a wedge (one move message) or when the
-    /// radial is exited via RMB (one drop message per chip, each individually verified
-    /// against its pinned Expected occupant at execute time).
+    /// radial closes (one drop message per chip, each individually verified against its
+    /// pinned Expected occupant at execute time). Only items the local player CARRIES drop on
+    /// close — a chip grabbed out of a world container (charger, locker) just cancels (A1) —
+    /// and a wedge action that moves a parked item un-parks it first (A6).
     /// </summary>
     public sealed class ParkingState
     {
@@ -62,6 +65,20 @@ namespace StationeersUIMod.Overlay
             for (int i = Chips.Count - 1; i >= 0; i--)
                 if (Chips[i].Source?.Slot == slot)
                     Chips.RemoveAt(i);
+        }
+
+        /// <summary>A6: drop every slot-sourced chip showing this item (its pinned or its current
+        /// occupant) — an action is about to move it, so it must not also be dropped on close.
+        /// Only removes chips; never mutates anything.</summary>
+        public void RemoveByItem(DynamicThing item)
+        {
+            if (item == null) return;
+            for (int i = Chips.Count - 1; i >= 0; i--)
+            {
+                var s = Chips[i].Source;
+                if (s != null && (s.Expected == item || s.Occupant == item))
+                    Chips.RemoveAt(i);
+            }
         }
 
         /// <summary>Same rule for world-grabbed chips: one world item = one chip.</summary>

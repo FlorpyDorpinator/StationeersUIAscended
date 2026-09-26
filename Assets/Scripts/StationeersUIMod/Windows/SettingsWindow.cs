@@ -144,10 +144,28 @@ namespace StationeersUIMod.Windows
             ImGui.TextDisabled("(the editor blacks the screen out, so white is the honest backdrop)");
             ImGui.Spacing();
 
+            // Own ImGui ID scope: every colour below ALSO appears in the "Colours" list further down
+            // this same window, and two widgets with one label would share one ImGui ID.
+            ImGui.PushID("hintbar");
+            // Pre-edit state for the undo step (ColorWheel), taken HERE: this section draws before
+            // the Colours list, so the snapshot that list takes is a frame old — or never taken at all
+            // while that header is collapsed.
+            _frameSnapshot = Overlay.RadialPalette.Snapshot();
             ImGui.TextDisabled("Colour + transparency (the A slider IS the transparency):");
             ColorWheel(Overlay.RadialPalette.HintBarFill);
             ColorWheel(Overlay.RadialPalette.HintBarBorder);
             ColorWheel(Overlay.RadialPalette.HintBarText);
+
+            // B14: the LIVE strip is the CURVED one (under the wheel) and the action word over it —
+            // their four colours belong here, where players look for the hint look, not only in the
+            // long general list. The flat colours above style the flat fallback / this preview.
+            ImGui.Spacing();
+            ImGui.TextDisabled("Curved hint strip + action word - AUTO follows the theme:");
+            ColorWheel(Overlay.RadialPalette.ArcPlateFill);
+            ColorWheel(Overlay.RadialPalette.ArcPlateBorder);
+            ColorWheel(Overlay.RadialPalette.ArcText);
+            ColorWheel(Overlay.RadialPalette.ArcAccent);
+            ImGui.PopID();
 
             ImGui.Spacing();
             ImGui.TextDisabled("Shape:");
@@ -378,6 +396,26 @@ namespace StationeersUIMod.Windows
             {
                 Overlay.RadialPalette.History.PushUndo(_pendingUndo);
                 _pendingUndo = null;
+            }
+
+            // B14: a theme-following entry (the curved hint / action-word colours) says whether it is
+            // following the theme, and a pinned one gets a one-click way back (one undo step).
+            if (entry.FollowsTheme)
+            {
+                ImGui.SameLine();
+                if (entry.IsAuto)
+                    ImGui.TextDisabled("(AUTO)");
+                else
+                {
+                    ImGui.PushID(entry.Name); // one "AUTO" button per entry, no per-frame label concat
+                    if (ImGui.SmallButton("AUTO"))
+                    {
+                        Overlay.RadialPalette.History.PushUndo(Overlay.RadialPalette.Snapshot());
+                        entry.Config.Value = Overlay.RadialPalette.Auto;
+                        Features.HudProfileStore.MarkThemeChanged();
+                    }
+                    ImGui.PopID();
+                }
             }
         }
 

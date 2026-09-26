@@ -24,7 +24,9 @@ namespace StationeersUIMod.UI.Grid
     /// dragged wider, one when it is narrow). Cell size is the live F10
     /// <see cref="UIAConfig.GridCellSize"/>, so the grid re-wraps responsively on a resize/slider change.
     /// The whole-inventory ROOT node renders NO own cells (no loose hand/helmet "top line") — only its
-    /// child container regions.
+    /// child container regions. A container with vanilla interactions (on/off, valve, lock, Unpack,
+    /// a stack's Split One / Split Half, plus the "split N" square on host/SP) gets them as compact
+    /// cell-sized SQUARE buttons wrapped under its cells (D-005), never full-width bars.
     /// Tapping the tab toggles collapse via <see cref="GridCollapseStore"/>; a collapsed region shows
     /// just its tab. The tree of region views mirrors the tree of <see cref="ContainerNode"/>s — but
     /// in Grid mode a node's <see cref="ContainerNode.Children"/> are ONLY its nested storage
@@ -75,12 +77,18 @@ namespace StationeersUIMod.UI.Grid
         private const float ChipPad = 8f;        // horizontal text padding inside the chip
         private const float CapBtnW = 56f;       // the CAPTURE button
 
-        // Device control buttons (on/off, lock/arm, valve, mode) — vanilla's InventoryWindow interaction
-        // row, in our theme. A full-width row per control, stacked under the cells; a button-only device
-        // (no cells) shows ONLY these. Labels poll at CtrlPollInterval so "On" -> "Off" follows the device.
-        private const float CtrlH = 20f;
-        private const float CtrlGap = 4f;
+        // Device control buttons (on/off, lock/arm, valve, mode, split) — vanilla's InventoryWindow
+        // interaction row, in our theme. D-005 (FlorpyDorp: "The buttons to control stuff should be
+        // smaller squares just like the inventory icons"): each control is a compact SQUARE the size of
+        // an inventory cell, wrapped into rows exactly like the cells (same column rule), under the cells
+        // and nested regions — never a full-width bar. A button-only device (no cells) shows ONLY these.
+        // Labels poll at CtrlPollInterval so "On" -> "Off" follows the device.
         private const float CtrlPollInterval = 0.25f;
+
+        // D-005: the third split button's hover-tooltip body — the radial's "Split count" gesture
+        // (scroll to choose, click to split), in words. ASCII only.
+        private const string SplitCountTip =
+            "Scroll over this button to choose how many to split off, then click to split them off.";
 
         /// <summary>The region box's fill is a faint TINT of the inherited panel fill so stacked
         /// regions group their cells without over-darkening. A relative scale on the theme's alpha —
@@ -167,15 +175,19 @@ namespace StationeersUIMod.UI.Grid
         private RegionClickable _capClick;
         private TextMeshProUGUI _capLabel;
 
-        // Device control-button pool (grown on demand, idled when unused). One themed RegionClickable per
-        // device interaction, wired to ItemActions.PressInteractable (the MP-safe funnel).
-        private readonly List<GameObject> _ctrlGos = new List<GameObject>(2);
-        private readonly List<PanelGraphic> _ctrlBgs = new List<PanelGraphic>(2);
-        private readonly List<RegionClickable> _ctrlClicks = new List<RegionClickable>(2);
-        private readonly List<TextMeshProUGUI> _ctrlLabels = new List<TextMeshProUGUI>(2);
+        // Device control-button pool (grown on demand, idled when unused). One themed square per device
+        // interaction, wired to ItemActions.PressInteractable (the MP-safe funnel); a stack additionally
+        // gets the "split N" square wired to ItemActions.SplitStackCount (the radial's own path).
+        private readonly List<CtrlButton> _ctrls = new List<CtrlButton>(3);
         private readonly List<DeviceControls.FlatControl> _ctrlControls = new List<DeviceControls.FlatControl>(2);
         private int _activeCtrls;
         private float _nextCtrlPoll;
+
+        // D-005: the "choose number" split count for the bound stack — the radial's scroll-chosen
+        // count (ItemMenuBuilder "Split count"), kept per region and per stack (reset when the region
+        // binds a different container), clamped to [1, Quantity-1] exactly like the radial.
+        private int _splitCount = 1;
+        private long _splitCountFor;
 
         private bool _stripVisible;
         private bool _chipAssigned;
@@ -498,52 +510,91 @@ namespace StationeersUIMod.UI.Grid
 
         private void EnsureCtrlPool(int n)
         {
-            while (_ctrlGos.Count < n)
-            {
-                var go = new GameObject("Ctrl", typeof(RectTransform));
-                go.transform.SetParent(_rect, false);
-                var rt = (RectTransform)go.transform;
-                rt.anchorMin = rt.anchorMax = new Vector2(0f, 1f);   // top-left anchor, centre pivot (PanelGraphic draws centred)
-                rt.pivot = new Vector2(0.5f, 0.5f);
-                var bg = go.AddComponent<PanelGraphic>();
-                bg.raycastTarget = true;
-                var click = go.AddComponent<RegionClickable>();
-                var label = HudText.Make(rt, "CtrlLabel", HudText.Size(9f), TextAlignmentOptions.Center, warp: false);
-                label.overflowMode = TextOverflowModes.Truncate;   // never "..." — the ellipsis glyph tofus
-                var lr = label.rectTransform;
-                lr.anchorMin = Vector2.zero; lr.anchorMax = Vector2.one;
-                lr.pivot = new Vector2(0.5f, 0.5f);
-                lr.offsetMin = new Vector2(4f, 0f); lr.offsetMax = new Vector2(-4f, 0f);
-                go.SetActive(false);
-                _ctrlGos.Add(go); _ctrlBgs.Add(bg); _ctrlClicks.Add(click); _ctrlLabels.Add(label);
-            }
+            while (_ctrls.Count < n) _ctrls.Add(CtrlButton.Create(_rect));
         }
 
         /// <summary>Build the device-control buttons for this region's container (structural rebuild only).
         /// Enumerates the thing's real key interactions (<see cref="DeviceControls.BuildFlat"/>) and wires
-        /// one themed button per one to <see cref="ItemActions.PressInteractable"/> — the SAME gated funnel
+        /// one themed SQUARE per one to <see cref="ItemActions.PressInteractable"/> — the SAME gated funnel
         /// the radial uses (server-authoritative, occupant/interactable re-verified at execute time). An
-        /// empty list (a plain bag, or a device with nothing to change) leaves no buttons.</summary>
+        /// empty list (a plain bag, or a device with nothing to change) leaves no buttons.
+        ///
+        /// <para>D-005, a STACK: its vanilla Button1/Button2 ARE Split One / Split Half (Stackable.InteractWith,
+        /// live 27798 Stackable.cs) and get the "1" / "1/2" glyphs; a third square — the radial's
+        /// "Split count" (ItemMenuBuilder.BuildSplitLevel) — is added on the SAME gate the radial uses,
+        /// <see cref="ItemActions.CanSplitCount"/> (host / single-player with 2+ in the stack; arbitrary
+        /// count has no networked vanilla path, so an MP client never sees it). Scroll over it to choose
+        /// N, click to split N off through <see cref="ItemActions.SplitStackCount"/>.</para></summary>
         private void BuildControls()
         {
             _ctrlControls.Clear();
             var thing = (!_isRoot && !_collapsed && _node != null) ? _node.Container : null;
             if (thing != null) DeviceControls.BuildFlat(thing, _ctrlControls);
 
-            int n = _ctrlControls.Count;
+            bool stack = thing is Assets.Scripts.Objects.Items.Stackable;
+            bool addCount = stack && ItemActions.CanSplitCount(thing);
+            long thingId = 0L;
+            try { thingId = thing != null ? thing.ReferenceId : 0L; } catch { }
+            if (thingId != _splitCountFor) { _splitCountFor = thingId; _splitCount = 1; }
+
+            int n = _ctrlControls.Count + (addCount ? 1 : 0);
             EnsureCtrlPool(n);
-            for (int i = 0; i < n; i++)
+            for (int i = 0; i < _ctrlControls.Count; i++)
             {
-                var go = _ctrlGos[i];
-                if (!go.activeSelf) go.SetActive(true);
+                var b = _ctrls[i];
                 var t = _ctrlControls[i].Thing;
                 var ia = _ctrlControls[i].Interactable;
-                HudText.Set(_ctrlLabels[i], _ctrlControls[i].Label ?? "");
-                _ctrlClicks[i].Clicked = () => ItemActions.PressInteractable(t, ia);
+                CtrlKind kind = CtrlKind.Generic;
+                if (stack && ia != null)
+                {
+                    if (ia.Action == InteractableType.Button1) kind = CtrlKind.SplitOne;
+                    else if (ia.Action == InteractableType.Button2) kind = CtrlKind.SplitHalf;
+                }
+                b.Bind(kind, t, ia, _ctrlControls[i].Label, _ctrlControls[i].Enabled);
+                b.Input.Clicked = () => ItemActions.PressInteractable(t, ia);
+                b.Input.Scrolled = null;   // a plain control hands the wheel on to the list
             }
-            for (int i = n; i < _ctrlGos.Count; i++) if (_ctrlGos[i].activeSelf) _ctrlGos[i].SetActive(false);
+            if (addCount)
+            {
+                var b = _ctrls[_ctrlControls.Count];
+                var t = thing;
+                b.Bind(CtrlKind.SplitCount, t, null, "Split " + _splitCount, true);
+                b.Input.Clicked = DoSplitCount;
+                b.Input.Scrolled = AdjustSplitCount;
+            }
+            for (int i = n; i < _ctrls.Count; i++) _ctrls[i].Idle();
             _activeCtrls = n;
             _nextCtrlPoll = 0f;   // force a fresh label/enabled read on the next refresh
+        }
+
+        /// <summary>The bound stack's current split ceiling (Quantity - 1, at least 1) — the radial's
+        /// clamp (ItemMenuBuilder.BuildSplitLevel). Client-safe: Quantity is networked state.</summary>
+        private int SplitCountMax()
+        {
+            var s = _node != null ? _node.Container as Assets.Scripts.Objects.Items.Stackable : null;
+            int q = 0;
+            try { q = s != null ? s.Quantity : 0; } catch { }
+            return Mathf.Max(1, q - 1);
+        }
+
+        /// <summary>Wheel over the "split N" square: step the count, exactly like the radial's scroll
+        /// (+1 per notch up, -1 down, clamped to [1, Quantity-1]). Local UI state only.</summary>
+        private void AdjustSplitCount(int delta)
+        {
+            _splitCount = Mathf.Clamp(_splitCount + delta, 1, SplitCountMax());
+            _nextCtrlPoll = 0f;   // show the new number on this very refresh
+        }
+
+        /// <summary>Click on the "split N" square: split the chosen count off through the radial's own
+        /// action, <see cref="ItemActions.SplitStackCount"/> (host/SP only, carried-by-local-player gated,
+        /// clamped again at execute time; never a client-side Quantity write).</summary>
+        private void DoSplitCount()
+        {
+            var thing = _node != null ? _node.Container : null;
+            if (thing == null) return;
+            _splitCount = Mathf.Clamp(_splitCount, 1, SplitCountMax());
+            ItemActions.SplitStackCount(thing, _splitCount);
+            _nextCtrlPoll = 0f;
         }
 
         /// <summary>Place the tab, the region box, the wrapped cell grid, and the inset nested regions
@@ -724,18 +775,28 @@ namespace StationeersUIMod.UI.Grid
                 hadContent = true;
             }
 
-            // Device controls: a full-width themed button per interaction, stacked under the cells/regions.
+            // Device controls (D-005): compact cell-sized SQUARES wrapped into rows with the cells' own
+            // column rule (the responsive fit capped by the configured column count), under the
+            // cells / nested regions — never a full-width bar that stretches across a wide window.
             if (_activeCtrls > 0)
             {
                 if (hadContent) y += SectionGap;
+                float cs = cell;   // the live F10/F9 cell edge: a control is exactly one inventory cell
+                int responsiveCtrlCols = Mathf.Max(1, Mathf.FloorToInt((contentW + CellGap) / (cs + CellGap)));
+                int ctrlCols = Mathf.Min(responsiveCtrlCols, CellCols());
                 for (int i = 0; i < _activeCtrls; i++)
                 {
-                    var crt = (RectTransform)_ctrlGos[i].transform;
-                    crt.sizeDelta = new Vector2(contentW, CtrlH);
-                    crt.anchoredPosition = new Vector2(innerLeft + contentW * 0.5f, -y - CtrlH * 0.5f); // centre pivot
-                    y += CtrlH + CtrlGap;
+                    var b = _ctrls[i];
+                    b.SetSize(cs);
+                    int row = i / ctrlCols;
+                    int col = i % ctrlCols;
+                    // Centre-pivot square: place its CENTRE (content-left corner + half a cell).
+                    b.Rt.anchoredPosition = new Vector2(
+                        innerLeft + col * (cs + CellGap) + cs * 0.5f,
+                        -(y + row * (cs + CellGap)) - cs * 0.5f);
                 }
-                y -= CtrlGap;   // strip the trailing gap
+                int ctrlRows = (_activeCtrls + ctrlCols - 1) / ctrlCols;
+                y += ctrlRows * (cs + CellGap) - CellGap;
                 hadContent = true;
             }
 
@@ -788,28 +849,31 @@ namespace StationeersUIMod.UI.Grid
             if (Time.unscaledTime >= _nextCtrlPoll)
             {
                 _nextCtrlPoll = Time.unscaledTime + CtrlPollInterval;
-                for (int i = 0; i < _activeCtrls && i < _ctrlControls.Count; i++)
+                for (int i = 0; i < _activeCtrls && i < _ctrls.Count; i++)
                 {
+                    var b = _ctrls[i];
+                    if (b.Kind == CtrlKind.SplitCount)
+                    {
+                        // The radial's count wedge: clamp to the live stack, re-read the same gate.
+                        _splitCount = Mathf.Clamp(_splitCount, 1, SplitCountMax());
+                        b.SetState("Split " + _splitCount, ItemActions.CanSplitCount(b.Thing), _splitCount.ToString());
+                        continue;
+                    }
+                    if (i >= _ctrlControls.Count) continue;
                     var ctrl = _ctrlControls[i];
                     string label; bool enabled;
                     DeviceControls.ReadControl(ctrl.Thing, ctrl.Interactable, out label, out enabled);
-                    if (!string.IsNullOrEmpty(label)) HudText.Set(_ctrlLabels[i], label);
                     ctrl.Enabled = enabled;
-                    _ctrlControls[i] = ctrl;   // struct write-back so the styling below sees fresh enabled
+                    _ctrlControls[i] = ctrl;   // struct write-back (kept for any other reader)
+                    b.SetState(string.IsNullOrEmpty(label) ? b.Label : label, enabled, null);
                 }
             }
 
             Color accent = HudPalette.LineAccent != null ? HudPalette.LineAccent.Value : GridTheme.Border;
             Color txt = HudPalette.TextLabel != null ? HudPalette.TextLabel.Value : GridTheme.Text;
             Color dim = txt; dim.a *= 0.45f;
-            for (int i = 0; i < _activeCtrls; i++)
-            {
-                bool hov = _ctrlClicks[i].Hover;
-                var crt = (RectTransform)_ctrlGos[i].transform;
-                GridTheme.ApplyBox(_ctrlBgs[i], crt.sizeDelta.x, crt.sizeDelta.y, GridTheme.GridSurface.Button, hov);
-                bool en = i < _ctrlControls.Count ? _ctrlControls[i].Enabled : true;
-                _ctrlLabels[i].color = hov ? accent : (en ? txt : dim);
-            }
+            for (int i = 0; i < _activeCtrls && i < _ctrls.Count; i++)
+                _ctrls[i].Style(accent, txt, dim);
         }
 
         /// <summary>Append this region's navigable targets to <paramref name="list"/> in DISPLAY order
@@ -1020,7 +1084,7 @@ namespace StationeersUIMod.UI.Grid
             _collapsed = false;
             for (int i = 0; i < _cells.Count; i++) _cells[i].Idle();
             _activeCells = 0;
-            for (int i = 0; i < _ctrlGos.Count; i++) if (_ctrlGos[i].activeSelf) _ctrlGos[i].SetActive(false);
+            for (int i = 0; i < _ctrls.Count; i++) _ctrls[i].Idle();
             _activeCtrls = 0;
             _ctrlControls.Clear();
             for (int i = 0; i < _childViews.Count; i++) _childViews[i].Recycle();
@@ -1077,6 +1141,343 @@ namespace StationeersUIMod.UI.Grid
 
             public void OnPointerEnter(PointerEventData e) { Hover = true; }
             public void OnPointerExit(PointerEventData e) { Hover = false; }
+        }
+
+        // ---------------------------------------------------------------- square controls (D-005) --
+
+        /// <summary>What a control square shows. The split trio gets glyphs ("1", "1/2", the chosen
+        /// count) over a small "SPLIT" caption; every other control shows its own vanilla label,
+        /// auto-sized to fit the square.</summary>
+        private enum CtrlKind
+        {
+            Generic,
+            SplitOne,
+            SplitHalf,
+            SplitCount
+        }
+
+        /// <summary>Show the vanilla tooltip with a control's FULL label (the square only has room for
+        /// a glyph / a squeezed label). Same singleton + lift the grid cells use
+        /// (<see cref="Core.VanillaTooltip"/>), through the 3-argument <c>SetUpTooltip</c> with a NULL
+        /// receiver so a stale screen-space receiver cannot clear it on the next LateUpdate (live 27798
+        /// PanelToolTip.SetUpTooltip(string,string,IScreenSpaceTooltip) sets <c>_tooltipToUpdate</c>).
+        /// Honors the game's own ShowSlotToolTips, like the cells. Fail-soft.</summary>
+        private static void ShowControlTip(string title, string body)
+        {
+            try
+            {
+                if (string.IsNullOrEmpty(title)) return;
+                if (!Assets.Scripts.Serialization.Settings.CurrentData.ShowSlotToolTips) return;
+                var tip = Assets.Scripts.UI.PanelToolTip.Instance;
+                if (tip == null) return;
+                Core.VanillaTooltip.Lift(tip);
+                tip.SetUpTooltip(title, body ?? "", null);
+            }
+            catch { }
+        }
+
+        /// <summary>Printable Basic Latin only (the game's TMP font tofus anything else) — for the label
+        /// drawn INSIDE a square. Allocation-free for the common all-ASCII label.</summary>
+        private static string AsciiLabel(string s)
+        {
+            if (string.IsNullOrEmpty(s)) return "";
+            bool clean = true;
+            for (int i = 0; i < s.Length; i++)
+            {
+                if (s[i] < ' ' || s[i] > '~') { clean = false; break; }
+            }
+            if (clean) return s;
+            var sb = new System.Text.StringBuilder(s.Length);
+            for (int i = 0; i < s.Length; i++)
+            {
+                char c = s[i];
+                sb.Append(c >= ' ' && c <= '~' ? c : ' ');
+            }
+            return sb.ToString();
+        }
+
+        /// <summary>One pooled device-control SQUARE (D-005): a cell-sized glass button painted by the
+        /// shared theme path (<see cref="GridTheme.ApplyBox"/>, Button surface — the inherited line,
+        /// corner and glass, a hover delta, no literal widths/radii), a centre glyph/label, a small
+        /// caption for the split trio, and two DRAWN triangles (never a glyph — TMP tofus arrows) that
+        /// mark the "split N" square as scrollable. Owned by one region; pooled (idled, never destroyed
+        /// here); dies with the panel canvas on Shutdown, holding no statics.</summary>
+        private sealed class CtrlButton
+        {
+            public GameObject Go;
+            public RectTransform Rt;
+            public PanelGraphic Bg;
+            public CtrlInput Input;
+            public TextMeshProUGUI Glyph;
+            public TextMeshProUGUI Caption;
+            public TriangleGraphic Up;
+            public TriangleGraphic Down;
+            public CtrlKind Kind;
+            public DynamicThing Thing;
+            public Interactable Interactable;
+            public string Label;          // the FULL vanilla label: the hover tooltip's title
+            public bool Enabled = true;
+            public float Size = -1f;      // last laid-out edge; -1 forces the next SetSize to re-lay
+
+            public static CtrlButton Create(RectTransform parent)
+            {
+                var b = new CtrlButton();
+                b.Go = new GameObject("Ctrl", typeof(RectTransform));
+                b.Go.transform.SetParent(parent, false);
+                b.Rt = (RectTransform)b.Go.transform;
+                b.Rt.anchorMin = b.Rt.anchorMax = new Vector2(0f, 1f);   // top-left anchor, centre pivot
+                b.Rt.pivot = new Vector2(0.5f, 0.5f);                    // (PanelGraphic draws centred)
+
+                b.Bg = b.Go.AddComponent<PanelGraphic>();
+                b.Bg.raycastTarget = true;
+                b.Input = b.Go.AddComponent<CtrlInput>();
+                b.Input.Owner = b;
+
+                b.Glyph = HudText.Make(b.Rt, "Glyph", HudText.Size(12f), TextAlignmentOptions.Center, warp: false);
+                b.Glyph.overflowMode = TextOverflowModes.Truncate;   // never "..." — the ellipsis glyph tofus
+                b.Glyph.enableAutoSizing = true;
+                CentreRect(b.Glyph.rectTransform);
+
+                b.Caption = HudText.Make(b.Rt, "Caption", HudText.Size(8f), TextAlignmentOptions.Center, warp: false);
+                b.Caption.overflowMode = TextOverflowModes.Truncate;
+                CentreRect(b.Caption.rectTransform);
+                b.Caption.gameObject.SetActive(false);
+
+                b.Up = MakeTriangle(b.Rt, "Up", true);
+                b.Down = MakeTriangle(b.Rt, "Down", false);
+
+                b.Go.SetActive(false);
+                return b;
+            }
+
+            private static void CentreRect(RectTransform rt)
+            {
+                rt.anchorMin = rt.anchorMax = new Vector2(0.5f, 0.5f);
+                rt.pivot = new Vector2(0.5f, 0.5f);
+                rt.anchoredPosition = Vector2.zero;
+            }
+
+            private static TriangleGraphic MakeTriangle(RectTransform parent, string name, bool up)
+            {
+                var go = new GameObject(name, typeof(RectTransform));
+                go.transform.SetParent(parent, false);
+                CentreRect((RectTransform)go.transform);
+                ((RectTransform)go.transform).sizeDelta = new Vector2(8f, 8f);
+                var t = go.AddComponent<TriangleGraphic>();
+                t.raycastTarget = false;
+                t.Configure(up, 6f);
+                go.SetActive(false);
+                return t;
+            }
+
+            /// <summary>Structural (re)bind: kind, target and label. Content is re-laid by the next
+            /// <see cref="SetSize"/> when the kind changed (split glyph vs full label use different
+            /// layouts).</summary>
+            public void Bind(CtrlKind kind, DynamicThing thing, Interactable interactable, string label, bool enabled)
+            {
+                if (kind != Kind) Size = -1f;
+                Kind = kind;
+                Thing = thing;
+                Interactable = interactable;
+                Label = label;
+                Enabled = enabled;
+                if (!Go.activeSelf) Go.SetActive(true);
+                HudText.Sync(Glyph);
+                HudText.Sync(Caption);
+
+                bool split = kind != CtrlKind.Generic;
+                bool count = kind == CtrlKind.SplitCount;
+                if (Caption.gameObject.activeSelf != split) Caption.gameObject.SetActive(split);
+                if (Up.gameObject.activeSelf != count) Up.gameObject.SetActive(count);
+                if (Down.gameObject.activeSelf != count) Down.gameObject.SetActive(count);
+                HudText.Set(Caption, split ? "SPLIT" : "");   // ASCII only
+                Glyph.enableWordWrapping = !split;            // a label may take two lines; a glyph never
+                HudText.Set(Glyph, GlyphFor(null));
+            }
+
+            /// <summary>Poll result: the live label (tooltip), enabled state, and — for the "split N"
+            /// square — its current number. Re-raises the tooltip when hovered and the text moved.</summary>
+            public void SetState(string label, bool enabled, string countGlyph)
+            {
+                bool labelChanged = !string.Equals(label, Label, System.StringComparison.Ordinal);
+                Label = label;
+                Enabled = enabled;
+                HudText.Set(Glyph, GlyphFor(countGlyph));
+                if (labelChanged && Input != null && Input.Hover) ShowTip();
+            }
+
+            private string GlyphFor(string countGlyph)
+            {
+                switch (Kind)
+                {
+                    case CtrlKind.SplitOne: return "1";
+                    case CtrlKind.SplitHalf: return "1/2";
+                    case CtrlKind.SplitCount: return string.IsNullOrEmpty(countGlyph) ? GlyphOfCount() : countGlyph;
+                    default: return AsciiLabel(Label);
+                }
+            }
+
+            /// <summary>The count digits out of "Split N" (the bind-time label), without a parse.</summary>
+            private string GlyphOfCount()
+            {
+                string l = Label ?? "";
+                int sp = l.LastIndexOf(' ');
+                return sp >= 0 && sp + 1 < l.Length ? l.Substring(sp + 1) : "1";
+            }
+
+            /// <summary>Size the square to one inventory cell and lay its content out for its kind.
+            /// Only does work when the edge (or the kind) changed, so a resize-drag relayout stays
+            /// pure RectTransform writes.</summary>
+            public void SetSize(float s)
+            {
+                s = Mathf.Max(16f, s);
+                if (Size > 0f && Mathf.Approximately(s, Size)) return;
+                Size = s;
+                Rt.sizeDelta = new Vector2(s, s);
+
+                bool split = Kind != CtrlKind.Generic;
+                bool count = Kind == CtrlKind.SplitCount;
+                var g = Glyph.rectTransform;
+                if (split)
+                {
+                    // Glyph in the upper ~60%, caption in the bottom band; the count square leaves
+                    // room on the right for its two scroll triangles.
+                    float gw = count ? s * 0.62f : s - 6f;
+                    g.anchoredPosition = new Vector2(count ? -s * 0.12f : 0f, s * 0.10f);
+                    g.sizeDelta = new Vector2(gw, s * 0.56f);
+                    Glyph.fontSizeMin = HudText.Size(8f);
+                    Glyph.fontSizeMax = HudText.Size(Mathf.Clamp(s * 0.36f, 10f, 24f));
+
+                    var c = Caption.rectTransform;
+                    c.anchoredPosition = new Vector2(0f, -s * 0.5f + s * 0.16f);
+                    c.sizeDelta = new Vector2(s - 4f, s * 0.26f);
+                    Caption.fontSize = HudText.Size(Mathf.Clamp(s * 0.17f, 7f, 10f));
+                }
+                else
+                {
+                    g.anchoredPosition = Vector2.zero;
+                    g.sizeDelta = new Vector2(s - 6f, s - 6f);
+                    Glyph.fontSizeMin = HudText.Size(6f);
+                    Glyph.fontSizeMax = HudText.Size(Mathf.Clamp(s * 0.24f, 8f, 13f));
+                }
+
+                if (count)
+                {
+                    float tri = Mathf.Clamp(s * 0.16f, 5f, 12f);
+                    float tx = s * 0.5f - tri * 0.5f - 4f;
+                    var ur = (RectTransform)Up.transform;
+                    var dr = (RectTransform)Down.transform;
+                    ur.sizeDelta = dr.sizeDelta = new Vector2(tri + 2f, tri + 2f);
+                    ur.anchoredPosition = new Vector2(tx, s * 0.10f + tri * 0.75f);
+                    dr.anchoredPosition = new Vector2(tx, s * 0.10f - tri * 0.75f);
+                    Up.Configure(true, tri);
+                    Down.Configure(false, tri);
+                }
+            }
+
+            /// <summary>Paint the square through the shared theme path (hover = the theme's own delta)
+            /// and colour its glyph/caption/triangles: accent while hovered, the label colour when
+            /// enabled, dimmed when vanilla's dry-run says the control is unavailable.</summary>
+            public void Style(Color accent, Color txt, Color dim)
+            {
+                if (Go == null || !Go.activeSelf) return;
+                bool hov = Input != null && Input.Hover;
+                float s = Size > 0f ? Size : 46f;
+                GridTheme.ApplyBox(Bg, s, s, GridTheme.GridSurface.Button, hov);
+                Color c = hov ? accent : (Enabled ? txt : dim);
+                Glyph.color = c;
+                if (Caption.gameObject.activeSelf)
+                {
+                    Color cc = c;
+                    cc.a *= 0.8f;
+                    Caption.color = cc;
+                }
+                if (Up.gameObject.activeSelf) Up.color = c;
+                if (Down.gameObject.activeSelf) Down.color = c;
+            }
+
+            public void ShowTip()
+            {
+                ShowControlTip(Label, Kind == CtrlKind.SplitCount ? SplitCountTip : null);
+            }
+
+            public void HideTip()
+            {
+                Core.VanillaTooltip.Clear();
+            }
+
+            /// <summary>Back to the pool: drop the target and the click/scroll wiring, take a hovered
+            /// tooltip down, release any shared glass material, deactivate.</summary>
+            public void Idle()
+            {
+                if (Input != null)
+                {
+                    if (Input.Hover) HideTip();
+                    Input.Hover = false;
+                    Input.Clicked = null;
+                    Input.Scrolled = null;
+                }
+                Thing = null;
+                Interactable = null;
+                Label = null;
+                Enabled = true;
+                if (Bg != null) HudFxMaterials.Unassign(Bg);
+                if (Go != null && Go.activeSelf) Go.SetActive(false);
+            }
+        }
+
+        /// <summary>Pointer surface for a control square: LEFT click fires <see cref="Clicked"/> (never
+        /// while a radial owns the mouse), hover drives the accent + the full-label tooltip, and the
+        /// wheel steps <see cref="Scrolled"/> — the "split N" square's count — or, on every other square,
+        /// is handed on up the hierarchy so the list's ScrollRect still scrolls under the pointer.
+        /// Instance-scoped; dies with the panel canvas.</summary>
+        private sealed class CtrlInput : MonoBehaviour,
+            IPointerClickHandler, IPointerEnterHandler, IPointerExitHandler, IScrollHandler
+        {
+            public System.Action Clicked;
+            public System.Action<int> Scrolled;
+            public CtrlButton Owner;
+            public bool Hover;
+
+            public void OnPointerClick(PointerEventData e)
+            {
+                if (e == null || e.button != PointerEventData.InputButton.Left) return;
+                if (RadialController.AnyRadialOpen) return;   // a wedge click must never also press a control
+                if (Clicked != null) Clicked();
+            }
+
+            public void OnPointerEnter(PointerEventData e)
+            {
+                Hover = true;
+                if (Owner != null) Owner.ShowTip();
+            }
+
+            public void OnPointerExit(PointerEventData e)
+            {
+                Hover = false;
+                if (Owner != null) Owner.HideTip();
+            }
+
+            public void OnScroll(PointerEventData e)
+            {
+                if (e == null) return;
+                if (Scrolled != null)
+                {
+                    float dy = e.scrollDelta.y;
+                    if (Mathf.Abs(dy) >= 0.01f) Scrolled(dy > 0f ? 1 : -1);
+                    return;
+                }
+                // Not a value square: pass the wheel on so the window still scrolls under the pointer.
+                Transform p = transform.parent;
+                if (p != null) ExecuteEvents.ExecuteHierarchy(p.gameObject, e, ExecuteEvents.scrollHandler);
+            }
+
+            private void OnDisable()
+            {
+                if (!Hover) return;   // deactivation bypasses OnPointerExit: never strand the tooltip
+                Hover = false;
+                if (Owner != null) Owner.HideTip();
+            }
         }
     }
 }

@@ -53,7 +53,11 @@ namespace StationeersUIMod.UI.Hud
         PngDoll,
         // A freeform FILLED glass shape drawn with the F9 pen tool: an arbitrary closed (and
         // possibly concave) contour rendered by PolygonPanelGraphic. Append-only.
-        Shape
+        Shape,
+        // D-019 (FlorpyDorp): a laser-rangefinder readout — the straight-line distance from the
+        // camera's crosshair to the first solid surface, in meters or feet (see RangefinderWidget).
+        // Pure LOCAL raycast, zero game-state mutation. Append-only.
+        Rangefinder
     }
 
     /// <summary>Which live value a <see cref="HudElementType.Readout"/> samples. Kept as a

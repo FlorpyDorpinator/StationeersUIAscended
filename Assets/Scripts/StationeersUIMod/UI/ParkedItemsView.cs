@@ -8,8 +8,9 @@ namespace StationeersUIMod.UI
 {
     /// <summary>
     /// Renders the Option A parking layer: items dragged off a radial sit on the screen in
-    /// little shaded circles until they are dragged into a slot or dumped by the closing
-    /// right-click. Also draws the ghost icon following the cursor during a drag.
+    /// little shaded circles until they are dragged into a slot or dropped to the ground by
+    /// ANY close route (D-004: RMB, Esc, MMB, the opener key, wheel switches — one rule).
+    /// Also draws the ghost icon following the cursor during a drag.
     /// Purely visual — all state lives in ParkingState, all mutations in ItemActions.
     /// </summary>
     public static class ParkedItemsView

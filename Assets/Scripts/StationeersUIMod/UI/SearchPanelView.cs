@@ -231,9 +231,11 @@ namespace StationeersUIMod.UI
             _rows.Clear();
             _scroll = 0;
 
+            // D-005 (A3): never list an item in (or beneath) a SEALED slot (ScannedSlot.Sealed) — a
+            // search "take" would rip a built-in part out of an emergency suit/tool for good.
             var groups = InventoryScanner
                 .Scan(UIAConfig.ScanDepth.Value, UIAConfig.AllowToolSlotSources.Value)
-                .Where(s => s.Occupant != null && s.Depth > 0)
+                .Where(s => s.Occupant != null && s.Depth > 0 && !s.Sealed)
                 .Where(s => _query.Length == 0
                     || s.Occupant.DisplayName.IndexOf(_query, System.StringComparison.OrdinalIgnoreCase) >= 0)
                 .GroupBy(s => s.Occupant.PrefabHash)

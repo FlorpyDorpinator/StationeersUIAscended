@@ -126,6 +126,24 @@ namespace StationeersUIMod.UI.Grid
         private static readonly List<PinnedInventoryWindow> _live = new List<PinnedInventoryWindow>(4);
         private static bool _interactive = true;
 
+        // ---------- window focus / z-order (D-006) ----------
+        // Every window's raycaster lives on its own NESTED canvas with no raycaster above it, so to
+        // the EventSystem each window is its own root: RaycastComparer only compares graphic depth
+        // WITHIN one rootRaycaster, and with equal sort priorities it falls through to the raycasters'
+        // REGISTRATION order (RaycastResult.index) — not the sibling order that decides what DRAWS
+        // on top (live UnityEngine.UI EventSystem.RaycastComparer / BaseRaycaster.rootRaycaster).
+        // So where two pins overlapped, the one you could see was not necessarily the one that got
+        // the click, and a pin's controls could be dead until it was dragged clear ("the bottom one
+        // can't be clicked or dragged until the top one is moved away"). Fix: every window's canvas
+        // overrides sorting with an explicit order in [PinSortBase, PinSortBase + PinSortSpan]
+        // ranked by focus, so DRAW order and RAYCAST priority (GraphicRaycaster.sortOrderPriority =
+        // canvas.sortingOrder for a screen-space-overlay canvas) are one and the same; a
+        // pointer-down on a window (TickAll) raises it, like any desktop. The range sits above the
+        // main window (5020) and below the tab drag ghost (5100) and every popup.
+        private const int PinSortBase = 5030;
+        private const int PinSortSpan = 60;
+        private static int _focusStamp;   // monotonically increasing focus clock; reset in Shutdown
+
         // GridProfileMode.ChromeStamp() at the last TickAll. Profile-mode chrome (the chip +
         // CAPTURE strip, tab badges) is created by a structural region re-Bind, and pins outlive
         // the main window's rebuild loop — so TickAll diffs the stamp itself and re-binds each
@@ -371,6 +389,11 @@ namespace StationeersUIMod.UI.Grid
         private bool _haveContent;
         private bool _closed;
 
+        // D-006: this window's own (nested) canvas — the one its raycaster and every graphic sit
+        // under — and its focus stamp (higher = more recently focused = drawn AND hit on top).
+        private Canvas _winCanvas;
+        private int _focus;
+
         // Height of the region's own manila tab, which we SUPPRESS inside a pinned window (see
         // SuppressRegionTab). The region still lays itself out with a tab band reserved at the top, so
         // the body is shifted up by exactly this much to close the gap the hidden tab leaves.
@@ -403,7 +426,78 @@ namespace StationeersUIMod.UI.Grid
             var win = go.AddComponent<PinnedInventoryWindow>();
             win.Build(go);
             _live.Add(win);
+            win.BringToFront();   // D-006: a freshly opened window lands on top (draw AND raycast)
             return win;
+        }
+
+        /// <summary>D-006: raise this window above every other pinned window — both what DRAWS on top
+        /// and what the EventSystem hits first, which are now the same thing (see the z-order note on
+        /// <see cref="PinSortBase"/>). Called for a new window, on a pointer-down anywhere on a window
+        /// (<see cref="TickAll"/>), and by <c>TheGridPanel</c>'s focus-on-repeat-shortcut. View-only.</summary>
+        public void BringToFront()
+        {
+            if (_closed) return;
+            _focus = ++_focusStamp;
+            ApplySortOrders();
+        }
+
+        /// <summary>Rank every live window by focus stamp and give its nested canvas an explicit,
+        /// overriding sort order (lowest focus = <see cref="PinSortBase"/>). Rank, not raw stamp, so
+        /// the orders stay packed inside the band however long a session runs. A handful of windows:
+        /// the O(n^2) rank count is allocation-free and runs only on a focus change / open / close.</summary>
+        private static void ApplySortOrders()
+        {
+            for (int i = 0; i < _live.Count; i++)
+            {
+                var w = _live[i];
+                if (w == null || w._closed || w._winCanvas == null) continue;
+                int rank = 0;
+                for (int j = 0; j < _live.Count; j++)
+                {
+                    var o = _live[j];
+                    if (o == null || o == w || o._closed) continue;
+                    if (o._focus < w._focus || (o._focus == w._focus && j < i)) rank++;
+                }
+                int order = PinSortBase + Mathf.Min(rank, PinSortSpan);
+                if (!w._winCanvas.overrideSorting) w._winCanvas.overrideSorting = true;
+                if (w._winCanvas.sortingOrder != order) w._winCanvas.sortingOrder = order;
+            }
+        }
+
+        /// <summary>The live window the player would HIT at this screen point — the highest-focus one
+        /// whose panel contains it (drawn on top there, so it is also first in the raycast order).</summary>
+        private static PinnedInventoryWindow TopWindowAt(Vector2 screenPoint)
+        {
+            PinnedInventoryWindow best = null;
+            for (int i = 0; i < _live.Count; i++)
+            {
+                var w = _live[i];
+                if (w == null || w._closed || w._panel == null) continue;
+                if (!RectTransformUtility.RectangleContainsScreenPoint(w._panel, screenPoint, null)) continue;
+                if (best == null || w._focus > best._focus) best = w;
+            }
+            return best;
+        }
+
+        /// <summary>D-006 window focus: on the frame a mouse button goes DOWN over a pinned window,
+        /// raise the window under the cursor (the one that is drawn — and therefore hit — on top there)
+        /// above the others, so the one you click or start dragging comes forward and any visible part
+        /// of a lower window stays clickable. Polled rather than an IPointerDownHandler on the window
+        /// root: a press handler on an ancestor would make that ancestor the press target and change
+        /// who receives clicks. Only while the pins are interactive and no radial owns the mouse.</summary>
+        private static void RaiseWindowUnderPointerDown()
+        {
+            if (!_interactive || _live.Count < 2) return;
+            if (!(Input.GetMouseButtonDown(0) || Input.GetMouseButtonDown(1) || Input.GetMouseButtonDown(2))) return;
+            if (RadialController.AnyRadialOpen) return;
+            var w = TopWindowAt(Input.mousePosition);
+            if (w == null) return;
+            // Already on top? Nothing to do (keeps the stamp from climbing on every click).
+            for (int i = 0; i < _live.Count; i++)
+            {
+                var o = _live[i];
+                if (o != null && o != w && !o._closed && o._focus > w._focus) { w.BringToFront(); return; }
+            }
         }
 
         /// <summary>Find the live pinned window for a container, or null. Linear over a handful of
@@ -443,6 +537,7 @@ namespace StationeersUIMod.UI.Grid
                 w.RefreshIfDirty();
                 if (w._scrollbar != null) w._scrollbar.Tick();   // drive the scroll indicator
             }
+            RaiseWindowUnderPointerDown();   // D-006: click / drag a window = bring it forward
             UpdateCursorBlock();
         }
 
@@ -522,6 +617,7 @@ namespace StationeersUIMod.UI.Grid
             _canvas = null;
             _interactive = true;
             _blockHeld = false;
+            _focusStamp = 0;               // D-006 focus clock starts fresh after a reload
             _profileStamp = int.MinValue;
             _linePts.Clear();
             _dirtyScratch.Clear();
@@ -629,6 +725,7 @@ namespace StationeersUIMod.UI.Grid
             _closed = true;
             _live.Remove(this);
             if (_live.Count == 0) ReleaseCursorBlock();   // last window down, possibly mid-hover
+            else ApplySortOrders();                       // D-006: repack the remaining z-order band
             if (_region != null) _region.Recycle();
             // Every chrome graphic that can carry a shared effect material must be handed back
             // before the destroy, or its dead key sits in HudFxMaterials' assignment table until
@@ -715,7 +812,9 @@ namespace StationeersUIMod.UI.Grid
 
         /// <summary>The shared screen-space canvas every pinned window parents to. Sorted just ABOVE the
         /// main Universal Inventory window so a pinned bag is never buried under it; it carries no
-        /// raycaster of its own (each window owns one, so peek/latched can be flipped per window).</summary>
+        /// raycaster of its own (each window owns one, so peek/latched can be flipped per window).
+        /// Since D-006 each window's own nested canvas OVERRIDES this order with its focus rank
+        /// (<see cref="ApplySortOrders"/>) — the root order is only the band's floor.</summary>
         private static void EnsureCanvas()
         {
             if (_canvasRoot != null) return;
@@ -762,6 +861,15 @@ namespace StationeersUIMod.UI.Grid
                     | AdditionalCanvasShaderChannels.TexCoord3
                     | AdditionalCanvasShaderChannels.Normal
                     | AdditionalCanvasShaderChannels.Tangent;
+            // D-006: this nested canvas gets an explicit, overriding sort order per focus rank
+            // (ApplySortOrders) — seeded at the band base so it never flashes under the main window
+            // before Create's BringToFront runs.
+            _winCanvas = winCanvas;
+            if (_winCanvas != null)
+            {
+                _winCanvas.overrideSorting = true;
+                _winCanvas.sortingOrder = PinSortBase;
+            }
 
             // The window panel: glass background, a raycast target so clicks on empty panel area do not
             // fall through to the world. Anchored TOP-LEFT, pivoted CENTRE (the centre-pivot rule).

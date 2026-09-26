@@ -414,6 +414,9 @@ namespace StationeersUIMod.UI.Hud
                 // BareSenses owns an optional whole-element background panel (default OFF) plus
                 // optional per-sense boxes, so it earns the full glass/corner/effect prop set.
                 case HudElementType.BareSenses:
+                // D-019: the rangefinder's optional "box" background is a real PanelGraphic, same
+                // family as Readout/Compass.
+                case HudElementType.Rangefinder:
                     return true;
                 // MoodletDashboard is deliberately NOT here. Its live view is MoodletBorrowWidget,
                 // which reparents vanilla's real moodlet strip and builds no UIA surface of its own

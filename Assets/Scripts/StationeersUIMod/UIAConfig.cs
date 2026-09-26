@@ -320,8 +320,9 @@ namespace StationeersUIMod
                 "(inverted): the wheel STAYS open after actions, and holding Shift closes it " +
                 "after this one. For players who use the wheel as a persistent panel.");
             RadialHintBar = cfg.Bind("1. General", "RadialHintBar", true,
-                "Show a slim, contextual key-hint bar just below an open radial (LMB select, RMB " +
-                "back, Alt reach, swap hand, page…). Follows your rebinds. Turn off for a cleaner wheel.");
+                "Show a contextual key-hint bar curved under an open radial (RMB back/close, drag " +
+                "to move, Q page or belt, E switch hand, Alt grab...). Follows your rebinds and the " +
+                "wheel's theme. Turn off for a cleaner wheel.");
             GuideShown = cfg.Bind("1. General", "GuideShown", false,
                 "Internal: set once the first-run tutorial has been shown. Reset to false to see it again " +
                 "on the next world entry (or run 'uiatutorial' in the console any time).");

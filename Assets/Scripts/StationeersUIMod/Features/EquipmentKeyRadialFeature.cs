@@ -90,6 +90,12 @@ namespace StationeersUIMod.Features
             var slot = EquipSlot;
             var occ = slot?.Get();
             if (occ == null) return new List<RadialEntry>();
+            // D-007: the 6 key on a worn tool belt opens the SAME bespoke Belt Wheel ring MMB
+            // does (The Hub wedge, one wedge per belt slot, home-slot ghost labels, STOW
+            // wedges) instead of the generic manage-item menu every other equipment key uses —
+            // otherwise The Hub never showed via 6, and RadialController's Q belt-swap (gated
+            // on the active feature being a ToolbeltRadialFeature) had nothing to match.
+            if (_buttonName == "ToolBeltSlot") return ToolbeltRadialFeature.BuildRootEntries();
             return ItemMenuBuilder.BuildManageEntries(occ, slot, includeTakeEntry: true);
         }
 

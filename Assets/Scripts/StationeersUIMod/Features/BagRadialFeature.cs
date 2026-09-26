@@ -65,7 +65,9 @@ namespace StationeersUIMod.Features
             return entries;
         }
 
-        /// <summary>"Grab another: X" — one flick to repeat the last retrieval.</summary>
+        /// <summary>The "recent item" wedge — one flick to repeat the last retrieval.
+        /// D-023: labelled persistently (CornerTag) and named "Recent item" in the hub —
+        /// play-testers couldn't tell what the unlabelled wedge was.</summary>
         private static void AddGrabAnother(List<RadialEntry> entries)
         {
             if (RetrievalMemory.LastName == null) return;
@@ -74,7 +76,9 @@ namespace StationeersUIMod.Features
             entries.Add(new RadialEntry
             {
                 Label = RetrievalMemory.LastName,
-                ActionText = "Grab another",
+                ActionText = "Recent item",   // D-023: hub line (was "Grab another")
+                Verb = "Take",                // D-022: action word (click = EquipToActiveHand)
+                CornerTag = "Recent item",    // D-023: persistent tag inside the wedge
                 Sublabel = again.Location,
                 Icon = RetrievalMemory.LastIcon,
                 AccentOverride = Theme.Accent,
@@ -109,10 +113,13 @@ namespace StationeersUIMod.Features
                 // Parity: the same manage radial the equipment key builds (take entry too).
                 ChildProvider = () => ItemMenuBuilder.BuildManageEntries(thing, wornSlot, includeTakeEntry: true),
             };
-            if (occ.Slots != null && occ.Slots.Count > 0)
+            // D-005 (A3): count and accept drops over the slots the radial LISTS only — a worn
+            // Emergency EVA suit's hidden tanks are not storage (see ItemMenuBuilder.IsListableSlot).
+            int usedSlots;
+            int listedSlots = ItemMenuBuilder.CountListableSlots(occ, out usedSlots);
+            if (listedSlots > 0)
             {
-                int used = occ.Slots.Count(s => s?.Get() != null);
-                entry.Sublabel = role + " - " + used + "/" + occ.Slots.Count;
+                entry.Sublabel = role + " - " + usedSlots + "/" + listedSlots;
                 entry.DropResolver = dragged => ItemMenuBuilder.FirstFreeSlot(thing, dragged);
             }
             if (ItemMenuBuilder.IsBindableBag(occ)) entry.BindableBag = thing; // e.g. worn backpack (#3)
@@ -124,11 +131,14 @@ namespace StationeersUIMod.Features
         // radial) were deleted with the schema chooser in the post-0.9.2.5 play-test round — the search PANEL
         // (RadialMenu.RequestSearch -> SearchPanelView) is the one search surface now.
 
+        /// <summary>The recent-item candidate: the shallowest carried instance of the prefab. Never one
+        /// sitting in (or beneath) a SEALED slot (D-005, A3 — <see cref="ScannedSlot.Sealed"/>): the
+        /// wedge must not offer to rip a built-in part out of an emergency suit or tool.</summary>
         private static ScannedSlot FindByPrefab(int prefabHash)
         {
             return InventoryScanner
                 .Scan(UIAConfig.ScanDepth.Value, UIAConfig.AllowToolSlotSources.Value)
-                .Where(s => s.Occupant != null && s.Depth > 0 && s.Occupant.PrefabHash == prefabHash)
+                .Where(s => s.Occupant != null && s.Depth > 0 && !s.Sealed && s.Occupant.PrefabHash == prefabHash)
                 .OrderBy(s => s.Depth)
                 .FirstOrDefault()?.Pin();
         }
@@ -153,11 +163,14 @@ namespace StationeersUIMod.Features
             if (Core.InventoryScanner.ContentsOffLimits(bag)) return entries;
             if (bag?.Slots == null) return entries;
 
+            // D-005 (A3): a sealed slot is neither an item wedge nor free space — so it can never
+            // become a STOW wedge, nor the aggregate STOW wedge's target (built from `empty` below).
             var occupied = new List<Slot>();
             var empty = new List<Slot>();
             foreach (Slot s in bag.Slots)
             {
                 if (s == null || s.IsLocked) continue;
+                if (!ItemMenuBuilder.IsListableSlot(s)) continue;
                 if (s.Get() != null) occupied.Add(s);
                 else empty.Add(s);
             }
@@ -229,6 +242,8 @@ namespace StationeersUIMod.Features
 
             if (mode != EmptySlotMode.EmptySlots)
             {
+                // `empty` holds listable (non-sealed) slots only, and the drop resolver below
+                // (FirstFreeSlot) skips sealed ones itself, so this wedge can never resolve to one.
                 Slot free = held != null ? empty.FirstOrDefault(s => Slot.AllowMove(held, s)) : null;
                 Slot target = free ?? empty.FirstOrDefault();
                 if (target != null)
@@ -264,7 +279,7 @@ namespace StationeersUIMod.Features
                 {
                     Label = occ.DisplayName,
                     ActionText = "Open",
-                    Sublabel = occ.Slots.Count(s => s?.Get() != null) + "/" + occ.Slots.Count,
+                    Sublabel = ItemMenuBuilder.CountSlots(occ),   // listable slots only (D-005)
                     Icon = occ.GetThumbnail(),
                     ChildProvider = () => BuildBagLevel(thing),
                     BindableBag = ItemMenuBuilder.IsBindableBag(occ) ? thing : null, // Ctrl+number (#3)

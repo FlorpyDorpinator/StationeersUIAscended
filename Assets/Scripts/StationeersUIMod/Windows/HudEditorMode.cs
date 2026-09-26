@@ -1774,6 +1774,13 @@ namespace StationeersUIMod.Windows
                 // in bare because the default was All).
                 e.Tiers = UI.Hud.HudTierMask.Suited | UI.Hud.HudTierMask.Robot;
             }
+            if (type == UI.Hud.HudElementType.Rangefinder)
+            {
+                // B6: the rangefinder is an instrument too (D-019) — the same suit-tier default as
+                // the Readout above, so a fresh one cannot reintroduce the recurring "instrument
+                // shows in bare" bug. The player can still tick Bare on in the element's tiers.
+                e.Tiers = UI.Hud.HudTierMask.Suited | UI.Hud.HudTierMask.Robot;
+            }
 
             // On a Glassy-family profile, a fresh element arrives in the profile's own
             // glass dress (literal colours + sheen/spec) instead of raw palette defaults,

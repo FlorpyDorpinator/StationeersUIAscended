@@ -83,6 +83,10 @@ namespace StationeersUIMod.Features
                 foreach (Slot slot in thing.Slots)
                 {
                     if (slot == null || slot.IsLocked) continue; // locked slots are a vanilla hard gate
+                    // D-005 (A3): a sealed slot is never a wedge — a built-in part (an emergency
+                    // suit's tank, an emergency tool's battery) could be ripped out but never put
+                    // back, and a stack's slot (a single cable coil) would show a phantom STOW wedge.
+                    if (!IsListableSlot(slot)) continue;
                     var e = BuildSlotEntry(slot);
                     if (e != null) slotEntries.Add(e);
                 }
@@ -145,10 +149,49 @@ namespace StationeersUIMod.Features
             foreach (Slot slot in thing.Slots)
             {
                 if (slot == null || slot.IsLocked) continue;
+                if (!IsListableSlot(slot)) continue;   // D-005 (A3): never a sealed slot's wedge
                 var e = BuildSlotEntry(slot);
                 if (e != null) entries.Add(e);
             }
             return entries;
+        }
+
+        /// <summary>D-005 (A3): may the radial LIST this slot of a managed item at all? Never a sealed
+        /// one (<see cref="ItemActions.IsSealedSlot"/> — the one predicate: a hidden slot of a carried
+        /// thing, or any slot of a stack). Vanilla draws only interactable slots, so a built-in part
+        /// offered as a wedge could be taken out but never put back. The grid's take-out-only rescue
+        /// cells (GridModel) are the one deliberate exception and do not come through here.</summary>
+        internal static bool IsListableSlot(Slot slot)
+        {
+            return slot != null && !ItemActions.IsSealedSlot(slot);
+        }
+
+        /// <summary>How many of <paramref name="thing"/>'s slots the radial would list
+        /// (<see cref="IsListableSlot"/>), with <paramref name="used"/> = how many of those are
+        /// occupied. The one count behind every "used/total" sublabel and every container heuristic
+        /// (<see cref="LooksLikeContainer"/>, <see cref="IsBindableBag"/>), so a thing whose only slots
+        /// are sealed — a cable coil, an emergency tool — never reads as a bag.</summary>
+        internal static int CountListableSlots(DynamicThing thing, out int used)
+        {
+            used = 0;
+            if (thing?.Slots == null) return 0;
+            int total = 0;
+            var slots = thing.Slots;
+            for (int i = 0; i < slots.Count; i++)
+            {
+                Slot s = slots[i];
+                if (!IsListableSlot(s)) continue;
+                total++;
+                if (s.Get() != null) used++;
+            }
+            return total;
+        }
+
+        /// <summary><see cref="CountListableSlots(DynamicThing, out int)"/> without the occupied count.</summary>
+        internal static int CountListableSlots(DynamicThing thing)
+        {
+            int unused;
+            return CountListableSlots(thing, out unused);
         }
 
         /// <summary>
@@ -164,8 +207,17 @@ namespace StationeersUIMod.Features
         {
             if (thing == null) return false;
             if (IsUnpackBox(thing)) return false; // a sealed package's slots are not user-openable innards
-            if (thing.Slots != null && thing.Slots.Count > 0
-                && !Core.InventoryScanner.ContentsOffLimits(thing)) return true; // body bag: organs aren't innards
+            if (thing.Slots != null && !Core.InventoryScanner.ContentsOffLimits(thing)) // body bag: organs aren't innards
+            {
+                // Only slots vanilla's own UI would draw count as innards, and a stack's slot
+                // never does (D-005: a cable coil is a splittable stack, not a container) —
+                // otherwise the belt wheel says "Open" where it should land on Split.
+                for (int i = 0; i < thing.Slots.Count; i++)
+                {
+                    var s = thing.Slots[i];
+                    if (s != null && !Core.ItemActions.IsSealedSlot(s)) return true;
+                }
+            }
             if (UIAConfig.IsA)
             {
                 // Match the generic enumeration, or wedges and satellites disagree.
@@ -355,17 +407,21 @@ namespace StationeersUIMod.Features
         }
 
         /// <summary>The Option A STOW wedge: blank slot icon + "STOW"; hovering previews the
-        /// held item on the orange fill. Also a drop target for parked items.</summary>
+        /// held item on the orange fill. Also a drop target for parked items.
+        /// D-005 (A3): a SEALED slot never stows — every funnel refuses it at execute time, so the
+        /// wedge must not promise it: disabled, no Install list, not a drop target. (The slot loops
+        /// already skip sealed slots; this covers any direct caller.)</summary>
         public static RadialEntry BuildStowEntry(Slot slot, string slotName, DynamicThing held)
         {
-            bool canStow = held != null && Slot.AllowMove(held, slot);
+            bool listable = IsListableSlot(slot);
+            bool canStow = listable && held != null && Slot.AllowMove(held, slot);
             Slot target = slot;
             // Bug 3: swiping past the rim on an empty TYPED slot (a tool's battery/filter
             // slot, a suit's canister slot) opens the list of items you could install there
             // — the same eject/insert/swap candidates the classic slot wedge offers, even
             // with an empty hand. Skipped for generic (None) storage slots, whose candidate
             // list would be your entire inventory.
-            bool typed = slot.Type != Slot.Class.None || InventoryScanner.SlotIsPrefabRestricted(slot);
+            bool typed = listable && (slot.Type != Slot.Class.None || InventoryScanner.SlotIsPrefabRestricted(slot));
             return new RadialEntry
             {
                 Label = "Stow",
@@ -375,8 +431,8 @@ namespace StationeersUIMod.Features
                 HoverIcon = canStow ? held.GetThumbnail() : null,
                 StowStyle = true,
                 Enabled = canStow,
-                DisabledReason = held == null ? "Nothing in hand" : "Held item doesn't fit",
-                DropSlot = target,
+                DisabledReason = !listable ? "Sealed slot" : held == null ? "Nothing in hand" : "Held item doesn't fit",
+                DropSlot = listable ? target : null,
                 OnSelect = () => ItemActions.StowActiveHandTo(target),
                 SlideOutProvider = typed ? () => BuildSlotCandidateEntries(target) : (System.Func<List<RadialEntry>>)null,
                 SlideOutLabel = "Install",
@@ -432,7 +488,9 @@ namespace StationeersUIMod.Features
             }
 
             var controls = BuildControlsList(thing);
-            bool hasOwnSlots = thing.Slots != null && thing.Slots.Count > 0;
+            // D-005 (A3): only slots the radial would list count — an item whose only slots are
+            // sealed (an emergency tool's hidden battery) has nothing to "Open".
+            bool hasOwnSlots = CountListableSlots(thing) > 0;
             if (UseSettingsWedge(controls.Count, hasOwnSlots ? 1 : 0))
                 entries.Add(BuildSettingsWedge(thing, controls.Count));
             else
@@ -483,27 +541,26 @@ namespace StationeersUIMod.Features
         }
 
         /// <summary>First unlocked empty slot of <paramref name="bag"/> that accepts the item
-        /// (checked again with Slot.AllowMove at execute time by the actual mutation).</summary>
+        /// (checked again with Slot.AllowMove at execute time by the actual mutation). Never a sealed
+        /// slot (D-005, A3): every placement funnel refuses one, so resolving a drop/stow to it would
+        /// fail even while an ordinary free slot sits right beside it.</summary>
         public static Slot FirstFreeSlot(DynamicThing bag, DynamicThing item)
         {
             if (bag?.Slots == null || item == null) return null;
             foreach (Slot s in bag.Slots)
             {
                 if (s == null || s.IsLocked || s.Get() != null) continue;
+                if (!IsListableSlot(s)) continue;
                 if (Slot.AllowMove(item, s)) return s;
             }
             return null;
         }
 
-        private static string CountSlots(DynamicThing bag)
+        /// <summary>"used/total" over the slots the radial lists (sealed ones excluded, D-005).</summary>
+        internal static string CountSlots(DynamicThing bag)
         {
-            int used = 0, total = 0;
-            foreach (Slot s in bag.Slots)
-            {
-                if (s == null) continue;
-                total++;
-                if (s.Get() != null) used++;
-            }
+            int used;
+            int total = CountListableSlots(bag, out used);
             return used + "/" + total;
         }
 
@@ -618,7 +675,19 @@ namespace StationeersUIMod.Features
         /// its own. Anywhere one is swiped/opened it should land straight on the split choices, never
         /// a Take/Replace/settings satellite (a cable coil is not a device component).</summary>
         public static bool IsPlainStack(DynamicThing thing)
-            => CanSplit(thing) && (thing?.Slots == null || thing.Slots.Count == 0);
+        {
+            if (!CanSplit(thing)) return false;
+            if (thing?.Slots == null) return true;
+            // A sealed slot (hidden, or any slot on a stack — the live cable coil has one)
+            // doesn't stop a stack being "plain": swiping it should land on the split
+            // choices, never an Open satellite (D-005). See ItemActions.IsSealedSlot.
+            for (int i = 0; i < thing.Slots.Count; i++)
+            {
+                var s = thing.Slots[i];
+                if (s != null && !Core.ItemActions.IsSealedSlot(s)) return false;
+            }
+            return true;
+        }
 
         /// <summary>The split level: SPLIT ONE and SPLIT HALF (both vanilla's own MP-safe
         /// interactions), plus — host/single-player only — SPLIT COUNT with a scroll wheel
@@ -688,20 +757,24 @@ namespace StationeersUIMod.Features
             };
         }
 
-        /// <summary>Heuristic: bags are navigated (click enters), devices are taken (click) and opened (slide-out).</summary>
+        /// <summary>Heuristic: bags are navigated (click enters), devices are taken (click) and opened (slide-out).
+        /// Counts only the slots the radial lists (<see cref="CountListableSlots(DynamicThing)"/>): sealed slots are
+        /// not storage (D-005, A3).</summary>
         public static bool LooksLikeContainer(DynamicThing thing)
         {
             if (thing?.Slots == null) return false;
             if (IsUnpackBox(thing)) return false; // a sealed package is NOT a bag, despite its slots
             if (Core.InventoryScanner.ContentsOffLimits(thing)) return false; // body bag is never a bag
-            return thing.Slots.Count >= 4 && thing.InteractOnOff == null;
+            return CountListableSlots(thing) >= 4 && thing.InteractOnOff == null;
         }
 
         /// <summary>A storage container the player may bind to a Ctrl+number hotkey (#3): it has
         /// slots and NO device controls (on/off, mode) — bags, boxes, crates, backpacks, but not
-        /// tools or jetpacks. Broader than <see cref="LooksLikeContainer"/> (no 4-slot floor).</summary>
+        /// tools or jetpacks. Broader than <see cref="LooksLikeContainer"/> (no 4-slot floor).
+        /// Only LISTABLE slots count (D-005, A3): a cable coil carries one sealed slot, and must not
+        /// become Ctrl+number bindable "storage" because of it.</summary>
         public static bool IsBindableBag(DynamicThing thing)
-            => thing?.Slots != null && thing.Slots.Count > 0 && !IsUnpackBox(thing)
+            => thing?.Slots != null && CountListableSlots(thing) > 0 && !IsUnpackBox(thing)
                && !Core.InventoryScanner.ContentsOffLimits(thing) // a body bag is never a bag
                && thing.InteractOnOff == null && thing.InteractMode == null;
 

@@ -17,6 +17,8 @@ namespace StationeersUIMod.UI
         // Border thickness comes from config (UIAConfig.RadialBorderWidth) so it is tunable live.
         private const float HoverContentPop = 6f;  // extra outward for icon+label on hover
         private const float HoverScale = 1.04f;    // subtle label/icon scale on hover
+        private const float SwipeChevronSize = 10f;  // D-022: the "you can swipe this" chevron (was 5)
+        private const float SwipeChevronInset = 12f; // its centre, px inside the outer radius (was 9)
 
         private static Canvas _canvas;
         private static CanvasGroup _group;
@@ -34,6 +36,18 @@ namespace StationeersUIMod.UI
         private static TextMeshProUGUI _pageSat;
         private static float _openAnim;
 
+        // --- D-022: the curved ACTION WORD over the main ring's top outside edge ("TAKE", "OPEN") —
+        // what a click on the hovered wedge will do. Rebuilt with the canvas; nothing survives Shutdown.
+        private static ArcPlateLabel _verbArc;
+        private static string _verbSrc;            // the verb the display cache was built from
+        private static bool _verbSrcUpper;         // ...and the ALL-CAPS option at the time
+        private static string _verbDisplay;        // WedgeText(_verbSrc), cached (no per-frame alloc)
+        private static float _verbLen;             // its straight (= arc) length at the cached style
+        private static float _verbLenSize = -1f;
+        private static TMP_FontAsset _verbLenFont;
+        private const float VerbGapPx = 8f;       // clearance between a hovered (bulged) wedge's rim and the plate
+        private const float VerbFadeSpeed = 9f;    // alpha per second: ~0.11 s in/out — neat, not sluggish
+
         // --- 0.9.0 radial glass FX (frosted backdrop + sheen/edge-light). Resolved once per
         // Render, pushed onto every wedge and the close band. Statics so the nested RingView and
         // UpdateCloseButton read one consistent frame's state.
@@ -50,21 +64,24 @@ namespace StationeersUIMod.UI
 
         // ---------- public API ----------
 
+        /// <param name="actionVerb">D-022: the curved action word to show over the main ring (null =
+        /// none). Honoured only when <paramref name="verbFromCaller"/> is true — the live radial decides
+        /// it (it knows where a click would actually land). Otherwise (the F10 editor preview) it is
+        /// derived from the hovered main-ring wedge via <see cref="RadialEntry.ClickVerb"/>.</param>
         public static void Render(Vector2 center, float innerR, float outerR,
             IList<RadialEntry> entries, int hovered, string title,
             Vector2? satCenter, float satInnerR, float satOuterR,
             IList<RadialEntry> satEntries, int satHovered, string satTitle,
             RadialEntry readoutEntry, string readoutHint, bool sticky,
             DynamicThing dragging = null, bool closeHovered = false,
-            string pageText = null, string satPageText = null)
+            string pageText = null, string satPageText = null,
+            string actionVerb = null, bool verbFromCaller = false)
         {
             EnsureCanvas();
             _group.alpha = 1f;
             _canvas.gameObject.SetActive(true);
             UpdateRadialFx();
             UpdateCloseButton(center, innerR, closeHovered);
-            UpdatePageLabel(_pageMain, pageText, center, outerR + 24f);
-            UpdatePageLabel(_pageSat, satPageText, satCenter ?? center, satOuterR + 18f);
 
             float dt = Mathf.Min(Time.unscaledDeltaTime, 0.05f);
             // Slightly nicer open curve (ease out)
@@ -72,6 +89,21 @@ namespace StationeersUIMod.UI
             _openAnim = Mathf.Lerp(_openAnim, 1f, dt * AnimSpeed);
 
             bool satActive = satEntries != null && satCenter.HasValue;
+
+            // D-021: publish where this ring sits so the key-hint strip can wrap around its bottom.
+            // Both the live radial and the F10 editor preview render through here.
+            RadialHintContext.PublishGeometry(center, outerR, satActive, satCenter ?? Vector2.zero, satOuterR);
+
+            // D-022: the action word over the top. Anything else floating up there yields to it: the
+            // page counter sits above the word's (reserved) band instead of colliding with it.
+            if (!verbFromCaller)
+                actionVerb = dragging == null && readoutEntry != null && entries != null
+                    && hovered >= 0 && hovered < entries.Count && ReferenceEquals(entries[hovered], readoutEntry)
+                    ? readoutEntry.ClickVerb() : null;
+            float pageHop = UpdateActionWord(center, outerR, actionVerb, openT, dt);
+
+            UpdatePageLabel(_pageMain, pageText, center, outerR + 24f + pageHop);
+            UpdatePageLabel(_pageSat, satPageText, satCenter ?? center, satOuterR + 18f);
 
             _main.Render(center, innerR, outerR, entries, hovered, openT, dimmed: satActive, dragging);
 
@@ -87,7 +119,13 @@ namespace StationeersUIMod.UI
             {
                 _readout.Render(satCenter.Value, Mathf.Max(satInnerR - 2f, 46f), satTitle ?? title, null,
                     readoutEntry, readoutHint, sticky);
-                _readoutHome.Render(center, innerR, title, null, null, "RMB: back", sticky);
+                // B1: the main hub names what RMB does, from the SAME CanGoBack the hint strip reads
+                // (RadialMenu.Draw publishes it just before this call) — a sticky child ring at the
+                // root is a close, not a back. The F10 editor preview publishes no interaction, so it
+                // keeps the generic "back". String literals only: no per-frame allocation.
+                string rmbHint = !RadialHintContext.InteractionFresh || RadialHintContext.CanGoBack ? "RMB: back"
+                    : RadialHintContext.Parked > 0 ? "RMB: close, drop parked" : "RMB: close";
+                _readoutHome.Render(center, innerR, title, null, null, rmbHint, sticky);
             }
             else
             {
@@ -107,13 +145,26 @@ namespace StationeersUIMod.UI
             _main?.ClearFx();
             _satellite?.ClearFx();
             Hud.HudFxMaterials.Unassign(_closeBand);
+            if (_verbArc != null)
+            {
+                _verbArc.HideNow(); // a reopened radial never flashes the last menu's word
+                Hud.HudFxMaterials.Unassign(_verbArc.Plate);
+            }
         }
 
         /// <summary>Full teardown — required for clean ScriptEngine hot reloads.</summary>
         public static void Shutdown()
         {
+            if (_verbArc != null) Hud.HudFxMaterials.Unassign(_verbArc.Plate);
             if (_canvas != null) UnityEngine.Object.Destroy(_canvas.gameObject);
             _canvas = null;
+            _verbArc = null;          // destroyed with the canvas
+            _verbSrc = null;
+            _verbSrcUpper = false;
+            _verbDisplay = null;
+            _verbLen = 0f;
+            _verbLenSize = -1f;
+            _verbLenFont = null;
             _group = null;
             _main = null;
             _satellite = null;
@@ -220,6 +271,80 @@ namespace StationeersUIMod.UI
 
             _pageMain = MakePageLabel(go.transform, "PageMain");
             _pageSat = MakePageLabel(go.transform, "PageSat");
+
+            // D-022: created last so it draws over everything on this canvas (it floats outside the
+            // rings, so the only thing it could meet is a hovered wedge's bulge — kept clear by VerbGapPx).
+            _verbArc = new ArcPlateLabel(go.transform, "ActionWord");
+            _verbArc.Text.font = Font();
+        }
+
+        /// <summary>
+        /// D-022 — the curved ACTION WORD on a glass plate hugging the main ring's top outside edge:
+        /// "TAKE", "OPEN", "SWAP", "STOW"... — what a click (or, in hold mode, the release) on the
+        /// hovered wedge will do (<see cref="RadialEntry.ClickVerb"/>). Pie-menu practice (Hopkins'
+        /// "Pie Menu Cookbook"; Kurtenbach/Buxton's marking menus) is to preview what a selection
+        /// will do before it commits; placing it at the TOP keeps it near-horizontal (Hopkins: wide
+        /// labels belong near the top/bottom) and away from the hint strip wrapped under the bottom.
+        /// Styled from the theme (ArcAccent / ArcPlateFill / ArcPlateBorder — AUTO = the wedge
+        /// colours) and sized by the hub's own verb size knob, so it travels with the profile theme.
+        /// Fades in/out (~0.1 s) instead of popping.
+        /// <para>Returns how far the page counter above the ring must sit higher to stay out of the
+        /// word's way. That space is RESERVED whenever the word could appear (not only while it is
+        /// showing), so the counter stays put instead of bobbing up and down as the pointer moves
+        /// between wedges and the hub.</para>
+        /// </summary>
+        private static float UpdateActionWord(Vector2 center, float outerR, string verb, float openT, float dt)
+        {
+            float bw = UIAConfig.RadialBorderWidth != null ? UIAConfig.RadialBorderWidth.Value : 3.2f;
+            float fs = UIAConfig.RadialTextVerb != null ? UIAConfig.RadialTextVerb.Value : 15f;
+            float lift = HoverBulge + Mathf.Max(0f, bw) + VerbGapPx;   // clears a hovered wedge's bulge + rim
+            float thickness = fs * 1.3f + 10f;
+            float plateIn = outerR + lift;
+            // The page counter is an 18 px line centred (outerR + 24) above the centre: lift it clear
+            // of the plate's outer edge (plus its border and a small gap).
+            float pageLift = Mathf.Max(0f, plateIn + thickness + Mathf.Max(0f, bw) + 12f - (outerR + 24f));
+
+            if (_verbArc == null) return pageLift;
+            bool show = !string.IsNullOrEmpty(verb);
+            if (!_verbArc.StepFade(show, dt, VerbFadeSpeed)) return pageLift;
+
+            if (show)
+            {
+                // While fading OUT the last word/layout is kept (it just dissolves in place).
+                bool upper = UIAConfig.RadialUppercaseLabels != null && UIAConfig.RadialUppercaseLabels.Value;
+                if (!ReferenceEquals(verb, _verbSrc) || upper != _verbSrcUpper || _verbDisplay == null)
+                {
+                    _verbSrc = verb;
+                    _verbSrcUpper = upper;
+                    _verbDisplay = WedgeText(verb);
+                    _verbLenSize = -1f; // re-measure
+                }
+
+                var tmp = _verbArc.Text;
+                SyncFont(tmp);
+                tmp.fontStyle = WedgeFontStyle();
+                if (!Mathf.Approximately(tmp.fontSize, fs)) tmp.fontSize = fs;
+                if (tmp.text != _verbDisplay) tmp.text = _verbDisplay;
+                tmp.color = RadialPalette.ArcAccent.Value;
+                if (!Mathf.Approximately(_verbLenSize, fs) || !ReferenceEquals(_verbLenFont, tmp.font))
+                {
+                    // preferredWidth measures the text ALREADY set (the flat hint bar's proven pattern),
+                    // so the measured and the displayed (then bent) string can never differ.
+                    _verbLen = tmp.preferredWidth;
+                    _verbLenSize = _verbLen > 0.5f ? fs : -1f; // a zero width (font not ready) re-measures
+                    _verbLenFont = tmp.font;
+                }
+
+                _verbArc.StylePlate(RadialPalette.ArcPlateFill.Value, RadialPalette.ArcPlateBorder.Value, bw * 0.5f);
+                ApplyWedgeFx(_verbArc.Plate); // same glass as the wedges (frost / sheen / edge light)
+                _verbArc.Layout(CanvasAnchoredPos(center), plateIn, thickness, top: true, _verbLen, fs * 0.8f);
+            }
+            else
+            {
+                _verbArc.Root.anchoredPosition = CanvasAnchoredPos(center); // follow a hub-drag while it fades
+            }
+            _verbArc.Root.localScale = Vector3.one * Mathf.Lerp(0.82f, 1f, openT); // rides the open animation
+            return pageLift;
         }
 
         private static TextMeshProUGUI MakePageLabel(Transform parent, string name)
@@ -397,11 +522,20 @@ namespace StationeersUIMod.UI
             // 1B.3: a grey tool-type binding label on a stable-geometry belt slot wedge
             // (occupied OR empty-but-bound), near the HUB side. Parallels _hotkey.
             private readonly List<TextMeshProUGUI> _binding = new List<TextMeshProUGUI>();
+            // D-023: a persistent descriptive tag (RadialEntry.CornerTag, e.g. "RECENT ITEM") along the
+            // wedge's OUTER rim — the binding label's twin at the other end of the wedge.
+            private readonly List<TextMeshProUGUI> _tags = new List<TextMeshProUGUI>();
+            private readonly List<string> _tagSrc = new List<string>();
+            private readonly List<string> _tagDisplay = new List<string>();
+            // B9: each tag's bend cache — the arc bend (a ForceMeshUpdate + autosize passes) re-runs
+            // only when its text, size, radius or font actually changed (ArcPlateLabel's own cache).
+            private readonly List<ArcBendCache> _tagBend = new List<ArcBendCache>();
 
             // Per-wedge string caches (parallel to the pools above), so the per-frame draw
             // allocates nothing while a radial is open. WedgeText (ToUpperInvariant) is cached
-            // keyed on the source-label reference; the hotkey badge letter caches its one-char
-            // string keyed on the char. All self-heal on any change — no reset needed.
+            // keyed on the source-label reference AND the ALL-CAPS option it was cased for
+            // (_cachedUpper, ring-wide — B10); the hotkey badge letter caches its one-char string
+            // keyed on the char. All self-heal on any change — no reset needed.
             private readonly List<string> _labelSrc = new List<string>();
             private readonly List<string> _labelDisplay = new List<string>();
             private readonly List<char> _lastBadgeLetter = new List<char>();
@@ -412,6 +546,17 @@ namespace StationeersUIMod.UI
             // Ctrl+digit bag badges ("^0".."^9") are constant — no per-frame concat.
             private static readonly string[] BagDigitBadges =
                 { "^0", "^1", "^2", "^3", "^4", "^5", "^6", "^7", "^8", "^9" };
+
+            // B10: the ALL-CAPS option the cased caches above were built for. Flipping it (F10 / the
+            // radial editor) re-cases every cached wedge string on the next Render — the verb cache's
+            // _verbSrcUpper rule, ring-wide. StaleSrc is a private sentinel no real label can be
+            // reference-equal to (a null label included), so a stamped slot always recomputes.
+            private bool _cachedUpper;
+            private static readonly string StaleSrc = new string('\u0001', 1);
+            // B13: how far a tagged wedge's icon may step inward to clear its CornerTag before it
+            // shrinks instead (so a rim tag and its icon never collide).
+            private const float TagIconInsetMax = 10f;
+            private const float TagIconGap = 2f;
 
             public RingView(Transform parent, string name)
             {
@@ -443,6 +588,20 @@ namespace StationeersUIMod.UI
                 int count = entries?.Count ?? 0;
                 EnsureCapacity(count);
 
+                // B10: the ALL-CAPS option changed since the cased caches were built — stamp every
+                // slot stale so each wedge string is re-cased on this Render.
+                bool upper = UIAConfig.RadialUppercaseLabels != null && UIAConfig.RadialUppercaseLabels.Value;
+                if (upper != _cachedUpper)
+                {
+                    _cachedUpper = upper;
+                    for (int k = 0; k < _labelSrc.Count; k++)
+                    {
+                        _labelSrc[k] = StaleSrc;
+                        _bindingSrc[k] = StaleSrc;
+                        _tagSrc[k] = StaleSrc;
+                    }
+                }
+
                 float dt = Mathf.Min(Time.unscaledDeltaTime, 0.04f);
                 float sector = count > 0 ? Mathf.PI * 2f / count : 0f;
                 float ringWidth = outerR - innerR;
@@ -463,7 +622,7 @@ namespace StationeersUIMod.UI
                     _states[i].gameObject.SetActive(used);
                     _triUp[i].gameObject.SetActive(used);
                     _triDown[i].gameObject.SetActive(used);
-                    if (!used) { _swipe[i].gameObject.SetActive(false); _hotkey[i].gameObject.SetActive(false); _binding[i].gameObject.SetActive(false); Hud.HudFxMaterials.Unassign(_wedges[i]); continue; }
+                    if (!used) { _swipe[i].gameObject.SetActive(false); _hotkey[i].gameObject.SetActive(false); _binding[i].gameObject.SetActive(false); _tags[i].gameObject.SetActive(false); Hud.HudFxMaterials.Unassign(_wedges[i]); continue; }
 
                     var entry = entries[i];
                     var wedge = _wedges[i];
@@ -549,12 +708,15 @@ namespace StationeersUIMod.UI
                     sw.gameObject.SetActive(swipeable);
                     if (swipeable)
                     {
-                        sw.Configure(pointsUp: true, size: 5f);
+                        // D-022: doubled (5 -> 10 px wide) — the old chevron was too small to notice.
+                        // A drawn mesh, not a glyph (the game font has no arrows); pulled 3 px further
+                        // in so the bigger tip still clears the rim border.
+                        sw.Configure(pointsUp: true, size: SwipeChevronSize);
                         float swAlpha = (isHovered ? 0.95f : 0.45f) * (dimmed ? 0.4f : 1f);
                         var swc = RadialPalette.TextPrimary.Value; swc.a *= swAlpha;
                         sw.color = swc;
                         var swRt = sw.rectTransform;
-                        swRt.anchoredPosition = dir * (outerR - 9f);
+                        swRt.anchoredPosition = dir * (outerR - SwipeChevronInset);
                         swRt.localEulerAngles = new Vector3(0f, 0f,
                             Mathf.Atan2(dir.y, dir.x) * Mathf.Rad2Deg - 90f);
                         sw.SetVerticesDirty();
@@ -650,6 +812,52 @@ namespace StationeersUIMod.UI
                         RadialArcText.Curve(bind, bR, dir.y >= 0f);
                     }
 
+                    // D-023: a small PERSISTENT tag inside the wedge, hugging its OUTER rim ("RECENT
+                    // ITEM") — the binding label's twin at the other end of the wedge, bent along the
+                    // arc the same way. It rides the hover bulge so a popped-out icon never covers it,
+                    // and steps inward past the swipe chevron when the wedge has one. Theme colour
+                    // (TextDim), dimmed with the ring. Content, not a knob: the builder decides which
+                    // wedge carries a tag (RadialEntry.CornerTag).
+                    var tag = _tags[i];
+                    bool showTag = !string.IsNullOrEmpty(entry.CornerTag) && !entry.IsScrollAdjust;
+                    tag.gameObject.SetActive(showTag);
+                    const float tH = 12f;
+                    float tagInnerR = 0f; // B13: the tag's inner edge, for the icon clearance below
+                    if (showTag)
+                    {
+                        if (!ReferenceEquals(entry.CornerTag, _tagSrc[i]))
+                        {
+                            _tagSrc[i] = entry.CornerTag;
+                            _tagDisplay[i] = WedgeText(entry.CornerTag);
+                        }
+                        SyncFont(tag);
+                        tag.fontStyle = WedgeFontStyle();
+                        if (tag.text != _tagDisplay[i]) tag.text = _tagDisplay[i];
+                        Color tc = RadialPalette.TextDim.Value;
+                        tc.a *= dimmed ? 0.45f : 0.9f;
+                        tag.color = tc;
+                        float tR = outerR + wedge.OuterBulge - tH * 0.5f - 5f
+                                 - (swipeable ? SwipeChevronSize + 2f : 0f);
+                        tagInnerR = tR - tH * 0.5f;
+                        float tTheta = Mathf.Atan2(dir.y, dir.x) * Mathf.Rad2Deg;
+                        float tAng = dir.y >= 0f ? tTheta - 90f : tTheta + 90f; // upright on both halves
+                        float tHalf = Mathf.Min(sector * 0.5f, Mathf.PI * 0.5f);
+                        float tLen = Mathf.Clamp(2f * tR * Mathf.Sin(tHalf) - 14f, 30f, 220f); // the wedge's chord
+                        var trt = tag.rectTransform;
+                        trt.pivot = new Vector2(0.5f, 0.5f);
+                        trt.localRotation = Quaternion.Euler(0f, 0f, tAng);
+                        trt.anchoredPosition = dir * tR;
+                        var tSize = new Vector2(tLen, tH);
+                        if ((trt.sizeDelta - tSize).sqrMagnitude > 0.01f)
+                        {
+                            trt.sizeDelta = tSize;
+                            _tagBend[i].Invalidate(); // a resize dirties TMP's layout: bend it again
+                        }
+                        // B9: bent only when the text / size / radius / font actually changed (or TMP
+                        // rebuilt it flat) — not a ForceMeshUpdate + autosize pass every frame.
+                        _tagBend[i].CurveIfStale(tag, tR, dir.y >= 0f);
+                    }
+
                     // Icons scale WITH the wedge: bounded by the band's thickness and by the
                     // wedge's width at mid radius, times the user's ratio.
                     float halfAngleIc = Mathf.Min(sector * 0.5f, Mathf.PI * 0.5f);
@@ -674,11 +882,32 @@ namespace StationeersUIMod.UI
                     icon.enabled = sprite != null;
                     float iconAlpha = (entry.Enabled ? 1f : 0.32f) * (dimmed ? 0.45f : 1f);
                     icon.color = new Color(1f, 1f, 1f, iconAlpha);
-                    icon.rectTransform.sizeDelta = new Vector2(iconSize, iconSize) * contentScale;
                     // With labels hidden the icon owns the wedge, so centre it in the band.
-                    icon.rectTransform.anchoredPosition = showLabels
+                    Vector2 iconPos = showLabels
                         ? slot + dir * (ringWidth * 0.05f) + new Vector2(0f, ringWidth * 0.12f)
                         : slot;
+                    if (showTag)
+                    {
+                        // B13: a CornerTag hugs the outer rim — keep the icon's outer edge clear of it.
+                        // Step the icon inward by just what it takes (up to TagIconInsetMax), then
+                        // shrink it for anything left over, so tag and icon never collide. A square's
+                        // reach along dir is half its side times (|dx| + |dy|). Default sizes with the
+                        // item-name labels OFF already clear it (no change); labels ON lift the icon
+                        // into the tag's band on a top wedge — which is where the recent item sits.
+                        float reach = Mathf.Abs(dir.x) + Mathf.Abs(dir.y);
+                        float over = Vector2.Dot(iconPos, dir) + iconSize * contentScale * 0.5f * reach
+                                     - (tagInnerR - TagIconGap);
+                        if (over > 0f)
+                        {
+                            float step = Mathf.Min(over, TagIconInsetMax);
+                            iconPos -= dir * step;
+                            over -= step;
+                            if (over > 0f)
+                                iconSize = Mathf.Max(iconSize * 0.6f, iconSize - 2f * over / (contentScale * reach));
+                        }
+                    }
+                    icon.rectTransform.sizeDelta = new Vector2(iconSize, iconSize) * contentScale;
+                    icon.rectTransform.anchoredPosition = iconPos;
 
                     // Live value (kPa / % / xN): horizontal, sitting just BELOW the icon's bottom
                     // edge (never on top of it), and auto-sized to the wedge's chord width AT THE
@@ -941,7 +1170,7 @@ namespace StationeersUIMod.UI
                     swgo.transform.SetParent(_root, false);
                     var triW = swgo.AddComponent<TriangleGraphic>();
                     triW.raycastTarget = false;
-                    triW.rectTransform.sizeDelta = new Vector2(11f, 9f);
+                    triW.rectTransform.sizeDelta = new Vector2(SwipeChevronSize + 6f, SwipeChevronSize); // drawn size is Configure()'s; this is just its box
                     _swipe.Add(triW);
 
                     var hkgo = new GameObject("Hotkey" + idx, typeof(RectTransform));
@@ -971,13 +1200,33 @@ namespace StationeersUIMod.UI
                     bntmp.raycastTarget = false;
                     _binding.Add(bntmp);
 
-                    // Parallel per-wedge string caches (see field declarations).
-                    _labelSrc.Add(null);
+                    var tggo = new GameObject("Tag" + idx, typeof(RectTransform));
+                    tggo.transform.SetParent(_root, false);
+                    var tgtmp = tggo.AddComponent<TextMeshProUGUI>();
+                    tgtmp.font = Font();
+                    tgtmp.alignment = TextAlignmentOptions.Center;
+                    tgtmp.enableAutoSizing = true;
+                    tgtmp.fontSizeMin = 7f;
+                    tgtmp.fontSizeMax = 10.5f;
+                    tgtmp.enableWordWrapping = false;
+                    // B10: never "..." — the game font has no ellipsis glyph, it tofus (see the note at
+                    // GridRegionView's profile chip). A too-long tag just clips.
+                    tgtmp.overflowMode = TextOverflowModes.Truncate;
+                    tgtmp.raycastTarget = false;
+                    tggo.SetActive(false);
+                    _tags.Add(tgtmp);
+
+                    // Parallel per-wedge string caches (see field declarations). The cased caches start
+                    // STALE (B10), so a fresh slot always computes its display string.
+                    _labelSrc.Add(StaleSrc);
                     _labelDisplay.Add(null);
                     _lastBadgeLetter.Add('\0');
                     _badgeStr.Add(null);
-                    _bindingSrc.Add(null);
+                    _bindingSrc.Add(StaleSrc);
                     _bindingDisplay.Add(null);
+                    _tagSrc.Add(StaleSrc);
+                    _tagDisplay.Add(null);
+                    _tagBend.Add(new ArcBendCache());
                 }
             }
         }
@@ -986,6 +1235,14 @@ namespace StationeersUIMod.UI
 
         private sealed class ReadoutView
         {
+            /// <summary>D-017 (FlorpyDorp: "jump suit should be bold and a bit larger ... so its clear
+            /// what item it is"): the NAME line (line 3) is set bold and this much larger than its
+            /// configured size (F10 "Readout 3: item name", RadialTextLabel). Deliberate SHARED content
+            /// typography, not a new knob: the readout's hierarchy (context / verb / NAME / detail /
+            /// stat) is part of its design and scales with the one size knob that already travels with
+            /// the profile theme. Not per-tier: the radial is not a tiered HUD element.</summary>
+            private const float NameEmphasis = 1.18f;
+
             private readonly RectTransform _root;
             private readonly CircleGraphic _hubBacking;
             private readonly TextMeshProUGUI _title, _verb, _label, _sub, _warn;
@@ -1048,12 +1305,14 @@ namespace StationeersUIMod.UI
                 float textScale = (UIAConfig.RadialDynamicReadoutText == null || UIAConfig.RadialDynamicReadoutText.Value) ? s : 1f;
                 float tSz = (UIAConfig.RadialHubTitleSize != null ? UIAConfig.RadialHubTitleSize.Value : 18f) * textScale;
                 float vSz = (UIAConfig.RadialTextVerb != null ? UIAConfig.RadialTextVerb.Value : 15f) * textScale;
-                float lSz = (UIAConfig.RadialTextLabel != null ? UIAConfig.RadialTextLabel.Value : 15f) * textScale;
+                float lSz = (UIAConfig.RadialTextLabel != null ? UIAConfig.RadialTextLabel.Value : 15f) * textScale * NameEmphasis;
                 float sSz = (UIAConfig.RadialTextSub != null ? UIAConfig.RadialTextSub.Value : 12f) * textScale;
                 float wSz = (UIAConfig.RadialTextWarn != null ? UIAConfig.RadialTextWarn.Value : 12f) * textScale;
                 _title.fontSizeMax = tSz; _title.fontSizeMin = Mathf.Min(8f, tSz); _title.fontStyle = WedgeFontStyle();
                 _verb.fontSizeMax = vSz; _verb.fontSizeMin = Mathf.Min(8f, vSz);
-                _label.fontSizeMax = lSz; _label.fontSizeMin = Mathf.Min(8f, lSz);
+                // D-017: the name is ALWAYS bold (faux-bold on top of a bold face too) so it is the
+                // heaviest line in the hub whatever font the theme picks.
+                _label.fontSizeMax = lSz; _label.fontSizeMin = Mathf.Min(8f, lSz); _label.fontStyle = FontStyles.Bold;
                 _sub.fontSizeMax = sSz; _sub.fontSizeMin = Mathf.Min(8f, sSz);
                 _warn.fontSizeMax = wSz; _warn.fontSizeMin = Mathf.Min(8f, wSz);
 
@@ -1071,26 +1330,43 @@ namespace StationeersUIMod.UI
                 // border + a small margin), so no line — however wide — can spill onto the orange
                 // ring; text stays entirely inside the blue interior and auto-sizes to fit.
                 float rIn = Mathf.Max(8f, (innerR - 6f) - (UIAConfig.RadialBorderWidth.Value * 0.8f + 7f));
-                Place(_title, 38f * s, Mathf.Min(w, FitWidth(38f * s, rIn)));
-                Place(_verb, 13f * s, Mathf.Min(w, FitWidth(13f * s, rIn)));
-                Place(_label, -7f * s, Mathf.Min(w, FitWidth(-7f * s, rIn)));
-                Place(_sub, -25f * s, Mathf.Min(w, FitWidth(-25f * s, rIn)));
-                Place(_warn, -43f * s, Mathf.Min(w, FitWidth(-43f * s, rIn)));
+                // D-017: the bigger NAME needs a taller box, or TMP's autosize (which also fits the box
+                // HEIGHT) would shrink it straight back. The extra height is split evenly: the lines
+                // above move up and the lines below move down by half each, the name stays centred.
+                float nameH = Mathf.Max(LineH, lSz * 1.32f);
+                float grow = (nameH - LineH) * 0.5f;
+                Place(_title, 38f * s + grow, Mathf.Min(w, FitWidth(38f * s + grow, rIn, LineH)), LineH);
+                Place(_verb, 13f * s + grow, Mathf.Min(w, FitWidth(13f * s + grow, rIn, LineH)), LineH);
+                Place(_label, -7f * s, Mathf.Min(w, FitWidth(-7f * s, rIn, nameH)), nameH);
+                Place(_sub, -25f * s - grow, Mathf.Min(w, FitWidth(-25f * s - grow, rIn, LineH)), LineH);
+                Place(_warn, -43f * s - grow, Mathf.Min(w, FitWidth(-43f * s - grow, rIn, LineH)), LineH);
 
                 _title.text = satTitle ?? title ?? string.Empty;
                 _title.color = RadialPalette.TextDim.Value;
 
                 if (hovered == null)
                 {
+                    // D-021: no "LMB select" here any more — "select" was wrong (a click takes, opens,
+                    // swaps...), and the curved word over the ring names the real action on hover.
                     _verb.text = hint ?? (sticky
-                        ? "LMB select | RMB back"
-                        : "hover to dive | release to cancel");
+                        ? "click a wedge"
+                        : "rest to open | let go to close");
                     _verb.color = RadialPalette.TextDim.Value;
                     _label.text = _sub.text = _warn.text = string.Empty;
                     return;
                 }
 
-                _verb.text = hovered.ActionText ?? (hovered.IsBranch ? "Open" : "Select");
+                // The verb line must agree with the curved action word (D-021/D-022): a take that will
+                // actually SWAP the busy active hand says so, in the toolbelt's own wording. An entry
+                // with no ActionText borrows the derived verb (never the old catch-all "Select").
+                string clickVerb = hovered.ClickVerb();
+                string verbLine = hovered.ActionText;
+                if (verbLine != null && hovered.IsTakePhrase
+                    && string.Equals(clickVerb, "Swap", StringComparison.Ordinal))
+                    verbLine = "Swap into hand";
+                if (string.IsNullOrEmpty(verbLine))
+                    verbLine = clickVerb ?? (hovered.IsBranch ? "Open" : string.Empty);
+                _verb.text = verbLine;
                 _verb.color = hovered.Enabled ? RadialPalette.TextAccent.Value : RadialPalette.TextDim.Value;
                 // Action wedges often ARE their verb ("Replace", "Stabilizer Off") — don't
                 // print the same word twice in the readout.
@@ -1124,19 +1400,22 @@ namespace StationeersUIMod.UI
                 }
             }
 
-            private static void Place(TextMeshProUGUI t, float y, float w)
+            /// <summary>The standard readout line box height (px).</summary>
+            private const float LineH = 20f;
+
+            private static void Place(TextMeshProUGUI t, float y, float w, float h)
             {
                 t.rectTransform.anchorMin = t.rectTransform.anchorMax = new Vector2(0.5f, 0.5f);
-                t.rectTransform.sizeDelta = new Vector2(w, 20f);
+                t.rectTransform.sizeDelta = new Vector2(w, h);
                 t.rectTransform.anchoredPosition = new Vector2(0f, y);
             }
 
             /// <summary>The full chord width of a circle of radius <paramref name="rIn"/> at height
-            /// <paramref name="y"/>, accounting for a 20px line's half-height, so a line placed there
+            /// <paramref name="y"/>, accounting for the line box's half-height, so a line placed there
             /// fits entirely inside the circle. Zero when the height is already past the circle.</summary>
-            private static float FitWidth(float y, float rIn)
+            private static float FitWidth(float y, float rIn, float boxH)
             {
-                float dy = Mathf.Abs(y) + 10f; // 10 = half the 20px line box, the constraining edge
+                float dy = Mathf.Abs(y) + boxH * 0.5f; // the box edge farther from the centre constrains
                 float inside = rIn * rIn - dy * dy;
                 return inside <= 0f ? 0f : 2f * Mathf.Sqrt(inside);
             }

@@ -435,12 +435,22 @@ namespace StationeersUIMod.UI.Hud
                 // abort, not "throw it on the floor": the grab gate refuses those pixels, so the
                 // release must refuse them symmetrically.
                 else if (PointerOverOtherUi()) { }
-                // Off every box AND off all other UI: the player deliberately aimed at open world, so
-                // drop at their feet. This no longer consults ZonesAvailable — ZoneAt (box geometry)
-                // is now decoupled from the alpha/dropout availability gate, so a transient HUD flicker
-                // on the release frame can no longer swallow a genuine world-drop. The move still
-                // funnels through ItemActions.DropToWorld -> OnServer.MoveToSlotOrWorld (execute-gated).
-                else ItemActions.DropToWorld(src);
+                // Off every box AND off all other UI: first give a PHYSICAL-WORLD slot under the
+                // cursor its chance (D-002's sibling: a battery dragged from a HUD hand box onto a
+                // charger must land IN the charger, not on the floor). Same picker + DragTo ladder
+                // as the grid release; a world slot that refuses the item ABORTS the drop rather
+                // than falling through to the ground.
+                else
+                {
+                    Slot world = Grid.BagGridCell.WorldSlotUnderCursor();
+                    if (world != null) ItemActions.DragTo(src, world);
+                    // Truly open world: the player deliberately aimed at nothing, so drop at their
+                    // feet. This no longer consults ZonesAvailable — ZoneAt (box geometry) is
+                    // decoupled from the alpha/dropout availability gate, so a transient HUD flicker
+                    // on the release frame can no longer swallow a genuine world-drop. The move still
+                    // funnels through ItemActions.DropToWorld -> OnServer.MoveToSlotOrWorld (execute-gated).
+                    else ItemActions.DropToWorld(src);
+                }
             }
             catch (System.Exception e)
             {

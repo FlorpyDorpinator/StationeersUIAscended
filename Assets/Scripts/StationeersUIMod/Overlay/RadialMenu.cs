@@ -47,6 +47,171 @@ namespace StationeersUIMod.Overlay
         public Interactable HotkeyInteractable;
         public bool CanHotkey => HotkeyInteractable != null && HotkeyThing != null;
 
+        // --- D-022 / D-023 presentation hints (read-only; set by builders, drawn by UnityRadialView) ---
+        /// <summary>D-022: explicit one-word action for the curved word over the ring's top ("Take",
+        /// "Open"). Null = derived by <see cref="ClickVerb"/> from <see cref="ActionText"/> and
+        /// branch-ness. Set it when ActionText is a DESCRIPTION rather than a verb — the recent-item
+        /// wedge reads "Recent item" in the hub, but its click takes the item.</summary>
+        public string Verb;
+        /// <summary>D-023: a small PERSISTENT tag drawn inside the wedge along its outer rim
+        /// ("Recent item") so a wedge whose role isn't obvious from its icon says what it is.
+        /// Null = none. Display text: runs through the radial's ALL-CAPS option, ASCII only.</summary>
+        public string CornerTag;
+
+        /// <summary>
+        /// D-022 — the short verb for what a CLICK (or a hold-release) on this wedge will actually
+        /// do, for the curved action word over the ring. Derived from the same fields the click path
+        /// reads (<c>RadialMenu.SelectSticky</c> / <c>OnHoldReleased</c>): a disabled wedge does
+        /// nothing, so it says nothing (null beats a false promise); a pure branch OPENS its level;
+        /// anything else is the builder's ActionText shortened to its verb. Take-family actions run
+        /// <c>ItemActions.EquipToActiveHand</c>, which SWAPS when the active hand is busy, so the
+        /// word follows the hand — D-021's complaint was exactly a "select" that actually swapped.
+        /// <para>Read-only: it reads networked slot state and the static <c>Slot.Allow*</c> gates,
+        /// never mutates. Returns string literals only (no per-frame allocation). Null when the
+        /// action has no honest one-word name.</para>
+        /// </summary>
+        public string ClickVerb()
+        {
+            if (!Enabled) return null;
+            if (!string.IsNullOrEmpty(Verb))
+                return IsWord(Verb, "take") ? TakeOrSwap("Take")
+                     : IsWord(Verb, "equip") ? TakeOrSwap("Equip")
+                     : Verb;
+            if (IsBranch) return "Open";
+            string a = ActionText;
+            if (string.IsNullOrEmpty(a)) return null;
+
+            if (IsWord(a, "take"))
+            {
+                if (a.StartsWith("Take 1", StringComparison.OrdinalIgnoreCase)) return "Take 1";       // split one
+                if (a.StartsWith("Take half", StringComparison.OrdinalIgnoreCase)) return "Take half"; // split half
+                return TakeOrSwap("Take");
+            }
+            if (IsWord(a, "grab")) return TakeOrSwap("Take");     // the recent-item wedge ("Grab another")
+            // Toolbelt tool wedges ("Equip" / "Swap into hand" — the builder's hand state at BUILD
+            // time) also run EquipToActiveHand, so follow the hand LIVE rather than the snapshot.
+            if (IsWord(a, "equip") || string.Equals(a, "Swap into hand", StringComparison.OrdinalIgnoreCase))
+                return TakeOrSwap("Equip");
+            if (IsWord(a, "swap")) return "Swap";                 // "Swap in" (a candidate) / "Swap belt"
+            if (IsWord(a, "turn"))
+                return a.EndsWith("off", StringComparison.OrdinalIgnoreCase) ? "Turn off" : "Turn on";
+            if (IsWord(a, "scroll")) return "Adjust";             // a value wedge: a bare click nudges it up
+            if (IsWord(a, "enter")) return "Open";
+            if (IsWord(a, "next")) return "Next mode";
+            for (int i = 0; i < SimpleVerbs.Length; i++)
+                if (IsWord(a, SimpleVerbs[i])) return SimpleVerbWords[i];
+
+            // A device control whose ActionText is vanilla's state-baked label ("Stabilizer On",
+            // "A/C Off"): the click presses that button, i.e. flips the named state.
+            if (CanHotkey)
+                return a.EndsWith(" On", StringComparison.OrdinalIgnoreCase)
+                    || a.EndsWith(" Off", StringComparison.OrdinalIgnoreCase) ? "Toggle" : "Use";
+            return null;
+        }
+
+        // ActionText first words that already ARE the verb (lower-case match -> display word).
+        private static readonly string[] SimpleVerbs =
+        {
+            "stow", "insert", "install", "eject", "open", "close", "search", "sort", "split",
+            "unpack", "replace", "wear", "activate", "deactivate", "lock", "unlock", "use", "drop",
+        };
+        private static readonly string[] SimpleVerbWords =
+        {
+            "Stow", "Insert", "Install", "Eject", "Open", "Close", "Search", "Sort", "Split",
+            "Unpack", "Replace", "Wear", "Activate", "Deactivate", "Lock", "Unlock", "Use", "Drop",
+        };
+
+        /// <summary>True when <paramref name="text"/> begins with the whole word
+        /// <paramref name="word"/> (case-insensitive). No allocation.</summary>
+        private static bool IsWord(string text, string word)
+        {
+            if (text == null || text.Length < word.Length) return false;
+            if (string.Compare(text, 0, word, 0, word.Length, StringComparison.OrdinalIgnoreCase) != 0) return false;
+            return text.Length == word.Length || text[word.Length] == ' ';
+        }
+
+        /// <summary>Is this a take-to-hand phrase ("Take to hand", "Grab another", "Equip") that
+        /// <see cref="ClickVerb"/> may re-word to a swap? Used by the hub readout so its verb line
+        /// agrees with the curved action word. (The split "Take 1 / Take half" phrases run SplitStack,
+        /// not the take ladder, so they never swap.)</summary>
+        public bool IsTakePhrase
+        {
+            get
+            {
+                string a = ActionText;
+                if (a == null) return false;
+                if (IsWord(a, "grab") || IsWord(a, "equip")) return true;
+                return IsWord(a, "take")
+                    && !a.StartsWith("Take 1", StringComparison.OrdinalIgnoreCase)
+                    && !a.StartsWith("Take half", StringComparison.OrdinalIgnoreCase);
+            }
+        }
+
+        /// <summary>The verb a take-family click earns RIGHT NOW. A read-only mirror of
+        /// <c>ItemActions.EquipToActiveHand</c>'s ladder (keep the two in step): empty active hand =
+        /// a plain take; a part of the HELD tool lands in the OTHER hand (a take) when that hand is
+        /// free and accepts it; a SEALED source (<c>ItemActions.IsSealedSlot</c>) may only be
+        /// emptied, never refilled, so the click runs <c>TakeToFreeHand</c> — the other hand when it
+        /// is free and accepts the item, else a fail, NEVER a swap (A12a); otherwise the held item
+        /// swaps into the source slot when <c>Slot.AllowSwap</c> says so; anything else fails at
+        /// click time, so no word.</summary>
+        private string TakeOrSwap(string takeWord)
+        {
+            try
+            {
+                Slot hand = Assets.Scripts.Inventory.InventoryManager.ActiveHandSlot;
+                DynamicThing handOcc = hand?.Get();
+                if (handOcc == null) return takeWord;
+                Slot src = DragSource?.Slot;
+                // No exposed source (the recent-item wedge keeps its pinned source inside its click
+                // closure): assume the usual busy-hand outcome — the one case this mirror cannot
+                // follow down the part-of-the-held-tool / sealed rungs.
+                if (src == null) return "Swap";
+                if (IsInsideThing(src, handOcc))
+                    return OtherHandTakes(hand, src) ? takeWord : null;
+                if (ItemActions.IsSealedSlot(src))
+                    return !src.IsLocked && OtherHandTakes(hand, src) ? takeWord : null;
+                return Slot.AllowSwap(src, hand) ? "Swap" : null;
+            }
+            catch { return takeWord; }
+        }
+
+        /// <summary>Would <paramref name="src"/>'s occupant land in the hand that is NOT
+        /// <paramref name="activeHand"/> — free, not the source itself, and accepting it? The shared
+        /// rung of EquipToActiveHand's part-of-the-held-tool branch and TakeToFreeHand (whose active-
+        /// hand rung can't apply here: the active hand is busy whenever this is asked).</summary>
+        private static bool OtherHandTakes(Slot activeHand, Slot src)
+        {
+            var human = Assets.Scripts.Inventory.InventoryManager.ParentHuman;
+            Slot other = human == null ? null
+                : activeHand == human.LeftHandSlot ? human.RightHandSlot : human.LeftHandSlot;
+            DynamicThing item = src.Get();
+            return other != null && other != src && other.Get() == null && item != null
+                && Slot.AllowMove(item, other);
+        }
+
+        /// <summary>Mirror of <c>ItemActions.IsInsideThing</c> (private there): is the slot somewhere
+        /// inside <paramref name="root"/>'s contents tree?</summary>
+        private static bool IsInsideThing(Slot slot, Thing root)
+        {
+            Thing parent = slot?.Parent;
+            int depth = 0;
+            while (parent != null && depth++ < 8)
+            {
+                if (parent == root) return true;
+                parent = (parent as DynamicThing)?.ParentSlot?.Parent;
+            }
+            return false;
+        }
+
+        /// <summary>A6: can a click on this wedge move the ACTIVE HAND's item? Every take-family
+        /// action can (a busy hand SWAPS its item into the source slot) and every stow-from-hand
+        /// wedge does. Read by <c>RadialMenu</c>'s execute-time un-park; deliberately generous — an
+        /// over-match only means a parked held item is not dropped when the wheel closes.</summary>
+        internal bool MayMoveHeldItem
+            => DragSource != null || Tag is Slot || StowStyle || FillOverride.HasValue || IsTakePhrase
+               || (Verb != null && (IsWord(Verb, "take") || IsWord(Verb, "equip")));
+
         public bool IsBranch => ChildProvider != null && OnSelect == null;
         public bool HasSlideOut => SlideOutProvider != null;
 
@@ -269,6 +434,17 @@ namespace StationeersUIMod.Overlay
         private const float DragHoldSec = 0.25f;  // hold this long on an item wedge to start a drag
         private const float DragMovePx = 14f;     // ...or move this far while pressed
 
+        /// <summary>How far past the main ring's outer radius the pointer still counts as ON the
+        /// ring (a wedge is the click / drop / scroll target). The radial's own hit-test — every
+        /// "is the pointer on the rings" check uses it, and so does the D-008 world-slot mask, so
+        /// the mask can never disagree with where a release actually resolves.</summary>
+        private const float RingReach = 1.2f;
+        /// <summary>The satellite's hover reach past its outer radius (see the Draw hover pass).</summary>
+        private const float SatReachPx = 24f;
+        /// <summary>The PARKING line: a drag released more than this many px outside every ring
+        /// parks as a chip on open screen (SearchPanelView uses the same 30 px).</summary>
+        private const float ParkMarginPx = 30f;
+
         // --- Option B: The Hub + hold-mode navigation ---
         /// <summary>Tag marking the toolbelt's Hub wedge (identification/styling; since
         /// 0.6.1 hold mode dwell-enters ANY branch wedge, not just the Hub).</summary>
@@ -282,6 +458,19 @@ namespace StationeersUIMod.Overlay
         public bool IsOpen => _stack.Count > 0;
         public bool IsSticky => _sticky;
         public bool IsParking => _parking.Active;
+        /// <summary>A5: an item is on the cursor right now (the drag layer's in-flight chip). RMB
+        /// then cancels just that drag, so an owner-side RMB gesture must yield to it.</summary>
+        public bool IsDragging => _parking.Dragging != null;
+
+        /// <summary>B15b / D-064: set by the owner (RadialController) while RMB at this menu's ROOT
+        /// does not close but RETURNS to the ring the menu replaced — the Q belt-picker going back to
+        /// its belt ring. Presentation only: it makes the published <see cref="RadialHintContext.CanGoBack"/>
+        /// honest (the strip reads "RMB back"); the return itself is the owner's own RMB handling.
+        /// That return REPLACES the menu, so parked items drop on it like any close (D-004) — also
+        /// published. Reset by every <see cref="Open"/> / <see cref="Close"/>, so it can never outlive
+        /// the menu it was set for; the owner re-asserts it each frame. Instance state: nothing static
+        /// survives a hot reload.</summary>
+        public bool RmbReturnsFromRoot { get; set; }
 
         /// <summary>The entry under the cursor (satellite ring first, then main), or null — used
         /// by the controller for number-key bag binding (#3).</summary>
@@ -350,6 +539,16 @@ namespace StationeersUIMod.Overlay
 
         public void Open(string title, Func<List<RadialEntry>> provider, bool sticky = false)
         {
+            // D-004: opening a radial while one is already up (Tab toolbelt<->backpack swap, 1-6
+            // equipment jump, Ctrl+number bag, Q belt-picker) REPLACES the old menu — that is a close
+            // route like any other, so the old menu's dragged-out items drop first. A fresh open has
+            // nothing held, so this is a no-op there.
+            ReleaseHeldItems();
+            HudDropCue.Clear();          // no drag survives into the new menu (D-008: no stuck cue)
+            Core.WorldSlotCue.Hide();
+            RadialHintContext.ResetInteraction();
+            RmbReturnsFromRoot = false;  // B15b: the owner re-asserts it for the menu it just opened
+
             _stack.Clear();
             var level = new Level { Title = title, Provider = provider };
             level.Refresh();
@@ -371,11 +570,23 @@ namespace StationeersUIMod.Overlay
             _dwellIndex = -1;
         }
 
-        /// <summary>Close WITHOUT dropping parked items — Escape, guards and re-taps cancel
-        /// parking silently (the items never left their slots). Only the deliberate
-        /// RMB-out-of-everything path dumps chips to the ground first.</summary>
+        /// <summary>
+        /// Close the radial. D-004 (FlorpyDorp 2026-09-25, "I don't like the spaghetti bugs"): EVERY
+        /// close route funnels through here and therefore through <see cref="ReleaseHeldItems"/> —
+        /// items dragged out of the radial onto the screen DROP to the ground no matter how the menu
+        /// goes away: RMB out of the root, the key that opened it, Tab / 1-6 / Ctrl+number / Q
+        /// (via <see cref="Open"/>), Escape, MMB, the hub CLOSE band, hold-release, and every
+        /// programmatic <c>RadialController.CloseAll</c> (guards, stand-downs, the radial editor,
+        /// hot reload). Before this, only RMB-at-the-root dumped and every other route silently
+        /// cancelled — the D-004 report (a worn helmet dragged out, then the opener key: nothing).
+        /// What drops is only what the local player CARRIES (A1): a chip grabbed out of a world
+        /// container cancels on every route.
+        /// </summary>
         public void Close()
         {
+            ReleaseHeldItems();          // A2: never throws, and always leaves the parking state clean
+            RadialHintContext.ResetInteraction();
+            RmbReturnsFromRoot = false;  // B15b: never survives a close
             _stack.Clear();
             _satellite = null;
             _sticky = false;
@@ -404,59 +615,18 @@ namespace StationeersUIMod.Overlay
             // World-grab in hold mode: if a chip is on the cursor when the key is let go, DROP
             // it where the cursor is (bag / HUD box / world / ground) instead of running
             // whatever wedge happens to sit behind it. Parked chips (dropped on open screen)
-            // likewise cancel to a close, never a wedge select.
+            // likewise end in a close, never a wedge select — and Close() drops them (D-004).
             if (_parking.Dragging != null)
             {
                 ResolveDragRelease(DrawUtil.MousePos());
                 Close();
                 return false;
             }
-            if (_parking.Active)
+            // B4: THE release resolution — shared with the D-022 word / D-021 strip preview in Draw,
+            // so what the hint promises and what letting go does can never disagree.
+            RadialEntry entry = HoldReleaseEntry();
+            if (entry == null)
             {
-                Close();
-                return false;
-            }
-            // Reaching into the world (Alt held) at release means "I'm done with the world",
-            // not "select this wedge" — just close.
-            bool worldReach = false;
-            try { worldReach = KeyManager.GetButton(KeyMap.MouseControl); } catch { }
-            if (worldReach)
-            {
-                Close();
-                return false;
-            }
-            // Releasing over the hub CLOSE button is a cancel, never a select.
-            if (_closeHovered)
-            {
-                Close();
-                return false;
-            }
-            // Releasing right after diving into a branch (Hub dwell / LMB) is gesture
-            // momentum — the cursor is parked over whatever wedge happens to sit where the
-            // branch wedge was, and that must never run as a selection.
-            if (Time.unscaledTime - _branchEnteredAt < BranchGraceSec)
-            {
-                Close();
-                return false;
-            }
-            // A satellite that just auto-opened must not steal a fast flick-release: unless it
-            // has been open long enough to be deliberate, the release means the SOURCE wedge.
-            RadialEntry entry;
-            if (_satellite != null && _satHovered >= 0 && Time.unscaledTime - _satOpenedAt >= SatGraceSec)
-                entry = SatEntry(_satHovered);
-            else if (_satellite != null)
-                entry = MainEntry(_satellite.SourceIndex);
-            else
-                entry = MainEntry(_hovered);
-            if (entry == null || !entry.Enabled)
-            {
-                Close();
-                return false;
-            }
-            if (entry.IsBranch)
-            {
-                // Hold mode is strictly transient — "closes when you let go". Branch diving is
-                // LMB / Hub dwell WHILE held; tap MMB for the sticky mode.
                 Close();
                 return false;
             }
@@ -481,6 +651,40 @@ namespace StationeersUIMod.Overlay
             }
             Close();
             return false;
+        }
+
+        /// <summary>
+        /// B4 — the entry a HOLD-mode key release would EXECUTE right now, or null when letting go
+        /// just closes. The one resolution <see cref="OnHoldReleased"/> runs (after its drag-release
+        /// case) and the one <see cref="Draw"/> previews, so the curved action word and the "Release
+        /// confirm / close" hint always name what the release actually does. Read-only.
+        /// <list type="bullet">
+        /// <item>Parked chips, the world-reach modifier (Alt: "I'm done with the world"), the hub
+        /// CLOSE button, and the grace window right after diving into a branch (gesture momentum —
+        /// the cursor sits over whatever wedge happens to be where the branch was) all close.</item>
+        /// <item>A child ring's hovered wedge is the target once the ring has been open long enough to
+        /// be deliberate; before that — or with nothing hovered on it — the release means the child
+        /// ring's SOURCE wedge (a fresh satellite never steals a fast flick-release).</item>
+        /// <item>A disabled wedge and a pure branch close: hold mode is strictly transient ("closes
+        /// when you let go"); diving is LMB / dwell WHILE held, tap the key for sticky mode.</item>
+        /// </list>
+        /// </summary>
+        private RadialEntry HoldReleaseEntry()
+        {
+            if (_parking.Active) return null;
+            bool worldReach = false;
+            try { worldReach = KeyManager.GetButton(KeyMap.MouseControl); } catch { }
+            if (worldReach || _closeHovered) return null;
+            if (Time.unscaledTime - _branchEnteredAt < BranchGraceSec) return null;
+            RadialEntry entry;
+            if (_satellite != null && _satHovered >= 0 && Time.unscaledTime - _satOpenedAt >= SatGraceSec)
+                entry = SatEntry(_satHovered);
+            else if (_satellite != null)
+                entry = MainEntry(_satellite.SourceIndex);
+            else
+                entry = MainEntry(_hovered);
+            if (entry == null || !entry.Enabled || entry.IsBranch) return null;
+            return entry;
         }
 
         /// <summary>Option B, per-frame while open in HOLD mode (MMB still down): resting on
@@ -552,7 +756,7 @@ namespace StationeersUIMod.Overlay
                 entry = SatEntry(_satHovered);
                 fromSat = true;
             }
-            else if (_hovered >= 0 && _mainDist <= _lastOuterR * 1.2f)
+            else if (_hovered >= 0 && _mainDist <= _lastOuterR * RingReach)
             {
                 entry = MainEntry(_hovered);
             }
@@ -628,13 +832,15 @@ namespace StationeersUIMod.Overlay
 
             if (Input.GetKeyDown(KeyCode.Escape))
             {
-                Close(); // cancel path: parked items stay in their slots, nothing drops
+                Close(); // D-004: a close like any other — dragged-out items drop (Close funnels it)
                 return;
             }
             if (Input.GetMouseButtonDown(1))
             {
                 _press = null; // whatever was pressed no longer means what it meant
-                if (_parking.Dragging != null) { _parking.Dragging = null; return; } // cancel the drag
+                // RMB mid-drag is NOT a close: it cancels just this drag (the item goes back where
+                // it was — it never left its slot), and the radial stays open.
+                if (_parking.Dragging != null) { _parking.Dragging = null; return; }
                 // A child radial (satellite) is TRANSIENT — RMB ignores it and acts on the MAIN
                 // radial as if the child were gone: drop the child, then go back one main level,
                 // or close everything when already at the first main level. Suppress an instant
@@ -649,8 +855,7 @@ namespace StationeersUIMod.Overlay
                     _hovered = -1;
                     return;
                 }
-                DumpChipsToGround(); // main first radial → close everything
-                Close();
+                Close(); // main first radial → close everything (Close drops parked items, D-004)
                 return;
             }
 
@@ -674,9 +879,7 @@ namespace StationeersUIMod.Overlay
             var mouse = DrawUtil.MousePos();
 
             // MMB in a sticky radial: the whole gesture is "tap to open, flick, tap to pick",
-            // and MMB is the dismiss half of it. CLOSE band = deliberate close (dumps parked
-            // chips), anywhere else = dismiss (parked items stay in their slots). Selection
-            // is LMB.
+            // and MMB is the dismiss half of it. Selection is LMB.
             if (Input.GetMouseButtonDown(2)
                 && _parking.Dragging == null && _press == null)
             {
@@ -687,10 +890,9 @@ namespace StationeersUIMod.Overlay
                     // MMB is CLOSE-ONLY in radials (FlorpyDorp 2026-07-24). It must NEVER pick the wedge
                     // under the cursor: that silently equipped whatever tool you moused over, and the
                     // resulting pick -> close -> reopen loop is EXACTLY what blinked the cursor (each close
-                    // hides the pointer, each reopen shows it — the "flicker"). Selection is LMB. Over the
-                    // CLOSE band MMB still dumps parked chips to the ground (the deliberate-dump contract);
-                    // anywhere else it just dismisses, and parked chips stay in their slots.
-                    if (_closeHovered) DumpChipsToGround();
+                    // hides the pointer, each reopen shows it — the "flicker"). Selection is LMB. Wherever
+                    // it is pressed it is a close, so parked chips drop (D-004 — Close funnels it; the old
+                    // "only over the CLOSE band" split is gone).
                     Close();
                     return;
                 }
@@ -711,7 +913,7 @@ namespace StationeersUIMod.Overlay
                     entry = SatEntry(_satHovered);
                     fromSat = true;
                 }
-                else if (_hovered >= 0 && _mainDist <= _lastOuterR * 1.2f)
+                else if (_hovered >= 0 && _mainDist <= _lastOuterR * RingReach)
                 {
                     entry = MainEntry(_hovered);
                 }
@@ -768,7 +970,7 @@ namespace StationeersUIMod.Overlay
                 // cursor: RMB-back, satellite auto-close and level refreshes all replace
                 // the entry lists, and a cancel gesture must never fire the old action.
                 RadialEntry underCursor = _satellite != null && _satHovered >= 0 ? SatEntry(_satHovered)
-                                        : _hovered >= 0 && _mainDist <= _lastOuterR * 1.2f ? MainEntry(_hovered)
+                                        : _hovered >= 0 && _mainDist <= _lastOuterR * RingReach ? MainEntry(_hovered)
                                         : null;
                 if (!ReferenceEquals(entry, underCursor)) return;
 
@@ -932,9 +1134,7 @@ namespace StationeersUIMod.Overlay
                 {
                     if (_closeHovered)
                     {
-                        // The always-works exit. A deliberate close, so parked items drop
-                        // (same contract as RMB-out).
-                        DumpChipsToGround();
+                        // The always-works exit. Parked items drop — every close does (D-004).
                         Close();
                         return true;
                     }
@@ -1020,7 +1220,7 @@ namespace StationeersUIMod.Overlay
             // release at the screen edge must PARK, not insert into whatever wedge the
             // cursor happens to point at.
             RadialEntry target = _satellite != null && _satHovered >= 0 ? SatEntry(_satHovered)
-                               : _hovered >= 0 && _mainDist <= _lastOuterR * 1.2f ? MainEntry(_hovered)
+                               : _hovered >= 0 && _mainDist <= _lastOuterR * RingReach ? MainEntry(_hovered)
                                : null;
 
             // Stacking: dropping a stack onto a wedge that already shows a COMPATIBLE stack
@@ -1047,6 +1247,7 @@ namespace StationeersUIMod.Overlay
                     : ItemActions.SwapIntoSlot(chip.Source, dest));
                 if (moved)
                 {
+                    _parking.RemoveBySlot(dest); // A6: a parked occupant just got swapped out of dest
                     _satellite = null;
                     Top().Refresh();
                     _hovered = -1;
@@ -1070,11 +1271,14 @@ namespace StationeersUIMod.Overlay
             // locker) drops the chip into that slot — swap when occupied, so the game sees a
             // radial battery being installed into / swapped with the charger's battery. The
             // release raycast bounds it to the vanilla interaction range.
-            if (TryDropOnWorldSlot(chip, item))
+            // D-008: only once the pointer is OUT of the radial. A world slot that merely sits
+            // BEHIND the radial (seen through the hub or a translucent wedge) is masked — the
+            // same mask that keeps its green placement box from lighting up (Draw), so the
+            // highlight and this executor can never disagree.
+            if (!PointerInRadialMask() && TryDropOnWorldSlot(chip, item))
                 return;
 
-            bool outsideRings = _mainDist > _lastOuterR + 30f
-                && (_satellite == null || _satDist > _satellite.OuterR + 30f);
+            bool outsideRings = BeyondParkingLine(_mainDist, _satDist);
             if (outsideRings && _parking.Chips.Count < ParkingState.MaxChips)
             {
                 if (chip.IsWorld) _parking.RemoveByWorldThing(chip.WorldSource);
@@ -1103,6 +1307,7 @@ namespace StationeersUIMod.Overlay
                     : ItemActions.SwapIntoSlot(chip.Source, zone.Slot);
                 if (moved)
                 {
+                    _parking.RemoveBySlot(zone.Slot); // A6: a parked occupant just got swapped out
                     _satellite = null;
                     Top().Refresh();
                     _hovered = -1;
@@ -1135,6 +1340,7 @@ namespace StationeersUIMod.Overlay
                     : ItemActions.SwapIntoSlot(chip.Source, worldSlot);
                 if (moved)
                 {
+                    _parking.RemoveBySlot(worldSlot); // A6: a parked occupant just got swapped out
                     _satellite = null;
                     Top().Refresh();
                     _hovered = -1;
@@ -1149,19 +1355,194 @@ namespace StationeersUIMod.Overlay
             return false;
         }
 
+        /// <summary>
+        /// D-004 — THE close-with-held-item handler: the one place an item held by this radial's
+        /// drag layer is resolved when the menu goes away. Called ONLY from <see cref="Close"/> and
+        /// <see cref="Open"/> (a menu replaced by another), so every close route shares it.
+        /// <list type="number">
+        /// <item>A drag still IN FLIGHT counts as "dragged out onto the screen" only where a release
+        /// could only have PARKED it (A9, <see cref="InFlightJoinsDrop"/>): past the parking line, off
+        /// the radial's own footprint, NOT over a visor HUD box or a physical-world slot (a release
+        /// there PLACES the item into that slot), and only while the screen has room for one more chip
+        /// (<see cref="ParkingState.MaxChips"/>, the release's own cap). Then it joins the parked
+        /// chips; anywhere else it cancels — the item never left its slot. World-grabbed chips never
+        /// left the world and are skipped.</item>
+        /// <item>Parked chips drop to the ground through <see cref="DumpChipsToGround"/> — the SAME
+        /// gated per-chip <c>ItemActions.DropToWorld</c> the RMB exit has always used (each chip
+        /// re-verified against its pinned Expected occupant at execute time; no new mutation
+        /// path). Only what the local player CARRIES is dropped (A1): a chip grabbed out of a
+        /// world container (a charger, a locker) cancels, whatever the range.</item>
+        /// </list>
+        /// The drop runs only while the local player could have performed the RMB drop at all
+        /// (<see cref="PlayerCanDropNow"/>): never into a world that is loading/unloading or while
+        /// the app quits, and never on behalf of an unconscious/dead body. In those cases the chips
+        /// simply cancel — nothing is lost, parking is visual-only and the items never moved.
+        /// <para>A2: this runs at the head of EVERY close and every replacing open (and of the F6
+        /// teardown), so it never throws: each chip's drop is isolated, any other failure is logged,
+        /// and the parking state is cleared in a <c>finally</c> — a bad chip can never leave a stuck
+        /// radial, a dirty parking list, or a teardown aborted half-way.</para>
+        /// </summary>
+        private void ReleaseHeldItems()
+        {
+            var inFlight = _parking.Dragging;
+            _parking.Dragging = null;
+            if (inFlight == null && _parking.Chips.Count == 0) return; // nothing held: every plain open/close
+
+            try
+            {
+                // Gate FIRST: at app quit this returns false before anything touches ImGui (the pointer
+                // reads below go through ImGui.GetIO, which must not run against a torn-down context).
+                if (PlayerCanDropNow())
+                {
+                    if (inFlight != null && InFlightJoinsDrop(inFlight))
+                    {
+                        _parking.RemoveBySlot(inFlight.Source.Slot); // one slot = one chip, always
+                        if (_parking.Chips.Count < ParkingState.MaxChips) _parking.Chips.Add(inFlight);
+                    }
+                    DumpChipsToGround();
+                }
+            }
+            catch (Exception e)
+            {
+                UIALog.Warn("Radial close: releasing the held items failed: " + e.Message);
+            }
+            finally
+            {
+                _parking.Clear();
+            }
+        }
+
+        /// <summary>A9: would RELEASING the in-flight chip right now have parked it — the only outcome
+        /// that counts as "dragged out onto the screen"? Read against the LIVE pointer (the close path
+        /// can run before this frame's Draw, or in search mode where Draw skips the hover pass).
+        /// <list type="bullet">
+        /// <item>Not a world grab, and carried by the local player (A1) — anything else cancels.</item>
+        /// <item>Past the parking line (<see cref="PointerBeyondParkingLineNow"/>). Search mode stops
+        /// there: its release (SearchPanelView) only ever parks or cancels.</item>
+        /// <item>Off the radial's footprint (<see cref="PointerInRadialMaskNow"/>): on the rings a
+        /// release resolves against a wedge first (place, fail or park), so the close cancels there —
+        /// the safe side of the narrow band where the rings' reach overlaps the parking line.</item>
+        /// <item>Not over a visor HUD hand/equipment box nor a physical-world slot: a release there
+        /// PLACES the item into that slot (TryDropOnHudZone / TryDropOnWorldSlot), never parks it.</item>
+        /// </list></summary>
+        private bool InFlightJoinsDrop(ParkingState.Chip chip)
+        {
+            if (chip == null || chip.IsWorld || chip.Source == null) return false;
+            var item = chip.Item;
+            if (item == null || !ItemActions.IsCarriedByLocalPlayer(item)) return false;
+            if (!PointerBeyondParkingLineNow()) return false;
+            if (_searchOpen) return true;
+            if (PointerInRadialMaskNow()) return false;
+            if (UI.Hud.HudSystem.ZoneAt()?.Slot != null) return false;   // ZoneAt is fail-soft (null)
+            if (WorldSlotUnderCursor() != null) return false;            // fail-soft raycast (null)
+            return true;
+        }
+
+        /// <summary>Could the local player perform the RMB exit-drop right now? Mirrors the gates an
+        /// open radial already lives under (<c>Guards.CanKeepRadialOpenWhy</c>): a live world
+        /// (GameState Running or Paused — GameManager.cs:78, GridSystem/GameState.cs), not quitting
+        /// (<c>Singleton&lt;GameManager&gt;.IsQuitting</c>, the flag vanilla's own OnDestroy paths
+        /// check — Util/Singleton.cs:11, DynamicThing.cs:2640), and a responsive local entity
+        /// (<c>InventoryManager.Parent</c> + <c>Entity.IsUnresponsive</c>, InventoryManager.cs:49,
+        /// Entity.cs:1551). Fail-soft: any exception = don't drop.</summary>
+        private static bool PlayerCanDropNow()
+        {
+            try
+            {
+                if (Assets.Scripts.Util.Singleton<GameManager>.IsQuitting) return false;
+                var gs = GameManager.GameState;
+                if (gs != Assets.Scripts.GridSystem.GameState.Running
+                    && gs != Assets.Scripts.GridSystem.GameState.Paused) return false;
+                var parent = Assets.Scripts.Inventory.InventoryManager.Parent;
+                return parent != null && !parent.IsUnresponsive
+                    && Assets.Scripts.Inventory.InventoryManager.ParentHuman != null;
+            }
+            catch { return false; }
+        }
+
+        /// <summary>The parking line (see <see cref="ParkMarginPx"/>): past it on every ring, a
+        /// released drag parks on open screen. One predicate for the release path and the close
+        /// path, so "would have parked" and "counts as on the screen" are the same test.</summary>
+        private bool BeyondParkingLine(float mainDist, float satDist)
+            => mainDist > _lastOuterR + ParkMarginPx
+               && (_satellite == null || satDist > _satellite.OuterR + ParkMarginPx);
+
+        /// <summary><see cref="BeyondParkingLine"/> measured from the LIVE pointer — the close path
+        /// can run from Update before this frame's Draw, or in search mode where Draw skips the
+        /// hover pass, so it cannot trust the last Draw's cached distances.</summary>
+        private bool PointerBeyondParkingLineNow()
+        {
+            try
+            {
+                var mouse = DrawUtil.MousePos();
+                float mainDist = (mouse - (DrawUtil.ScreenCenter + _centerOffset)).magnitude;
+                float satDist = _satellite != null ? (mouse - _satellite.Center).magnitude : float.MaxValue;
+                return BeyondParkingLine(mainDist, satDist);
+            }
+            catch { return false; }
+        }
+
+        /// <summary><see cref="PointerInRadialMask"/> measured from the LIVE pointer, for the close
+        /// path (same reasons as <see cref="PointerBeyondParkingLineNow"/>). Fail-safe: an unreadable
+        /// pointer counts as ON the radial, where the in-flight chip cancels.</summary>
+        private bool PointerInRadialMaskNow()
+        {
+            try
+            {
+                var mouse = DrawUtil.MousePos();
+                if ((mouse - (DrawUtil.ScreenCenter + _centerOffset)).magnitude <= _lastOuterR * RingReach) return true;
+                return _satellite != null && (mouse - _satellite.Center).magnitude <= _satellite.OuterR + SatReachPx;
+            }
+            catch { return true; }
+        }
+
+        /// <summary>
+        /// D-008 — the radial's footprint as a MASK over the physical world. While a drag's pointer
+        /// is inside it, a world slot BEHIND the radial neither lights up (vanilla's placement box,
+        /// driven by <c>WorldSlotCue</c> in Draw) nor takes the drop (<see cref="ResolveDragRelease"/>);
+        /// both engage only once the pointer leaves the radial. The footprint is the radial's own
+        /// hit geometry, not a crude rect: the main ring's on-the-rings reach
+        /// (<see cref="RingReach"/> — the hub included, it is part of the radial) plus the
+        /// satellite's hover disc. Uses the last Draw's distances, like every other hover test.
+        /// </summary>
+        private bool PointerInRadialMask()
+        {
+            if (_mainDist <= _lastOuterR * RingReach) return true;
+            return _satellite != null && _satDist <= _satellite.OuterR + SatReachPx;
+        }
+
         /// <summary>The deliberate exit-drop: one drop message per parked chip, each verified
         /// against its pinned occupant. This is the single sanctioned multi-message action in
-        /// the mod (explicit design decision — see the Option A schema doc).</summary>
+        /// the mod (explicit design decision — see the Option A schema doc). Reached ONLY through
+        /// <see cref="ReleaseHeldItems"/> (D-004) — every close route drops the same way.
+        /// <para>A1: a chip whose item the local player does NOT carry — an Alt-grab out of a
+        /// charger/locker slot (<c>TryBeginDrag</c> bug 8) — is simply cancelled: parking is visual
+        /// only, the item never moved, so no message and no fail sound, at any range. World-grabbed
+        /// chips (free-lying items) never left the world either and are skipped the same way.</para>
+        /// <para>A2: the chip list is detached BEFORE the first message goes out (a drop that re-enters
+        /// a close path can never replay a chip) and each chip's drop is isolated — one bad chip is
+        /// logged and skipped, the rest still drop.</para></summary>
         private void DumpChipsToGround()
         {
             if (_parking.Chips.Count == 0) return;
-            int dropped = 0;
-            foreach (var chip in _parking.Chips)
-            {
-                if (chip.IsWorld) continue; // world-grabbed chips never left the world
-                if (ItemActions.DropToWorld(chip.Source)) dropped++;
-            }
+            var chips = _parking.Chips.ToArray();
             _parking.Chips.Clear();
+            int dropped = 0;
+            for (int i = 0; i < chips.Length; i++)
+            {
+                var chip = chips[i];
+                try
+                {
+                    if (chip == null || chip.IsWorld || chip.Source == null) continue;
+                    var item = chip.Item;
+                    if (item == null || !ItemActions.IsCarriedByLocalPlayer(item)) continue; // A1: cancel
+                    if (ItemActions.DropToWorld(chip.Source)) dropped++;
+                }
+                catch (Exception e)
+                {
+                    UIALog.Warn("Radial close: dropping a parked item failed: " + e.Message);
+                }
+            }
             if (dropped > 0) UIAudioManager.Play(UIAudioManager.ObjectPutHash);
         }
 
@@ -1227,7 +1608,7 @@ namespace StationeersUIMod.Overlay
             // Same on-the-rings bound as clicks/drops: _hovered alone is directional and
             // would let a scroll from anywhere on screen adjust a device.
             RadialEntry entry = _satellite != null && _satHovered >= 0 ? SatEntry(_satHovered)
-                              : _hovered >= 0 && _mainDist <= _lastOuterR * 1.2f ? MainEntry(_hovered)
+                              : _hovered >= 0 && _mainDist <= _lastOuterR * RingReach ? MainEntry(_hovered)
                               : null;
             // Scroll over a VALUE wedge (suit pressure, thrust, ...) adjusts that value. Scroll over
             // anything else — empty space, the hub, or a plain wedge with no value modifier — changes
@@ -1246,7 +1627,7 @@ namespace StationeersUIMod.Overlay
         {
             if (!IsOpen || _searchOpen) return;
             RadialEntry entry = _satellite != null && _satHovered >= 0 ? SatEntry(_satHovered)
-                              : _hovered >= 0 && _mainDist <= _lastOuterR * 1.2f ? MainEntry(_hovered)
+                              : _hovered >= 0 && _mainDist <= _lastOuterR * RingReach ? MainEntry(_hovered)
                               : null;
             if (entry == null) return;
             // 1B.4 anti-hotbar guard (belt-and-suspenders): a tool-equip wedge carries neither a
@@ -1342,6 +1723,7 @@ namespace StationeersUIMod.Overlay
 
         private void Execute(RadialEntry entry)
         {
+            UnparkActedOn(entry); // A6: before the action runs, while the held item is still in hand
             try { entry.OnSelect?.Invoke(); }
             catch (Exception e) { UIALog.Error($"Radial action '{entry.Label}' failed: {e}"); }
 
@@ -1357,6 +1739,41 @@ namespace StationeersUIMod.Overlay
             // hover tick. UIAudioManager.Play is a cheap pooled-source call.
             if (UIAConfig.RadialWedgeSounds != null && UIAConfig.RadialWedgeSounds.Value)
                 UIAudioManager.Play(UIAudioManager.ClickMediumHash);
+        }
+
+        /// <summary>
+        /// A6 — acting on a parked item un-parks it. A parked item is still in its slot (parking is
+        /// visual only), so its wedges stay live; if one of them MOVES it, the chip must go at once
+        /// or the close-drop sends a second message for the same item: on an MP client the local
+        /// slot still shows it until the server's reply lands, so the chip's pinned check passes and
+        /// "park X, click X's Take wedge, close within a round trip" would also drop X. Un-parking
+        /// never drops anything — the chip simply goes away (the item stays wherever the action puts
+        /// it). Runs BEFORE the action (single-player applies the move synchronously). Matched by
+        /// what the wedge exposes: its <see cref="RadialEntry.DragSource"/> (slot or pinned item), a
+        /// slot <see cref="RadialEntry.Tag"/>, and the ACTIVE HAND's slot whenever the click can move
+        /// the held item (<see cref="RadialEntry.MayMoveHeldItem"/>: a take into a busy hand swaps it
+        /// out; a stow wedge stows it).
+        /// </summary>
+        private void UnparkActedOn(RadialEntry entry)
+        {
+            if (entry == null || _parking.Chips.Count == 0) return;
+            try
+            {
+                var src = entry.DragSource;
+                if (src != null)
+                {
+                    _parking.RemoveBySlot(src.Slot);
+                    _parking.RemoveByItem(src.Expected ?? src.Occupant);
+                }
+                var tagSlot = entry.Tag as Slot;
+                if (tagSlot != null) _parking.RemoveBySlot(tagSlot);
+                if (entry.MayMoveHeldItem)
+                    _parking.RemoveBySlot(Assets.Scripts.Inventory.InventoryManager.ActiveHandSlot);
+            }
+            catch (Exception e)
+            {
+                UIALog.Warn("Radial un-park failed: " + e.Message);
+            }
         }
 
         /// <summary>R3 double-tap repeat: re-invoke the last committed action if it belongs to
@@ -1379,6 +1796,7 @@ namespace StationeersUIMod.Overlay
         {
             _lastCommit = null;
             _lastCommitKey = null;
+            RadialHintContext.Reset(); // D-021 statics: nothing stale survives a double-F6
         }
 
         private void OpenSatellite(RadialEntry entry, int sourceIndex, Vector2 mainCenter, float mainOuterR, int mainCount)
@@ -1418,6 +1836,22 @@ namespace StationeersUIMod.Overlay
                 SourceIndex = sourceIndex,
             };
             _satHovered = -1;
+        }
+
+        /// <summary>D-021: fold one ring's visible wedges into the hint strip's level-wide flags —
+        /// can something here be press-dragged out, does a wedge take the mouse wheel, does a click
+        /// RUN something (so the Shift keep-open modifier means anything).</summary>
+        private static void ScanLevel(List<RadialEntry> entries, ref bool drag, ref bool scroll, ref bool action)
+        {
+            if (entries == null) return;
+            for (int i = 0; i < entries.Count; i++)
+            {
+                var e = entries[i];
+                if (e == null) continue;
+                if (e.CanDrag) drag = true;
+                if (e.IsScrollAdjust) scroll = true;
+                if (e.Enabled && e.OnSelect != null && !e.IsBranch) action = true;
+            }
         }
 
         /// <summary>R8: play a soft tick when the main-ring hover lands on a new ENABLED wedge.
@@ -1467,15 +1901,6 @@ namespace StationeersUIMod.Overlay
         {
             if (!IsOpen) return;
 
-            // #4: publish the dragged item so the visor HUD can light up a hand / equipment box
-            // the cursor is over (cleared in Close()).
-            HudDropCue.Dragging = _parking.Dragging?.Item;
-
-            // Drive vanilla's world-slot placement box (green/yellow/blue/red) for a chip dragged over a
-            // charger / locker / device slot — vanilla's own version is frozen while we hold the cursor
-            // block. A no-op when not dragging or not over a world slot; taken down again in Close().
-            Core.WorldSlotCue.Tick(_parking.Dragging?.Item);
-
             var center = DrawUtil.ScreenCenter + _centerOffset;
             float outerR = UIAConfig.RadialOuterRadius.Value;
             _lastOuterR = outerR;
@@ -1488,9 +1913,17 @@ namespace StationeersUIMod.Overlay
             if (_searchOpen)
             {
                 _closeHovered = false;
+                // D-008: a search-result drag can only PARK or cancel (SearchPanelView's release never
+                // targets a HUD box or a world slot), so neither drop cue may light up for it — they
+                // would promise a landing the release never delivers.
+                HudDropCue.Dragging = null;
+                Core.WorldSlotCue.Hide();
                 UI.UnityRadialView.Hide();
                 UI.SearchPanelView.Render(center, innerR, outerR);
                 UI.ParkedItemsView.Render(_parking, mouse);
+                // D-021: the hint strip still hugs the (search) ring and speaks search-mode keys.
+                RadialHintContext.PublishGeometry(center, outerR, false, Vector2.zero, 0f);
+                RadialHintContext.PublishSearch(_parking.Dragging != null, _parking.Chips.Count);
                 return;
             }
             UI.SearchPanelView.Hide();
@@ -1545,7 +1978,7 @@ namespace StationeersUIMod.Overlay
             {
                 var satDelta = mouse - _satellite.Center;
                 _satDist = satDelta.magnitude;
-                if (_satDist <= _satellite.OuterR + 24f)
+                if (_satDist <= _satellite.OuterR + SatReachPx)
                 {
                     if (_satDist >= _satellite.InnerR * 0.85f)
                         _satHovered = SectorFromMouse(satDelta, _satellite.Visible.Count);
@@ -1608,6 +2041,56 @@ namespace StationeersUIMod.Overlay
                 _slideOutCandidate = -1;
             }
 
+            // #4 / D-008: publish the dragged item for the drop cues. The visor HUD lights a hand /
+            // equipment box under the cursor (HudDropCue); vanilla's world-slot placement box
+            // (green/yellow/blue/red) is driven by WorldSlotCue, because vanilla's own is frozen while
+            // we hold the cursor block. The WORLD cue is masked by the radial: while the pointer is on
+            // the radial a world slot behind it never lights — a release there goes to a wedge or
+            // cancels, never into the world (ResolveDragRelease applies the same mask). Both cues are
+            // taken down again in Close()/Open(), so a close mid-drag can't strand a green box.
+            var dragItem = _parking.Dragging?.Item;
+            HudDropCue.Dragging = dragItem;
+            Core.WorldSlotCue.Tick(dragItem != null && !PointerInRadialMask() ? dragItem : null);
+
+            // D-022: the curved action word over the ring names what a click (sticky) or a release
+            // (hold) will do. Sticky: the hovered MAIN wedge, and only while the pointer is ON the
+            // rings (the reach the LMB path uses). Hold (B4): exactly the wedge the key release would
+            // execute — the same HoldReleaseEntry OnHoldReleased runs, so a child ring's hovered wedge
+            // (or its source wedge) names its verb, and a branch wedge (whose release CLOSES) or any
+            // other release that just closes shows no word at all: null beats a false promise.
+            RadialEntry verbEntry;
+            if (_sticky)
+                verbEntry = _satellite == null && _parking.Dragging == null && _hovered >= 0
+                    && _mainDist <= _lastOuterR * RingReach ? MainEntry(_hovered) : null;
+            else
+                verbEntry = _parking.Dragging == null ? HoldReleaseEntry() : null;
+            string actionVerb = verbEntry != null && (_sticky || verbEntry.OnSelect != null)
+                ? verbEntry.ClickVerb() : null;
+            // "Release confirm" (hold): the release runs an action. Sticky mode never reads it (B8).
+            bool hoverAction = verbEntry != null && verbEntry.Enabled && !verbEntry.IsBranch
+                && verbEntry.OnSelect != null;
+
+            // RMB, as the hint strip must name it. B1: in STICKY mode a child ring at the root is no
+            // "back" — RMB there drops the child AND closes everything (UpdateSticky), parked items
+            // included; only hold mode's RMB just folds the child ring away (UpdateHoldB). B15b: a
+            // root the owner returns from on RMB (the D-064 belt picker) IS a back — one that replaces
+            // the menu, so parked items drop on it too (D-004).
+            bool rootReturns = _stack.Count == 1 && RmbReturnsFromRoot;
+            bool canGoBack = _stack.Count > 1 || (!_sticky && _satellite != null) || rootReturns;
+
+            // D-021: tell the key-hint strip what the inputs do right now. The "what can I do on this
+            // ring" flags are LEVEL-wide (any visible wedge, child ring included), not per-hover, so the
+            // strip stays still while the pointer sweeps around the ring instead of re-flowing on
+            // every wedge it crosses.
+            bool lvlDrag = false, lvlScroll = false, lvlAction = false;
+            ScanLevel(visible, ref lvlDrag, ref lvlScroll, ref lvlAction);
+            if (_satellite != null) ScanLevel(_satellite.Visible, ref lvlDrag, ref lvlScroll, ref lvlAction);
+            RadialHintContext.PublishInteraction(
+                _sticky, _parking.Dragging != null, canGoBack,
+                satPages || level.PageCount > 1, altReach, _parking.Chips.Count, actionVerb,
+                hoverAction, lvlDrag, lvlScroll, lvlAction,
+                rootReturns && _parking.Chips.Count > 0);
+
             // The interaction model (hover, satellites, levels, sticky/hold logic) lives in RadialMenu.
             // Unity UGUI (procedural) is the only renderer — the legacy ImGui draw-list painter
             // was removed in 0.9.2.5 (FlorpyDorp: "delete the renderer, keep the settings editor").
@@ -1621,8 +2104,123 @@ namespace StationeersUIMod.Overlay
                 _satellite?.Visible, _satHovered, _satellite?.Title,
                 readout, null, _sticky,
                 _parking.Dragging?.Item, _closeHovered,
-                pageText, satPageText);
+                pageText, satPageText,
+                actionVerb, verbFromCaller: true);
             UI.ParkedItemsView.Render(_parking, mouse);
+        }
+    }
+
+    /// <summary>
+    /// D-021: what the open radial is doing THIS frame, published for the key-hint strip
+    /// (<c>UI.RadialHintBar</c>) so its words name what each input actually does in context — and
+    /// so it can yield its click hint to the D-022 curved action word. Presentation-only: value
+    /// types and string literals, never a game-object reference.
+    /// <para>GEOMETRY is published by whoever renders a ring — <c>UnityRadialView.Render</c> (the
+    /// live radial AND the F10 radial-editor preview) and <see cref="RadialMenu.Draw"/> in search
+    /// mode; INTERACTION state by <see cref="RadialMenu.Draw"/>. Each half carries the frame it was
+    /// published on, so a closed radial's snapshot simply goes stale. Hot-reload: every field is
+    /// reset by <see cref="Reset"/> (called from <c>RadialMenu.ResetRepeatCache</c> in the
+    /// controller's ShutdownImmediate, and from <c>RadialHintBar.Shutdown</c>).</para>
+    /// </summary>
+    public static class RadialHintContext
+    {
+        // ---- geometry (ImGui screen coords: y-down) ----
+        public static int GeometryFrame = -100;
+        public static Vector2 Center;
+        public static float OuterR;
+        public static bool SatelliteShown;
+        public static Vector2 SatCenter;
+        public static float SatOuterR;
+
+        // ---- interaction ----
+        public static int InteractionFrame = -100;
+        public static bool Search;         // the search panel owns the ring
+        public static bool Sticky;         // tap-opened (click to act) vs hold-opened (release to act)
+        public static bool Dragging;       // a chip is on the cursor
+        public static bool CanGoBack;      // RMB backs out (nested level, hold-mode child ring, belt-picker return) instead of closing
+        public static bool BackDropsParked; // that RMB "back" replaces the menu (belt-picker return): parked items drop (D-004)
+        public static bool Pageable;       // the page key flips something
+        public static bool AltReach;       // the world-reach modifier is held
+        public static int Parked;          // chips parked on screen (they drop when the wheel closes)
+        public static string Verb;         // the D-022 action word on show (null = none)
+        public static bool HoverAction;    // the hovered wedge RUNS something (a hold-release confirms it)
+        public static bool LevelDraggable; // some visible wedge can be press-dragged out
+        public static bool LevelScroll;    // some visible wedge takes the mouse wheel
+        public static bool LevelAction;    // some visible wedge runs an action (Shift keep-open applies)
+
+        /// <summary>Published within the last couple of frames (the strip reads it from Update, the
+        /// radial writes it from the ImGui draw hook one step behind).</summary>
+        public static bool GeometryFresh => Time.frameCount - GeometryFrame <= 2;
+        public static bool InteractionFresh => Time.frameCount - InteractionFrame <= 2;
+
+        public static void PublishGeometry(Vector2 center, float outerR, bool satShown, Vector2 satCenter, float satOuterR)
+        {
+            GeometryFrame = Time.frameCount;
+            Center = center;
+            OuterR = outerR;
+            SatelliteShown = satShown;
+            SatCenter = satCenter;
+            SatOuterR = satOuterR;
+        }
+
+        public static void PublishInteraction(bool sticky, bool dragging, bool canGoBack, bool pageable,
+            bool altReach, int parked, string verb, bool hoverAction,
+            bool levelDraggable, bool levelScroll, bool levelAction, bool backDropsParked)
+        {
+            InteractionFrame = Time.frameCount;
+            Search = false;
+            Sticky = sticky;
+            Dragging = dragging;
+            CanGoBack = canGoBack;
+            BackDropsParked = backDropsParked;
+            Pageable = pageable;
+            AltReach = altReach;
+            Parked = parked;
+            Verb = verb;
+            HoverAction = hoverAction;
+            LevelDraggable = levelDraggable;
+            LevelScroll = levelScroll;
+            LevelAction = levelAction;
+        }
+
+        public static void PublishSearch(bool dragging, int parked)
+        {
+            InteractionFrame = Time.frameCount;
+            Search = true;
+            Sticky = true;
+            Dragging = dragging;
+            CanGoBack = true;          // Escape / RMB return to the wheel
+            BackDropsParked = false;   // ...without closing it: parked chips stay parked
+            Pageable = false;
+            AltReach = false;
+            Parked = parked;
+            Verb = null;
+            HoverAction = false;
+            LevelDraggable = true;     // result wedges press-drag out like any item wedge
+            LevelScroll = LevelAction = false;
+        }
+
+        /// <summary>A menu closed or was replaced: nothing it published describes the screen any more.</summary>
+        public static void ResetInteraction()
+        {
+            InteractionFrame = -100;
+            Verb = null;
+            Dragging = HoverAction = Search = BackDropsParked = false;
+            LevelDraggable = LevelScroll = LevelAction = false;
+            Parked = 0;
+        }
+
+        /// <summary>Hot-reload / teardown: back to the pristine state.</summary>
+        public static void Reset()
+        {
+            ResetInteraction();
+            GeometryFrame = -100;
+            Center = Vector2.zero;
+            OuterR = 0f;
+            SatelliteShown = false;
+            SatCenter = Vector2.zero;
+            SatOuterR = 0f;
+            Sticky = CanGoBack = Pageable = AltReach = false;
         }
     }
 }
