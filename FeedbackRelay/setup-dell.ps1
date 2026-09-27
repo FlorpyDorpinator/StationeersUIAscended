@@ -20,12 +20,16 @@
       powershell -ExecutionPolicy Bypass -File C:\Services\UIAFeedbackRelay\setup-dell.ps1 -ReportsPerHour 10
   A limit set this way is kept by later runs of this script until changed again.
 
+  Issues go to the PRIVATE repo FlorpyDorpinator/StationeersUIAscended-Feedback (players' reports
+  stay private; the code repo is public). To point a LIVE relay at another repo, keeping its token:
+      powershell -ExecutionPolicy Bypass -File C:\Services\UIAFeedbackRelay\setup-dell.ps1 -Repo owner/name
+
   Keep this file ASCII-only: Windows PowerShell 5.1 misreads non-ASCII characters in scripts.
 #>
 param(
     [switch]$GoLive,
     [int]$Port = 8080,
-    [string]$Repo = 'FlorpyDorpinator/StationeersUIAscended',
+    [string]$Repo = 'FlorpyDorpinator/StationeersUIAscended-Feedback',
     [int]$ReportsPerHour = 0     # 0 = keep the current setting (or the relay's default of 6)
 )
 
@@ -143,6 +147,10 @@ if ($GoLive) {
 } elseif ($alreadyLive) {
     Note 'The relay is already LIVE (has a GitHub token); keeping those settings. Re-run with -GoLive to replace the token.'
     $envList = @($existing | Where-Object { $_ -notlike 'UIA_RELAY_PORT=*' }) + "UIA_RELAY_PORT=$Port"
+    if ($PSBoundParameters.ContainsKey('Repo')) {
+        # An explicit -Repo re-points a live relay without asking for the token again.
+        $envList = @($envList | Where-Object { $_ -notlike 'UIA_FEEDBACK_REPO=*' }) + "UIA_FEEDBACK_REPO=$Repo"
+    }
     $expectDry = $false
 } else {
     $envList = @('UIA_RELAY_DRY_RUN=1', "UIA_RELAY_PORT=$Port")
@@ -154,7 +162,9 @@ $envList = @($envList | Where-Object { $_ -notlike 'UIA_RELAY_REPORTS_PER_HOUR=*
 if ($ReportsPerHour -gt 0) { $envList += "UIA_RELAY_REPORTS_PER_HOUR=$ReportsPerHour" }
 elseif ($keptLimit.Count -gt 0) { $envList += $keptLimit[0] }
 New-ItemProperty -Path $RegPath -Name Environment -PropertyType MultiString -Value $envList -Force | Out-Null
-if ($expectDry) { Ok 'Mode: DRY RUN (never contacts GitHub)' } else { Ok "Mode: LIVE, filing into $Repo" }
+# Report the repo the relay will really use: a live re-run without -Repo keeps the stored one.
+$liveRepo = @($envList | Where-Object { $_ -like 'UIA_FEEDBACK_REPO=*' } | ForEach-Object { $_.Substring(18) }) | Select-Object -First 1
+if ($expectDry) { Ok 'Mode: DRY RUN (never contacts GitHub)' } else { Ok "Mode: LIVE, filing into $liveRepo" }
 
 try {
     if ((Get-Service $ServiceName).Status -eq 'Running') { Restart-Service $ServiceName -Force } else { Start-Service $ServiceName }
