@@ -34,11 +34,22 @@ param(
     [ValidateSet('Public', 'FriendsOnly', 'Private', 'Unlisted')]
     [string]$Visibility,
     [string]$DescriptionFile,
-    [string]$SteamUser = '<steam-user>',
+    [string]$SteamUser = '',
     [string]$SteamCmd  = 'C:\steamcmd\steamcmd.exe',
     [switch]$DryRun
 )
 $ErrorActionPreference = 'Stop'
+
+# The Steam login never lives in the repo (it is public): -SteamUser, else $env:UIA_STEAM_USER,
+# else tools\steam-user.txt (git-ignored, one line). A -DryRun never logs in, so it needs none.
+if (-not $SteamUser) { $SteamUser = $env:UIA_STEAM_USER }
+if (-not $SteamUser) {
+    $userFile = Join-Path $PSScriptRoot 'steam-user.txt'
+    if (Test-Path -LiteralPath $userFile) { $SteamUser = (Get-Content -LiteralPath $userFile -Raw).Trim() }
+}
+if (-not $SteamUser -and -not $DryRun) {
+    throw "No Steam login. Pass -SteamUser <name>, set UIA_STEAM_USER, or create tools\steam-user.txt (git-ignored)."
+}
 
 $RepoRoot = Split-Path -Parent $PSScriptRoot
 if (-not $DescriptionFile) { $DescriptionFile = Join-Path $RepoRoot 'Documentation\Launch\workshop-description.bbcode' }

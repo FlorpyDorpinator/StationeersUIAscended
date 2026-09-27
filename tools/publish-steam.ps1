@@ -14,19 +14,32 @@
   later publish updates that item instead of making duplicates.
 
 .PARAMETER SteamUser
-  Steam account to log in as (defaults to the same account used for StationpediaAscended).
-  steamcmd will prompt for the password / Steam Guard code on first use and then cache it.
+  Steam account to log in as. The login is NOT stored in this (public) repo: pass -SteamUser,
+  or set the UIA_STEAM_USER environment variable, or put the name alone in tools\steam-user.txt
+  (git-ignored). steamcmd will prompt for the password / Steam Guard code on first use and then
+  cache it.
 
 .PARAMETER Force
   Publish even though publishedfileid is still 0 - i.e. intentionally CREATE the Workshop item.
 #>
 [CmdletBinding()]
 param(
-    [string]$SteamUser = '<steam-user>',
+    [string]$SteamUser = '',
     [string]$SteamCmd  = 'C:\steamcmd\steamcmd.exe',
     [switch]$Force
 )
 $ErrorActionPreference = 'Stop'
+
+# The Steam login never lives in the repo (it is public): -SteamUser, else $env:UIA_STEAM_USER,
+# else tools\steam-user.txt (git-ignored, one line).
+if (-not $SteamUser) { $SteamUser = $env:UIA_STEAM_USER }
+if (-not $SteamUser) {
+    $userFile = Join-Path $PSScriptRoot 'steam-user.txt'
+    if (Test-Path -LiteralPath $userFile) { $SteamUser = (Get-Content -LiteralPath $userFile -Raw).Trim() }
+}
+if (-not $SteamUser) {
+    throw "No Steam login. Pass -SteamUser <name>, set UIA_STEAM_USER, or create tools\steam-user.txt (git-ignored)."
+}
 
 $RepoRoot = Split-Path -Parent $PSScriptRoot
 $Vdf      = Join-Path $PSScriptRoot 'workshop_update.vdf'

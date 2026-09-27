@@ -86,11 +86,23 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           EVENT_ISSUE: ${{ github.event.issue.number }}
+          EVENT_AUTHOR: ${{ github.event.issue.user.login }}
+          EVENT_LABELS: ${{ join(github.event.issue.labels.*.name, ',') }}
+          REPO_OWNER: ${{ github.repository_owner }}
           INPUT_ISSUES: ${{ inputs.issues }}
         run: |
           set -euo pipefail
           if [ -n "$EVENT_ISSUE" ]; then
-            list="[$EVENT_ISSUE]"
+            # PUBLIC-REPO GUARD: anyone on GitHub can open an issue, but only issues the relay files
+            # (as the repo owner, labelled triage:pending at creation - FeedbackRelay/IssueBuilder.cs)
+            # may start a paid Claude run. Anything else is left for a human. Values arrive via env,
+            # never interpolated into the script.
+            if [ "$EVENT_AUTHOR" = "$REPO_OWNER" ] && printf ',%s,' "$EVENT_LABELS" | grep -q ',triage:pending,'; then
+              list="[$EVENT_ISSUE]"
+            else
+              echo "Issue #$EVENT_ISSUE was not filed by the feedback relay - no plan."
+              list="[]"
+            fi
           elif [ -n "$INPUT_ISSUES" ]; then
             list=$(jq -cn --arg s "$INPUT_ISSUES" \
               '$s | split(",") | map(gsub("\\s"; "")) | map(select(test("^[0-9]+$"))) | map(tonumber)')

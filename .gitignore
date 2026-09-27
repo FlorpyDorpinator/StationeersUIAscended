@@ -115,3 +115,12 @@ StationeersUIAscended/
 /Discord/
 FeedbackRelay/bin/
 FeedbackRelay/obj/
+
+# ===== PUBLIC REPO (since 2026-09-27): private, local-only material - never commit =====
+# Changes Reports stay mandatory (CLAUDE.md) but are private working records.
+/Changes Reports/
+/.specstory/
+/Documentation/Release Prep Reports/User Response & Implemenatation Plans.md
+/mdpi_6037.pdf
+# The Steam login for tools/publish-steam.ps1 + update-workshop-page.ps1 (one line).
+/tools/steam-user.txt

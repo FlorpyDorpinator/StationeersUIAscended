@@ -124,7 +124,8 @@
        keeps for when the RW dev server lags the latest beta. The second copy is guarded by
        Exists() so builds never fail if that install moves/disappears. -->
   <PropertyGroup>
-    <GameDir2>C:\Users\<user>\Desktop\Stationeers_beta</GameDir2>
+    <!-- From the Windows profile, not a hard-coded user name (the repo is public). -->
+    <GameDir2>$(USERPROFILE)\Desktop\Stationeers_beta</GameDir2>
   </PropertyGroup>
   <Target Name="HotReload" AfterTargets="Build" Condition="'$(Configuration)' == 'Debug'">
     <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(GameDir)\BepInEx\scripts" />

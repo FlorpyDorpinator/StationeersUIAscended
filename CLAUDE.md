@@ -183,11 +183,21 @@ Design sources (read these before large changes):
 - **Concurrent agents**: more than one agent may be editing the working tree at once. Stage
   and commit ONLY the files you changed (`git add <specific paths>`) — never `git add -A`
   while another agent's WIP is uncommitted.
+- **The GitHub repo is PUBLIC (since 2026-09-27).** Never commit:
+  - personal info: real names, personal emails, Windows user paths (use `$(USERPROFILE)` or
+    `%USERPROFILE%`), or the Steam login;
+  - secrets or tokens of any kind;
+  - `Changes Reports/`, `.specstory/`, or the game's DLLs.
+  All of these are git-ignored; never force-add them. The Steam login for the publish scripts
+  comes from `-SteamUser`, `UIA_STEAM_USER`, or the git-ignored `tools/steam-user.txt`.
+  History was cleaned with git-filter-repo before going public. The pre-clean backups are
+  local-only; never push them, or any old branch or tag.
 
 ## MANDATORY: Changes Reports
 
 After ANY change set (code, docs, or design decisions), write a new file in
-`Changes Reports/` named:
+`Changes Reports/` (git-ignored since the repo went public: the reports stay local and private,
+and are never committed) named:
 
 ```
 YYYY-MM-DD - <short context name>.md
