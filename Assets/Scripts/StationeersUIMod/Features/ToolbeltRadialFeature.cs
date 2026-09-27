@@ -4,6 +4,7 @@ using Assets.Scripts.Objects;
 using Assets.Scripts.Objects.Items;
 using StationeersUIMod.Core;
 using StationeersUIMod.Overlay;
+using StationeersUIMod.UI.Menu.Tutorial;
 using UnityEngine;
 
 namespace StationeersUIMod.Features
@@ -188,7 +189,10 @@ namespace StationeersUIMod.Features
                     Icon = beltThing.GetThumbnail(),
                     Enabled = canSwap,
                     DisabledReason = canSwap ? null : "Can't equip",
-                    OnSelect = () => ItemActions.SwapWornToolbelt(chosen),
+                    OnSelect = () =>
+                    {
+                        if (ItemActions.SwapWornToolbelt(chosen)) TutorialSignals.Raise(TSignal.BeltSwapped);
+                    },
                 });
             }
             return entries;

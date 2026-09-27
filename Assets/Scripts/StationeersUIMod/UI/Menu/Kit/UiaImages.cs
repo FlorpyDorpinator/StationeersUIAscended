@@ -37,12 +37,30 @@ namespace StationeersUIMod.UI.Menu.Kit
         // sharp quad into a rounded panel with baked AA, at zero per-element cost. Generated once,
         // lazily; the Unity-null check regenerates after a hot-reload destroyed the texture.
         private static Sprite _rounded;
+        private static Sprite _roundedLarge;
 
         public static Sprite Rounded()
         {
             if (_rounded != null && _rounded) return _rounded;
+            // R = UiaTheme.Corner (the 0.9.8.0 "sharper corners" directive — keep in
+            // lock-step); border 8 > R + feather.
+            _rounded = MakeRounded(4f, 8f);
+            return _rounded;
+        }
+
+        /// <summary>The SOFTER 9-slice (radius 7): the concept's cards, bag icon plates and
+        /// master bars carry visibly rounder corners than the kit-wide 4px controls (combined
+        /// visual round). Buttons and chips stay on <see cref="Rounded"/>.</summary>
+        public static Sprite RoundedLarge()
+        {
+            if (_roundedLarge != null && _roundedLarge) return _roundedLarge;
+            _roundedLarge = MakeRounded(7f, 11f);
+            return _roundedLarge;
+        }
+
+        private static Sprite MakeRounded(float R, float border)
+        {
             const int S = 32;      // texture size
-            const float R = 10f;   // corner radius in sprite px (≈ on-screen reference px via 9-slice)
             const float F = 1.5f;  // AA feather
             var tex = new Texture2D(S, S, TextureFormat.ARGB32, false)
             { wrapMode = TextureWrapMode.Clamp, hideFlags = HideFlags.DontSave };
@@ -61,10 +79,12 @@ namespace StationeersUIMod.UI.Menu.Kit
                 }
             tex.SetPixels32(px);
             tex.Apply(false, true);
-            _rounded = Sprite.Create(tex, new Rect(0, 0, S, S), new Vector2(0.5f, 0.5f), 100f,
-                0, SpriteMeshType.FullRect, new Vector4(14f, 14f, 14f, 14f)); // 9-slice border
-            _rounded.hideFlags = HideFlags.DontSave;
-            return _rounded;
+            // 9-slice border: must exceed R + F so the whole corner arc lives inside the
+            // corner slices.
+            var s = Sprite.Create(tex, new Rect(0, 0, S, S), new Vector2(0.5f, 0.5f), 100f,
+                0, SpriteMeshType.FullRect, new Vector4(border, border, border, border));
+            s.hideFlags = HideFlags.DontSave;
+            return s;
         }
 
         /// <summary>Give an Image the shared rounded-rect sprite (9-sliced): the kit-wide
@@ -73,6 +93,14 @@ namespace StationeersUIMod.UI.Menu.Kit
         {
             if (img == null) return;
             img.sprite = Rounded();
+            img.type = UnityEngine.UI.Image.Type.Sliced;
+        }
+
+        /// <summary>The softer radius-7 rounding — cards, plates, the master bars.</summary>
+        public static void RoundLarge(UnityEngine.UI.Image img)
+        {
+            if (img == null) return;
+            img.sprite = RoundedLarge();
             img.type = UnityEngine.UI.Image.Type.Sliced;
         }
 
@@ -90,6 +118,12 @@ namespace StationeersUIMod.UI.Menu.Kit
                 if (_rounded.texture != null) Object.Destroy(_rounded.texture);
                 Object.Destroy(_rounded);
                 _rounded = null;
+            }
+            if (_roundedLarge != null)
+            {
+                if (_roundedLarge.texture != null) Object.Destroy(_roundedLarge.texture);
+                Object.Destroy(_roundedLarge);
+                _roundedLarge = null;
             }
         }
     }

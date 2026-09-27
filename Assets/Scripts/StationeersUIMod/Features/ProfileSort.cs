@@ -112,13 +112,19 @@ namespace StationeersUIMod.Features
         /// least one of them differently". Sort is a click-frequency action, so the per-compare
         /// profile match (a few rule scans) is comfortably cheap. Deliberately NO cached
         /// bag/profile statics — a cache would strand a Thing reference from a dead world across
-        /// saves/reloads for a micro-optimisation sort does not need.</summary>
+        /// saves/reloads for a micro-optimisation sort does not need.
+        ///
+        /// <para><b>Simple mode (0.9.8.0 plan §9.2/§10.2):</b> this defers to vanilla on EVERY
+        /// compare, same as the existing "no resolvable profile" deference — the wrapper stays
+        /// installed either way (no per-flip install/uninstall churn), it just never finds a
+        /// profile to prefer. <see cref="SimpleModeActive"/> is fail-soft to "not Simple" so a
+        /// config hiccup can never silently switch a Complex player's bags to vanilla order.</para></summary>
         private static int CompareProfileAware(Item a, Item b)
         {
             var vanilla = _original;
             try
             {
-                if (a != null && b != null && ConfigOn())
+                if (a != null && b != null && ConfigOn() && !SimpleModeActive())
                 {
                     Thing bag = OwnerOf(a);
                     if (bag == null) bag = OwnerOf(b);
@@ -162,6 +168,16 @@ namespace StationeersUIMod.Features
                 return UIAConfig.MasterEnable != null && UIAConfig.MasterEnable.Value
                     && UIAConfig.StowProfileSort != null && UIAConfig.StowProfileSort.Value;
             }
+            catch { return false; }
+        }
+
+        /// <summary>Is Smart Stow in SIMPLE mode right now (0.9.8.0 plan §9.2)? Fail-soft to
+        /// "not Simple" — <see cref="StowModeConfig.Available"/> false, or any hiccup reading it,
+        /// keeps today's Complex profile-aware compare running unchanged (rule 5 of this change:
+        /// a config hiccup must never flip Complex behaviour).</summary>
+        private static bool SimpleModeActive()
+        {
+            try { return StowModeConfig.Available && StowModeConfig.Mode == StowMode.Simple; }
             catch { return false; }
         }
     }

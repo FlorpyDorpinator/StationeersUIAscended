@@ -14,7 +14,7 @@ namespace StationeersUIMod.Core
     /// RUNNING. Every store is fail-soft about that on its own (a missing folder reads as "no state
     /// yet", and every write path creates its folder immediately before writing), so nothing throws
     /// into a frame — but two things do NOT come back until a relaunch: the SHIPPED content that is
-    /// seeded once per launch (HUD themes via <see cref="HudProfileStore.SyncShipped"/>, Stow
+    /// seeded once per launch (UI themes via <see cref="HudProfileStore.SyncShipped"/>, Stow
     /// Profiles via <c>StowProfileStore.SeedShipped</c>), and any live document whose store has
     /// nothing dirty to autosave. This closes both without a restart.</para>
     ///
@@ -25,7 +25,7 @@ namespace StationeersUIMod.Core
     /// beside, which is destructive and therefore two-click armed.</para>
     ///
     /// <para><b>Order matters.</b> Live documents are written BEFORE the seeders run. A player whose
-    /// active HUD theme exists only in memory (they deleted HudProfiles/ and have not touched F9
+    /// active UI theme exists only in memory (they deleted HudProfiles/ and have not touched F9
     /// since, so nothing is dirty and no autosave will ever fire) gets it back on disk under its own
     /// name first; otherwise SyncShipped would seed a pristine shipped copy over the name they were
     /// actually using, and a CUSTOM active profile would simply be lost at the next restart with the
@@ -70,7 +70,7 @@ namespace StationeersUIMod.Core
 
             // ---- live documents first (see the class remarks on ordering) ----
             try { HudProfileStore.SaveActiveNow(); }
-            catch (Exception e) { UIALog.Warn("Config repair could not write the active HUD Theme: " + e.Message); }
+            catch (Exception e) { UIALog.Warn("Config repair could not write the active UI Theme: " + e.Message); }
 
             try
             {
@@ -90,7 +90,7 @@ namespace StationeersUIMod.Core
             // SyncShipped returns immediately with no mod folder (the F6 ScriptEngine dev flow),
             // and SeedShipped skips every name its .shipped marker already records.
             try { HudProfileStore.SyncShipped(global::StationeersUIMod.StationeersUIMod.ModDirectory); }
-            catch (Exception e) { UIALog.Warn("Config repair could not re-seed the shipped HUD Themes: " + e.Message); }
+            catch (Exception e) { UIALog.Warn("Config repair could not re-seed the shipped UI Themes: " + e.Message); }
 
             try { StowProfileStore.SeedShipped(); }
             catch (Exception e) { UIALog.Warn("Config repair could not re-seed the shipped Stow Profiles: " + e.Message); }
@@ -124,6 +124,7 @@ namespace StationeersUIMod.Core
                 SaveScopedXmlStore.DirFor("BeltBindings"),   // BeltBindingStore.StoreFolder
                 SaveScopedXmlStore.DirFor("Hotkeys"),        // BagHotkeyStore.StoreFolder
                 SaveScopedXmlStore.DirFor("HintUsage"),      // HintUsageStore.StoreFolder
+                SaveScopedXmlStore.DirFor("StowHomes"),      // StowHomeStore.StoreFolder (per-world Simple SmartStow homes)
                 LoadoutStore.LoadoutsDir,                    // Loadouts/
                 HudIconStore.Dir,                            // HudIcons/
                 // Profiling/ProfilicusUniversalis keeps its folder name in a private field and its

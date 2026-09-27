@@ -52,6 +52,15 @@ namespace StationeersUIMod.UI.Grid
         /// most modal thing the Grid family shows.</summary>
         private const int SortOrder = 5200;
 
+        // ---- F10 hosting (0.9.8.0 Organizer, ANSWER #10: ONE capture feature, not two) ----
+        // The SAME panel can open ABOVE the F10 Control Center (its canvas is 5200, so the
+        // Organizer passes 5300). Hosted mode is self-pumped by a MonoBehaviour on the root
+        // (TheGridPanel only pumps Tick while the Grid window is open) and reports its Close
+        // through _onClosed so the F10 tab can re-read its listings.
+        private static int _sortOrder = SortOrder;
+        private static bool _hosted;
+        private static Action _onClosed;
+
         private static GameObject _root;
         private static RectTransform _panel;
         private static PanelGraphic _panelBg;
@@ -128,22 +137,32 @@ namespace StationeersUIMod.UI.Grid
             get { return _open && _nameInput != null && _nameInput.isFocused; }
         }
 
-        /// <summary>Esc pressed while the dialog is open (TheGridPanel's chain). An untouched
-        /// dialog closes at once; once the player has invested state (row/AS-ITEMS toggles, a
-        /// mode pick, an edited name) the FIRST Esc only ARMS the discard — the title becomes
-        /// the confirmation cue — and the second Esc actually closes. This is the same
-        /// protect-the-toggles stance the scrim (clicking it does not cancel) and the
+        /// <summary>Has the player invested state worth protecting — row/AS-ITEMS toggles, a
+        /// mode pick, or an EDITED NAME? The ONE predicate every discard-adjacent path uses:
+        /// EscClose's arm decision AND the hosted pump's F10-went-away auto-close. They
+        /// diverged once (the auto-close tested only <c>_dirty</c>) and a typed-but-untoggled
+        /// name was silently discarded when F10 closed under the dialog (fix wave finding 2).</summary>
+        private static bool IsInvested()
+        {
+            if (_dirty) return true;
+            if (_mode == CaptureApplyMode.NewProfile && _nameInput != null && _proposal != null)
+            {
+                string baseline = _proposal.SuggestedName ?? "";
+                if ((_nameInput.text ?? "") != baseline) return true;
+            }
+            return false;
+        }
+
+        /// <summary>Esc pressed while the dialog is open (TheGridPanel's chain, or the hosted
+        /// pump's own key read). An untouched dialog closes at once; once the player has
+        /// invested state (<see cref="IsInvested"/>) the FIRST Esc only ARMS the discard — the
+        /// title becomes the confirmation cue — and the second Esc actually closes. This is the
+        /// same protect-the-toggles stance the scrim (clicking it does not cancel) and the
         /// mouse-relock survival already take; the CANCEL button stays the one-click discard.</summary>
         public static void EscClose()
         {
             if (!_open) return;
-            bool invested = _dirty;
-            if (!invested && _mode == CaptureApplyMode.NewProfile && _nameInput != null && _proposal != null)
-            {
-                string baseline = _proposal.SuggestedName ?? "";
-                if ((_nameInput.text ?? "") != baseline) invested = true;
-            }
-            if (!invested || _escArmed) { Close(); return; }
+            if (!IsInvested() || _escArmed) { Close(); return; }
             _escArmed = true;
             if (_title != null) HudText.Set(_title, "Press Esc again to discard this capture");
         }
@@ -166,14 +185,31 @@ namespace StationeersUIMod.UI.Grid
         /// (SAVE stays disabled). Re-opening rebuilds from scratch.</summary>
         public static void Open(DynamicThing bag)
         {
+            OpenInternal(bag, SortOrder, false, null);
+        }
+
+        /// <summary>Open the SAME dialog hosted over another surface — the F10 Organizer passes
+        /// its above-F10 sort order (5300) and a callback fired when the dialog closes (saved OR
+        /// cancelled), so the caller can re-read its profile listings. Grid behaviour is
+        /// untouched: the plain <see cref="Open(DynamicThing)"/> path never sets hosted mode.</summary>
+        public static void Open(DynamicThing bag, int sortOrder, Action onClosed)
+        {
+            OpenInternal(bag, sortOrder, true, onClosed);
+        }
+
+        private static void OpenInternal(DynamicThing bag, int sortOrder, bool hosted, Action onClosed)
+        {
             Close();
+            _sortOrder = sortOrder;
+            _hosted = hosted;
+            _onClosed = onClosed;
             // Capture ALWAYS auto-assigns the profile it writes (design Q3), so it is an assignment
             // surface and takes the same gate as the chip popup (redesign plan Q5). The CAPTURE
             // button only exists on an assignable region now; this re-gates the public entry point.
-            if (!BagProfileGate.IsAssignableContainer(bag)) return;
+            if (!BagProfileGate.IsAssignableContainer(bag)) { AbortOpen(); return; }
             CaptureProposal p = null;
             try { p = ProfileCapture.BuildProposal(bag); } catch { }
-            if (p == null) return;
+            if (p == null) { AbortOpen(); return; }
             _proposal = p;
 
             string assigned = null;
@@ -187,6 +223,18 @@ namespace StationeersUIMod.UI.Grid
 
             BuildUi();
             _open = _root != null;
+            // Hosted mode has no TheGridPanel pump, so the panel drives itself: live theme,
+            // cursor block, Esc, and the F10-went-away auto-close all run from this component.
+            if (_open && _hosted) _root.AddComponent<HostedPump>();
+        }
+
+        /// <summary>A silent-no-op Open (gate failed / empty proposal): drop the hosted fields
+        /// so a stale callback can never fire from a LATER close of an unrelated dialog.</summary>
+        private static void AbortOpen()
+        {
+            _sortOrder = SortOrder;
+            _hosted = false;
+            _onClosed = null;
         }
 
         /// <summary>Pumped by TheGridPanel every open Tick: auto-close when the window/mode goes
@@ -196,6 +244,9 @@ namespace StationeersUIMod.UI.Grid
         public static void Tick()
         {
             if (!_open) return;
+            // Hosted-over-F10: the HostedPump owns the lifetime — the Grid's pump must not
+            // apply its own auto-close rules (the Grid window may well be closed).
+            if (_hosted) return;
             if (_root == null) { _open = false; return; }
             if (!TheGridPanel.IsOpen || !GridProfileMode.Active || TheGridPanel.IsEditPreview)
             {
@@ -217,6 +268,12 @@ namespace StationeersUIMod.UI.Grid
         /// destroy (no dead HudFxMaterials keys), release the world-pick block, null every handle.</summary>
         public static void Close()
         {
+            // Stash-and-null FIRST: the callback runs after teardown, and a re-entrant Open
+            // from inside it must never see (or re-fire) the old callback.
+            Action closed = _onClosed;
+            _onClosed = null;
+            _hosted = false;
+            _sortOrder = SortOrder;
             _open = false;
             _proposal = null;
             _assignedName = null;
@@ -249,6 +306,12 @@ namespace StationeersUIMod.UI.Grid
             _modeUpdate = null;
             _modeMerge = null;
             _panelH = 0f;
+            // Last: tell the hosting surface (the F10 Organizer) the dialog is gone, whether
+            // saved or cancelled — it re-reads its listings either way. Fail-soft.
+            if (closed != null)
+            {
+                try { closed(); } catch (Exception e) { UIALog.Warn("Capture onClosed failed: " + e.Message); }
+            }
         }
 
         /// <summary>Hot-reload teardown — the dialog is transient, so this IS <see cref="Close"/>.</summary>
@@ -265,7 +328,7 @@ namespace StationeersUIMod.UI.Grid
             UnityEngine.Object.DontDestroyOnLoad(_root);
             var canvas = _root.AddComponent<Canvas>();
             canvas.renderMode = RenderMode.ScreenSpaceOverlay;
-            canvas.sortingOrder = SortOrder;
+            canvas.sortingOrder = _sortOrder;   // 5200 over the Grid, 5300 when hosted over F10
             // The extra vertex streams the shared glass materials consume (the Window-surface
             // shell may ride the analytic SDF renderer) — the standard Grid canvas opt-in; see
             // TheGridPanel.EnsureBuilt for the full rationale.
@@ -843,6 +906,43 @@ namespace StationeersUIMod.UI.Grid
 
             public void OnPointerEnter(PointerEventData e) { Hover = true; }
             public void OnPointerExit(PointerEventData e) { Hover = false; }
+        }
+
+        /// <summary>The F10-hosted drive loop, attached to the transient root only in hosted
+        /// mode (it dies with the canvas — nothing to unhook on reload). Per frame: live theme
+        /// restyle, the world-pick block, Esc, and the auto-close rules — the world standing
+        /// down always closes; F10 closing underneath (its own toggle key, a world change —
+        /// NOT Esc: F10's Esc-close line now gates on <c>!GridCapturePanel.IsOpen</c>, so Esc
+        /// never reaches F10 while this dialog is up) only closes a dialog with NOTHING
+        /// invested. Invested — per the SAME <see cref="IsInvested"/> predicate EscClose uses,
+        /// so a typed name counts (fix wave finding 2) — it survives floating, exactly like it
+        /// survives a scrim click and a re-locked mouse.
+        ///
+        /// <para>The Esc chain here STANDS ALONE (it never relies on F10 or the Grid being
+        /// open): first press with a focused name field just deselects it (TMP's own Esc),
+        /// otherwise <see cref="EscClose"/> runs its arm-then-discard; vanilla's key-up is
+        /// starved either way so one press can never also open the pause menu.</para></summary>
+        private sealed class HostedPump : MonoBehaviour
+        {
+            private void Update()
+            {
+                if (!_open || !_hosted) return;
+                if (!Guards.CanDraw()) { Close(); return; }
+
+                StylePanel();
+                _blockHeld = true;
+                Core.CursorBlockArbiter.Hold("capture");
+
+                bool f10Open = false;
+                try { f10Open = Menu.UiaControlCenter.IsOpen; } catch { }
+                if (!f10Open && !IsInvested() && !_escArmed) { Close(); return; }
+
+                if (Input.GetKeyDown(KeyCode.Escape))
+                {
+                    Core.ModalInputChain.BeginEscSwallow();
+                    if (!IsNameInputFocused) EscClose();
+                }
+            }
         }
     }
 }

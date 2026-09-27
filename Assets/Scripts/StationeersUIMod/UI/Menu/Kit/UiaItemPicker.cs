@@ -200,8 +200,9 @@ namespace StationeersUIMod.UI.Menu.Kit
             UiaImages.Round(bg);
             var t = UiaUi.Text(go.transform, label, 10f, UiaTheme.Text, TextAlignmentOptions.Center);
             UiaUi.Fill((RectTransform)t.transform);
-            t.overflowMode = TextOverflowModes.Ellipsis;
-            t.enableWordWrapping = false;
+            // No ellipsis: an 87x20 chip holds a long SortingClass name by shrinking toward 8pt
+            // (and, at that size, two lines fit the 20px cell).
+            UiaControls.FitText(t, 8f);
             var btn = go.AddComponent<UiaControls.UiaButton>()
                 .Init(bg, UiaTheme.PanelRaised, UiaTheme.PanelHover, UiaTheme.SelectedDim);
             btn.OnClick = () => SelectCat(chipIndex);
@@ -303,8 +304,10 @@ namespace StationeersUIMod.UI.Menu.Kit
             var name = nameGo.AddComponent<TextMeshProUGUI>();
             name.font = UiaTheme.Font(); name.fontSize = 11f; name.color = UiaTheme.TextDim;
             name.alignment = TextAlignmentOptions.Top; name.raycastTarget = false;
-            name.enableWordWrapping = true; name.overflowMode = TextOverflowModes.Ellipsis;
             name.text = disp ?? prefab;
+            // No ellipsis: two lines at 11pt, shrinking toward 8pt (three lines) for the
+            // longest item names; past that it spills below the 30px slot, never hides.
+            UiaControls.FitText(name, 8f);
 
             HookPick(cell, bg, prefab, disp);
         }
@@ -326,8 +329,9 @@ namespace StationeersUIMod.UI.Menu.Kit
             else icon.color = new Color(0.12f, 0.16f, 0.20f, 1f);
 
             var name = UiaUi.Text(row.transform, disp ?? prefab, UiaTheme.SmallSize, UiaTheme.Text, TextAlignmentOptions.Left);
-            name.overflowMode = TextOverflowModes.Ellipsis;
-            name.enableWordWrapping = false;
+            // No ellipsis in the fixed 30px list row: shrink toward 9pt, wrapping to a second
+            // line inside the row when a name is still too wide.
+            UiaControls.FitText(name, 9f);
             name.gameObject.AddComponent<LayoutElement>().flexibleWidth = 1f;
 
             // The item's category on the right: cheap orientation while filtering/browsing.
@@ -335,8 +339,7 @@ namespace StationeersUIMod.UI.Menu.Kit
             try { cat = it.SortingClass.ToString(); } catch { }
             var catText = UiaUi.Text(row.transform, cat, 11f, UiaTheme.TextMute, TextAlignmentOptions.Right);
             UiaUi.Size(catText.gameObject, 24f, 90f, flexW: 0f);
-            catText.overflowMode = TextOverflowModes.Ellipsis;
-            catText.enableWordWrapping = false;
+            UiaControls.FitText(catText, 8f);   // no ellipsis: shrink/wrap in its 90x24 slot
 
             HookPick(row, bg, prefab, disp);
         }

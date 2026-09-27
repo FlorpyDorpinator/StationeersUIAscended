@@ -94,6 +94,8 @@ namespace StationeersUIMod.Features
             foreach (Slot s in bag.Slots)
             {
                 if (s == null || s.IsLocked) continue;
+                // A jetpack's fuel canister / a belt's battery or chip is equipment, not cargo.
+                if (BagProfileGate.IsDeviceSlot(bag, s)) continue;
                 DynamicThing occ = s.Get();
                 if (occ != null) occupants.Add(occ);
             }

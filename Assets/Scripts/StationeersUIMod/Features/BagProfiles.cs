@@ -859,6 +859,11 @@ namespace StationeersUIMod.Features
 
         // --- per-save state ---
 
+        /// <summary>The station/world-save display name, filename-sanitized. NO LONGER the file key
+        /// for any per-save store (that was the latent MP bug — this name is null on every client;
+        /// see <see cref="SaveScopedXmlStore.ResolveSaveKey"/> and <see cref="Core.WorldKey"/>).
+        /// Kept public and unchanged: <see cref="Core.WorldKey"/> uses it as its legacy-fallback
+        /// ingredient and as the legacy-adoption source name, and diagnostics print it.</summary>
         public static string CurrentSaveKey()
         {
             try
@@ -876,14 +881,56 @@ namespace StationeersUIMod.Features
             }
         }
 
+        /// <summary>(Re)load Assignments/Memory/Excludes for the CURRENT world key
+        /// (SmartStow-Simple-Refactor-Plan §7.1/§7.7 — keyed via
+        /// <see cref="SaveScopedXmlStore.ResolveSaveKey"/>, the per-world <c>World.CurrentId</c>, not
+        /// <see cref="CurrentSaveKey"/>'s station name). No key yet (main menu, or a legacy SP world
+        /// before its first save) means: hold the in-memory tables as-is, touch nothing on disk —
+        /// never "unsaved.xml". A memory-only session that GAINS a key mid-session (edits made before
+        /// any key existed) is carried into the newly-keyed file, mirroring
+        /// <c>StowHomeStore.EnsureLoaded</c>.</summary>
         public static void EnsureSaveLoaded()
         {
-            string key = CurrentSaveKey();
+            string key;
+            if (!SaveScopedXmlStore.ResolveSaveKey("Assignments", _loadedSaveKey, out key)) { StandDown(); return; }
             if (key == _loadedSaveKey) return;
+
+            Dictionary<long, string> carriedAssignments = null;
+            Dictionary<int, long> carriedMemory = null;
+            HashSet<long> carriedExcludes = null;
+            if (_loadedSaveKey == null)
+            {
+                if (Assignments.Count > 0) carriedAssignments = new Dictionary<long, string>(Assignments);
+                if (Memory.Count > 0) carriedMemory = new Dictionary<int, long>(Memory);
+                if (Excludes.Count > 0) carriedExcludes = new HashSet<long>(Excludes);
+            }
+
             _loadedSaveKey = key;
             Assignments.Clear();
             Memory.Clear();
             Excludes.Clear();
+            LoadInto(key);
+
+            // Fix-wave finding 5: an empty result under a brand-new key may mean adoption ran too
+            // early (before the station name was set) and missed a legacy file that exists NOW.
+            if (Assignments.Count == 0 && Memory.Count == 0 && Excludes.Count == 0
+                && SaveScopedXmlStore.RetryAdoptionIfEmpty("Assignments", key))
+                LoadInto(key);
+
+            if (carriedAssignments != null || carriedMemory != null || carriedExcludes != null)
+            {
+                // This session's memory wins over disk.
+                if (carriedAssignments != null) foreach (var kv in carriedAssignments) Assignments[kv.Key] = kv.Value;
+                if (carriedMemory != null) foreach (var kv in carriedMemory) Memory[kv.Key] = kv.Value;
+                if (carriedExcludes != null) foreach (var id in carriedExcludes) Excludes.Add(id);
+                SaveAssignments();
+            }
+        }
+
+        /// <summary>The actual per-save deserialize-and-populate step, split out so
+        /// <see cref="EnsureSaveLoaded"/> can retry it once after finding 5's adoption retry.</summary>
+        private static void LoadInto(string key)
+        {
             try
             {
                 var path = Path.Combine(AssignmentsDir, key + ".xml");
@@ -908,12 +955,29 @@ namespace StationeersUIMod.Features
             }
         }
 
+        /// <summary>Fix-wave finding 1: drop a dead world's Assignments/Memory/Excludes+key the
+        /// moment no key resolves any more (world left, or between-worlds transition), so a stray
+        /// mutation can never keep writing into the PREVIOUS world's file under a stale
+        /// <see cref="_loadedSaveKey"/>. No-op once already standing down.</summary>
+        private static void StandDown()
+        {
+            if (_loadedSaveKey == null) return;
+            _loadedSaveKey = null;
+            Assignments.Clear();
+            Memory.Clear();
+            Excludes.Clear();
+        }
+
+        /// <summary>Write Assignments/Memory/Excludes now. Memory-only (no world key resolved) NEVER
+        /// writes — a mutation made while memory-only just stays in the in-memory tables until a key
+        /// appears and <see cref="EnsureSaveLoaded"/> carries it into the newly-keyed file itself.</summary>
         public static void SaveAssignments()
         {
+            if (_loadedSaveKey == null) return;
             try
             {
                 Directory.CreateDirectory(AssignmentsDir);
-                var path = Path.Combine(AssignmentsDir, (_loadedSaveKey ?? CurrentSaveKey()) + ".xml");
+                var path = Path.Combine(AssignmentsDir, _loadedSaveKey + ".xml");
                 var file = new AssignmentFile
                 {
                     Assignments = Assignments.Select(kv => new Assignment { BagReferenceId = kv.Key, ProfileName = kv.Value }).ToList(),

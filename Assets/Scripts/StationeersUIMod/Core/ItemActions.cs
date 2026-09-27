@@ -20,7 +20,16 @@ namespace StationeersUIMod.Core
     /// <para>Sanctioned multi-message actions (each explicitly designed, each message individually
     /// gated at execute time): the radial chip dump, the coarse PressInteractable step, and
     /// <see cref="DragAllOfTypeTo"/> — vanilla's own Shift-drag "move all of this type", which vanilla
-    /// itself transmits as one MoveToSlot per stack (FlorpyDorp approved vanilla parity, D-018).</para>
+    /// itself transmits as one MoveToSlot per stack (FlorpyDorp approved vanilla parity, D-018).
+    /// The swap-then-relocate pattern (<see cref="EquipToActiveHand"/> and the drag-swap branches)
+    /// is the other documented two-message exception, 0.9.7.3; since 0.9.8.0 S-6 its relocation
+    /// target prefers the displaced item's own Simple-mode instance home.</para>
+    ///
+    /// <para>Simple-SmartStow CAPTURE (0.9.8.0): the funnels below also register fire-and-forget
+    /// intent notes with <see cref="Features.StowHomeStore"/> just before their authoritative
+    /// sends (<see cref="NoteStowIntent"/> / <see cref="NoteSplitDispatch"/> / the D-018 container
+    /// note), so the store can tell "the player deliberately put it there" apart from a mechanical
+    /// landing. Notes are pure observation — zero behaviour change, never a message of their own.</para>
     /// </summary>
     public static class ItemActions
     {
@@ -170,9 +179,22 @@ namespace StationeersUIMod.Core
             // relocation is refused (a teammate filled the home mid-flight) the end state is
             // exactly the old behaviour — held tool sits in the taken tool's wedge, unbound
             // (bindings themselves are protected by BeltBindingStore's observe-only policy).
-            Slot home = BeltHomeFor(source.Slot, handOcc);
-            source.Slot.PlayerSwapToSlot(hand);
-            if (home != null) OnServer.MoveToSlot(handOcc, home);
+            // 0.9.8.0 S-6 generalizes the rule: in Simple mode the displaced held item's own live
+            // INSTANCE home wins; the belt-wedge binding stays as the fallback (see
+            // HeldDisplacedHomeFor). Complex mode is byte-identical to 0.9.7.3.
+            Slot home = HeldDisplacedHomeFor(source.Slot, handOcc);
+            // MECHANICAL scope (StowHomeStore, S-3): the internal PlayerSwapToSlot below must never
+            // read as an explicit player gesture, and the displaced item's landing in the taken
+            // item's slot must not seed or slot-refresh its home — it is on its way to its OWN home
+            // (or deliberately keeps the old one when no relocation is possible; the next top-up
+            // pump re-seeds a genuinely homeless item at wherever it settled).
+            Features.StowHomeStore.BeginMechanical();
+            try
+            {
+                source.Slot.PlayerSwapToSlot(hand);
+                if (home != null) OnServer.MoveToSlot(handOcc, home);
+            }
+            finally { Features.StowHomeStore.EndMechanical(); }
             MaybeCancelPlacement(hand); // the (possibly building) hand item was displaced: no ghost hologram
             return true;
         }
@@ -217,6 +239,89 @@ namespace StationeersUIMod.Core
             return null;
         }
 
+        /// <summary>S-6 (0.9.8.0, SmartStow-Simple-Refactor-Plan par.6.3): where the DISPLACED HELD
+        /// item goes after a swap-take (taking into an occupied hand, or dragging onto an occupied
+        /// hand box). In SIMPLE mode the item's own live instance home wins — the exact remembered
+        /// slot only, mirroring the wedge rule's precision; a blocked exact slot degrades rather
+        /// than triggering a bag scan mid-swap. The 0.9.7.3 belt-wedge binding is the fallback, and
+        /// in Complex mode (where the instance lookup answers null) this IS exactly the old
+        /// behaviour. Null = plain swap, the documented degraded state. Ordering discipline is the
+        /// caller's, identical to 0.9.7.3: swap message first, one independently-gated relocation
+        /// second.</summary>
+        private static Slot HeldDisplacedHomeFor(Slot landingSlot, DynamicThing heldItem)
+        {
+            Slot home = SimpleInstanceHomeFor(landingSlot, heldItem);
+            return home != null ? home : BeltHomeFor(landingSlot, heldItem);
+        }
+
+        /// <summary>The held item's OWN live Simple-mode home slot — non-null only when the mode
+        /// keys are bound and Simple is active, <see cref="Features.StowHomeStore.TryGetLiveHome"/>
+        /// validates the home (container resolves, on the local player, real storage, not
+        /// excluded), the exact slot survives, differs from where the plain swap would land the
+        /// item anyway, and is empty, unlocked, unsealed and <see cref="Slot.AllowMove"/>-open for
+        /// it — the free-and-accepting pre-check; the send is still its own independently
+        /// server-gated message. Fail-soft: null on any doubt = wedge binding / plain swap.</summary>
+        private static Slot SimpleInstanceHomeFor(Slot landingSlot, DynamicThing item)
+        {
+            try
+            {
+                if (item == null) return null;
+                if (!Features.StowModeConfig.Available
+                    || Features.StowModeConfig.Mode != Features.StowMode.Simple) return null;
+                Thing bag;
+                Slot exact;
+                if (!Features.StowHomeStore.TryGetLiveHome(item, out bag, out exact)) return null;
+                if (exact == null || exact == landingSlot) return null;
+                if (exact.Get() != null || exact.IsLocked || IsSealedSlot(exact)) return null;
+                if (!Slot.AllowMove(item, exact)) return null;
+                return exact;
+            }
+            catch { return null; }
+        }
+
+        /// <summary>Simple-SmartStow capture (0.9.8.0): note "the player deliberately sent ITEM to
+        /// DEST" with the home store, immediately before the authoritative send — the matching
+        /// <c>Slot.Take</c> landing (the server echo on an MP client) then rehomes the item there.
+        /// Fire-and-forget observation: zero behaviour change, no message of its own, never
+        /// throws. Hand destinations are skipped (a hand landing is TAKING and never rehomes, so
+        /// an intent for one could never match — StowHomeStore.ObserveLanding).</summary>
+        private static void NoteStowIntent(DynamicThing item, Slot dest)
+        {
+            try
+            {
+                if (item == null || dest == null || dest.IsHandSlot) return;
+                long cid;
+                if (!Features.StowHomeStore.TryGetLocalContainerId(dest.Parent, out cid)) return;
+                Features.StowHomeStore.NoteItemIntent(item.ReferenceId, cid, dest.SlotIndex);
+            }
+            catch { }
+        }
+
+        /// <summary>Simple-SmartStow capture: a split of this stack was just DISPATCHED. On an MP
+        /// client the child simply appears with a new ReferenceId (no OnSplitStack runs there), so
+        /// the store infers the child's inherited home from this note when a homeless same-prefab
+        /// stack lands in a local hand inside the window (plan par.5.3). On host/SP the
+        /// <c>Stackable.OnSplitStack</c> postfix is authoritative and this note just expires.
+        /// Fire-and-forget, never throws.</summary>
+        private static void NoteSplitDispatch(Thing stackable)
+        {
+            try
+            {
+                if (stackable == null) return;
+                // 3-arg overload (capture fix wave): the source's PRE-SPLIT Quantity narrows the
+                // MP-client inheritance match, so a same-prefab floor stack picked up inside the
+                // window can no longer steal the split child's home. Both split funnels dispatch
+                // BEFORE any quantity changes, so Quantity here IS the pre-split size. Fail-soft:
+                // a non-Stackable (or unreadable) source falls back to the any-size overload.
+                var s = stackable as Assets.Scripts.Objects.Items.Stackable;
+                if (s != null)
+                    Features.StowHomeStore.NoteSplitIntent(stackable.ReferenceId, stackable.PrefabHash, s.Quantity);
+                else
+                    Features.StowHomeStore.NoteSplitIntent(stackable.ReferenceId, stackable.PrefabHash);
+            }
+            catch { }
+        }
+
         /// <summary>Is this slot part of the given thing (directly or nested inside it)?</summary>
         private static bool IsInsideThing(Slot slot, Thing root)
         {
@@ -257,10 +362,31 @@ namespace StationeersUIMod.Core
             if (item == null || destination == null || destination.Get() != null) return Fail();
             if (IsSealedSlot(destination)) return Fail();   // never refill a hidden / stack slot
             if (!Slot.AllowMove(item, destination)) return Fail();
+            NoteStowIntent(item, destination);   // the player CHOSE this slot -> rehome on landing
             OnServer.MoveToSlot(item, destination);
             MaybeCancelPlacement(hand); // the held constructor left the hand: no ghost hologram
             SlotFlash.OnStow(destination, item); // "it went in here" flash on the worn box, if nested
             UIAudioManager.Play(UIAudioManager.AddToInventoryHash);
+            return true;
+        }
+
+        /// <summary>One ROUTED SmartStow+ move — the funnel <see cref="Features.SmartStowPlus"/>
+        /// executes a router MOVE candidate through (0.9.8.0: the executor previously called
+        /// OnServer.MoveToSlot itself, against the "all mutations live in ItemActions" rule —
+        /// SmartStow-Simple-Refactor-Plan par.8). Re-gates <see cref="Slot.AllowMove"/> (and the
+        /// D-005 sealed-slot rule) HERE, at execute time, on the same synchronous call stack as
+        /// the router's decision, then sends exactly ONE OnServer.MoveToSlot. SILENT on refusal —
+        /// no fail cue, no sound, no flash: the caller falls through to vanilla SmartStow (or the
+        /// next continuation slot), which owns the outcome feedback, so routed-stow behaviour
+        /// stays byte-identical to the pre-0.9.8.0 executor. A routed landing is MECHANICAL for
+        /// the home store (seed-only at the Slot.Take observer / the executor's own idempotent
+        /// SeedHome) — deliberately NO intent note here: G must never rehome (plan par.4.2).</summary>
+        public static bool StowRoutedTo(DynamicThing held, Slot dest)
+        {
+            if (held == null || dest == null) return false;
+            if (IsSealedSlot(dest)) return false;            // D-005: never into a hidden / stack slot
+            if (!Slot.AllowMove(held, dest)) return false;
+            OnServer.MoveToSlot(held, dest);
             return true;
         }
 
@@ -286,6 +412,7 @@ namespace StationeersUIMod.Core
             {
                 if (!Slot.AllowMove(item, targetSlot)) return Fail();
                 Features.BeltBindingStore.NoteExplicitPlacement(targetSlot, item); // drag = may rebind a wedge
+                NoteStowIntent(item, targetSlot);                                  // chosen destination -> rehome
                 OnServer.MoveToSlot(item, targetSlot);
                 SlotFlash.OnStow(targetSlot, item); // stow flash if the target is inside a worn container
             }
@@ -298,13 +425,20 @@ namespace StationeersUIMod.Core
                 // The drop TARGET is explicit; the DISPLACED side only when the gesture stayed on
                 // the belt (wedge-over-wedge = the sanctioned home exchange). Displaced out of the
                 // belt (chip dropped on a hand box): the occupant lands in the vacated wedge
-                // mechanically — no rebind, route it to its own bound wedge. See DragTo's swap
-                // branch for the full rationale (the wrench/screwdriver case).
+                // mechanically — no rebind, route it to its own bound wedge — since 0.9.8.0 S-6,
+                // its own INSTANCE home first (HeldDisplacedHomeFor). See DragTo's swap branch for
+                // the full rationale (the wrench/screwdriver case).
                 Features.BeltBindingStore.NoteExplicitPlacement(targetSlot, item);
                 DynamicThing displaced = targetSlot.Get();
                 Slot displacedHome = null;
                 if (IsWornBeltSlot(targetSlot)) Features.BeltBindingStore.NoteExplicitPlacement(candidate.Slot, displaced);
+                else if (targetSlot.IsHandSlot) displacedHome = HeldDisplacedHomeFor(candidate.Slot, displaced); // S-6 swap-take
                 else displacedHome = BeltHomeFor(candidate.Slot, displaced);
+                // Home capture: the drop TARGET rehomes; the displaced side too, but ONLY for a
+                // bag-to-bag exchange — displaced by a hand-box drop stays mechanical (plan par.4.2;
+                // NoteStowIntent itself already skips hand destinations).
+                NoteStowIntent(item, targetSlot);
+                if (!targetSlot.IsHandSlot) NoteStowIntent(displaced, candidate.Slot);
                 OnServer.SwapSlots(candidate.Slot, targetSlot);
                 if (displacedHome != null) OnServer.MoveToSlot(displaced, displacedHome);
             }
@@ -356,6 +490,7 @@ namespace StationeersUIMod.Core
             Slot insertInto = FindInsertSlot(item, dest);
             if (insertInto != null)
             {
+                NoteStowIntent(item, insertInto);   // the player dropped it ON this container -> rehome
                 OnServer.MoveToSlot(item, insertInto);
                 MaybeCancelPlacement(src); // dragged out of the hand: no ghost hologram
                 UIAudioManager.Play(UIAudioManager.ObjectPutHash);
@@ -372,6 +507,10 @@ namespace StationeersUIMod.Core
                 //    merged fully away also empties the hand: cancel the hologram then too.)
                 if (Slot.CanMerge(item, dest))
                 {
+                    // Home capture: the chosen merge destination, same note vanilla's
+                    // PlayerMergeToSlot prefix makes — a pure merge has no Slot.Take landing, so
+                    // it usually just expires (the survivor-inherits rule rides Thing.Merge).
+                    NoteStowIntent(item, dest);
                     IMergeable held = item as IMergeable;
                     IMergeable targetStack;
                     if (held != null && dest.Contains<IMergeable>(out targetStack))
@@ -408,11 +547,19 @@ namespace StationeersUIMod.Core
                 // the screwdriver from slot 5 into the wrench-holding hand must send the wrench to
                 // ITS slot 4, not leave it squatting in 5). Same two-message rationale as
                 // EquipToActiveHand's home routing: swap first (old behaviour = the degraded state),
-                // then one independently-gated relocation.
+                // then one independently-gated relocation. 0.9.8.0 S-6: when the drop target is a
+                // HAND box (the displaced occupant is the HELD item), its own Simple-mode instance
+                // home now wins over the wedge binding (HeldDisplacedHomeFor).
                 DynamicThing displaced = dest.Get();
                 Slot displacedHome = null;
                 if (IsWornBeltSlot(dest)) Features.BeltBindingStore.NoteExplicitPlacement(src, displaced);
+                else if (dest.IsHandSlot) displacedHome = HeldDisplacedHomeFor(src, displaced);   // S-6 swap-take
                 else displacedHome = BeltHomeFor(src, displaced);
+                // Home capture: the drop TARGET rehomes; the displaced side too, but ONLY for a
+                // bag-to-bag exchange (plan par.4.2) — displaced by a hand-box drop is mechanical.
+                // NoteStowIntent itself skips hand destinations.
+                NoteStowIntent(item, dest);
+                if (!dest.IsHandSlot) NoteStowIntent(displaced, src);
                 OnServer.SwapSlots(src, dest);
                 if (displacedHome != null) OnServer.MoveToSlot(displaced, displacedHome);
                 MaybeCancelPlacement(src); // dragged out of the hand: no ghost hologram
@@ -423,6 +570,7 @@ namespace StationeersUIMod.Core
             // 4. Move into the empty destination.
             if (!Slot.AllowMove(item, dest)) return Fail();
             Features.BeltBindingStore.NoteExplicitPlacement(dest, item); // drag = may rebind a wedge
+            NoteStowIntent(item, dest);                                  // chosen destination -> rehome
             OnServer.MoveToSlot(item, dest);
             MaybeCancelPlacement(src); // dragged out of the hand: no ghost hologram
             SlotFlash.OnStow(dest, item);                        // stow flash if it lands in a worn container
@@ -494,6 +642,17 @@ namespace StationeersUIMod.Core
             bool plainMove = src != dest && dest.Get() == null;
             if (!DragTo(source, dest)) return false;   // DragTo already played the fail cue
             if (!plainMove) return true;
+            // Home capture (D-018 bulk, plan par.4.2): the player chose the DESTINATION CONTAINER
+            // for the whole sweep — one container-scoped intent covers every swept landing (the
+            // dragged item's own exact-slot intent already went out inside DragTo). Noted BEFORE
+            // the sweep dispatches, so an MP client's echoes land inside the window too.
+            try
+            {
+                long bulkCid;
+                if (Features.StowHomeStore.TryGetLocalContainerId(dest.Parent, out bulkCid))
+                    Features.StowHomeStore.NoteContainerIntent(bulkCid);
+            }
+            catch { }
             int swept = SweepAllOfType(item, src, dest);
             if (swept > 0)
                 UIALog.Info("Move all of type: " + swept + " more " + SafeName(item) + " sent after the dragged one.");
@@ -698,6 +857,7 @@ namespace StationeersUIMod.Core
             try { maxDist = CursorManager.MaxInteractDistance; } catch { }
             if ((item.ThingTransformPosition - human.ThingTransformPosition).magnitude > maxDist + 0.75f)
                 return Fail();                                  // out of reach = no grab
+            NoteStowIntent(item, destination);   // the player CHOSE this slot for the pickup -> rehome
             OnServer.MoveToSlot(item, destination);
             SlotFlash.OnStow(destination, item); // stow flash if the target is inside a worn container
             UIAudioManager.Play(UIAudioManager.AddToInventoryHash);
@@ -749,6 +909,7 @@ namespace StationeersUIMod.Core
             Slot insertInto = FindInsertSlot(item, dest);
             if (insertInto != null)
             {
+                NoteStowIntent(item, insertInto);   // the player dropped it ON this container -> rehome
                 OnServer.MoveToSlot(item, insertInto);
                 SlotFlash.OnStow(insertInto, item);
                 UIAudioManager.Play(UIAudioManager.ObjectPutHash);
@@ -761,6 +922,7 @@ namespace StationeersUIMod.Core
                 //    combine instead of flinging the held item on the floor.
                 if (Slot.CanMerge(item, dest))
                 {
+                    NoteStowIntent(item, dest);   // chosen merge destination (usually just expires)
                     IMergeable held = item as IMergeable;
                     IMergeable targetStack;
                     if (held != null && dest.Contains<IMergeable>(out targetStack))
@@ -780,6 +942,9 @@ namespace StationeersUIMod.Core
                 //    overload and, unlike PlayerMoveToSlot, carries NO MoveAll tail (Slot.cs:736).
                 if (!Slot.AllowSwap(dest, item)) return Fail();
                 Features.BeltBindingStore.NoteExplicitPlacement(dest, item); // drag = may rebind a wedge
+                // Home capture: no NoteStowIntent here — the vanilla-gesture prefix on
+                // Slot.PlayerSwapToWorld (Core/VanillaPlacementPatches.cs) already notes the
+                // incoming item's intent for this very call.
                 dest.PlayerSwapToWorld(item);
                 return true;
             }
@@ -791,6 +956,7 @@ namespace StationeersUIMod.Core
             //    aimed without stealing your active hand.
             if (!Slot.AllowMove(item, dest)) return Fail();
             Features.BeltBindingStore.NoteExplicitPlacement(dest, item); // drag = may rebind a wedge
+            NoteStowIntent(item, dest);                                  // chosen destination -> rehome
             MoveOneToSlot(item, dest);
             SlotFlash.OnStow(dest, item);
             UIAudioManager.Play(UIAudioManager.AddToInventoryHash);
@@ -962,6 +1128,7 @@ namespace StationeersUIMod.Core
             }
             catch { }
             if (target == null) return Fail();
+            NoteSplitDispatch(stackable);   // MP-client lineage: the child inherits this stack's home
             return PressInteractable(stackable, target);
         }
 
@@ -1004,6 +1171,9 @@ namespace StationeersUIMod.Core
             if (!authoritative) return Fail();          // MP client: not ours to mutate
             count = UnityEngine.Mathf.Clamp(count, 1, s.Quantity - 1);
             if (count < 1) return Fail();
+            // Host/SP-only path, so the OnSplitStack postfix owns the lineage; the note is the
+            // uniform "split dispatched" signal and simply expires unmatched here.
+            NoteSplitDispatch(stackable);
             var human = InventoryManager.ParentHuman;
             Slot free = human != null
                 ? (human.LeftHandSlot?.Get() == null ? human.LeftHandSlot

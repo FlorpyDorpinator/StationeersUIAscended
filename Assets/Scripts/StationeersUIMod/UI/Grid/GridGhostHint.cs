@@ -1,5 +1,6 @@
 using Assets.Scripts.Objects;
 using StationeersUIMod.Core;
+using StationeersUIMod.Features;
 using UnityEngine;
 
 namespace StationeersUIMod.UI.Grid
@@ -9,6 +10,15 @@ namespace StationeersUIMod.UI.Grid
     /// the Grid's PROFILE MODE, the bag that Smart Stow (G) WOULD route the dragged item into
     /// glows with the theme's own hover accent on its region border. This teaches the routing
     /// silently and debugs it for free ("why is my coal going in the food bag" becomes visible).
+    ///
+    /// <para><b>Simple mode = the home glow (0.9.8.0 plan §9.2/§10.2, P5b).</b> COMPLEX behaves
+    /// exactly as above — the hint still requires <see cref="GridProfileMode.Active"/>, because
+    /// that is the whole feature it explains. SIMPLE has no profile mode at all (the toggle is
+    /// hidden and <c>GridProfileMode.Active</c> is force-kept false), so the gate there is ANY
+    /// grid item drag. Because <see cref="StowRouter"/>'s stage 0 in Simple is the item's
+    /// remembered instance HOME, the region that glows IS the item's home bag — the intended
+    /// feature, not a repurposing of this one. Same throttle, same dry-run call, same config
+    /// gates in both modes; only the profile-mode requirement differs.</para>
     ///
     /// <para><b>Plumbing.</b> <c>BagGridCell</c> reports the gesture (<see cref="BeginDrag"/> /
     /// <see cref="EndDrag"/>); <c>TheGridPanel.Tick</c> pumps <see cref="Tick"/> (in both its
@@ -70,11 +80,14 @@ namespace StationeersUIMod.UI.Grid
         }
 
         /// <summary>Throttled dry-run pump (from <c>TheGridPanel.Tick</c>). No drag = one bool
-        /// read. Mode/config off mid-drag clears the hint and resolves nothing.</summary>
+        /// read. Mode/config off mid-drag clears the hint and resolves nothing.
+        /// COMPLEX still requires <see cref="GridProfileMode.Active"/> (unchanged); SIMPLE has no
+        /// profile mode to require, so ANY live grid drag qualifies — see the class summary.</summary>
         public static void Tick()
         {
             if (!_dragLive) return;
-            if (!GridProfileMode.Active || !ConfigOn())
+            bool simple = SimpleModeActive();
+            if ((!simple && !GridProfileMode.Active) || !ConfigOn())
             {
                 if (_hintRefId != 0L) _hintRefId = 0L;
                 return;
@@ -123,6 +136,15 @@ namespace StationeersUIMod.UI.Grid
                 return true;
             }
             catch { return true; }
+        }
+
+        /// <summary>Is Smart Stow in SIMPLE mode right now (0.9.8.0 plan §9.2)? Fail-soft:
+        /// <see cref="StowModeConfig.Available"/> false, or any hiccup reading it, reads as
+        /// Complex — today's behaviour (profile mode required), unchanged.</summary>
+        private static bool SimpleModeActive()
+        {
+            try { return StowModeConfig.Available && StowModeConfig.Mode == StowMode.Simple; }
+            catch { return false; }
         }
     }
 }

@@ -40,50 +40,17 @@ namespace StationeersUIMod.Windows
             ImGui.TextDisabled("black screen + live example radials");
             ImGui.Spacing();
 
-            if (ImGui.CollapsingHeader("Radials", ImGuiTreeNodeFlags.DefaultOpen))
-            {
-                // The per-wheel enable toggles retired in the post-0.9.2.5 play-test round — with the radial half on, the
-                // toolbelt / tool / bag / equipment wheels are core functionality, not options.
-                ImGui.TextDisabled("Toolbelt: hold " + UIAConfig.ToolbeltRadialKey.Value
-                    + "   |   Tool: hold " + UIAConfig.ToolRadialKey.Value
-                    + "   |   Bags: " + (UIAConfig.BagRadialTapOpens.Value ? "tap " : "hold ")
-                    + UIAConfig.BagRadialKey.Value + "   |   Equipment: tap 1-6");
-                Toggle(UIAConfig.BagRadialTapOpens, "Tap opens bag radial / hold shows scoreboard");
-                Toggle(UIAConfig.ToolbeltShowStowEntries, "Show empty belt slots in the toolbelt radial");
-                Toggle(UIAConfig.RadialMovementEnabled, "Keep moving (WASD + Space) while a radial is open");
-                IntSlider(UIAConfig.HoldThresholdMs, "Hold threshold (ms)", 60, 600);
-                ImGui.Separator();
-                ImGui.TextDisabled("Bag presentation:");
-                Toggle(UIAConfig.BagGrouping, "Group crowded bags by sorting class");
-                EmptySlotCombo();
-                IntSlider(UIAConfig.RadialMaxWedges, "Max wedges per radial (overflow -> MORE)", 6, 32);
-                ImGui.Separator();
-                DrawVisualControls();
-            }
-
-            if (ImGui.CollapsingHeader("Radial Colours"))
-            {
-                DrawColourControls();
-            }
-
-            if (ImGui.CollapsingHeader("Radial Effects (0.9.0)"))
-            {
-                DrawEffectControls();
-            }
-
-            if (ImGui.CollapsingHeader("SmartStow+", ImGuiTreeNodeFlags.DefaultOpen))
-            {
-                Toggle(UIAConfig.SmartStowPlusEnabled, "Enable SmartStow+ (G)");
-                Toggle(UIAConfig.StowPreferStacks, "1. Prefer existing stacks");
-                Toggle(UIAConfig.StowUseProfiles, "2. Use bag profiles");
-                Toggle(UIAConfig.StowUseTypeMemory, "3. Use item-type memory");
-                Toggle(UIAConfig.StowIntoNestedBags, "Allow nested-bag stow");
-                if (ImGui.Button("Open profile editor"))
-                    StationeersUIMod.Instance?.ToggleProfileEditor();
-                ImGui.SameLine();
-                if (ImGui.Button("Reload profiles"))
-                    BagProfileStore.LoadProfiles();
-            }
+            // "Radials" (behaviour + DrawVisualControls), "Radial Colours" (DrawColourControls)
+            // and "Radial Effects (0.9.0)" (DrawEffectControls) were retired from THIS window in
+            // the 0.9.8.0 F10 overhaul: every knob they held is now in F10 > Radial > "Size &
+            // readout" / "Wheel colours & glass" (a UGUI R/G/B/A swatch editor replaces the ImGui
+            // hue wheel there). The three Draw*Controls methods themselves are UNTOUCHED — they
+            // still back the editor panel below (DrawEditorPanel), which needs the live
+            // black-screen preview and hover-highlighted palette this window's main page never had.
+            //
+            // "SmartStow+" was retired outright: the legacy ImGui bag-profile editor it opened
+            // must no longer be reachable (ProfileEditorWindow.cs stays compiled, just unreferenced
+            // from UI), and SmartStow now has its own native F10 tab.
 
             if (ImGui.CollapsingHeader("Visor HUD", ImGuiTreeNodeFlags.DefaultOpen))
             {

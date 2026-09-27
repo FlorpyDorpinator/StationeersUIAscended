@@ -2,7 +2,7 @@ namespace StationeersUIMod.Core
 {
     /// <summary>
     /// Author mode, for FlorpyDorp. ON means the shipped-theme read-only gate in
-    /// <c>HudProfileStore</c> stands down for THIS session, so the HUD themes the mod SHIPS can be
+    /// <c>HudProfileStore</c> stands down for THIS session, so the UI themes the mod SHIPS can be
     /// edited in place (F9 autosave, rename, the property popups) instead of only through a
     /// duplicate. Toggled by the <c>uiadev</c> console command (see <c>FinderCommands</c>); OFF for
     /// everybody else, which is what makes a shipped theme read-only for a player.

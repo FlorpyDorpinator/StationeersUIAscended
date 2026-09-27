@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using System.Linq;
 using StationeersUIMod.Core;
 using StationeersUIMod.Overlay;
+using StationeersUIMod.UI.Menu.Tutorial;
 using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
@@ -76,6 +77,7 @@ namespace StationeersUIMod.UI
             _openedAt = Time.unscaledTime;
             _press = null;
             RebuildRows();
+            TutorialSignals.Raise(TSignal.SearchOpened);
         }
 
         // ---------- input (runs OUTSIDE the ImGui frame, from RadialMenu.UpdateSticky) ----------
@@ -134,6 +136,7 @@ namespace StationeersUIMod.UI
                 if (top != null && ItemActions.TakeOrDrop(top.Source))
                 {
                     _press = null; // never leave a press behind an exit
+                    TutorialSignals.Raise(TSignal.SearchTook);
                     if (RadialMenu.KeepOpenAfterAction) { _builtFor = null; RebuildRows(); return Result.None; } // same inverted-Shift semantics as the wheel
                     return Result.Took;
                 }
@@ -183,6 +186,7 @@ namespace StationeersUIMod.UI
                 if (!ReferenceEquals(pressed, current)) return Result.None;
                 if (ItemActions.TakeOrDrop(pressed.Source))
                 {
+                    TutorialSignals.Raise(TSignal.SearchTook);
                     if (RadialMenu.KeepOpenAfterAction) { _builtFor = null; RebuildRows(); return Result.None; } // same inverted-Shift semantics as the wheel
                     return Result.Took;
                 }

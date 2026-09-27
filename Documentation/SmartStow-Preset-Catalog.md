@@ -2,7 +2,7 @@
 
 *2026-08-01. A scan-and-approve catalog for FlorpyDorp: what a Smart Stow **profile** can
 actually match today, the game's own category/printer taxonomies pulled from data, and a
-proposed "Stationpedia Ascended" 9-bag preset set expressed as the same Item/SlotClass/Category
+proposed "Stationpedia Ascended" (renamed **"Ascended"** on 2026-09-26, see Part C) 9-bag preset set expressed as the same Item/SlotClass/Category
 rules the profile system evaluates at runtime. **No code was changed to produce this document.***
 
 **Sources**
@@ -212,11 +212,21 @@ citation-backed roster. Representative examples pulled forward for scanning:
 
 ---
 
-## Part C — FlorpyDorp's set ("Stationpedia Ascended", 9 bags)
+## Part C — FlorpyDorp's set ("Ascended", 9 bags)
+
+> **Renamed 2026-09-26.** This is FlorpyDorp's "Stationpedia Ascended" layout. It shipped under
+> that name from B4 (2026-08-02) until FlorpyDorp renamed it **"Ascended"**, because the long name
+> was cut off by an ellipsis in the F10 layout cards. The content (C1-C9 below) is unchanged, so
+> `ShippedStowProfiles.Revision` did not move. Existing installs are carried over once by
+> `StowProfileStore.MigrateRenamedShipped`: the player's copy, including any edits, is renamed in
+> place (both the file and its internal name), `.active` is re-pointed, and the `.shipped` marker
+> entry moves to the new name. If a player already owns an "Ascended", nothing is renamed and the
+> old layout stays as one of their own. The C# builder is `ShippedStowProfiles.BuildAscended`, and
+> `ShippedStowProfiles.LegacyAscendedName` records the old name.
 
 Every bag below is written as the actual `<Item>`/`<SlotClass>`/`<Category>` rule XML the
-profile system evaluates (Part A's mechanism) — this is what would ship as
-`Profiles/Stationpedia Ascended.xml`. Priorities use the F10 tri-state (Low/Normal/High =
+profile system evaluates (Part A's mechanism). It ships as `StowProfiles/Ascended.xml`
+(originally proposed as `Profiles/Stationpedia Ascended.xml`, before the B2 Stow Profile model). Priorities use the F10 tri-state (Low/Normal/High =
 10/50/100); I bumped a few above the shipped defaults where two of these 9 bags could otherwise
 tie. **⚠ = judgment call** — flagged so FlorpyDorp can veto fast; top 10 are called out at the
 end of this section for the report-back.

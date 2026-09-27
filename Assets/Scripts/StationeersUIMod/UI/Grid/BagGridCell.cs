@@ -4,6 +4,7 @@ using StationeersUIMod.Core;
 using StationeersUIMod.Features;
 using StationeersUIMod.Overlay;
 using StationeersUIMod.UI.Hud;
+using StationeersUIMod.UI.Menu.Tutorial;
 using TMPro;
 using UnityEngine;
 using UnityEngine.EventSystems;
@@ -398,7 +399,7 @@ namespace StationeersUIMod.UI.Grid
             // window can't open (no vanilla Display built yet), fall through so the click still takes the
             // item to hand rather than dying.
             if (occ != null && Core.DeviceWindow.CanOpen(occ) && Core.DeviceWindow.Open(occ)) return;
-            EquipOccupantToActiveHand();
+            if (EquipOccupantToActiveHand()) TutorialSignals.Raise(TSignal.GridCellTaken);
         }
 
         /// <summary>Equip this cell's occupant into the active hand — the shared body of the left-click
@@ -455,12 +456,22 @@ namespace StationeersUIMod.UI.Grid
             if (RadialController.AnyRadialOpen) return false;
             if (_slot == null) return false;
             // D-005: a rescue cell only empties (and is only shown while occupied) — never a place.
-            if (_takeOnly) return TakeOutToFreeHand();
+            if (_takeOnly)
+            {
+                bool tookOnly = TakeOutToFreeHand();
+                if (tookOnly) TutorialSignals.Raise(TSignal.KeyboardTake);
+                return tookOnly;
+            }
 
             DynamicThing occ = null;
             try { occ = _slot.Get(); } catch { }
             // OCCUPIED cell: take it / swap with the held item — the shared click funnel (unchanged).
-            if (occ != null) return EquipOccupantToActiveHand();
+            if (occ != null)
+            {
+                bool took = EquipOccupantToActiveHand();
+                if (took) TutorialSignals.Raise(TSignal.KeyboardTake);
+                return took;
+            }
 
             // EMPTY cell: F with a FULL hand PLACES the held item here (vanilla InventorySelect's
             // hand-to-slot). This is where F deliberately diverges from the mouse path — with the cursor
@@ -474,6 +485,7 @@ namespace StationeersUIMod.UI.Grid
 
             bool ok = ItemActions.StowActiveHandTo(_slot);
             RefreshIfDirty();
+            if (ok) TutorialSignals.Raise(TSignal.KeyboardTake);
             return ok;
         }
 
@@ -509,6 +521,7 @@ namespace StationeersUIMod.UI.Grid
 
             if (!RadialController.OpenAdHocRadial(occ.DisplayName, () => BuildManageFor(slot, includeTake)))
                 return;
+            TutorialSignals.Raise(TSignal.GridItemWheelOpened);
 
             // A drag begun on this cell can never survive the radial taking the cursor.
             CancelDrag();
@@ -715,6 +728,8 @@ namespace StationeersUIMod.UI.Grid
                     // applied locally, so the next signature diff rebuilds and Bind clears it at once.
                     MarkPending();
                     target.MarkPending();
+                    TutorialSignals.Raise(TSignal.GridDragMoved, 1);
+                    if (allOfType) TutorialSignals.Raise(TSignal.GridShiftDragMoved);
                 }
                 else Repaint();   // invalid: DragTo already played ActionFailHash; just restore the source look
             }
@@ -796,7 +811,13 @@ namespace StationeersUIMod.UI.Grid
             // A HUD hand/equipment box or an OPEN vanilla window slot is a real move destination.
             if (r.Surface == Core.DropSurface.HudZone || r.Surface == Core.DropSurface.VanillaSlot)
             {
-                if (r.HasSlot && Drop(source, r.Slot, allOfType)) { MarkPending(); return true; }
+                if (r.HasSlot && Drop(source, r.Slot, allOfType))
+                {
+                    MarkPending();
+                    TutorialSignals.Raise(TSignal.GridDragMoved, r.Surface == Core.DropSurface.HudZone ? 2 : 0);
+                    if (allOfType) TutorialSignals.Raise(TSignal.GridShiftDragMoved);
+                    return true;
+                }
                 return false;   // DragTo already played ActionFailHash on an invalid target
             }
 
@@ -808,7 +829,13 @@ namespace StationeersUIMod.UI.Grid
                 Slot worldSlot = WorldSlotUnderCursor();
                 if (worldSlot != null)
                 {
-                    if (Drop(source, worldSlot, allOfType)) { MarkPending(); return true; }
+                    if (Drop(source, worldSlot, allOfType))
+                    {
+                        MarkPending();
+                        TutorialSignals.Raise(TSignal.GridDragMoved, 3);
+                        if (allOfType) TutorialSignals.Raise(TSignal.GridShiftDragMoved);
+                        return true;
+                    }
                     return false;   // refused by the slot: abort (fail cue already played), never the floor
                 }
 
@@ -818,7 +845,12 @@ namespace StationeersUIMod.UI.Grid
                 // ground-drop no longer needs the HUD to be offering zones this frame. The move still
                 // funnels through ItemActions.DropToWorld -> OnServer.MoveToSlotOrWorld, re-gated at
                 // execute time.
-                if (ItemActions.DropToWorld(source)) { MarkPending(); return true; }
+                if (ItemActions.DropToWorld(source))
+                {
+                    MarkPending();
+                    TutorialSignals.Raise(TSignal.GridDragMoved, 4);
+                    return true;
+                }
             }
 
             // GridCell (the source cell itself / a rescue cell), OtherUi (window chrome / another

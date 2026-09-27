@@ -206,36 +206,138 @@ namespace StationeersUIMod.Core
             }
         }
 
-        /// <summary>`uiatutorial [edit|reset]` — the first-run tutorial coach, on demand.
-        /// Bare: replay the tutorial (manual replays never auto-pause; the F10 header pause
-        /// button is the affordance for stillness). `edit`: open it in the DEV TEXT EDITOR —
-        /// headings/bodies become editable fields and Save writes per-step overrides to
-        /// config/StationeersUIMod/Tutorial/TutorialText.xml, which win over the built-in copy.
-        /// `reset`: delete every saved text override. Opens UI only — mutates no game state.
-        /// Note: the coach opens under the console; close the console to use it.</summary>
+        /// <summary>`uiatutorial [list|play &lt;lesson&gt;|restart|tips on|off|lint|edit [step]|reset]` - the
+        /// 0.9.8.0 lessons, on demand (Documentation/0.9.8.0/Tutorial-Plan-and-Script.md C.19).
+        /// Bare: replay First Steps (live strips). `list`: every lesson with its state. `play`: a
+        /// lesson live, or as cards when its reason is missing (no tool in hand...). `restart`:
+        /// lesson progress cleared (text overrides kept) - the Welcome shows on the next world entry.
+        /// `tips on|off`: just-in-time lessons on/off. `lint`: copy checks (ASCII, tokens, budgets).
+        /// `edit`: the lesson editor (author mode only - `uiadev` first). `reset`: delete every saved
+        /// text override. Opens UI / writes the mod's own files only - mutates no game state. Cards
+        /// and strips open under the console; close the console to see them.</summary>
         public static void UiaTutorial(string input)
         {
             try
             {
                 var parts = (input ?? "").Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
                 string sub = parts.Length >= 2 ? parts[1].ToLowerInvariant() : "";
-                if (sub == "reset")
+                string arg = parts.Length >= 3 ? parts[2] : null;
+                switch (sub)
                 {
-                    UI.Menu.Tutorial.TutorialTextStore.ResetAll();
-                    ConsoleWindow.Print("uiatutorial: all step-text overrides deleted (built-in copy restored).", ConsoleColor.Green);
-                    return;
+                    case "reset":
+                        UI.Menu.Tutorial.TutorialTextStore.ResetAll();
+                        ConsoleWindow.Print("uiatutorial: all step-text overrides deleted (built-in copy restored).", ConsoleColor.Green);
+                        return;
+
+                    case "list":
+                    {
+                        var lessons = UI.Menu.Tutorial.TutorialDirector.Lessons;
+                        for (int i = 0; lessons != null && i < lessons.Length; i++)
+                        {
+                            var l = lessons[i];
+                            var st = UI.Menu.Tutorial.TutorialDirector.StateOf(l.Id);
+                            string label = UI.Menu.Tutorial.TutorialDirector.StateLabel(st);
+                            string title = UI.Menu.Tutorial.TutorialTokens.Resolve(UI.Menu.Tutorial.TutorialTextStore.Get(l.TitleKey));
+                            string raw = st == UI.Menu.Tutorial.TLessonState.Learned ? " (learned)"
+                                : st == UI.Menu.Tutorial.TLessonState.Offered ? " (offered)"
+                                : st == UI.Menu.Tutorial.TLessonState.Later ? " (later)" : "";
+                            ConsoleWindow.Print(string.Format("  {0,-11} {1,-22} {2}{3}", l.Id, title, label, raw), ConsoleColor.White);
+                        }
+                        ConsoleWindow.Print("Play one with: uiatutorial play <id>", ConsoleColor.Cyan);
+                        return;
+                    }
+
+                    case "restart":
+                        UI.Menu.Tutorial.TutorialDirector.Restart();
+                        ConsoleWindow.Print("uiatutorial: lesson progress cleared. The welcome card shows on your next world entry.", ConsoleColor.Green);
+                        return;
+
+                    case "tips":
+                    {
+                        string v = arg != null ? arg.ToLowerInvariant() : "";
+                        if (v == "on" || v == "off")
+                        {
+                            UI.Menu.Tutorial.TutorialDirector.SetTips(v == "on");
+                            ConsoleWindow.Print("uiatutorial: lessons are now " + (v == "on" ? "ON." : "OFF."), ConsoleColor.Green);
+                        }
+                        else
+                        {
+                            bool on = UIAConfig.TutorialTips == null || UIAConfig.TutorialTips.Value;
+                            ConsoleWindow.Print("uiatutorial: lessons are " + (on ? "ON" : "OFF") + ". Use: uiatutorial tips on|off", ConsoleColor.Cyan);
+                        }
+                        return;
+                    }
+
+                    case "lint":
+                    {
+                        var problems = UI.Menu.Tutorial.TutorialLint.RunAll();
+                        int n = UI.Menu.Tutorial.TutorialLint.LastChecked;
+                        ConsoleWindow.Print("uiatutorial lint: " + n + " strings checked, " + problems.Count + " problem(s).",
+                            problems.Count == 0 ? ConsoleColor.Green : ConsoleColor.Yellow);
+                        for (int i = 0; i < problems.Count; i++)
+                            ConsoleWindow.Print("  " + problems[i], ConsoleColor.White);
+                        return;
+                    }
+
+                    case "edit":
+                        if (!UiaDevMode.Active)
+                        {
+                            ConsoleWindow.Print("uiatutorial edit: author mode only - type uiadev first.", ConsoleColor.Yellow);
+                            return;
+                        }
+                        if (!string.IsNullOrEmpty(arg)) UI.Menu.Tutorial.TutorialEditorWindow.OpenAt(arg);
+                        else UI.Menu.Tutorial.TutorialEditorWindow.Toggle();
+                        ConsoleWindow.Print("uiatutorial: lesson editor toggled" + (arg != null ? " at " + arg : "")
+                            + (Guards.CanDraw() ? "" : " (it draws once you are in a world)")
+                            + ". Edits save to config/StationeersUIMod/Tutorial; Export, then tools/bake-tutorial.ps1, ships them.",
+                            ConsoleColor.Cyan);
+                        return;
                 }
+
                 if (!Guards.CanDraw())
                 {
                     ConsoleWindow.Print("uiatutorial: not in a world (or the mod is disabled) - nothing to show.", ConsoleColor.Yellow);
                     return;
                 }
-                bool edit = sub == "edit";
-                UI.Menu.Tutorial.TutorialCoach.Open(edit);
-                ConsoleWindow.Print(edit
-                    ? "uiatutorial: DEV EDIT mode open (close the console to use it). Save writes to config/StationeersUIMod/Tutorial."
-                    : "uiatutorial: tutorial opened (close the console to use it). Subcommands: edit, reset.",
-                    ConsoleColor.Cyan);
+
+                if (sub == "play")
+                {
+                    var lesson = arg != null ? UI.Menu.Tutorial.TutorialChapters.FindLesson(arg) : null;
+                    if (lesson == null)
+                    {
+                        ConsoleWindow.Print("uiatutorial: no lesson called '" + (arg ?? "") + "' - try uiatutorial list.", ConsoleColor.Yellow);
+                        return;
+                    }
+                    string title = UI.Menu.Tutorial.TutorialTokens.Resolve(UI.Menu.Tutorial.TutorialTextStore.Get(lesson.TitleKey));
+                    bool watch = parts.Length >= 4 && string.Equals(parts[3], "watch", StringComparison.OrdinalIgnoreCase);
+                    bool ok = UI.Menu.Tutorial.TutorialDirector.PlayLesson(lesson.Id, watch);
+                    if (!ok && !watch)
+                    {
+                        // Its reason is not here right now (no tool in hand, no suit power...): replay it as cards.
+                        ok = UI.Menu.Tutorial.TutorialDirector.PlayLesson(lesson.Id, true);
+                        watch = true;
+                    }
+                    if (!ok)
+                    {
+                        ConsoleWindow.Print("uiatutorial: could not play " + title + " right now.", ConsoleColor.Yellow);
+                        return;
+                    }
+                    ConsoleWindow.Print("uiatutorial: playing " + title + (watch ? " (as cards)." : "."), ConsoleColor.Cyan);
+                    return;
+                }
+
+                if (sub.Length > 0)
+                {
+                    ConsoleWindow.Print("usage: uiatutorial [list | play <lesson> [watch] | restart | tips on|off | lint | edit [step] | reset]", ConsoleColor.Yellow);
+                    return;
+                }
+
+                if (UI.Menu.Tutorial.TutorialDirector.PlayLesson("core", false))
+                    ConsoleWindow.Print("uiatutorial: replaying First Steps (close the console to see it). Also: list, play <lesson>, restart, tips on|off, edit, reset, lint.",
+                        ConsoleColor.Cyan);
+                else
+                    ConsoleWindow.Print("uiatutorial: First Steps can't start right now (not in a world, or another lesson/card is up). Try again in-world, or: uiatutorial list.",
+                        ConsoleColor.Yellow);
             }
             catch (Exception e)
             {
@@ -244,7 +346,7 @@ namespace StationeersUIMod.Core
         }
 
         /// <summary>`uiadev [on|off]` — AUTHOR MODE (FlorpyDorp). Bare toggles; `on`/`off` are
-        /// explicit. While it is on, the read-only gate that protects the HUD themes WE ship stands
+        /// explicit. While it is on, the read-only gate that protects the UI themes WE ship stands
         /// down, so they can be edited in place instead of only through a duplicate.
         ///
         /// Session-only by construction — see <see cref="UiaDevMode"/> for why that is the whole
@@ -276,8 +378,8 @@ namespace StationeersUIMod.Core
                 ConsoleWindow.Print("uiadev: author mode " + (on ? "ON" : "OFF") + ".",
                     on ? ConsoleColor.Green : ConsoleColor.Cyan);
                 ConsoleWindow.Print(on
-                    ? "  shipped HUD themes are editable this session (F9 edits to them save again)."
-                    : "  shipped HUD themes are read-only again - duplicate one to make it yours.",
+                    ? "  shipped UI themes are editable this session (F9 edits to them save again)."
+                    : "  shipped UI themes are read-only again - duplicate one to make it yours.",
                     ConsoleColor.White);
                 if (on)
                     ConsoleWindow.Print("  this session only: it resets on restart and on every F6 reload.",
@@ -291,7 +393,7 @@ namespace StationeersUIMod.Core
 
         // "uiareset" — see Patch_CommandLine_Process. A full nuke of every UIA on-disk file: the
         // whole config/StationeersUIMod tree (every HUD profile, bag profile, HUD icon, profiler
-        // snapshot — everything under it) plus BOTH possible .cfg names (the live SLP one and the
+        // snapshot, the Feedback/ outbox + sent receipts — everything under it) plus BOTH possible .cfg names (the live SLP one and the
         // legacy dev-shim one — see StationeersUIMod.OnLoaded's freshInstall detection for why two
         // names exist). This is the playtester-incident escape hatch: "my HUD/config is broken
         // beyond what any in-game reset button fixes, give me a clean slate". Read-only diagnostics
@@ -321,7 +423,11 @@ namespace StationeersUIMod.Core
                 {
                     _resetArmed = true;
                     ConsoleWindow.Print("uiareset: THIS WILL DELETE:", ConsoleColor.Yellow);
-                    ConsoleWindow.Print("  " + configTree + "  (every HUD/bag profile, icon, snapshot - everything under it)", ConsoleColor.White);
+                    ConsoleWindow.Print("  " + configTree + "  (every HUD/bag profile, icon, snapshot, Feedback/ outbox + receipts - everything under it)", ConsoleColor.White);
+                    // Feedback is never lost - so say so out loud when this WOULD lose some.
+                    int unsent = FeedbackService.OutboxCount();
+                    if (unsent > 0)
+                        ConsoleWindow.Print("  WARNING: " + unsent + " unsent feedback report(s) in Feedback/outbox would be lost - `uiafeedback retry` first.", ConsoleColor.Yellow);
                     ConsoleWindow.Print("  " + cfgMain, ConsoleColor.White);
                     ConsoleWindow.Print("  " + cfgLegacy + "  (if present)", ConsoleColor.White);
                     ConsoleWindow.Print("Nothing has been touched yet. Run `uiareset confirm` (this session) to actually do it.", ConsoleColor.Yellow);
@@ -334,6 +440,12 @@ namespace StationeersUIMod.Core
                     return;
                 }
                 _resetArmed = false;
+
+                // The tutorial stores keep live in-memory state and would re-create their files on the
+                // next flush (world exit, debounce, quit), silently undoing the reset - the review found a
+                // "fresh install" test getting its old lesson states back. Stand them down for the session.
+                try { UI.Menu.Tutorial.TutorialProgressStore.SuppressWritesUntilRestart(); } catch { }
+                try { UI.Menu.Tutorial.TutorialTextStore.SuppressWritesUntilRestart(); } catch { }
 
                 int removed = 0;
                 try
@@ -595,6 +707,7 @@ namespace StationeersUIMod.Core
 
         private static string StageTag(StowStage s)
         {
+            if (s == StowStage.Home) return "HOME";
             if (s == StowStage.BeltTool) return "BELT";
             if (s == StowStage.StackMerge) return "STACK";
             if (s == StowStage.FunctionalSocket) return "SOCKET";
@@ -639,6 +752,15 @@ namespace StationeersUIMod.Core
                 if (Matches(cmd, "uiatutorial")) { FinderCommands.UiaTutorial(cmd); return false; }
                 if (Matches(cmd, "uiadev")) { FinderCommands.UiaDev(cmd); return false; }
                 if (Matches(cmd, "hudfx")) { FinderCommands.HudFx(cmd); return false; }
+                // Network + mod-own Feedback/ files only - mutates no game state (see FeedbackService).
+                if (Matches(cmd, "uiafeedback")) { FeedbackService.Command(cmd); return false; }
+                // The in-game DEVELOPER test harness: the ONE command that mutates game state (spawns, moves
+                // and despawns TEST items). A run is gated inside, twice: the session's `uiadev` author
+                // unlock must be on (UiaDevMode.Active, read-only there) AND the world single-player; the
+                // refusal tells a player what it would do to their save. `uiatest stop` / `recover` stay
+                // ungated (they only end a run / put the player's own local state back). See
+                // Testing/UiaTestHarness.cs.
+                if (Matches(cmd, "uiatest")) { Testing.UiaTestHarness.Command(cmd); return false; }
                 if (Matches(cmd, "uiadiag"))
                 {
                     // `uiadiag cursor` = focused pointer-flicker trace (cursor lock/visibility + every

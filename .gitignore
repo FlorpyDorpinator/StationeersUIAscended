@@ -91,11 +91,18 @@ Dev/bin/
 Dev/obj/
 # ...but the dev csproj itself must be committable despite the Unity-wide *.csproj rule
 !Dev/*.csproj
+# ...and so must the feedback relay's (a standalone service, not a Unity-generated project)
+!FeedbackRelay/*.csproj
 # Deprecated POC project, removed from tracking (history preserves it); ignore any leftover local build output
 StationeersUIAscended/
 
 # Release zips at the repo root are build artifacts (rebuilt per release, shared directly)
 /StationeersUIMod-*.zip
+/Stationeers UI Ascended-*.zip
+
+# Marketing captures (4K screenshots, GIFs, MP4s; ~120 MB) made by the shot server +
+# tools/uia-gif.py - regenerable, shared directly, never committed
+/Release Folder/
 
 # Staged mod folder produced by tools/package.ps1 (steamcmd contentfolder + zip source)
 /dist/
@@ -106,3 +113,5 @@ StationeersUIAscended/
 # Discord server mirror written by tools/fetch-discord.ps1 (other people's messages + logs) -
 # private, never commit or ship. /triage reads it locally.
 /Discord/
+FeedbackRelay/bin/
+FeedbackRelay/obj/

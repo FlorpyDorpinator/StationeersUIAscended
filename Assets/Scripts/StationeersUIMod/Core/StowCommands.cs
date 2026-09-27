@@ -133,6 +133,109 @@ namespace StationeersUIMod.Core
             }
         }
 
+        // ---------- 0.9.8.0 P0: `stowhomes` — the Simple SmartStow homes dump ----------
+
+        /// <summary>
+        /// `stowhomes` — READ-ONLY dump of the Simple SmartStow per-item home memory
+        /// (<see cref="StowHomeStore"/>): the world key in use, entry/intent/GC statistics, what is
+        /// in each hand with its home's full provenance ("why would G go there?"), and a per-bag
+        /// entry count. This is the P0/P1 play-test tool: the observe-only phase records homes but
+        /// changes NO behaviour, so this dump is the only place the recording is visible.
+        /// Mutates no game state; ASCII only.
+        /// </summary>
+        public static void StowHomes(string input)
+        {
+            try
+            {
+                ConsoleWindow.Print("stowhomes: world key " + WorldKey.Describe(), ConsoleColor.Cyan);
+
+                string loadedKey = StowHomeStore.LoadedKey;
+                string file = loadedKey != null
+                    ? SaveScopedXmlStore.FileFor("StowHomes", loadedKey)
+                    : "(memory only - no world key yet, nothing is written)";
+                ConsoleWindow.Print("  file: " + file, ConsoleColor.White);
+                ConsoleWindow.Print(
+                    "  entries: " + StowHomeStore.HomesCount + " / 4096   observer "
+                    + (StowHomeStore.WorldReady ? "RECORDING" : "waiting (world not ready / settling)")
+                    + (StowHomeStore.InMechanicalScope ? "   [mechanical scope OPEN - bug?]" : ""),
+                    ConsoleColor.White);
+
+                // ---- the hands: the tester's "where would G send this?" line ----
+                var human = Guards.LocalHuman;
+                if (human == null)
+                {
+                    ConsoleWindow.Print("  (no local player in the world)", ConsoleColor.Yellow);
+                }
+                else
+                {
+                    PrintHand("left hand ", human.LeftHandSlot);
+                    PrintHand("right hand", human.RightHandSlot);
+                }
+
+                // ---- per-container entry counts ----
+                var counts = new Dictionary<long, int>();
+                StowHomeStore.GetPerContainerCounts(counts);
+                if (counts.Count > 0)
+                {
+                    ConsoleWindow.Print("  -- homes per container", ConsoleColor.Cyan);
+                    foreach (var kv in counts)
+                        ConsoleWindow.Print(
+                            string.Format("     {0,-40} {1,4}",
+                                StateText.Strip(StowHomeStore.DescribeContainer(kv.Key)), kv.Value),
+                            ConsoleColor.White);
+                }
+
+                // ---- intents + stats ----
+                int liveItem, liveContainer, liveSplit;
+                StowHomeStore.GetIntentCounts(out liveItem, out liveContainer, out liveSplit);
+                ConsoleWindow.Print(
+                    "  intents live now: item " + liveItem + ", container " + liveContainer
+                    + ", split " + liveSplit
+                    + "   (noted " + StowHomeStore.StatIntentsNoted
+                    + ", matched " + StowHomeStore.StatIntentsMatched + ")",
+                    ConsoleColor.White);
+                ConsoleWindow.Print(
+                    "  stats: landings " + StowHomeStore.StatLandingsSeen
+                    + ", seeds " + StowHomeStore.StatSeeds
+                    + ", slot refreshes " + StowHomeStore.StatSlotRefreshes
+                    + ", rehomes " + StowHomeStore.StatRehomes
+                    + ", split inherits " + StowHomeStore.StatSplitInherits
+                    + ", merge inherits " + StowHomeStore.StatMergeInherits
+                    + ", snapshots " + StowHomeStore.StatSnapshots
+                    + ", gc pruned " + StowHomeStore.StatGcPruned
+                    + ", routed-landing suppressions " + StowHomeStore.StatRoutedSuppressed,
+                    ConsoleColor.White);
+                // Mode context so a log paste says which resolver the G key is actually running.
+                string mode = "unknown";
+                try { if (Features.StowModeConfig.Available) mode = Features.StowModeConfig.Mode.ToString(); } catch { }
+                ConsoleWindow.Print(
+                    "  Smart Stow mode: " + mode
+                    + " (Simple = homes route G; Complex = Storage Layouts route G)", ConsoleColor.DarkGray);
+            }
+            catch (Exception e)
+            {
+                ConsoleWindow.Print("stowhomes failed: " + e.Message, ConsoleColor.Red);
+            }
+        }
+
+        private static void PrintHand(string label, Assets.Scripts.Objects.Slot hand)
+        {
+            DynamicThing occ = null;
+            try { occ = hand != null ? hand.Get() : null; } catch { }
+            if (occ == null)
+            {
+                ConsoleWindow.Print("  " + label + ": (empty)", ConsoleColor.White);
+                return;
+            }
+            string provenance;
+            if (StowHomeStore.TryDescribeEntry(occ, out provenance))
+                ConsoleWindow.Print("  " + label + ": " + StateText.Strip(SafeName(occ))
+                    + " -> home: " + StateText.Strip(provenance), ConsoleColor.Green);
+            else
+                ConsoleWindow.Print("  " + label + ": " + StateText.Strip(SafeName(occ))
+                    + " -> no home recorded yet", ConsoleColor.Yellow);
+        }
+
         // ---------- B4: share-code export ----------
 
         /// <summary>`stowprofiles export &lt;name&gt;` — the codec's diagnostic face. Prints the
@@ -488,6 +591,15 @@ namespace StationeersUIMod.Core
                     || cmd.StartsWith("stowprofiles ", StringComparison.OrdinalIgnoreCase))
                 {
                     StowCommands.StowProfiles(cmd);
+                    return false;
+                }
+                // 0.9.8.0 P0: the Simple SmartStow homes dump rides the same self-installed
+                // prefix (same lifecycle: Install from BagProfileStore.LoadProfiles, Uninstall
+                // from ResetRuntimeCaches).
+                if (cmd.Equals("stowhomes", StringComparison.OrdinalIgnoreCase)
+                    || cmd.StartsWith("stowhomes ", StringComparison.OrdinalIgnoreCase))
+                {
+                    StowCommands.StowHomes(cmd);
                     return false;
                 }
             }

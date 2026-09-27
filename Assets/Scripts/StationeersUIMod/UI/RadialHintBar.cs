@@ -207,8 +207,10 @@ namespace StationeersUIMod.UI
 
         // ---- hints: what each input does, from the live context ----
 
-        /// <summary>Rebuild the hint list when (and only when) something it depends on changed.</summary>
-        private static void RefreshHints(bool live, bool fadeOn)
+        /// <summary>Rebuild the hint list when (and only when) something it depends on changed.
+        /// <c>internal</c> (not private) only so the uiatest harness (Testing/UiaTestHarness.cs) can
+        /// assert the composed wording for a given RadialHintContext.</summary>
+        internal static void RefreshHints(bool live, bool fadeOn)
         {
             KeyCode swapK = UiaKeybinds.Key("UIA_HandSwap");
             KeyCode pageK = UiaKeybinds.Key("UIA_Page");
@@ -359,8 +361,9 @@ namespace StationeersUIMod.UI
         private static bool Same(Color32 a, Color32 b) => a.r == b.r && a.g == b.g && a.b == b.b && a.a == b.a;
 
         /// <summary>The first <paramref name="count"/> hints as TMP rich text: key names in the theme
-        /// accent, separators a dimmed copy of the text colour. Tags are ASCII; only glyphs render.</summary>
-        private static string Compose(int count, Color32 baseText)
+        /// accent, separators a dimmed copy of the text colour. Tags are ASCII; only glyphs render.
+        /// <c>internal</c> (not private) only for the uiatest harness (Testing/UiaTestHarness.cs).</summary>
+        internal static string Compose(int count, Color32 baseText)
         {
             Color32 sep = baseText;
             sep.a = (byte)(sep.a * 0.45f);

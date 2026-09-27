@@ -3,7 +3,9 @@
 //
 // AUTHORED FROM (not scraped at runtime):
 //   Documentation/SmartStow-Preset-Catalog.md - Part B (the game's 11 SortingClass buckets),
-//   Part C (FlorpyDorp's own 9-bag "Stationpedia Ascended" layout, transcribed rule for rule),
+//   Part C (FlorpyDorp's own 9-bag "Ascended" layout - shipped as "Stationpedia Ascended" until
+//   2026-09-26, renamed at his request because the long name ellipsized in the F10 layout cards;
+//   StowProfileStore.MigrateRenamedShipped carries existing installs over), transcribed rule for rule,
 //   Part D (the per-fabricator rosters + its multi-printer PRIMARY resolution table),
 //   Part E (the one-bag Starter set). That document is FlorpyDorp-reviewed data.
 //   The Part D prefab lists were re-extracted verbatim from the game's own recipe data
@@ -16,6 +18,9 @@
 // be REGENERATED/EDITED BY HAND to match - and because Restore shipped Stow Profiles overwrites
 // by name, a divergence here silently hands players content the catalog does not describe.
 // Bump Revision when the CONTENT changes so the .shipped marker records which vintage a player got.
+// A pure RENAME is not a content change and does NOT bump Revision; it needs a one-time on-disk
+// migration instead (see StowProfileStore.MigrateRenamedShipped and LegacyAscendedName below),
+// because seeding is keyed BY NAME and would otherwise hand an existing player a duplicate.
 //
 // Deliberately NOT a hash-manifest system (unlike HudProfiles/.shipped-manifest): a Stow Profile
 // that is missing or edited degrades gracefully (the router falls through to affinity/defaults),
@@ -36,18 +41,27 @@ namespace StationeersUIMod.Features
 
         public const string ByPrinter = "By Printer";
         public const string ByCategory = "By Category";
-        public const string Stationpedia = "Stationpedia Ascended";
+        /// <summary>FlorpyDorp's own nine-bag layout (catalog Part C).</summary>
+        public const string Ascended = "Ascended";
         public const string Starter = "Starter";
 
+        /// <summary>The name <see cref="Ascended"/> SHIPPED UNDER before 2026-09-26. NOT a shipped
+        /// name any more (it is deliberately absent from <see cref="Names"/>, so it is never seeded,
+        /// restored or labelled as ours) — kept only so
+        /// <c>StowProfileStore.MigrateRenamedShipped</c> can recognise and rename an existing
+        /// install's copy. A pure NAME change: the content is identical, so
+        /// <see cref="Revision"/> did not move.</summary>
+        public const string LegacyAscendedName = "Stationpedia Ascended";
+
         /// <summary>Every shipped set name, in seed/restore order.</summary>
-        public static readonly string[] Names = { ByPrinter, ByCategory, Stationpedia, Starter };
+        public static readonly string[] Names = { ByPrinter, ByCategory, Ascended, Starter };
 
         /// <summary>Build one shipped set by name, or null when the name is not one of ours.</summary>
         public static StowProfileDoc Build(string name)
         {
             if (name == ByPrinter) return BuildByPrinter();
             if (name == ByCategory) return BuildByCategory();
-            if (name == Stationpedia) return BuildStationpedia();
+            if (name == Ascended) return BuildAscended();
             if (name == Starter) return BuildStarter();
             return null;
         }
@@ -189,7 +203,7 @@ namespace StationeersUIMod.Features
             return d;
         }
 
-        // ================= 3. STATIONPEDIA ASCENDED (catalog Part C) =================
+        // ================= 3. ASCENDED (catalog Part C; formerly "Stationpedia Ascended") =================
 
         /// <summary>FlorpyDorp's own 9-bag layout, transcribed rule for rule from catalog C1-C9.
         /// Deliberately NO <c>UIAClass</c> rules: Part C was reviewed and approved as written, and
@@ -199,9 +213,9 @@ namespace StationeersUIMod.Features
         /// in Misc). The catalog's flagged consequences are inherited as-is: Dirt Canister reports
         /// Slot.Class=Ore so it lands in Ingots and Ores, Ices are grouped with mined material
         /// rather than with gases, and Misc is large by construction (~250-300 items).</summary>
-        private static StowProfileDoc BuildStationpedia()
+        private static StowProfileDoc BuildAscended()
         {
-            var d = Doc(Stationpedia, "FlorpyDorp's own nine-bag layout: paints, sheet materials, frames and walls, ingots and ores, electronics, liquids and gases, cables and pipes, canisters, and one Misc for the rest.");
+            var d = Doc(Ascended, "FlorpyDorp's own nine-bag layout: paints, sheet materials, frames and walls, ingots and ores, electronics, liquids and gases, cables and pipes, canisters, and one Misc for the rest.");
             Items(Bag(d, "Paints", "PNT"), Paints, 100);
             Items(Bag(d, "Materials", "MAT"), Materials, 100);
             Items(Bag(d, "Frames and Walls", "WALL"), FramesAndWalls, 100);

@@ -17,18 +17,30 @@ namespace StationeersUIMod.Features
     /// slot — showed up in F10's bag list and could be assigned a profile), while
     /// <c>GridModel.IsStorageContainer</c> did real class filtering but is deliberately BROADER
     /// than profile assignment wants (it admits suits and uniforms via its SlotType switch,
-    /// because those really are storage regions in the Universal Inventory). FlorpyDorp's ruling
-    /// (redesign plan §14): only backpacks and boxes are assignable — real wearable/carryable
-    /// storage, NOT tools with slots and NOT food packaging.</para>
+    /// because those really are storage regions in the Universal Inventory). FlorpyDorp's original
+    /// ruling (redesign plan §14, SmartStow B1): only backpacks and boxes are assignable — real
+    /// wearable/carryable storage, NOT tools with slots and NOT food packaging.</para>
     ///
-    /// <para><b>Class hierarchy this encodes</b> (every edge verified against the 27758 decompile,
+    /// <para><b>2026-09-26 reversal (jetpacks + tool belts).</b> FlorpyDorp: "The bags that you have
+    /// equipped should show up too. Toolbelt/jetpack." Every <see cref="Jetpack"/> (basic, hard,
+    /// turbine/electric, spacepack, debug) and every <see cref="ToolBelt"/> (plain, Mk2, survival,
+    /// emergency, cable — mining belts already passed) is now assignable. Their FUNCTIONAL slots are
+    /// not storage, though: the jetpack's propellant canister (and the turbine's battery), the
+    /// survival belt's battery + IC chip. <see cref="IsDeviceSlot"/> names those, and every
+    /// bag-level stow stage, typed-pack validation and Capture skip them — a canister of the wrong
+    /// gas routed into the propellant slot would be burned as fuel. Filling a real socket stays the
+    /// job of the router's dedicated functional-socket stage (user decision #11), nothing else.</para>
+    ///
+    /// <para><b>Class hierarchy this encodes</b> (every edge verified against the 27798 decompile,
     /// <c>Assembly-CSharp</c>; note CerealBarBox/EmergencySuppliesBox live in the un-prefixed
     /// <c>Objects.Items</c> tree, not <c>Assets.Scripts.Objects.Items</c>):</para>
     /// <code>
     /// WearableItem
     ///   Backpack                 -> PASS   (ItemHardBackpack, ItemMiningBackPack, ...)
-    ///     Jetpack                -> FAIL   (propulsion, not storage; ItemSpacepack et al)
-    ///   ToolBelt                 -> FAIL   (ItemToolBelt, ToolBeltMk2, SurvivalToolbelt)
+    ///     Jetpack                -> PASS   (2026-09-26; ItemJetpackBasic, ItemHardJetpack, ItemSpacepack,
+    ///                                       ItemDebugJetpack; JetpackElectric = ItemJetpackTurbine)
+    ///   ToolBelt                 -> PASS   (2026-09-26; ItemToolBelt, ToolBeltMk2, SurvivalToolbelt,
+    ///                                       CableToolBelt, ItemEmergencyToolBelt)
     ///     MiningBelt             -> PASS   (ore storage; MiningBeltMk2 inherits)
     /// ItemRenamable
     ///   CardboardBox             -> PASS   (CardboardBox, CardboardBoxLarge)
@@ -48,18 +60,17 @@ namespace StationeersUIMod.Features
         /// 5-name packaging exception list <see cref="UI.Grid.GridModel.IsStorageContainer"/>
         /// independently arrived at. Fail-closed on null / non-<see cref="DynamicThing"/>.
         ///
-        /// <para>Deliberately NARROWER than the router's "is real storage" gate: a tool belt is
-        /// still a perfectly good stow DESTINATION (the belt stage, bag-type defaults, affinity
-        /// all still route to it) — it just cannot own a profile of its own.</para></summary>
+        /// <para>Still NARROWER than the router's "is real storage" gate (suits and uniforms are
+        /// storage regions but never assignable). Since 2026-09-26 jetpacks and tool belts PASS
+        /// (see the class summary); their device slots are filtered per slot by
+        /// <see cref="IsDeviceSlot"/>, not by refusing the whole container.</para></summary>
         public static bool IsAssignableContainer(Thing thing)
         {
             var t = thing as DynamicThing;
             if (t == null) return false;
             if (t.Slots == null || t.Slots.Count == 0) return false;
-            if (t is Jetpack) return false;                  // Backpack subtype - exclude FIRST
-            if (t is Backpack) return true;
-            if (t is MiningBelt) return true;                // covers MiningBeltMk2; plain ToolBelt/Mk2/Survival fall through
-            if (t is ToolBelt) return false;
+            if (t is Backpack) return true;                  // includes every Jetpack subtype (2026-09-26)
+            if (t is ToolBelt) return true;                  // every belt incl. MiningBelt/Mk2 (2026-09-26)
             if (t is DisposableCardboardBox || t is CerealBarBox || t is EmergencySuppliesBox) return false;
             if (t is CardboardBox) return true;
             if (t is Container) return true;                 // DynamicCrate, CrateMkII
@@ -84,6 +95,46 @@ namespace StationeersUIMod.Features
             catch { return false; }
         }
 
+        /// <summary>Is <paramref name="slot"/> of <paramref name="holder"/> a FUNCTIONAL/device
+        /// socket of a wearable rather than storage? Such a slot is never a bag-profile / affinity /
+        /// type-memory / bag-default / home-fallback destination, never counts toward a typed pack,
+        /// and never becomes a Capture rule. Scoped to the two wearables that gained assignability
+        /// on 2026-09-26 — every other container answers false, so nothing else changes.
+        /// <list type="bullet">
+        /// <item><see cref="Jetpack"/>: its own <c>PropellentSlot</c> (public field, resolved in
+        /// <c>Jetpack.Awake</c> by the "Propellent" StringHash — decompile
+        /// <c>Assets.Scripts.Objects.Items/Jetpack.cs</c>:105/493, burned in <c>Jetpack</c>:647)
+        /// and, belt-and-braces, EVERY type-restricted slot: the prefab rip shows a jetpack's only
+        /// typed slot is its engine feed (ItemJetpackBasic/ItemHardJetpack/ItemSpacepack/
+        /// ItemDebugJetpack slot 0 "Propellent" Type GasCanister; ItemJetpackTurbine slot 0
+        /// "Battery" Type Battery = <c>JetpackElectric.BatterySlot</c>, JetpackElectric.cs:88, where
+        /// PropellentSlot stays null because Awake sets noAtmos). All other jetpack slots are
+        /// untyped storage.</item>
+        /// <item><see cref="ToolBelt"/> (incl. MiningBelt): any typed slot that is not Tool or Ore
+        /// — i.e. <c>SurvivalToolbelt.BatterySlot</c> / <c>ChipSlot</c> (Battery /
+        /// ProgrammableChip, SurvivalToolbelt.cs:104-105). Tool and Ore slots ARE the belt's
+        /// storage; untyped slots (ItemMkIIToolbelt's two) are generic storage.</item>
+        /// </list>
+        /// Pure, client-safe (reads prefab slot data and a field vanilla sets in Awake), stateless.</summary>
+        public static bool IsDeviceSlot(Thing holder, Slot slot)
+        {
+            if (holder == null || slot == null) return false;
+            Jetpack jet = holder as Jetpack;
+            if (jet != null)
+            {
+                Slot prop = null;
+                try { prop = jet.PropellentSlot; } catch { }
+                if (prop != null && ReferenceEquals(slot, prop)) return true;
+                return slot.Type != Slot.Class.None;
+            }
+            if (holder is ToolBelt)
+            {
+                Slot.Class c = slot.Type;
+                return c != Slot.Class.None && c != Slot.Class.Tool && c != Slot.Class.Ore;
+            }
+            return false;
+        }
+
         // ------------------------------------------------------- typed-pack validation ----
 
         /// <summary>The one <see cref="Slot.Class"/> every TYPE-RESTRICTED slot of this container
@@ -92,7 +143,16 @@ namespace StationeersUIMod.Features
         /// keeps one unrestricted tool slot alongside its ore slots
         /// (<c>MiningBelt.IsOreSlot</c> accepts <c>None</c> or <c>Ore</c>, decompile
         /// <c>Objects/MiningBelt.cs</c>), and that one slot must not stop the pack reading as an
-        /// "Ore pack".</summary>
+        /// "Ore pack".
+        ///
+        /// <para>Device slots (<see cref="IsDeviceSlot"/>) are ignored too (2026-09-26): a jetpack's
+        /// lone GasCanister propellant slot must not make it read as a "GasCanister pack" (that would
+        /// flag every non-canister rule as unstorable) — a jetpack is a GENERIC pack. A tool belt's
+        /// Tool slots are storage, so it genuinely reads as a Tool pack (the survival belt's battery
+        /// + chip sockets no longer spoil that). Mining belts are unaffected: their Tool + Ore slots
+        /// are both storage, so they stay "mixed" (null) exactly as before (prefab rip:
+        /// ItemMiningBelt 2 Tool + 8 Ore, ItemMiningBeltMKII 2 Tool + 13 Ore); the all-Ore mining
+        /// BACKPACKS stay Ore packs.</para></summary>
         public static Slot.Class? TypedClassOf(DynamicThing bag)
         {
             if (bag == null || bag.Slots == null) return null;
@@ -101,6 +161,7 @@ namespace StationeersUIMod.Features
             {
                 Slot s = bag.Slots[i];
                 if (s == null || s.Type == Slot.Class.None) continue;
+                if (IsDeviceSlot(bag, s)) continue;   // engine/battery/chip socket, not storage
                 if (!found.HasValue) found = s.Type;
                 else if (found.Value != s.Type) return null;   // mixed -> not a typed pack
             }
@@ -131,10 +192,13 @@ namespace StationeersUIMod.Features
             // The typed slots we judge against (a lone None slot is real but is not the pack's
             // purpose; a rule that can only land there is still worth flagging).
             var typedSlots = new List<Slot>(bag.Slots.Count);
+            int generalSlots = 0;   // untyped storage beside the typed ones (ItemMkIIToolbelt: 2)
             for (int i = 0; i < bag.Slots.Count; i++)
             {
                 Slot s = bag.Slots[i];
-                if (s != null && s.Type == typed) typedSlots.Add(s);
+                if (s == null || IsDeviceSlot(bag, s)) continue;
+                if (s.Type == typed) typedSlots.Add(s);
+                else if (s.Type == Slot.Class.None) generalSlots++;
             }
             if (typedSlots.Count == 0) return null;
 
@@ -190,7 +254,7 @@ namespace StationeersUIMod.Features
             foreach (var kv in wantedCategories)
                 if (!kv.Value) AddBad(bad, "category " + kv.Key);
             foreach (var kv in wantedClasses)
-                if (!kv.Value) AddBad(bad, UIASort.DisplayName(kv.Key) + " (UIA class)");
+                if (!kv.Value) AddBad(bad, UIASort.DisplayName(kv.Key) + " (UI Ascended class)");
 
             if (bad.Count == 0) return null;
 
@@ -198,9 +262,26 @@ namespace StationeersUIMod.Features
             int shown = Math.Min(bad.Count, 3);
             for (int i = 1; i < shown; i++) list += ", " + bad[i];
             if (bad.Count > shown) list += " and " + (bad.Count - shown) + " more";
-            return "Heads up: " + typedSlots.Count + " of this container's slots only take "
-                + typed + ". " + bad.Count + " rule" + (bad.Count == 1 ? "" : "s")
-                + " cannot fit there: " + list + ".";
+            string rules = bad.Count + " rule" + (bad.Count == 1 ? "" : "s");
+            string head = "Heads up: " + typedSlots.Count + " of this container's slots only take "
+                + TypedNoun(typed);
+            // A pack with untyped slots beside its typed ones (ItemMkIIToolbelt: 10 Tool + 2 general)
+            // CAN still hold the flagged items - just not in the typed slots. Say so instead of
+            // "cannot fit", which would be false. All-typed packs (the Ore mining backpacks, the
+            // plain 8-Tool belt) keep the original wording.
+            if (generalSlots > 0)
+                return head + ". " + rules + " can only use its " + generalSlots + " general slot"
+                    + (generalSlots == 1 ? "" : "s") + ": " + list + ".";
+            return head + ". " + rules + " cannot fit there: " + list + ".";
+        }
+
+        /// <summary>Player-facing noun for a typed pack's slot class. Tool reads as "tools" (the
+        /// tool belt, 2026-09-26); every other class keeps its enum name so the long-standing Ore
+        /// pack message ("only take Ore") is byte-identical. ASCII only.</summary>
+        private static string TypedNoun(Slot.Class cls)
+        {
+            if (cls == Slot.Class.Tool) return "tools";
+            return cls.ToString();
         }
 
         /// <summary>One walk of the prefab table settling every unresolved rule at once. Bails as

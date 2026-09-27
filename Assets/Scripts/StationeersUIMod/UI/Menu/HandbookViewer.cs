@@ -166,6 +166,8 @@ namespace StationeersUIMod.UI.Menu
 
             // The console and vanilla input windows read the same raw keys - not ours then.
             if (!Guards.CanToggleMenus()) return;
+            // Nor while the Lesson Editor (F8) owns the keyboard: its Esc belongs to its field.
+            if (Tutorial.TutorialEditorWindow.OwnsKeyboard) return;
 
             if (Input.GetKeyDown(KeyCode.Escape))
             {

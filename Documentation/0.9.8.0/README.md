@@ -40,6 +40,41 @@ clean build, Changes Report, then FlorpyDorp play-tests against the play-test st
 Changes Report. **Deferred small follow-up:** wire the radial-side Shift+drag gesture to the
 new bulk action (kept out of the wave to avoid file conflicts).
 
+## 2026-09-25 evening — THE OVERHAUL IS BUILT (uncommitted, awaiting play-test)
+
+FlorpyDorp answered the decision sheet, chose mockup 3, and asked for the full ultracode
+implementation. It shipped the same evening: Simple SmartStow (default, per-item homes) +
+Complex (today's system) behind a mode bar; the SmartStow tab = mockup 3's Organizer +
+Routing + Universal Inventory + Return Home; Kit v2 + the 1450x950 folder-tab shell;
+"UI Themes" rename; radial-knob port; the per-save-store MP key fix; all Part 3 extras.
+Three adversarial reviewers (vs a fresh LIVE-build 27798 decompile) found no catastrophic
+defect; every confirmed finding was fixed. Build 0 warnings / 0 errors, auto-deployed to
+scripts (F6). **Master record: `Changes Reports/2026-09-25 - 0.9.8.0 SmartStow + F10
+overhaul (orchestrated wave).md`. Play-tests: `Play-Test-SIMPLE.md` (<5 min) and
+`Play-Test-FULL.md`.** Open: MasterEnable's F10 home (his call), commit/push + version cut.
+
+## 2026-09-26 — THE TUTORIAL IS BUILT (uncommitted; tour mode in progress)
+
+Built from `Tutorial-Plan-and-Script.md` by an orchestrated 7-agent wave against
+`Tutorial-Build-Contract.md` (read it before touching `UI/Menu/Tutorial/`), reviewed by 2
+adversarial reviewers, fixes in flight. Master record: `Changes Reports/2026-09-26 - In-game
+tutorial built (19 lessons) + lesson editor.md`; copy deltas for his review:
+`Tutorial-Copy-Changes.md`. In-game editor: `uiadev`, then F8 on a live lesson (or `uiatutorial
+edit`); Export + `tools/bake-tutorial.ps1` ships edits.
+
+**Decisions (FlorpyDorp, 2026-09-26):**
+- Part E answered "as designed" (the plan's recommendations).
+- Editor: an ImGui dev window plus editing while a lesson plays, unlocked by `uiadev`.
+- **TOUR MODE (replaces the plan's first-run pacing):**
+  - "Show all the lessons in order one after another when a player first opens the mod."
+  - Welcome > Start runs an OVERVIEW first ("explain the Universal Inventory, radials etc. right
+    off the bat": hands / wheels / Universal Inventory / Smart Stow / F10). Then lessons 1-17
+    back to back, in C.0 order.
+  - **Always guide the player into each lesson's situation** (setup steps, safety-phrased). An
+    unmet setup self-skips that lesson.
+  - **After the tour:** only SKIPPED lessons come back just in time, once each.
+  - **Updaters get the full tour too.** Lesson 18 What's-new is not auto-shown when the tour runs.
+
 ## Plans in this folder
 
 - `Tutorial-Plan-and-Script.md` — full in-game tutorial redesign + complete step-by-step script

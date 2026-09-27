@@ -45,8 +45,18 @@ namespace StationeersUIMod.UI
         private static float _verbLen;             // its straight (= arc) length at the cached style
         private static float _verbLenSize = -1f;
         private static TMP_FontAsset _verbLenFont;
-        private const float VerbGapPx = 8f;       // clearance between a hovered (bulged) wedge's rim and the plate
+        // Visible clearance between a hovered wedge's FULLY bulged rim (bulge + hover border + AA fringe)
+        // and the plate's own AA fringe. Was 8 px added on top of the un-grown border/fringe (~5 px
+        // visible) and — worse — measured against a wedge that usually wasn't the one hovered.
+        private const float VerbGapPx = 3f;
         private const float VerbFadeSpeed = 9f;    // alpha per second: ~0.11 s in/out — neat, not sluggish
+        // 2026-09-26: the plate follows the HOVERED wedge round the ring (FlorpyDorp: "dynamically
+        // adjusts to each wedge, not just exist at the top"). Angles are the wedges' ImGui convention
+        // (radians, -PI/2 = 12 o'clock, increasing clockwise on screen).
+        private const float VerbSlideSpeed = 22f;  // 1/s exponential ease: ~90% of a hop in ~0.1 s, fps-independent
+        private static float _verbAng;             // where the plate is drawn now (kept in [-PI, PI))
+        private static float _verbAngTarget;       // the hovered wedge's mid angle it eases toward
+        private static bool _verbOnSat;            // anchored on the child (satellite) ring, not the main ring
 
         // --- 0.9.0 radial glass FX (frosted backdrop + sheen/edge-light). Resolved once per
         // Render, pushed onto every wedge and the close band. Statics so the nested RingView and
@@ -64,7 +74,7 @@ namespace StationeersUIMod.UI
 
         // ---------- public API ----------
 
-        /// <param name="actionVerb">D-022: the curved action word to show over the main ring (null =
+        /// <param name="actionVerb">D-022: the curved action word to show outside the hovered wedge (null =
         /// none). Honoured only when <paramref name="verbFromCaller"/> is true — the live radial decides
         /// it (it knows where a click would actually land). Otherwise (the F10 editor preview) it is
         /// derived from the hovered main-ring wedge via <see cref="RadialEntry.ClickVerb"/>.</param>
@@ -94,16 +104,26 @@ namespace StationeersUIMod.UI
             // Both the live radial and the F10 editor preview render through here.
             RadialHintContext.PublishGeometry(center, outerR, satActive, satCenter ?? Vector2.zero, satOuterR);
 
-            // D-022: the action word over the top. Anything else floating up there yields to it: the
-            // page counter sits above the word's (reserved) band instead of colliding with it.
+            // D-022: the action word, now riding the HOVERED wedge round the ring. The page counters
+            // yield to it: each sits above the band the word may occupy when it passes 12 o'clock.
             if (!verbFromCaller)
                 actionVerb = dragging == null && readoutEntry != null && entries != null
                     && hovered >= 0 && hovered < entries.Count && ReferenceEquals(entries[hovered], readoutEntry)
                     ? readoutEntry.ClickVerb() : null;
-            float pageHop = UpdateActionWord(center, outerR, actionVerb, openT, dt);
+            // The live radial's verb can name a CHILD-ring wedge (hold mode: HoldReleaseEntry); the F10
+            // preview derives it from the main ring's hovered wedge only, so it anchors there.
+            bool verbMayUseSat = satActive && verbFromCaller;
+            float verbBandTop = UpdateActionWord(center, outerR, actionVerb, openT, dt,
+                entries != null ? entries.Count : 0, hovered,
+                verbMayUseSat, satCenter ?? center, satOuterR, satEntries != null ? satEntries.Count : 0, satHovered);
+            // Main counter: reserved whenever the word could appear (not only while it shows), so it
+            // never bobs as the pointer moves. Child counter: only hold mode ever puts the word on a
+            // child ring (sticky mode names nothing while one is open), so only there is it reserved.
+            float pageHop = Mathf.Max(0f, verbBandTop - 24f);
+            float satPageHop = verbMayUseSat && !sticky ? Mathf.Max(0f, verbBandTop - 18f) : 0f;
 
             UpdatePageLabel(_pageMain, pageText, center, outerR + 24f + pageHop);
-            UpdatePageLabel(_pageSat, satPageText, satCenter ?? center, satOuterR + 18f);
+            UpdatePageLabel(_pageSat, satPageText, satCenter ?? center, satOuterR + 18f + satPageHop);
 
             _main.Render(center, innerR, outerR, entries, hovered, openT, dimmed: satActive, dragging);
 
@@ -165,6 +185,9 @@ namespace StationeersUIMod.UI
             _verbLen = 0f;
             _verbLenSize = -1f;
             _verbLenFont = null;
+            _verbAng = _verbAngTarget = -Mathf.PI * 0.5f;
+            _verbOnSat = false;
+            ArcPlateLabel.ResetOccluder();
             _group = null;
             _main = null;
             _satellite = null;
@@ -273,44 +296,86 @@ namespace StationeersUIMod.UI
             _pageSat = MakePageLabel(go.transform, "PageSat");
 
             // D-022: created last so it draws over everything on this canvas (it floats outside the
-            // rings, so the only thing it could meet is a hovered wedge's bulge — kept clear by VerbGapPx).
+            // hovered wedge, whose fully bulged rim VerbGapPx keeps it clear of; it can overlap the
+            // dimmed main ring only when it names an inward-facing CHILD-ring wedge in hold mode).
             _verbArc = new ArcPlateLabel(go.transform, "ActionWord");
             _verbArc.Text.font = Font();
+            _verbArc.Occludes = true; // the key-hint strip under the ring yields where the word swings over it
         }
 
         /// <summary>
-        /// D-022 — the curved ACTION WORD on a glass plate hugging the main ring's top outside edge:
-        /// "TAKE", "OPEN", "SWAP", "STOW"... — what a click (or, in hold mode, the release) on the
-        /// hovered wedge will do (<see cref="RadialEntry.ClickVerb"/>). Pie-menu practice (Hopkins'
-        /// "Pie Menu Cookbook"; Kurtenbach/Buxton's marking menus) is to preview what a selection
-        /// will do before it commits; placing it at the TOP keeps it near-horizontal (Hopkins: wide
-        /// labels belong near the top/bottom) and away from the hint strip wrapped under the bottom.
-        /// Styled from the theme (ArcAccent / ArcPlateFill / ArcPlateBorder — AUTO = the wedge
-        /// colours) and sized by the hub's own verb size knob, so it travels with the profile theme.
-        /// Fades in/out (~0.1 s) instead of popping.
-        /// <para>Returns how far the page counter above the ring must sit higher to stay out of the
-        /// word's way. That space is RESERVED whenever the word could appear (not only while it is
-        /// showing), so the counter stays put instead of bobbing up and down as the pointer moves
-        /// between wedges and the hub.</para>
+        /// D-022 — the curved ACTION WORD on a glass plate hugging the ring's outside edge: "TAKE",
+        /// "OPEN", "SWAP", "EQUIP"... — what a click (or, in hold mode, the release) on the hovered
+        /// wedge will do (<see cref="RadialEntry.ClickVerb"/>). Pie-menu practice (Hopkins' "Pie Menu
+        /// Cookbook"; Kurtenbach/Buxton's marking menus) is to preview what a selection will do before
+        /// it commits. Styled from the theme (ArcAccent / ArcPlateFill / ArcPlateBorder — AUTO = the
+        /// wedge colours) and sized by the hub's own verb size knob, so it travels with the profile
+        /// theme. Fades in/out (~0.1 s) instead of popping.
+        /// <para>2026-09-26 (FlorpyDorp): it no longer sits at 12 o'clock — it rides OUTSIDE the
+        /// HOVERED wedge, centred on that wedge's mid angle, 3 px clear of its fully bulged rim, and
+        /// eases round the ring along the SHORTEST wrap-around path when the hover moves (exponential,
+        /// frame-rate independent). A word fading in from hidden appears AT its wedge (no sweep in from
+        /// the last spot); one fading out keeps easing to where it was headed and dissolves there. The
+        /// text follows the seal convention (<see cref="ArcPlateLabel.LayoutAt"/>): upright and
+        /// left-to-right on the lower half. In hold mode the word can name a CHILD-ring wedge — it then
+        /// rides the child ring (a jump between rings re-fades instead of sweeping across the wheel).
+        /// The key-hint strip under the ring yields (fades) where the word swings over it — see
+        /// <see cref="ArcPlateLabel.Occludes"/>.</para>
+        /// <para>Returns the outer extent of the word's band above a ring's rim (plate + border + a
+        /// 12 px clearance): the page counters sit above it. That space is RESERVED whenever the word
+        /// could appear (not only while it is showing — it can pass 12 o'clock at any time), so a
+        /// counter stays put instead of bobbing as the pointer moves between wedges and the hub.</para>
         /// </summary>
-        private static float UpdateActionWord(Vector2 center, float outerR, string verb, float openT, float dt)
+        private static float UpdateActionWord(Vector2 center, float outerR, string verb, float openT, float dt,
+            int mainCount, int mainHovered, bool satActive, Vector2 satCenter, float satOuterR, int satCount, int satHovered)
         {
             float bw = UIAConfig.RadialBorderWidth != null ? UIAConfig.RadialBorderWidth.Value : 3.2f;
             float fs = UIAConfig.RadialTextVerb != null ? UIAConfig.RadialTextVerb.Value : 15f;
-            float lift = HoverBulge + Mathf.Max(0f, bw) + VerbGapPx;   // clears a hovered wedge's bulge + rim
+            float feather = UIAConfig.RadialEdgeFeather != null ? Mathf.Max(0f, UIAConfig.RadialEdgeFeather.Value) : 1.25f;
+            // The hovered wedge's FULL visible extent past outerR (RingView + RadialWedgeGraphic): the
+            // bulge (HoverBulge — the lerp target, never exceeded), its hover border (bw * 1.2) and its
+            // AA fringe. The plate's own inner AA fringe reaches `feather` inside its inner radius, so it is
+            // added again; VerbGapPx is then the true visible gap. Using the TARGET bulge (not the live,
+            // still-growing one) keeps the plate from pumping in and out as the hover moves.
+            float lift = HoverBulge + Mathf.Max(0f, bw) * 1.2f + 2f * feather + VerbGapPx;
             float thickness = fs * 1.3f + 10f;
-            float plateIn = outerR + lift;
-            // The page counter is an 18 px line centred (outerR + 24) above the centre: lift it clear
-            // of the plate's outer edge (plus its border and a small gap).
-            float pageLift = Mathf.Max(0f, plateIn + thickness + Mathf.Max(0f, bw) + 12f - (outerR + 24f));
+            // The band's outer extent above the rim: plate + its border + 12 px clearance for a counter.
+            float bandTop = lift + thickness + Mathf.Max(0f, bw) + 12f;
 
-            if (_verbArc == null) return pageLift;
+            if (_verbArc == null) return bandTop;
             bool show = !string.IsNullOrEmpty(verb);
-            if (!_verbArc.StepFade(show, dt, VerbFadeSpeed)) return pageLift;
+
+            // Where the word belongs this frame. Resolved only while there IS a word: a fading-out
+            // word keeps its last target (it dissolves where it was going).
+            if (show)
+            {
+                bool onSat;
+                float target;
+                if (ResolveVerbAnchor(center, mainCount, mainHovered, satActive, satCenter, satCount, satHovered,
+                        out onSat, out target))
+                {
+                    bool hidden = _verbArc.Alpha <= 0.001f;
+                    if (!hidden && onSat != _verbOnSat)
+                    {
+                        // A different ring: never sweep across the wheel between two centres — re-fade.
+                        _verbArc.HideNow();
+                        hidden = true;
+                    }
+                    _verbOnSat = onSat;
+                    _verbAngTarget = WrapPi(target);
+                    if (hidden) _verbAng = _verbAngTarget; // appear AT the wedge, no sweep in
+                }
+                else if (_verbArc.Alpha <= 0.001f)
+                {
+                    show = false; // no hovered wedge to sit on (never expected): don't pop up at a stale spot
+                }
+            }
+
+            if (!_verbArc.StepFade(show, dt, VerbFadeSpeed)) return bandTop;
 
             if (show)
             {
-                // While fading OUT the last word/layout is kept (it just dissolves in place).
+                // While fading OUT the last word and style are kept (it dissolves where it was headed).
                 bool upper = UIAConfig.RadialUppercaseLabels != null && UIAConfig.RadialUppercaseLabels.Value;
                 if (!ReferenceEquals(verb, _verbSrc) || upper != _verbSrcUpper || _verbDisplay == null)
                 {
@@ -337,15 +402,72 @@ namespace StationeersUIMod.UI
 
                 _verbArc.StylePlate(RadialPalette.ArcPlateFill.Value, RadialPalette.ArcPlateBorder.Value, bw * 0.5f);
                 ApplyWedgeFx(_verbArc.Plate); // same glass as the wedges (frost / sheen / edge light)
-                _verbArc.Layout(CanvasAnchoredPos(center), plateIn, thickness, top: true, _verbLen, fs * 0.8f);
             }
-            else
+
+            // Ease toward the hovered wedge along the shortest way round (never the long way through
+            // 180+ degrees); 1 - e^(-k dt) makes the step frame-rate independent. Runs while fading out
+            // too, so a word caught mid-hop finishes the hop as it dissolves.
+            float d = DeltaRad(_verbAng, _verbAngTarget);
+            _verbAng = Mathf.Abs(d) < 1e-4f ? _verbAngTarget
+                : WrapPi(_verbAng + d * (1f - Mathf.Exp(-VerbSlideSpeed * dt)));
+
+            // Lay out on the ring it belongs to (following a hub drag, fading or not). A word fading
+            // out on a child ring that has just closed has no centre to follow: it dissolves in place.
+            bool haveRing = !_verbOnSat || satActive;
+            if (haveRing && _verbDisplay != null)
             {
-                _verbArc.Root.anchoredPosition = CanvasAnchoredPos(center); // follow a hub-drag while it fades
+                Vector2 ringCenter = _verbOnSat ? satCenter : center;
+                float ringOuter = _verbOnSat ? satOuterR : outerR;
+                _verbArc.LayoutAt(CanvasAnchoredPos(ringCenter), ringOuter + lift, thickness, _verbAng, _verbLen, fs * 0.8f);
             }
             _verbArc.Root.localScale = Vector3.one * Mathf.Lerp(0.82f, 1f, openT); // rides the open animation
-            return pageLift;
+            return bandTop;
         }
+
+        /// <summary>The ring + mid angle (ImGui convention, like the wedges) the action word belongs on
+        /// this frame. A hovered CHILD-ring wedge wins (hold mode names what its release runs); a child
+        /// ring with nothing hovered means the release runs the SOURCE wedge, which the child ring now
+        /// covers — so the word sits at the child ring's far tip, straight along the swipe (the child's
+        /// centre lies on the source wedge's mid line: RadialMenu.OpenSatellite). Otherwise the hovered
+        /// main-ring wedge. False = no hovered wedge anywhere.</summary>
+        private static bool ResolveVerbAnchor(Vector2 center, int mainCount, int mainHovered,
+            bool satActive, Vector2 satCenter, int satCount, int satHovered, out bool onSat, out float angle)
+        {
+            if (satActive && satCount > 0)
+            {
+                onSat = true;
+                if (satHovered >= 0 && satHovered < satCount)
+                    angle = WedgeMidAngle(satHovered, satCount);
+                else
+                {
+                    Vector2 d = satCenter - center; // ImGui coords (y-down) — atan2 gives the wedge convention
+                    angle = d.sqrMagnitude > 1f ? Mathf.Atan2(d.y, d.x) : -Mathf.PI * 0.5f;
+                }
+                return true;
+            }
+            onSat = false;
+            if (mainHovered >= 0 && mainHovered < mainCount)
+            {
+                angle = WedgeMidAngle(mainHovered, mainCount);
+                return true;
+            }
+            angle = 0f;
+            return false;
+        }
+
+        /// <summary>Mid angle of wedge <paramref name="index"/> of <paramref name="count"/> — exactly
+        /// RingView's aMid (a0 + sector/2) and RadialMenu.SectorFromMouse's partition: wedge 0 centred
+        /// at 12 o'clock (-PI/2), then clockwise on screen (ImGui y-down, angle increasing).</summary>
+        private static float WedgeMidAngle(int index, int count)
+            => -Mathf.PI * 0.5f + Mathf.PI * 2f / Mathf.Max(1, count) * index;
+
+        /// <summary>Signed shortest angular step from <paramref name="from"/> to <paramref name="to"/>,
+        /// radians in [-PI, PI).</summary>
+        private static float DeltaRad(float from, float to)
+            => Mathf.Repeat(to - from + Mathf.PI, Mathf.PI * 2f) - Mathf.PI;
+
+        /// <summary>An angle wrapped into [-PI, PI), so the eased value never drifts unbounded.</summary>
+        private static float WrapPi(float a) => Mathf.Repeat(a + Mathf.PI, Mathf.PI * 2f) - Mathf.PI;
 
         private static TextMeshProUGUI MakePageLabel(Transform parent, string name)
         {

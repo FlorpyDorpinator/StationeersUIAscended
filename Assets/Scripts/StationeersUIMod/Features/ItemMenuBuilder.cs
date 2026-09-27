@@ -830,9 +830,11 @@ namespace StationeersUIMod.Features
     /// <summary>Session memory of the last item type retrieved, powering "Grab another: X".</summary>
     public static class RetrievalMemory
     {
-        public static int LastPrefabHash { get; private set; }
-        public static string LastName { get; private set; }
-        public static UnityEngine.Sprite LastIcon { get; private set; }
+        // Setters are internal (not private) only so the uiatest harness (Testing/UiaTestHarness.cs)
+        // can put the player's own "recent item" back after its Hub screenshots recorded a test item.
+        public static int LastPrefabHash { get; internal set; }
+        public static string LastName { get; internal set; }
+        public static UnityEngine.Sprite LastIcon { get; internal set; }
 
         public static void Record(DynamicThing thing)
         {

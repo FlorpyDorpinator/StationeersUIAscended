@@ -92,6 +92,10 @@ namespace StationeersUIMod.UI.Hud
                 && Mathf.Approximately(_sdfHaloUneven, haloUneven)
                 && Mathf.Approximately(_sdfHaloFlowAura, haloFlowAura)
                 && Mathf.Approximately(_sdfHaloOrganicScale, haloOrganicScale)) return;
+            // SDF vertices carry only the FILL colour; the border, light and halo ride uv2/uv3.
+            // Unity 2022's CanvasRenderer culls a mesh whose vertex alphas are all ~0 by default,
+            // which silently erased every clear-fill, border-only panel on this path.
+            if (_sdfMode != enabled) canvasRenderer.cullTransparentMesh = !enabled;
             _sdfMode = enabled;
             _sdfSquircle = squircle;
             _sdfGaussianHalo = gaussianHalo;

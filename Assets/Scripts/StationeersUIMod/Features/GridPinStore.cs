@@ -30,7 +30,10 @@ namespace StationeersUIMod.Features
     /// container's persistent <see cref="Assets.Scripts.Objects.Thing.ReferenceId"/> — a stable but
     /// SAVE-SCOPED long, so state is stored per save exactly like <see cref="GridCollapseStore"/>
     /// (a new save starts with nothing pinned). Persisted to
-    /// <c>BepInEx/config/StationeersUIMod/GridPins/&lt;saveKey&gt;.xml</c>.
+    /// <c>BepInEx/config/StationeersUIMod/GridPins/&lt;worldKey&gt;.xml</c>, keyed via
+    /// <see cref="SaveScopedXmlStore.ResolveSaveKey"/> (the per-world <c>World.CurrentId</c>, not the
+    /// station name — SmartStow-Simple-Refactor-Plan §7.7). No key yet (main menu, or a legacy SP
+    /// world before its first save) means memory-only — see <see cref="EnsureSaveLoaded"/>.
     ///
     /// This store is VIEW-ONLY: pinning mutates no game state whatsoever. It only records where the
     /// player wants a container drawn.
@@ -55,16 +58,53 @@ namespace StationeersUIMod.Features
         private const string StoreFolder = "GridPins";
         private const string StoreLabel = "Grid pin";
 
-        // --- per-save load/save (keyed off the same save name BagProfileStore uses) ---
+        // --- per-save load/save (keyed off the per-world identity, plan §7.1/§7.7) ---
 
+        /// <summary>(Re)load for the CURRENT world key. No key yet means: hold the in-memory pins
+        /// as-is, touch nothing on disk — never "unsaved.xml". A memory-only set that GAINS a key
+        /// mid-session (this session's own pins, made before any key existed) is carried into the
+        /// newly-keyed file, mirroring <c>StowHomeStore.EnsureLoaded</c>.</summary>
         public static void EnsureSaveLoaded()
         {
-            string key = BagProfileStore.CurrentSaveKey();
+            string key;
+            if (!SaveScopedXmlStore.ResolveSaveKey(StoreFolder, _loadedSaveKey, out key)) { StandDown(); return; }
             if (key == _loadedSaveKey) return;
+
+            Dictionary<long, Rect> carriedPins = null;
+            List<long> carriedOrder = null;
+            if (_loadedSaveKey == null && _order.Count > 0)
+            {
+                carriedPins = new Dictionary<long, Rect>(_pins);
+                carriedOrder = new List<long>(_order);
+            }
+
             _loadedSaveKey = key;
             _pins.Clear();
             _order.Clear();
             PinVersion++;
+            LoadInto(key);
+
+            // Fix-wave finding 5: an empty result under a brand-new key may mean adoption ran too
+            // early (before the station name was set) and missed a legacy file that exists NOW.
+            if (_order.Count == 0 && SaveScopedXmlStore.RetryAdoptionIfEmpty(StoreFolder, key))
+                LoadInto(key);
+
+            if (carriedOrder != null)
+            {
+                for (int i = 0; i < carriedOrder.Count; i++)
+                {
+                    long id = carriedOrder[i];
+                    if (!_pins.ContainsKey(id)) _order.Add(id);   // new pin: keep insertion order in sync
+                    _pins[id] = carriedPins[id];                   // this session's memory wins over disk
+                }
+                Save();
+            }
+        }
+
+        /// <summary>The actual per-save deserialize-and-populate step, split out so
+        /// <see cref="EnsureSaveLoaded"/> can retry it once after finding 5's adoption retry.</summary>
+        private static void LoadInto(string key)
+        {
             var parsed = SaveScopedXmlStore.LoadPerSave<GridPinsFile>(StoreFolder, key, StoreLabel);
             if (parsed == null || parsed.Pins == null) return;
             for (int i = 0; i < parsed.Pins.Count; i++)
@@ -77,8 +117,24 @@ namespace StationeersUIMod.Features
             UIALog.Info($"Loaded {_order.Count} Grid pin(s) for save '{key}'.");
         }
 
+        /// <summary>Fix-wave finding 1: drop a dead world's pins+key the moment no key resolves any
+        /// more (world left, or between-worlds transition), so a stray mutation can never keep
+        /// writing into the PREVIOUS world's file under a stale <see cref="_loadedSaveKey"/>. No-op
+        /// once already standing down (cheap to call on every failed resolve).</summary>
+        private static void StandDown()
+        {
+            if (_loadedSaveKey == null) return;
+            _loadedSaveKey = null;
+            _pins.Clear();
+            _order.Clear();
+            PinVersion++;
+        }
+
+        /// <summary>Write the pins now. Memory-only (no world key resolved) NEVER writes — see
+        /// <see cref="EnsureSaveLoaded"/>.</summary>
         private static void Save()
         {
+            if (_loadedSaveKey == null) return;
             var file = new GridPinsFile();
             for (int i = 0; i < _order.Count; i++)
             {

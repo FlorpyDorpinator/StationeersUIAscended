@@ -10,10 +10,13 @@ using StationeersUIMod.UI.Grid; // GridModel.IsStorageContainer — the ONE shar
 namespace StationeersUIMod.Core
 {
     /// <summary>Which rung of the SmartStow+ chain produced a candidate. Order here IS the
-    /// resolution order (spec: Documentation/SmartStow-Rework-Design-Options.md, O1/O2).</summary>
+    /// resolution order (spec: Documentation/SmartStow-Rework-Design-Options.md, O1/O2;
+    /// Home: Documentation/0.9.8.0/SmartStow-Simple-Refactor-Plan.md par.6). Nothing persists
+    /// these ordinals - renumbering is safe.</summary>
     public enum StowStage
     {
         None = 0,
+        Home,            // 0: the item's own remembered home (Simple mode 0.9.8.0; opt-in first in Complex)
         BeltTool,        // 1: GENUINE tool -> directly-worn belt (home-slot aware) -> worn back container
         StackMerge,      // 2: top up an existing partial stack anywhere accessible (+ #13 continuation)
         FunctionalSocket,// 3: component (canister/battery/filter/...) -> a matching EMPTY socket (#11)
@@ -44,9 +47,13 @@ namespace StationeersUIMod.Core
     /// consumer (the G key, the stowtrace diagnostic, future ghost hints) resolves through this
     /// one class, behaviour can never drift between surfaces.
     ///
-    /// Stage order: worn-belt tools -> stack merge -> explicit profile -> content affinity ->
-    /// bag-type default -> type memory -> nothing (vanilla). Stages gate themselves on their
-    /// UIAConfig toggles so a dry run always mirrors what execution would do.
+    /// Two chains since 0.9.8.0 (StowModeConfig.Mode, SmartStow-Simple-Refactor-Plan par.6):
+    /// SIMPLE = home -> belt tools -> stack merge -> socket -> affinity -> generic fallback ->
+    /// belt last-resort (fixed, per-stage toggles ignored, every bag unprofiled); COMPLEX =
+    /// today's chain byte-identical - belt tools -> stack merge -> socket -> profile -> affinity
+    /// -> bag default -> type memory -> generic -> belt last-resort - with an opt-in home-first
+    /// stage (P5a). In Complex, stages gate themselves on their UIAConfig toggles so a dry run
+    /// always mirrors what execution would do.
     ///
     /// One InventoryScanner.Scan per resolve (lazy — the belt stage needs none), shared across
     /// stages. Pooled static lists, cleared per use; <see cref="Reset"/> runs on mod shutdown so
@@ -63,6 +70,8 @@ namespace StationeersUIMod.Core
         private const int AffinityCategoryCap = 5;
         private const int AffinityThreshold = 3;      // fire only when total >= 3
 
+        private const string ReasonHomeSlot = "back to its home slot";
+        private const string ReasonHomeBag = "back to its home bag";
         private const string ReasonBeltHome = "tool to worn toolbelt";
         private const string ReasonBackContainer = "tool to worn back container";
         private const string ReasonStack = "tops up a matching stack";
@@ -161,6 +170,15 @@ namespace StationeersUIMod.Core
         private static string _profileReasonName, _profileReason;
         private static string _defaultReasonName, _defaultReason;
 
+        /// <summary>True ONLY while a SIMPLE-mode resolve runs its fixed fallback chain
+        /// (SmartStow-Simple-Refactor-Plan S-5/F3): the per-stage UIAConfig toggles are bypassed
+        /// (Simple is not configurable) and the "skip profile-owned bags" rule inside the affinity
+        /// and generic-fallback stages is suspended (Simple treats EVERY bag as unprofiled).
+        /// Never true during a Complex resolve, so Complex routing stays byte-identical to
+        /// 0.9.7.4. Set/cleared in a try/finally inside <see cref="Resolve"/> (a thrown stage can
+        /// never leak it into the next resolve) and belt-and-braces cleared by <see cref="Reset"/>.</summary>
+        private static bool _simpleChain;
+
         /// <summary>The scan depth execution uses (nested-bag toggle collapses it to 1).
         /// Exposed so diagnostics resolve with exactly the depth the G key would.</summary>
         public static int ConfiguredDepth()
@@ -219,6 +237,7 @@ namespace StationeersUIMod.Core
             _profileReason = null;
             _defaultReasonName = null;
             _defaultReason = null;
+            _simpleChain = false;
             InventoryScanner.ResetPool();
         }
 
@@ -243,6 +262,45 @@ namespace StationeersUIMod.Core
             List<ScannedSlot> slots = null; // one scan per resolve, shared by every stage below
             StowCandidate c;
 
+            // Mode fork (0.9.8.0, SmartStow-Simple-Refactor-Plan par.6 + Build-Decisions ANSWERS):
+            // SIMPLE runs the HOME stage and then the FIXED no-profile fallback chain (S-5/F3);
+            // COMPLEX runs today's 0.9.7.4 chain byte-identically, with the opt-in home-first
+            // stage (P5a, default off). Fail-soft: when the mode keys could not bind yet
+            // (StowModeConfig.Available false), behave exactly like 0.9.7.4 (Complex).
+            StowMode mode = StowMode.Complex;
+            try { if (StowModeConfig.Available) mode = StowModeConfig.Mode; } catch { }
+
+            if (mode == StowMode.Simple)
+            {
+                // Stage 0: the item's own remembered home. Found by ReferenceId, never by scan,
+                // so nesting depth cannot hide it (Ningy's mining belt inside the backpack).
+                if (TryHome(human, held, selectedSlot, out c)) { results.Add(c); if (firstOnly) return; }
+
+                // No live home / home bag full -> the FIXED fallback chain: belt tool -> stack
+                // merge -> socket -> affinity -> generic fallback -> belt last-resort. Simple is
+                // NOT configurable: the per-stage toggles stay Complex settings and are ignored
+                // here, and every bag counts as unprofiled (Profile/BagDefault/Memory never run;
+                // _simpleChain suspends the profile-skip inside affinity + generic fallback).
+                // Wherever the item lands only SEEDS its home, so the ambiguity lasts one press.
+                _simpleChain = true;
+                try
+                {
+                    if (TryBeltTool(human, held, dryRun, out c)) { results.Add(c); if (firstOnly) return; }
+                    if (TryStackMerge(human, held, selectedSlot, ref slots, depth, out c)) { results.Add(c); if (firstOnly) return; }
+                    if (TryFunctionalSocket(human, held, selectedSlot, ref slots, depth, out c)) { results.Add(c); if (firstOnly) return; }
+                    if (TryAffinity(human, held, selectedSlot, ref slots, depth, out c)) { results.Add(c); if (firstOnly) return; }
+                    if (TryGenericFallback(human, held, selectedSlot, ref slots, depth, out c)) { results.Add(c); if (firstOnly) return; }
+                    if (TryBeltFallback(human, held, out c)) { results.Add(c); if (firstOnly) return; }
+                }
+                finally { _simpleChain = false; }
+                return;
+            }
+
+            // COMPLEX: today's chain, unchanged. P5a (HomeFirstInComplex, default OFF): the home
+            // stage runs first for players who want "back where it was" ahead of their profiles.
+            if (StowModeConfig.HomeFirstInComplex
+                && TryHome(human, held, selectedSlot, out c)) { results.Add(c); if (firstOnly) return; }
+
             if (TryBeltTool(human, held, dryRun, out c)) { results.Add(c); if (firstOnly) return; }
             if (TryStackMerge(human, held, selectedSlot, ref slots, depth, out c)) { results.Add(c); if (firstOnly) return; }
             if (TryFunctionalSocket(human, held, selectedSlot, ref slots, depth, out c)) { results.Add(c); if (firstOnly) return; }
@@ -264,6 +322,104 @@ namespace StationeersUIMod.Core
             return slots;
         }
 
+        /// <summary>Stage 0 - HOME (0.9.8.0, SmartStow-Simple-Refactor-Plan par.6.1): the held
+        /// item's own remembered home from <see cref="StowHomeStore"/>. Runs first in Simple mode
+        /// and (opt-in, P5a) first in Complex. The home is found by ReferenceId - never by scan -
+        /// so nesting depth cannot hide it. <c>TryGetLiveHome</c> already validated the container
+        /// (resolves + PrefabHash match, on the local player, real storage, not stow-excluded, no
+        /// body-bag ancestor); occupancy policy lives HERE:
+        ///   a. the exact home slot, empty and movable -> move ("that spot");
+        ///   b. the exact home slot holding a matching partial stack -> merge (the host-only #13
+        ///      continuation then stays inside this same bag);
+        ///   c. any other matching partial stack in the home bag -> merge;
+        ///   d. the first free accepting slot in the home bag, a type-matched slot beating a
+        ///      generic one (mirroring <see cref="BestDirectSlot"/>).
+        /// A decline (home bag full, every gate refused) falls to the fallback chain, whose
+        /// landing only SEEDS a home - a full home bag is "visiting", never a new home. Pure
+        /// decision: no seeding, no intents; the store's single documented side effect is
+        /// refreshing the entry's `seen` GC stamp. The executor re-gates AllowMove/CanMerge on
+        /// the same synchronous call stack.</summary>
+        private static bool TryHome(Human human, DynamicThing held, Slot selectedSlot, out StowCandidate c)
+        {
+            c = default(StowCandidate);
+            Thing homeBag;
+            Slot exact;
+            bool live = false;
+            try { live = StowHomeStore.TryGetLiveHome(held, out homeBag, out exact); }
+            catch { homeBag = null; exact = null; }
+            if (!live || homeBag == null || ReferenceEquals(homeBag, held)) return false;
+
+            IMergeable heldMergeable = held as IMergeable;
+            bool bagIsHuman = ReferenceEquals(homeBag, human);
+
+            // a/b: the exact remembered slot. TryGetLiveHome may return it OCCUPIED on purpose -
+            // a matching partial stack there is the merge-back-into-home case (plan par.6.1 b).
+            if (exact != null && exact != selectedSlot && IsDestSlot(exact))
+            {
+                DynamicThing occ = exact.Get();
+                if (occ == null)
+                {
+                    if (Slot.AllowMove(held, exact))
+                        return HomeCandidate(out c, exact, homeBag, ReasonHomeSlot, bagIsHuman);
+                }
+                else if (heldMergeable != null)
+                {
+                    IMergeable target = occ as IMergeable;
+                    if (target != null && target.CanStack(heldMergeable) && !target.IsStackFull
+                        && Slot.CanMerge(held, exact))
+                        return HomeCandidate(out c, exact, homeBag, ReasonHomeSlot, bagIsHuman);
+                }
+            }
+
+            // c/d: same-bag fallback over the home bag's own DIRECT slots (S-1). A matching
+            // partial stack anywhere in the bag beats a free slot; a type-matched free slot beats
+            // a generic one. Hands are never stow destinations; the exact slot was already judged.
+            List<Slot> bagSlots = homeBag.Slots;
+            if (bagSlots == null) return false;
+            Slot typedFree = null;
+            Slot genericFree = null;
+            for (int i = 0; i < bagSlots.Count; i++)
+            {
+                Slot s = bagSlots[i];
+                if (s == null || s == exact || s == selectedSlot) continue;
+                if (bagIsHuman && s.IsHandSlot) continue;
+                if (s.IsLocked || !IsDestSlot(s)) continue;
+                // A jetpack's propellant/battery or a survival belt's battery/chip socket is never
+                // a same-bag FALLBACK (2026-09-26): a canister homed in a jetpack's storage slot
+                // would otherwise prefer the typed propellant slot here and be burned as fuel. The
+                // EXACT remembered slot (a/b above) is still honoured - that item came from there.
+                if (BagProfileGate.IsDeviceSlot(homeBag, s)) continue;
+                DynamicThing occ = s.Get();
+                if (occ != null)
+                {
+                    if (heldMergeable == null) continue;
+                    IMergeable target = occ as IMergeable;
+                    if (target == null || !target.CanStack(heldMergeable) || target.IsStackFull) continue;
+                    if (!Slot.CanMerge(held, s)) continue;
+                    return HomeCandidate(out c, s, homeBag, ReasonHomeBag, bagIsHuman);   // (c) beats any free slot
+                }
+                if (!Slot.AllowMove(held, s)) continue;
+                if (s.Type == held.SlotType) { if (typedFree == null) typedFree = s; }
+                else if (genericFree == null) genericFree = s;
+            }
+            Slot free = typedFree != null ? typedFree : genericFree;
+            if (free == null) return false;
+            return HomeCandidate(out c, free, homeBag, ReasonHomeBag, bagIsHuman);
+        }
+
+        /// <summary>Fill a HOME-stage candidate. Depth is display-only here (homes are id-found,
+        /// not scan-found): 0 on the human's own worn slots, 1 for a carried container.</summary>
+        private static bool HomeCandidate(out StowCandidate c, Slot slot, Thing holder, string reason, bool bagIsHuman)
+        {
+            c = default(StowCandidate);
+            c.Slot = slot;
+            c.Holder = holder;
+            c.Stage = StowStage.Home;
+            c.Reason = reason;
+            c.Depth = bagIsHuman ? 0 : 1;
+            return true;
+        }
+
         /// <summary>Stage 1 (ported from SmartStowPlus): a GENUINE tool belongs on a
         /// DIRECTLY-WORN belt/container before it ever nests into a belt tucked inside another
         /// bag. Priority: a) the equipped waist tool belt (home-slot aware via the Belt Wheel's
@@ -276,7 +432,8 @@ namespace StationeersUIMod.Core
         private static bool TryBeltTool(Human human, DynamicThing held, bool dryRun, out StowCandidate c)
         {
             c = default(StowCandidate);
-            if (!UIAConfig.StowToolsToToolbeltFirst.Value || !(held is Tool)) return false;
+            // Simple chain (S-5/F3): the stage toggle is a Complex setting, ignored in Simple.
+            if ((!_simpleChain && !UIAConfig.StowToolsToToolbeltFirst.Value) || !(held is Tool)) return false;
 
             DynamicThing belt = human.ToolbeltSlot != null ? human.ToolbeltSlot.Get() : null;
             if (IsExcluded(belt)) belt = null;   // Q5 exclusion applies to the belt stage too
@@ -307,7 +464,7 @@ namespace StationeersUIMod.Core
         private static bool TryStackMerge(Human human, DynamicThing held, Slot selectedSlot, ref List<ScannedSlot> slots, int depth, out StowCandidate c)
         {
             c = default(StowCandidate);
-            if (!UIAConfig.StowPreferStacks.Value) return false;
+            if (!_simpleChain && !UIAConfig.StowPreferStacks.Value) return false;   // toggle = Complex-only
             IMergeable heldMergeable = held as IMergeable;
             if (heldMergeable == null) return false;
 
@@ -349,7 +506,7 @@ namespace StationeersUIMod.Core
         private static bool TryFunctionalSocket(Human human, DynamicThing held, Slot selectedSlot, ref List<ScannedSlot> slots, int depth, out StowCandidate c)
         {
             c = default(StowCandidate);
-            if (!UIAConfig.StowSocketPriority.Value) return false;
+            if (!_simpleChain && !UIAConfig.StowSocketPriority.Value) return false;   // toggle = Complex-only
             Slot.Class st = held.SlotType;
             if (!IsFunctionalSocketClass(st)) return false;
 
@@ -447,6 +604,9 @@ namespace StationeersUIMod.Core
                 if (memo.Priority < bestPriority) continue;
                 if (memo.Priority == bestPriority && scanned.Depth >= bestDepth) continue;
                 if (!IsDestSlot(scanned)) continue;   // D-005: never a sealed slot
+                // 2026-09-26: jetpacks/tool belts are assignable now; a profile routes into their
+                // STORAGE only - never the propellant/battery/chip socket (see IsDeviceSlot).
+                if (BagProfileGate.IsDeviceSlot(bag, scanned.Slot)) continue;
                 if (!Slot.AllowMove(held, scanned.Slot)) continue;
                 best = scanned.Slot;
                 bestBag = bag;
@@ -478,7 +638,7 @@ namespace StationeersUIMod.Core
         private static bool TryAffinity(Human human, DynamicThing held, Slot selectedSlot, ref List<ScannedSlot> slots, int depth, out StowCandidate c)
         {
             c = default(StowCandidate);
-            if (!UIAConfig.StowUseAffinity.Value) return false;
+            if (!_simpleChain && !UIAConfig.StowUseAffinity.Value) return false;   // toggle = Complex-only
 
             _affBags.Clear();
             foreach (ScannedSlot scanned in EnsureScan(ref slots, depth))
@@ -496,14 +656,22 @@ namespace StationeersUIMod.Core
                     AffBag fresh = new AffBag();
                     fresh.Bag = bag;
                     fresh.Depth = scanned.Depth;
-                    string assigned = EffectiveAssignedName(bag);
                     // Skip when the bag is profile-owned (the player made it law) OR excluded (Q5).
+                    // Simple chain: every bag is unprofiled - the profile skip is suspended, and
+                    // the once-per-container assignment diagnostics (inside EffectiveAssignedName)
+                    // never run for a mode that ignores profiles.
+                    string assigned = _simpleChain ? null : EffectiveAssignedName(bag);
                     fresh.Skip = FindProfile(assigned) != null || IsExcluded(bag);
                     _affBags.Add(fresh);
                     i = _affBags.Count - 1;
                 }
                 AffBag entry = _affBags[i];
                 if (entry.Skip) continue;
+                // A wearable's device socket is neither content nor destination (2026-09-26): the
+                // jetpack's propellant canister must not make it "already hold canisters", and a
+                // canister must never be affinity-routed into that socket (the functional-socket
+                // stage alone fills sockets, under its own toggle).
+                if (BagProfileGate.IsDeviceSlot(bag, scanned.Slot)) continue;
 
                 DynamicThing occ = scanned.Occupant;
                 if (occ != null)
@@ -609,8 +777,10 @@ namespace StationeersUIMod.Core
                     if (bag.PrefabName != null && BagTypeDefaults.TryGetValue(bag.PrefabName, out profName))
                     {
                         // An explicit (resolvable, ELIGIBLE) assignment supersedes the built-in
-                        // default; an assignment on a non-assignable container does not, so a
-                        // hand-assigned tool belt still gets its shipped "Tools" default back.
+                        // default; an assignment on a non-assignable container does not. Since
+                        // 2026-09-26 tool belts ARE assignable, so a hand-assigned tool belt now
+                        // follows the player's own profile instead of the shipped "Tools" default
+                        // (exactly like a hand-assigned mining belt always did with "Ores").
                         if (FindProfile(EffectiveAssignedName(bag)) == null)
                         {
                             BagProfile prof = FindProfile(profName);
@@ -631,6 +801,7 @@ namespace StationeersUIMod.Core
                 if (memo.Priority < bestPriority) continue;
                 if (memo.Priority == bestPriority && scanned.Depth >= bestDepth) continue;
                 if (!IsDestSlot(scanned)) continue;   // D-005: never a sealed slot
+                if (BagProfileGate.IsDeviceSlot(bag, scanned.Slot)) continue;   // never a battery/chip socket (survival belt)
                 if (!Slot.AllowMove(held, scanned.Slot)) continue;
                 best = scanned.Slot;
                 bestBag = bag;
@@ -668,6 +839,9 @@ namespace StationeersUIMod.Core
                 if (!HolderIsRealStorage(scanned.Holder)) continue; // not a consumable/dispenser/starter box
                 if (IsExcluded(scanned.Holder)) continue;          // Q5: "never smart-stow into this"
                 if (!IsDestSlot(scanned)) continue;           // D-005: never a sealed slot
+                // The remembered bag may be a jetpack now that profile stows can land in one
+                // (2026-09-26): "first free slot" must mean its storage, never slot 0's propellant.
+                if (BagProfileGate.IsDeviceSlot(scanned.Holder, scanned.Slot)) continue;
                 if (!Slot.AllowMove(held, scanned.Slot)) continue;
 
                 c.Slot = scanned.Slot;
@@ -691,7 +865,7 @@ namespace StationeersUIMod.Core
         private static bool TryGenericFallback(Human human, DynamicThing held, Slot selectedSlot, ref List<ScannedSlot> slots, int depth, out StowCandidate c)
         {
             c = default(StowCandidate);
-            if (!UIAConfig.StowGenericFallback.Value) return false;
+            if (!_simpleChain && !UIAConfig.StowGenericFallback.Value) return false;   // toggle = Complex-only
             if (held.SlotType != Slot.Class.None) return false;
 
             _genBags.Clear();
@@ -710,13 +884,18 @@ namespace StationeersUIMod.Core
                     GenBag fresh = new GenBag();
                     fresh.Bag = bag;
                     fresh.Depth = scanned.Depth;
-                    fresh.Skip = FindProfile(EffectiveAssignedName(bag)) != null
+                    // Simple chain: profile-skip suspended (every bag is unprofiled); Q5 exclusion
+                    // always holds. Short-circuit keeps EffectiveAssignedName Complex-only.
+                    fresh.Skip = (!_simpleChain && FindProfile(EffectiveAssignedName(bag)) != null)
                         || IsExcluded(bag);   // Q5: "never smart-stow into this"
                     _genBags.Add(fresh);
                     i = _genBags.Count - 1;
                 }
                 GenBag e = _genBags[i];
                 if (e.Skip) continue;
+                // Device sockets are not contents (the propellant canister must not count toward
+                // the category tally) and never a destination (2026-09-26, see IsDeviceSlot).
+                if (BagProfileGate.IsDeviceSlot(bag, scanned.Slot)) continue;
 
                 DynamicThing occ = scanned.Occupant;
                 if (occ != null)
@@ -777,7 +956,7 @@ namespace StationeersUIMod.Core
         private static bool TryBeltFallback(Human human, DynamicThing held, out StowCandidate c)
         {
             c = default(StowCandidate);
-            if (!UIAConfig.StowToolsToToolbeltFirst.Value) return false;
+            if (!_simpleChain && !UIAConfig.StowToolsToToolbeltFirst.Value) return false;   // toggle = Complex-only
             if (held.SlotType != Slot.Class.Tool || held is Tool) return false;
 
             DynamicThing belt = human.ToolbeltSlot != null ? human.ToolbeltSlot.Get() : null;
@@ -847,10 +1026,12 @@ namespace StationeersUIMod.Core
         /// Manipulator that slipped through the old F10 bag list, a suit, a cereal box) keeps its
         /// data — hide, never destroy — and is simply treated as UNASSIGNED by every stage. That
         /// uniformity matters: if only the profile stage ignored it, the bag-type-default stage
-        /// would still see "this bag has an explicit assignment" and decline too, so a tool belt
-        /// that had been hand-assigned "Tools" would lose its shipped default as well and end up
-        /// routing worse than a fresh one. Reported ONCE per container (per session) so the player
-        /// can find and clear it; nothing on disk is touched.</para>
+        /// would still see "this bag has an explicit assignment" and decline too, so a
+        /// non-assignable container with a known bag-type default would lose that default as well
+        /// and end up routing worse than a fresh one. Reported ONCE per container (per session) so
+        /// the player can find and clear it; nothing on disk is touched. (Tool belts and jetpacks
+        /// became assignable on 2026-09-26: an assignment saved on one before B1 is honoured again
+        /// from that date, on its storage slots only - see BagProfileGate.IsDeviceSlot.)</para>
         ///
         /// <para>An ASSIGNABLE container whose assignment names a profile the active Stow Profile
         /// does not have is returned unchanged — the stages resolve it to null on their own and
@@ -978,7 +1159,8 @@ namespace StationeersUIMod.Core
                         if (s == null || s.SlotIndex != home) continue;
                         // Home slot found: use it only if genuinely free and type-gated open; else
                         // fall through to BestDirectSlot (the postfix rebinds home on landing).
-                        if (!s.IsLocked && s.Get() == null && IsDestSlot(s) && Slot.AllowMove(held, s)) return s;
+                        if (!s.IsLocked && s.Get() == null && IsDestSlot(s)
+                            && !BagProfileGate.IsDeviceSlot(belt, s) && Slot.AllowMove(held, s)) return s;
                         break;
                     }
                 }
@@ -998,6 +1180,9 @@ namespace StationeersUIMod.Core
             {
                 if (s == null || s.IsLocked || s.Get() != null) continue;
                 if (!IsDestSlot(s)) continue;   // D-005: never a sealed slot
+                // Belt-and-braces (2026-09-26): a tool/coil can't type-pass a propellant/battery/chip
+                // socket anyway, but a worn jetpack or survival belt socket is never a "direct slot".
+                if (BagProfileGate.IsDeviceSlot(container, s)) continue;
                 if (!Slot.AllowMove(held, s)) continue;
                 if (s.Type == held.SlotType) return s;   // exact type match — the tool's real home
                 if (generic == null) generic = s;        // kept as fallback

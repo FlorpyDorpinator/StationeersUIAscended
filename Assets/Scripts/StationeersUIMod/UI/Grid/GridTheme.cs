@@ -208,13 +208,13 @@ namespace StationeersUIMod.UI.Grid
                 "and click the window.");
 
             FillRef = cfg.Bind(Section, "GridFill", "HudPanelFill",
-                "Window background when NOT following the HUD theme. A palette entry name " +
+                "Window background when NOT following the UI theme. A palette entry name " +
                 "(e.g. HudPanelFill) or a #RRGGBBAA literal.");
             BorderRef = cfg.Bind(Section, "GridBorder", "HudPanelBorder",
-                "Window outline when NOT following the HUD theme. A palette entry name or a " +
+                "Window outline when NOT following the UI theme. A palette entry name or a " +
                 "#RRGGBBAA literal.");
             TextRef = cfg.Bind(Section, "GridText", "HudTextValue",
-                "Window text when NOT following the HUD theme. A palette entry name or a " +
+                "Window text when NOT following the UI theme. A palette entry name or a " +
                 "#RRGGBBAA literal.");
 
             ProfilePopupOpacity = cfg.Bind(Section, "ProfilePopupOpacity", 0.95f,

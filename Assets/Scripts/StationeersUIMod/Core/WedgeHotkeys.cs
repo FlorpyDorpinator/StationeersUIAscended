@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using Assets.Scripts.Objects;
+using StationeersUIMod.UI.Menu.Tutorial;
 using UnityEngine;
 
 namespace StationeersUIMod.Core
@@ -85,6 +86,10 @@ namespace StationeersUIMod.Core
                 if (ReferenceEquals(kv.Value.Interactable, interactable)) stale.Add(kv.Key);
             foreach (var s in stale) _map.Remove(s);
             _map[k] = new Binding { Interactable = interactable, Thing = thing, Name = name };
+            // Tutorial hook (Build Contract s4): a wedge setting just claimed a session hotkey. The
+            // caller (RadialMenu.UpdateHotkeyCapture) only reaches Bind on the "new bind" branch — the
+            // repeat-same-letter case calls Unbind instead — so this never fires for an unbind.
+            TutorialSignals.Raise(TSignal.HotkeyBound);
         }
 
         /// <summary>True when key <paramref name="k"/> is already bound to THIS interactable — the

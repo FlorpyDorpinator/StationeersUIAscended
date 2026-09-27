@@ -25,7 +25,7 @@ namespace StationeersUIMod.Core
     {
         /// <summary>Bump by ONE each time you add a migration STEP in <see cref="ApplyStep"/>.
         /// Fresh installs are stamped straight to this and run NO steps.</summary>
-        public const int CurrentVersion = 4;
+        public const int CurrentVersion = 5;
 
         private const string Section = "0. Internal";
 
@@ -150,11 +150,24 @@ namespace StationeersUIMod.Core
                     foreach (string[] kv in RemovedKeysV3ToV4) RemoveOrphaned(cfg, kv[0], kv[1]);
                     cfg.Save();
                     break;
+                case 4: // v4 -> v5 — 0.9.8.0 Simple SmartStow: the new [6. SmartStow+] Mode key
+                    // defaults to Simple ("back where you took it from"), which would silently
+                    // change what G does for players who built Bag Profiles. S-8 option C
+                    // (evidence-based, FlorpyDorp 2026-09-25): an EXISTING install that has ever
+                    // assigned a Bag Profile — any <Assign> element in any Assignments/*.xml —
+                    // is stamped to Complex (today's behaviour, intact); everyone else gets the
+                    // Simple default. An IO/parse failure while looking counts as evidence FOR
+                    // Complex. Fresh installs never reach this step (stamped to current above),
+                    // so they start on Simple. No key is removed or renamed by this step; the
+                    // logic lives beside the keys it stamps, in Features.StowModeConfig.
+                    Features.StowModeConfig.MigrateExistingInstall();
+                    cfg.Save();
+                    break;
                 // ---------------------------------------------------------------------------------
                 // TEMPLATE — the next time you change a shipped default or rename a key, bump
                 // CurrentVersion again and fill in the next case:
                 //
-                // case 4: // v4 -> v5
+                // case 5: // v5 -> v6
                 //     // A default was WRONG: push the corrected value only to players who never
                 //     // changed it (anyone who set it on purpose keeps their choice).
                 //     ForceIfDefault(UI.Hud.HudConfig.FxGlow, oldDefault: 0.50f, corrected: 0.80f);

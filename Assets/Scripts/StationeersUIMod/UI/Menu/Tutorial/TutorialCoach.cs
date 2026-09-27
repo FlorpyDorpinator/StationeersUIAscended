@@ -1,8 +1,8 @@
 using System;
-using System.Text;
 using Assets.Scripts;
 using Assets.Scripts.UI;
 using StationeersUIMod.Core;
+using StationeersUIMod.UI.Hud;
 using StationeersUIMod.UI.Menu.Kit;
 using TMPro;
 using UnityEngine;
@@ -11,31 +11,63 @@ using UnityEngine.UI;
 namespace StationeersUIMod.UI.Menu.Tutorial
 {
     /// <summary>
-    /// The first-run "coach": a modal, click-through card that teaches the 15 steps in
-    /// <see cref="TutorialSteps"/> with a looping mock demo per step
-    /// (<see cref="TutorialDemoStage"/>) and LIVE key glyphs, so a rebind can never make the
-    /// tutorial lie.
+    /// The tutorial COACH - since 0.9.8.0 a single-card presenter. <c>TutorialDirector</c> does all
+    /// the sequencing (lessons, Watch mode's Back/Next, the F10 tour) and hands the coach one
+    /// <see cref="TCardSpec"/> at a time: <see cref="OpenCard"/> for a modal CARD,
+    /// <see cref="OpenCallout"/> for an F10-tour CALLOUT pinned beside a menu anchor. It no longer
+    /// knows any step list (the old 15-step <c>TutorialSteps</c> dependency is gone).
     ///
-    /// <para><b>A sibling of the Control Center, deliberately.</b> Same construction as
-    /// <see cref="UiaControlCenter"/> - own ScreenSpaceOverlay canvas, a full-screen scrim that
-    /// absorbs clicks, one centred window whose surface is a real HUD <c>PanelGraphic</c>, and
-    /// every colour/font read from <see cref="UiaTheme"/> so the card re-skins with the active
-    /// profile. Sorting order 5600: above the Control Center (5200), below tooltips (6000).</para>
+    /// <para><b>A sibling of the Control Center, deliberately.</b> Own ScreenSpaceOverlay canvas, a
+    /// scrim that absorbs clicks, a window whose surface is a real HUD <see cref="PanelGraphic"/>
+    /// carrying the F9 global effect stack on the analytic panel renderer the HUD boxes use
+    /// (<see cref="TutorialStrip.ApplyGlass"/>, shared with the lesson strip), and every colour
+    /// read from <see cref="UiaTheme"/> so the card re-skins with the active UI Theme (a live theme
+    /// change rebuilds it - <see cref="UiaMenuTheme.StyleHash"/> poll, throttled).</para>
     ///
-    /// <para><b>Pause.</b> The first-run open latches the game paused through
-    /// <see cref="GamePause"/> (single-player only; there is no MP pause), which is why every clock
-    /// in here and in the demo stage is <c>Time.unscaledTime</c> - a <c>Time.time</c> animation
-    /// would freeze solid behind the card. The header chip reports the truth either way.</para>
+    /// <para><b>Sort orders.</b> CARD 5600 (over F10 5200 and the drag ghosts 5250, under the
+    /// Handbook 5700, vanilla's F2 helper-hints panel lifted to 5800 (<c>Core/HelperHintsLift</c>,
+    /// dropped back while a vanilla menu is front), the F9 ImGui lift 5900 and tooltips 6000).
+    /// CALLOUT 5300: over F10 (the tour
+    /// lives inside it), under the coach's own card layer; a callout draws NO scrim (F10 has one)
+    /// and outlines its anchor with a pulsing accent ring + a drawn pointer on this canvas (the
+    /// spotlight's 5140 would sit under F10). KNOWN TIE: the SmartStow capture dialog hosted over
+    /// F10 is also 5300 - it is opened by a player gesture on the SmartStow tab, not during the
+    /// tour.</para>
     ///
-    /// <para><b>Unwind order (load-bearing).</b> Close releases the PAUSE first and the modal input
-    /// state second. <c>WorldManager.SetGamePause</c> pushes its own <c>KeyInputState.Paused</c>
-    /// onto KeyManager's stack; popping our Typing state while the pause state is still stacked
-    /// leaves vanilla in the wrong input mode (reference section 20 / plan section 5.1).</para>
+    /// <para><b>Scrim with a hole.</b> A card with <see cref="TCardSpec.HasHole"/> swaps the
+    /// full-screen scrim for four dark panels around the hole (expanded 14 px so a spotlight ring
+    /// shows through undimmed) and slides off it if they would overlap.</para>
     ///
-    /// <para><b>Hot-reload.</b> Every static below is cleared in <see cref="Shutdown"/>: the canvas
-    /// is destroyed, the demo stage torn down, the <see cref="GamePause.PausedChanged"/>
-    /// subscription dropped (a stale delegate would call into a dead assembly), the pause latch and
-    /// modal released, and <see cref="TutorialTextStore"/> flushed.</para>
+    /// <para><b>Pause.</b> A card with <see cref="TCardSpec.Pause"/> latches the game paused through
+    /// <see cref="GamePause"/> (reason "tutorial"; single-player only, and only while
+    /// <c>UIAConfig.TutorialAutoPause</c> is on). Every clock here and in the demo stage is
+    /// <c>Time.unscaledTime</c> - a <c>Time.time</c> animation would freeze behind the card. The
+    /// header pause button is F10-parity: lit while our latch holds, greyed in multiplayer. Card to
+    /// card (OpenCard while open) the latch is KEPT - never a one-frame unpause between cards.</para>
+    ///
+    /// <para><b>Unwind order (load-bearing).</b> Close marks the coach closed FIRST, then releases the
+    /// PAUSE, then the modal input state - so neither the pause release's
+    /// <see cref="GamePause.PausedChanged"/> repaint nor <see cref="ModalInputChain.ReassertTop"/>
+    /// sees the coach as still up, and Typing goes to the layer underneath instead of back to ours
+    /// (reference section 20). Esc closes on key-DOWN and starts the
+    /// <see cref="ModalInputChain.BeginEscSwallow"/>, so vanilla's key-UP Escape never opens the
+    /// pause menu over the world this close just revealed.</para>
+    ///
+    /// <para><b>Dev edit (uiadev).</b> While <see cref="UiaDevMode.Active"/>, a card whose step
+    /// owns a heading/body field shows them as text fields that write through
+    /// <c>TutorialTextStore.Set</c> (+ Save) when a field is left - to the keys the spec names
+    /// (<see cref="TCardSpec.HeadingKey"/> / <see cref="TCardSpec.BodyKey"/>, default
+    /// "&lt;StepId&gt;|heading" / "|body"), so the Welcome's body@mp / body@running variant edits the
+    /// line actually shown - and every card/callout with a step id shows a small EDIT button that
+    /// opens <c>TutorialEditorWindow.OpenAt(StepId)</c>. Fields show the RAW stored text (tokens
+    /// intact), never the resolved glyphs, so an edit can never bake "[G]" over "{V:SmartStow}".
+    /// ONLY A FIELD THE PLAYER TYPED INTO IS EVER WRITTEN (a per-field dirty flag from its change
+    /// callback): a card re-presented because the Lesson Editor (F8) changed the store rebuilds its
+    /// fields FROM the store instead of writing their stale text back over the editor's edit.</para>
+    ///
+    /// <para><b>Hot reload.</b> <see cref="Shutdown"/> clears every static: the canvas is destroyed,
+    /// the demo stage torn down, the <see cref="GamePause.PausedChanged"/> subscription dropped, the
+    /// pause latch and modal released, and no Director callback is ever invoked from teardown.</para>
     /// </summary>
     internal static class TutorialCoach
     {
@@ -45,77 +77,182 @@ namespace StationeersUIMod.UI.Menu.Tutorial
         private const string PauseReason = "tutorial";
         private const string CursorHoldId = "tutorial";
 
-        // ---- metrics (reference px at 1080p; the CanvasScaler scales) ----
+        private const int CardSortOrder = 5600;
+        private const int CalloutSortOrder = 5300;
+
+        // ---- card metrics (reference px at 1080p; the CanvasScaler scales) ----
         private const float WinW = 720f;
-        private const float WinHRead = 704f;   // title + rule + step heading + demo + copy + progress + nav
-        private const float WinHEdit = 760f;   // + the edit row and the token hint line
         private const float DemoW = 680f;
         private const float DemoH = 300f;
+        private const float HeadingH = 30f;
+        private const float BodyReadH = 132f;
+        private const float BodyEditH = 214f;
         private const float NavH = 36f;
-        private const float RestyleMinInterval = 0.14f;  // same throttle as UiaControlCenter
+        private const float EditBtnW = 60f;
+        // ---- callout metrics ----
+        private const float CalloutW = 380f;
+        private const float CalloutH = 200f;
+        private const float CalloutHeadH = 24f;
+        private const float MiniW = 150f, MiniH = 76f;   // a callout's optional demo: the strip's mini layout
+        private const float CalloutPad = 12f;
+        private const float CalloutGap = 16f;
+        private const float EdgeMargin = 12f;
+        private const float AnchorPad = 6f;
+        private const float PointerSize = 14f;
+        // ---- hole / motion ----
+        private const float HoleMargin = 14f;
+        private const float RestyleMinInterval = 0.14f;   // same throttle as UiaControlCenter
         private const float ToastSeconds = 2.4f;
+        private const float EnterGuardSec = 0.25f;        // a fresh card ignores Enter this long
+        private const float RingPulseHz = 1.2f;
 
-        // The welcome step's third sentence has a multiplayer variant (plan section 6, step 1):
-        // there is no MP pause, so the copy must not claim the game is stopped.
-        private const string PausedLine = "The game is paused while you read.";
-        private const string RunningLine = "Your game is still running - Skip any time.";
+        /// <summary>The body sentences that claim a freeze. When no pause is held they are swapped
+        /// for <see cref="TCardSpec.RunningLine"/> (multiplayer) or <see cref="RunningFallback"/>.</summary>
+        private static readonly string[] PauseSentences =
+        {
+            "The game is paused while you read.",
+            "The game is paused.",
+        };
+        private const string RunningFallback = "Your game is still running.";
 
         private static readonly Modal _modal = new Modal();
+        private static readonly Func<string, string> GlyphFn = TutorialTokens.Glyph;
 
+        private enum Mode : byte { None, Card, Callout }
+
+        // ---- built objects ----
         private static GameObject _root;
-        private static RectTransform _window;
-        private static UI.Hud.PanelGraphic _windowPanel;
-        private static RectTransform _demoHost;   // the 680x300 stage rect handed to the demo
-        private static RectTransform _bodyHost;   // cleared + rebuilt per step
-        private static RectTransform _navHost;    // cleared + rebuilt per step
-        private static UiaControls.UiaButton _pauseBtn;   // header pause, F10-parity (greyed in MP)
-        private static TextMeshProUGUI _stepHeading;      // centered step name above the demo
-        private static TextMeshProUGUI _bodyLabel;
-        private static TextMeshProUGUI _toast;
-        private static TMP_InputField _headingField, _bodyField;
+        private static Canvas _canvas;
+        private static RectTransform _rootRt;
+        private static Image _scrimFull, _scrimTop, _scrimBottom, _scrimLeft, _scrimRight;
+
+        private static RectTransform _card;
+        private static PanelGraphic _cardPanel;
+        private static RectTransform _titleBtns;
+        private static GameObject _editBtnCard;
+        private static UiaControls.UiaButton _pauseBtn;
+        private static TextMeshProUGUI _cardHeading;
+        private static GameObject _demoArea;
+        private static RectTransform _demoHost;
+        private static RectTransform _cardBody;
+        private static RectTransform _cardNav;
         private static TutorialDemoStage _demo;
 
+        private static RectTransform _callout;
+        private static PanelGraphic _calloutPanel;
+        private static RectTransform _calloutContent;
+        private static GameObject _calloutDemoArea;
+        private static TutorialDemoStage _calloutDemo;
+        private static RectTransform _pointer;
+        private static TriangleGraphic _pointerG;
+        private static RectTransform _ring;
+        private static PanelGraphic _ringG;
+        private static CanvasGroup _ringGroup;
+
+        // ---- per-render widgets ----
+        private static TextMeshProUGUI _bodyLabel;
+        private static TMP_InputField _headingField, _bodyField;
+        private static string _editHeadingKey, _editBodyKey;
+        // The player typed into this field since it was built / last committed. The ONLY licence to
+        // write it back: a clean field's text may be stale (the F8 editor changed the store since).
+        private static bool _headingDirty, _bodyDirty;
+        private static TextMeshProUGUI _toast, _countLabel;
+
+        // ---- state ----
+        private static TCardSpec _spec;
+        private static Mode _mode;
+        private static Rect _anchorScreen;
+        private static string _liveHeading, _liveBody;   // resolved display text (inline edits update it)
         private static bool _open;
         private static bool _modalHeld;
-        private static bool _devEdit;        // requested mode
-        private static bool _builtDevEdit;   // mode the live canvas was built for
-        private static int _index;
+        private static bool _builtDev;
+        private static bool _rendering;
+        private static int _gen;
         private static int _builtThemeHash;
         private static float _lastRestyle;
         private static float _toastUntil;
+        private static float _openedAt;
+        private static float _placedScale = -1f;
+        private static int _placedW, _placedH;
+        private static int _lastFieldFocusFrame = -999;
         private static Action<bool> _pausedHandler;
 
+        /// <summary>True while a card OR a callout is up (the historical name every modal gate in
+        /// the mod reads).</summary>
         internal static bool IsOpen { get { return _open; } }
+
+        /// <summary>True while a card or a callout is up (contract name).</summary>
+        internal static bool CardOpen { get { return _open; } }
+
+        /// <summary>True while the up card is an F10-tour callout.</summary>
+        internal static bool CalloutOpen { get { return _open && _mode == Mode.Callout; } }
+
+        /// <summary>The step id of the card on screen, or null.</summary>
+        internal static string CurrentStepId { get { return _open && _spec != null ? _spec.StepId : null; } }
 
         // ================= open / close =================
 
-        /// <summary>The first-world-entry path: open at step 1 and (config permitting, and only
-        /// when we can legally own the pause) latch the game paused so a fresh-save player is not
-        /// burning oxygen while reading. Manual replays never auto-pause - plan section 5.3.</summary>
-        internal static void OpenFirstRun()
+        /// <summary>Present <paramref name="spec"/> as a modal CARD (sort 5600, scrim, optional hole).
+        /// While a card is already up the content swaps in place and the pause latch is kept.</summary>
+        internal static void OpenCard(TCardSpec spec)
         {
-            Open(false);
-            if (!_open) return;
-            try
-            {
-                if (UIAConfig.TutorialAutoPause != null && UIAConfig.TutorialAutoPause.Value
-                    && GamePause.CanOwnPause())
-                    GamePause.Hold(PauseReason, InputStateKey);
-            }
-            catch (Exception e) { UIALog.Warn("TutorialCoach auto-pause failed: " + e.Message); }
-            PaintChip();
-            RepaintBodyText();   // the welcome copy differs paused vs running
+            if (spec == null) return;
+            Present(spec, Mode.Card, default(Rect));
         }
 
-        /// <summary>Open at step 1. <paramref name="devEdit"/> swaps the heading/body labels for
-        /// text fields (the <c>uiatutorial edit</c> path) - see <see cref="TutorialTextStore"/>.</summary>
+        /// <summary>Present <paramref name="spec"/> as a 380x200 CALLOUT beside
+        /// <paramref name="anchorScreenRect"/> (screen px, bottom-left origin - what
+        /// <c>UiaControlCenter.TryGetAnchorRect</c> returns). Sort 5300, no scrim of its own, a
+        /// pulsing ring on the anchor. A zero rect centres the callout with no ring. Closes itself
+        /// (as "Later") if F10 closes under it.</summary>
+        internal static void OpenCallout(TCardSpec spec, Rect anchorScreenRect)
+        {
+            if (spec == null) return;
+            Present(spec, Mode.Callout, anchorScreenRect);
+        }
+
+        /// <summary>Close the card/callout and give everything back (open flag, then pause, then
+        /// modal). Invokes no callback.</summary>
+        internal static void CloseCard()
+        {
+            _gen++;
+            CloseInternal();
+        }
+
+        /// <summary>Historical name of <see cref="CloseCard"/>.</summary>
+        internal static void Close() { CloseCard(); }
+
+        /// <summary>COMPAT SHIM for pre-0.9.8.0 callers (<c>uiatutorial [edit]</c>, the old Guide tab
+        /// button): the coach no longer owns a step list. <paramref name="devEdit"/> opens the lesson
+        /// editor; otherwise First Steps replays in Watch mode through the Director. New code calls
+        /// the Director / <see cref="OpenCard"/> directly - delete this once nothing references it.</summary>
+        [Obsolete("0.9.8.0: the Director sequences lessons - call TutorialDirector.PlayLesson / TutorialEditorWindow.Toggle.")]
         internal static void Open(bool devEdit = false)
         {
-            TutorialTextStore.Load();
-            // The two modes have different window heights and different body widgets, so a mode
-            // change is a rebuild, not a re-render.
-            if (_root != null && _builtDevEdit != devEdit) DestroyRoot();
-            _devEdit = devEdit;
+            try
+            {
+                if (devEdit) TutorialEditorWindow.Toggle();
+                else TutorialDirector.PlayLesson("core", true);
+            }
+            catch (Exception e) { UIALog.Warn("TutorialCoach.Open (compat shim) failed: " + e.Message); }
+        }
+
+        /// <summary>RETIRED: the first-run Welcome now belongs to <c>TutorialDirector.Tick()</c>
+        /// (contract section 8). Kept only as a deliberate NO-OP so a not-yet-migrated caller still
+        /// compiles without double-opening anything; the Obsolete warning marks the call for
+        /// deletion.</summary>
+        [Obsolete("0.9.8.0: the first-run block moved into TutorialDirector.Tick() - delete this call.")]
+        internal static void OpenFirstRun() { }
+
+        private static void Present(TCardSpec spec, Mode mode, Rect anchor)
+        {
+            _gen++;
+            // Whatever the player TYPED into an in-place dev field of the OUTGOING card survives the
+            // swap (written to that card's key). An untouched field writes nothing: this is also the
+            // re-present the Lesson Editor triggers on every keystroke (RefreshActiveText -> OpenCard),
+            // and its fields hold the text from BEFORE that edit - the render below rebuilds them from
+            // the store instead.
+            if (_open) { try { CommitFields(); } catch { } }
             try { EnsureBuilt(); }
             catch (Exception e)
             {
@@ -123,68 +260,141 @@ namespace StationeersUIMod.UI.Menu.Tutorial
                 // no Escape (Update only pumps while _open). Tear down whatever got created.
                 UIALog.Error("TutorialCoach build failed: " + e);
                 try { DestroyRoot(); } catch { }
+                if (_open) CloseInternal();
                 return;
             }
             if (_root == null) return;
+
+            bool wasOpen = _open;
+            _spec = spec;
+            _mode = mode;
+            _anchorScreen = anchor;
+            _liveHeading = Tok(spec.Heading);
+            _liveBody = Tok(spec.Body);
             _open = true;
-            _index = 0;
-            _root.SetActive(true);
+            if (!_root.activeSelf) _root.SetActive(true);
+            if (!wasOpen) _openedAt = Time.unscaledTime;
             AcquireModal();
             HookPause();
-            RenderStep();
+            ApplyPause(spec.Pause);
+            SafeRender();
         }
 
-        /// <summary>Close and give everything back. ORDER MATTERS: pause latch first, modal input
-        /// state second (see the class remarks).</summary>
-        internal static void Close()
+        /// <summary>Hold or drop OUR pause reason for the card now up. Holding is skipped in
+        /// multiplayer (and when TutorialAutoPause is off); dropping it while the modal stays
+        /// held hands Typing straight back to us (SetGamePause(false) pops KeyManager's map).</summary>
+        private static void ApplyPause(bool want)
+        {
+            bool hold = want && AutoPauseOn();
+            try
+            {
+                if (hold)
+                {
+                    if (GamePause.CanOwnPause()) GamePause.Hold(PauseReason, InputStateKey);
+                }
+                else if (GamePause.Held)
+                {
+                    GamePause.Release(PauseReason);
+                    if (_open) ModalInputChain.ReassertTop();
+                }
+                else GamePause.Release(PauseReason);
+            }
+            catch (Exception e) { UIALog.Warn("TutorialCoach pause: " + e.Message); }
+        }
+
+        private static bool AutoPauseOn()
+        {
+            try { return UIAConfig.TutorialAutoPause == null || UIAConfig.TutorialAutoPause.Value; }
+            catch { return true; }
+        }
+
+        /// <summary>Close and give everything back. ORDER MATTERS: the open flag first (so nothing the
+        /// pause release triggers - the PausedChanged repaint, ModalInputChain.ReassertTop - treats the
+        /// coach as still up), then the pause latch, then the modal input state (see the class
+        /// remarks).</summary>
+        private static void CloseInternal()
         {
             if (!_open) return;
-            // Edit mode: whatever sits in the fields right now must survive this close (X, Skip,
-            // Esc) exactly like Back/Next preserves it - in memory; disk still needs Save.
-            try { CaptureFields(); } catch { }
+            try { CommitFields(); } catch { }
             _open = false;
             try { GamePause.Release(PauseReason); } catch (Exception e) { UIALog.Warn("TutorialCoach pause release: " + e.Message); }
             UnhookPause();
             // Symmetric with UiaControlCenter.Close: drop the shared glass/edgefx material now so a
-            // reopen cannot flash one stale frame. (We deliberately never write
-            // HudGlobalGlass.FrostDemand - it is single-writer, owned per frame by the Control
-            // Center; GridTheme sets the same precedent.)
-            if (_windowPanel != null) { try { UI.Hud.HudFxMaterials.Unassign(_windowPanel); } catch { } }
+            // reopen cannot flash one stale frame. (We never write HudGlobalGlass.FrostDemand - it is
+            // single-writer, owned per frame by the Control Center; GridTheme sets the precedent.)
+            if (_cardPanel != null) { try { HudFxMaterials.Unassign(_cardPanel); } catch { } }
+            if (_calloutPanel != null) { try { HudFxMaterials.Unassign(_calloutPanel); } catch { } }
             if (_root != null) _root.SetActive(false);
             ReleaseModal();
+            _spec = null;
+            _mode = Mode.None;
+            _anchorScreen = default(Rect);
+            _liveHeading = _liveBody = null;
         }
 
-        // Frame stamp of the last frame a dev-edit field held keyboard focus (see Update).
-        private static int _lastFieldFocusFrame = -999;
+        /// <summary>Esc / X / F10-under-a-callout: close FIRST, then tell the Director "Later".</summary>
+        private static void Later()
+        {
+            var spec = _spec;
+            CloseCard();
+            var cb = spec != null ? spec.OnLater : null;
+            if (cb == null) return;
+            try { cb(); }
+            catch (Exception e) { UIALog.Warn("TutorialCoach: OnLater failed: " + e.Message); }
+        }
+
+        /// <summary>The world went away / F10 closed under a callout: close and report it as Later,
+        /// so the Director never waits on a card that is gone.</summary>
+        private static void SystemClose() { Later(); }
+
+        /// <summary>A card button. The Director answers with OpenCard (next card) or CloseCard; if
+        /// it does neither, the press still ends the card - a button must never go dead.</summary>
+        private static void Press(int index)
+        {
+            if (!_open || _spec == null) return;
+            var spec = _spec;
+            if (spec.Buttons == null || spec.Buttons.Length == 0) { Later(); return; }
+            try { CommitFields(); } catch { }
+            int gen = _gen;
+            var cb = spec.OnButton;
+            if (cb != null)
+            {
+                try { cb(index); }
+                catch (Exception e) { UIALog.Warn("TutorialCoach: OnButton(" + index + ") failed: " + e.Message); }
+            }
+            if (_open && _gen == gen) CloseCard();
+        }
+
+        private static void PressPrimary()
+        {
+            if (_spec == null) return;
+            if (_spec.Buttons == null || _spec.Buttons.Length == 0) { Later(); return; }
+            Press(Mathf.Clamp(_spec.PrimaryIndex, 0, _spec.Buttons.Length - 1));
+        }
 
         // ================= per-frame pump =================
 
         /// <summary>Pumped every frame from StationeersUIMod.Update (like the Control Center).
-        /// Drives the window glass, the demo stage, the theme poll, and the two nav keys.</summary>
+        /// Drives the glass, the demo, the anchor ring, the theme poll and the keys (Esc, Enter,
+        /// and the F10 key under a callout).</summary>
         internal static void Update()
         {
             if (!_open) return;
 
-            StyleWindowPanel();
+            StylePanels();
             // Keep the pause button honest with no event (a client joining flips CanOwnPause
             // silently) - two dirty-guarded setters, F10 does the same.
             PaintChip();
-
-            if (_demo != null)
-            {
-                try { _demo.Tick(); }
-                catch (Exception e)
-                {
-                    UIALog.Warn("Tutorial demo tick failed: " + e.Message);
-                    try { _demo.Destroy(); } catch { }   // never leave a frozen mock on screen
-                    _demo = null;
-                }
-            }
+            TickDemo();
             ToastTick();
+            TickRing();
+            CheckReplace();
 
             // If the world goes away (menu / loading / unload), never leave the card stranded -
             // and never leave the pause latched behind it.
-            if (!Guards.CanDraw()) { Close(); return; }
+            if (!Guards.CanDraw()) { SystemClose(); return; }
+            // A callout belongs to F10: it goes when the menu goes (its X, a tab click that closes...).
+            if (_mode == Mode.Callout && !UiaControlCenter.IsOpen) { SystemClose(); return; }
 
             // Follow the live theme exactly as UiaControlCenter does: poll the resolved-colour hash
             // and rebuild, throttled so an F9 colour-wheel drag cannot rebuild the canvas 60x/s.
@@ -194,164 +404,205 @@ namespace StationeersUIMod.UI.Menu.Tutorial
                 Restyle();
                 return;
             }
+            // uiadev toggled while a card is up: re-render with / without the edit affordances.
+            if (DevActive() != _builtDev) { SafeRender(); return; }
 
             // Edit mode: while a field owns the keyboard, Enter is a newline and Esc is TMP's own
-            // deselect - neither may page the tutorial. TMP deactivates a single-line field on the
-            // same frame it handles submit, so nav keys are also swallowed for one frame after a
-            // field loses focus - otherwise the Enter that commits the heading would ALSO page.
-            if (_devEdit && (TutorialTextField.Focused(_headingField) || TutorialTextField.Focused(_bodyField)))
+            // deselect - neither may act on the card. TMP deactivates a single-line field on the
+            // same frame it handles submit, so keys are also swallowed for one frame after a field
+            // loses focus - otherwise the Enter that commits the heading would ALSO press a button.
+            // The Lesson Editor (F8, ImGui) counts too: typing a line break or pressing Esc in one of
+            // its fields must never page or close the card underneath it.
+            if ((_builtDev && (TutorialTextField.Focused(_headingField) || TutorialTextField.Focused(_bodyField)))
+                || TutorialEditorWindow.OwnsKeyboard)
             {
                 _lastFieldFocusFrame = Time.frameCount;
                 return;
             }
-            if (_devEdit && Time.frameCount - _lastFieldFocusFrame <= 1) return;
+            if (Time.frameCount - _lastFieldFocusFrame <= 1) return;
 
-            // The console (the very window `uiatutorial` is typed into), vanilla input windows and
-            // the creative menu read the same raw Enter/Escape - while one is up, nav keys are not
-            // ours (CanDraw was already checked above, so this adds exactly those three).
+            // The console, vanilla input windows and the creative menu read the same raw keys -
+            // while one is up, nav keys are not ours (CanDraw was already checked above).
             if (!Guards.CanToggleMenus()) return;
 
-            // The Handbook viewer stacks ABOVE the coach (sort 5700 vs 5600) and reads the same raw
-            // key state this same frame - while it is up, Escape/Enter belong to it, not to us.
+            // The Handbook viewer stacks ABOVE the coach (5700 vs 5600) and reads the same raw key
+            // state this same frame - while it is up, Escape/Enter belong to it, not to us.
             if (HandbookViewer.IsOpen) return;
 
             if (Input.GetKeyDown(KeyCode.Escape))
             {
                 // Vanilla's Escape binding fires on key-UP: starve it until the key is physically
-                // released, or the pause menu opens over the world this Close just revealed.
+                // released, or the pause menu opens over the world this close just revealed.
                 ModalInputChain.BeginEscSwallow();
-                Close();
+                Later();
                 return;
             }
-            if (Input.GetKeyDown(KeyCode.Return) || Input.GetKeyDown(KeyCode.KeypadEnter)) { Next(); return; }
-            // Nothing else is global on purpose: Backspace must stay a text-edit key, and arrow
-            // keys belong to the fields.
+            // Under a callout the F10 key closes the tour AND the menu: this Update runs before the
+            // plugin's F10 toggle check, which then sees the coach closed and toggles F10 shut.
+            if (_mode == Mode.Callout && MenuKeyDown()) { Later(); return; }
+            if (Time.unscaledTime - _openedAt < EnterGuardSec) return;
+            if (Input.GetKeyDown(KeyCode.Return) || Input.GetKeyDown(KeyCode.KeypadEnter)) { PressPrimary(); return; }
+            // Nothing else is global on purpose: Backspace must stay a text-edit key, and arrow keys
+            // belong to the fields.
         }
 
-        // ================= navigation =================
-
-        private static TutorialStep Current()
+        private static bool MenuKeyDown()
         {
-            var all = TutorialSteps.All;
-            if (all == null || all.Count == 0) return null;
-            return all[Mathf.Clamp(_index, 0, all.Count - 1)];
+            try { return UIAConfig.SettingsWindowKey != null && Input.GetKeyDown(UIAConfig.SettingsWindowKey.Value); }
+            catch { return false; }
         }
 
-        private static void Next()
+        private static bool DevActive()
         {
-            CaptureFields();
-            var all = TutorialSteps.All;
-            if (all == null || all.Count == 0) { Close(); return; }
-            if (_index >= all.Count - 1) { Finish(); return; }
-            _index++;
-            RenderStep();
+            try { return UiaDevMode.Active; } catch { return false; }
         }
 
-        private static void Back()
+        private static void TickDemo()
         {
-            CaptureFields();
-            if (_index <= 0) return;
-            _index--;
-            RenderStep();
+            if (_mode == Mode.Callout)
+            {
+                if (_calloutDemo == null || _calloutDemoArea == null || !_calloutDemoArea.activeSelf) return;
+                try { _calloutDemo.Tick(); }
+                catch (Exception e)
+                {
+                    UIALog.Warn("Tutorial callout demo tick failed: " + e.Message);
+                    try { _calloutDemo.Destroy(); } catch { }
+                    _calloutDemo = null;
+                    _calloutDemoArea.SetActive(false);
+                }
+                return;
+            }
+            if (_demo == null || _mode != Mode.Card || _demoArea == null || !_demoArea.activeSelf) return;
+            try { _demo.Tick(); }
+            catch (Exception e)
+            {
+                UIALog.Warn("Tutorial demo tick failed: " + e.Message);
+                try { _demo.Destroy(); } catch { }   // never leave a frozen mock on screen
+                _demo = null;
+            }
         }
 
-        private static void Replay()
+        private static void TickRing()
         {
-            CaptureFields();
-            _index = 0;
-            RenderStep();
+            if (_ringGroup == null || _ring == null || !_ring.gameObject.activeSelf) return;
+            float s = 0.5f + 0.5f * Mathf.Sin(Time.unscaledTime * RingPulseHz * 2f * Mathf.PI);
+            float a = Mathf.Lerp(0.35f, 1f, s);
+            if (Mathf.Abs(_ringGroup.alpha - a) > 0.002f) _ringGroup.alpha = a;
         }
 
-        /// <summary>Next on the last step: the player has seen the whole thing.</summary>
-        private static void Finish()
+        /// <summary>The CanvasScaler resolves a frame after the canvas is built, and the screen can
+        /// resize under a card: re-place the scrim hole / card / callout whenever the scale moves.</summary>
+        private static void CheckReplace()
         {
-            try { if (UIAConfig.TutorialCompleted != null) UIAConfig.TutorialCompleted.Value = true; }
-            catch (Exception e) { UIALog.Warn("TutorialCompleted write failed: " + e.Message); }
-            Close();
-        }
-
-        /// <summary>Skip counts as shown (confirmed policy, plan section 12.3): GuideShown was
-        /// already set by the first-run trigger, so we only close. TutorialCompleted stays false -
-        /// that flag means "read to the end", and the Guide tab's Replay button is the re-entry.</summary>
-        private static void Skip()
-        {
-            Close();
+            if (_canvas == null) return;
+            if (Mathf.Approximately(_canvas.scaleFactor, _placedScale)
+                && Screen.width == _placedW && Screen.height == _placedH) return;
+            Place();
         }
 
         // ================= build =================
-
-        private static float WindowHeight(bool devEdit) { return devEdit ? WinHEdit : WinHRead; }
 
         private static void EnsureBuilt()
         {
             if (_root != null) return;
 
-            _builtDevEdit = _devEdit;
-
             _root = new GameObject("UIAscended_TutorialCoach");
             UnityEngine.Object.DontDestroyOnLoad(_root);
-            var canvas = _root.AddComponent<Canvas>();
-            canvas.renderMode = RenderMode.ScreenSpaceOverlay;
-            canvas.sortingOrder = 5600;   // above the Control Center (5200), below tooltips (6000)
+            _canvas = _root.AddComponent<Canvas>();
+            _canvas.renderMode = RenderMode.ScreenSpaceOverlay;
+            _canvas.sortingOrder = CardSortOrder;   // 5600 card / 5300 callout, set per render
+            // The glass materials read the extra vertex streams (the UiaControlCenter opt-in).
+            _canvas.additionalShaderChannels |= AdditionalCanvasShaderChannels.TexCoord1
+                | AdditionalCanvasShaderChannels.TexCoord2
+                | AdditionalCanvasShaderChannels.TexCoord3
+                | AdditionalCanvasShaderChannels.Normal
+                | AdditionalCanvasShaderChannels.Tangent;
             var scaler = _root.AddComponent<CanvasScaler>();
             scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
             scaler.referenceResolution = new Vector2(1920f, 1080f);
             scaler.matchWidthOrHeight = 0.5f;
             _root.AddComponent<GraphicRaycaster>();   // the card's own controls are clickable
+            _rootRt = (RectTransform)_root.transform;
 
-            // Full-screen scrim: absorbs every click behind the card (it does not itself close).
-            UiaUi.Panel(_root.transform, UiaTheme.Scrim, "scrim");
+            // Scrim: one full-screen panel, or four around a hole. Both absorb clicks (they do not
+            // themselves close anything).
+            _scrimFull = UiaUi.Panel(_root.transform, UiaTheme.Scrim, "scrim");
+            _scrimTop = ScrimPart("scrim-top");
+            _scrimBottom = ScrimPart("scrim-bottom");
+            _scrimLeft = ScrimPart("scrim-left");
+            _scrimRight = ScrimPart("scrim-right");
 
-            var winGo = UiaUi.Go("window", _root.transform);
-            _window = (RectTransform)winGo.transform;
-            _window.anchorMin = _window.anchorMax = new Vector2(0.5f, 0.5f);
-            _window.pivot = new Vector2(0.5f, 0.5f);
-            _window.sizeDelta = new Vector2(WinW, WindowHeight(_devEdit));
+            BuildCardWindow();
+            BuildCalloutWindow();
+
+            _builtThemeHash = UiaMenuTheme.StyleHash();
+            _placedScale = -1f;
+            _root.SetActive(false);
+        }
+
+        private static Image ScrimPart(string name)
+        {
+            var img = UiaUi.Image(_root.transform, UiaTheme.Scrim, name);
+            img.sprite = null;                        // full-bleed pieces stay sharp-cornered
+            img.type = Image.Type.Simple;
+            var rt = img.rectTransform;
+            rt.anchorMin = rt.anchorMax = new Vector2(0.5f, 0.5f);
+            rt.pivot = new Vector2(0.5f, 0.5f);
+            img.gameObject.SetActive(false);
+            return img;
+        }
+
+        private static void BuildCardWindow()
+        {
+            var winGo = UiaUi.Go("card", _root.transform);
+            _card = (RectTransform)winGo.transform;
+            _card.anchorMin = _card.anchorMax = new Vector2(0.5f, 0.5f);
+            _card.pivot = new Vector2(0.5f, 0.5f);
+            _card.sizeDelta = new Vector2(WinW, 614f);
             // A REAL HUD glass panel, like the Control Center's window - it carries the F9 effect
             // stack (glow halo, edge light, ripple) so the card reads as part of the visor.
-            _windowPanel = winGo.AddComponent<UI.Hud.PanelGraphic>();
-            _windowPanel.raycastTarget = true;
-            _windowPanel.color = UiaTheme.Window;
-            _windowPanel.BorderColor = UiaTheme.Border;
-            StyleWindowPanel();
-            UiaUi.VLayout(_window, UiaTheme.Gap, (int)UiaTheme.Pad, (int)UiaTheme.Pad,
+            _cardPanel = winGo.AddComponent<PanelGraphic>();
+            _cardPanel.raycastTarget = true;
+            _cardPanel.color = UiaTheme.Window;
+            _cardPanel.BorderColor = UiaTheme.Border;
+            _cardPanel.DenseFill = true;   // big panel + inner glow: the F10 "bowtie X" guard
+            UiaUi.VLayout(_card, UiaTheme.Gap, (int)UiaTheme.Pad, (int)UiaTheme.Pad,
                 (int)UiaTheme.Pad, (int)UiaTheme.Pad);
 
-            BuildTitleBar(_window);
+            BuildTitleBar(_card);
 
-            // Rule under the title, then the step's own heading - centered, above the animation
-            // (FlorpyDorp's 2026-08-02 layout: TITLE / rule / STEP NAME / demo / centered copy).
-            var ruleGo = UiaUi.Go("rule", _window);
+            // Rule under the title, then the card's heading - centred, above the animation
+            // (FlorpyDorp's 2026-08-02 layout: TITLE / rule / HEADING / demo / centred copy).
+            var ruleGo = UiaUi.Go("rule", _card);
             UiaUi.Size(ruleGo, 2f);
             var rule = ruleGo.AddComponent<Image>();
             rule.color = UiaTheme.AccentDim;
             rule.raycastTarget = false;
 
-            var headGo = UiaUi.Go("stepheading", _window);
-            UiaUi.Size(headGo, 30f);
-            _stepHeading = headGo.AddComponent<TextMeshProUGUI>();
-            _stepHeading.font = UiaTheme.Font();
-            _stepHeading.fontSize = UiaTheme.TitleSize + 2f;
-            _stepHeading.color = UiaTheme.Accent;
-            _stepHeading.alignment = TextAlignmentOptions.Center;
-            _stepHeading.raycastTarget = false;
-            _stepHeading.characterSpacing = 4f;
-            _stepHeading.fontStyle = FontStyles.Bold;
+            var headGo = UiaUi.Go("heading", _card);
+            UiaUi.Size(headGo, HeadingH);
+            _cardHeading = headGo.AddComponent<TextMeshProUGUI>();
+            _cardHeading.font = UiaTheme.Font();
+            _cardHeading.fontSize = UiaTheme.TitleSize + 2f;
+            _cardHeading.color = UiaTheme.Accent;
+            _cardHeading.alignment = TextAlignmentOptions.Center;
+            _cardHeading.raycastTarget = false;
+            _cardHeading.richText = false;
+            _cardHeading.characterSpacing = 4f;
+            _cardHeading.fontStyle = FontStyles.Bold;
+            UiaControls.FitText(_cardHeading, 12f, false);
 
-            BuildDemoArea(_window);
+            BuildDemoArea(_card);
 
-            var bodyGo = UiaUi.Go("body", _window);
-            _bodyHost = (RectTransform)bodyGo.transform;
-            UiaUi.Size(bodyGo, flexH: 1f);
-            UiaUi.VLayout(_bodyHost, 6f);
+            var bodyGo = UiaUi.Go("body", _card);
+            _cardBody = (RectTransform)bodyGo.transform;
+            UiaUi.Size(bodyGo, BodyReadH);
+            UiaUi.VLayout(_cardBody, 6f);
 
-            var navGo = UiaUi.Go("nav", _window);
-            _navHost = (RectTransform)navGo.transform;
+            var navGo = UiaUi.Go("nav", _card);
+            _cardNav = (RectTransform)navGo.transform;
             UiaUi.Size(navGo, NavH);
-            UiaUi.HLayout(_navHost, UiaTheme.Gap, 0, 0, 0, 0, TextAnchor.MiddleLeft);
-
-            _builtThemeHash = UiaMenuTheme.StyleHash();
-            _root.SetActive(false);
+            UiaUi.HLayout(_cardNav, UiaTheme.Gap, 0, 0, 0, 0, TextAnchor.MiddleCenter);
         }
 
         private static void BuildTitleBar(RectTransform parent)
@@ -360,8 +611,8 @@ namespace StationeersUIMod.UI.Menu.Tutorial
             UiaUi.Size(barGo, UiaTheme.TitleH);
             var bar = (RectTransform)barGo.transform;
 
-            // TRUE-centered title (FlorpyDorp's 2026-08-02 layout) - not an HLayout child, or the
-            // right-side buttons would shove it off center: a full-bleed centered label with the
+            // TRUE-centred title (FlorpyDorp's 2026-08-02 layout) - not an HLayout child, or the
+            // right-side buttons would shove it off centre: a full-bleed centred label with the
             // button cluster anchored to the right edge on top of it.
             var title = UiaUi.Text(bar, "UI ASCENDED TUTORIAL", UiaTheme.TitleSize, UiaTheme.Text,
                 TextAlignmentOptions.Center);
@@ -370,33 +621,38 @@ namespace StationeersUIMod.UI.Menu.Tutorial
             title.fontStyle = FontStyles.Bold;
 
             var btnsGo = UiaUi.Go("titlebtns", bar);
-            var btns = (RectTransform)btnsGo.transform;
-            btns.anchorMin = new Vector2(1f, 0.5f);
-            btns.anchorMax = new Vector2(1f, 0.5f);
-            btns.pivot = new Vector2(1f, 0.5f);
-            btns.anchoredPosition = Vector2.zero;
-            btns.sizeDelta = new Vector2(76f, 30f);
-            UiaUi.HLayout(btns, UiaTheme.Gap, 0, 0, 0, 0, TextAnchor.MiddleRight);
+            _titleBtns = (RectTransform)btnsGo.transform;
+            _titleBtns.anchorMin = new Vector2(1f, 0.5f);
+            _titleBtns.anchorMax = new Vector2(1f, 0.5f);
+            _titleBtns.pivot = new Vector2(1f, 0.5f);
+            _titleBtns.anchoredPosition = Vector2.zero;
+            _titleBtns.sizeDelta = new Vector2(76f, 30f);
+            UiaUi.HLayout(_titleBtns, UiaTheme.Gap, 0, 0, 0, 0, TextAnchor.MiddleRight);
+
+            // Dev-only EDIT (uiadev): jumps the lesson editor to this card's step.
+            var edit = UiaControls.Button(_titleBtns, "EDIT", OpenEditor, EditBtnW, 30f, UiaControls.ButtonStyle.Panel);
+            _editBtnCard = edit != null ? edit.gameObject : null;
+            if (_editBtnCard != null) _editBtnCard.SetActive(false);
 
             // The pause control, F10-parity: lit while OUR latch holds the freeze, GREYED when a
             // pause cannot be owned (multiplayer, or vanilla already paused). The button state IS
             // the status - no "game is running" prose (FlorpyDorp 2026-08-02). Vanilla's own
             // PauseIcon sprite when the runtime grab finds it, ASCII "||" otherwise.
-            _pauseBtn = UiaControls.Button(btns, "||", TogglePause, 34f, 30f,
+            _pauseBtn = UiaControls.Button(_titleBtns, "||", TogglePause, 34f, 30f,
                 UiaControls.ButtonStyle.Panel);
             UiaControls.SetButtonIcon(_pauseBtn, Core.VanillaIcons.PauseIcon(), 13f);
 
-            UiaControls.Button(btns, "X", Close, 34f, 30f, UiaControls.ButtonStyle.Panel);
+            UiaControls.Button(_titleBtns, "X", Later, 34f, 30f, UiaControls.ButtonStyle.Panel);
             PaintChip();
         }
 
         private static void BuildDemoArea(RectTransform parent)
         {
-            var hostGo = UiaUi.Go("demo-area", parent);
-            UiaUi.Size(hostGo, DemoH);
+            _demoArea = UiaUi.Go("demo-area", parent);
+            UiaUi.Size(_demoArea, DemoH);
 
             // Framed backdrop (behind the stage, so the demo draws on top).
-            var frameGo = UiaUi.Go("demo-frame", hostGo.transform);
+            var frameGo = UiaUi.Go("demo-frame", _demoArea.transform);
             var frame = (RectTransform)frameGo.transform;
             frame.anchorMin = frame.anchorMax = new Vector2(0.5f, 0.5f);
             frame.pivot = new Vector2(0.5f, 0.5f);
@@ -408,7 +664,7 @@ namespace StationeersUIMod.UI.Menu.Tutorial
             UiaImages.Round(frameImg);
             frameGo.AddComponent<UiaGlassSkin>();   // themed edge light / ripple, no halo
 
-            var stageGo = UiaUi.Go("demo-stage", hostGo.transform);
+            var stageGo = UiaUi.Go("demo-stage", _demoArea.transform);
             var stage = (RectTransform)stageGo.transform;
             stage.anchorMin = stage.anchorMax = new Vector2(0.5f, 0.5f);
             stage.pivot = new Vector2(0.5f, 0.5f);
@@ -422,336 +678,813 @@ namespace StationeersUIMod.UI.Menu.Tutorial
                 _demo = null;
                 UIALog.Warn("TutorialDemoStage.Create failed (the coach still works, minus art): " + e.Message);
             }
+            _demoArea.SetActive(false);
         }
 
-        /// <summary>Push this frame's theme colour + the F9 global effect stack onto the window
-        /// glass, exactly as a HUD box updates each frame. Every setter is dirty-guarded.</summary>
-        private static void StyleWindowPanel()
+        private static void BuildCalloutWindow()
         {
-            if (_windowPanel == null || _window == null) return;
-            var size = _window.sizeDelta;
-            float corner = UI.Hud.HudConfig.CornerRadius != null ? UI.Hud.HudConfig.CornerRadius.Value : 10f;
-            _windowPanel.color = UiaTheme.Window;
-            _windowPanel.BorderColor = UiaTheme.Border;
-            _windowPanel.BorderWidth = UI.Hud.HudConfig.BorderWidth != null ? UI.Hud.HudConfig.BorderWidth.Value : 1.4f;
-            _windowPanel.SetShape(size.x, size.y, corner);
-            // Material-driven Tier B/C only look right while the HUD FX clock runs; frost is
-            // CONSUMED when someone else keeps the backdrop alive, never demanded (single-writer
-            // flag - see Close()).
-            bool fxLive = UI.Hud.HudSystem.FxClockLive;
-            UI.Hud.HudGlobalGlass.Apply(_windowPanel, includeGlow: true, wantFrost: fxLive, wantTierB: fxLive);
+            var go = UiaUi.Go("callout", _root.transform);
+            _callout = (RectTransform)go.transform;
+            _callout.anchorMin = _callout.anchorMax = new Vector2(0.5f, 0.5f);
+            _callout.pivot = new Vector2(0.5f, 0.5f);
+            _callout.sizeDelta = new Vector2(CalloutW, CalloutH);
+            _calloutPanel = go.AddComponent<PanelGraphic>();
+            _calloutPanel.raycastTarget = true;
+            _calloutPanel.color = UiaTheme.Window;
+            _calloutPanel.BorderColor = UiaTheme.Border;
+
+            var contentGo = UiaUi.Go("content", _callout);
+            _calloutContent = (RectTransform)contentGo.transform;
+            UiaUi.Fill(_calloutContent, CalloutPad);
+            UiaUi.VLayout(_calloutContent, 6f);
+
+            // Optional mini demo (a step's DemoId, e.g. the themes callout): the strip's 150x76 mini
+            // layout, OUTSIDE the per-render content (which is cleared each card) - the content
+            // reserves a spacer for it. Its own stage instance (one per host, contract s5).
+            _calloutDemoArea = UiaUi.Go("callout-demo", _callout);
+            var cdRt = (RectTransform)_calloutDemoArea.transform;
+            cdRt.anchorMin = cdRt.anchorMax = new Vector2(0.5f, 1f);
+            cdRt.pivot = new Vector2(0.5f, 0.5f);
+            cdRt.sizeDelta = new Vector2(MiniW, MiniH);
+            cdRt.anchoredPosition = new Vector2(0f, -(CalloutPad + CalloutHeadH + 6f + MiniH * 0.5f));
+            var cdFrame = cdRt.gameObject.AddComponent<Image>();
+            cdFrame.color = UiaTheme.Panel;
+            cdFrame.raycastTarget = false;
+            UiaImages.Round(cdFrame);
+            var cdHostGo = UiaUi.Go("stage", cdRt);
+            var cdHost = UiaUi.Fill((RectTransform)cdHostGo.transform);
+            try { _calloutDemo = TutorialDemoStage.Create(cdHost); }
+            catch (Exception e)
+            {
+                _calloutDemo = null;
+                UIALog.Warn("TutorialDemoStage.Create (callout) failed: " + e.Message);
+            }
+            _calloutDemoArea.SetActive(false);
+
+            // The drawn pointer toward the anchor (never a glyph).
+            var pGo = UiaUi.Go("pointer", _callout);
+            _pointer = (RectTransform)pGo.transform;
+            _pointer.anchorMin = _pointer.anchorMax = new Vector2(0.5f, 0.5f);
+            _pointer.pivot = new Vector2(0.5f, 0.5f);
+            _pointer.sizeDelta = new Vector2(PointerSize, PointerSize);
+            _pointerG = pGo.AddComponent<TriangleGraphic>();
+            _pointerG.raycastTarget = false;
+            _pointerG.color = UiaTheme.Border;
+            _pointerG.Configure(true, PointerSize);
+            pGo.SetActive(false);
+
+            // The anchor ring: an accent outline around the F10 anchor, on THIS canvas (above F10).
+            var rGo = UiaUi.Go("anchor-ring", _root.transform);
+            _ring = (RectTransform)rGo.transform;
+            _ring.anchorMin = _ring.anchorMax = new Vector2(0.5f, 0.5f);
+            _ring.pivot = new Vector2(0.5f, 0.5f);
+            _ringGroup = rGo.AddComponent<CanvasGroup>();
+            _ringGroup.interactable = false;
+            _ringGroup.blocksRaycasts = false;
+            _ringG = rGo.AddComponent<PanelGraphic>();
+            _ringG.raycastTarget = false;
+            _ringG.color = new Color(0f, 0f, 0f, 0f);
+            _ringG.BorderColor = UiaTheme.Accent;
+            _ringG.BorderWidth = 2.4f;
+            _ringG.Glow = 0.6f;
+            _ringG.GlowWidth = 10f;
+            rGo.SetActive(false);
+
+            go.SetActive(false);
         }
 
-        /// <summary>Rebuild the whole card after a live theme change (kit widgets freeze their
-        /// colours at build time). Preserves step, mode and any in-progress edit text; the demo
-        /// stage is recreated and re-Shown, so a theme drag mid-demo restarts that loop.</summary>
+        /// <summary>Push this frame's theme colour + the F9 global effect stack onto the live window
+        /// glass, exactly as a HUD box updates each frame. Every setter is dirty-guarded.</summary>
+        private static void StylePanels()
+        {
+            if (_mode == Mode.Card) StyleGlass(_cardPanel, _card);
+            else if (_mode == Mode.Callout) StyleGlass(_calloutPanel, _callout);
+        }
+
+        private static void StyleGlass(PanelGraphic panel, RectTransform rt)
+        {
+            if (panel == null || rt == null) return;
+            var size = rt.sizeDelta;
+            float corner = HudConfig.CornerRadius != null ? HudConfig.CornerRadius.Value : 10f;
+            panel.color = UiaTheme.Window;
+            panel.BorderColor = UiaTheme.Border;
+            panel.BorderWidth = HudConfig.BorderWidth != null ? HudConfig.BorderWidth.Value : 1.4f;
+            panel.SetShape(size.x, size.y, corner);
+            // The shared tutorial glass (TutorialStrip.ApplyGlass): the analytic SDF panel the HUD
+            // boxes use, the mesh without glow layers as the fallback. On the mesh path the inner
+            // glow FOLDS the dense interior of a panel this shape - the 2026-09-26 "X": dark wedges
+            // into every corner of the 380x200 callout, thinner slivers on the 720x614 card. Material
+            // Tier B/C still ride the running FX clock; frost is CONSUMED, never demanded
+            // (single-writer flag - see CloseInternal()). No fade: these panels show via SetActive.
+            TutorialStrip.ApplyGlass(panel);
+        }
+
+        /// <summary>Rebuild the whole canvas after a live theme change (kit widgets freeze their
+        /// colours at build time). Keeps the spec, mode, anchor and the pause; in-place dev edits
+        /// are committed first. The demo stage is recreated, so a theme drag restarts its loop.</summary>
         private static void Restyle()
         {
             _lastRestyle = Time.unscaledTime;
+            try { CommitFields(); } catch { }
             bool wasOpen = _open;
-            CaptureFields();
             DestroyRoot();
-            EnsureBuilt();
-            if (_root == null) return;
+            try { EnsureBuilt(); }
+            catch (Exception e)
+            {
+                UIALog.Error("TutorialCoach restyle rebuild failed: " + e);
+                try { DestroyRoot(); } catch { }
+            }
+            if (_root == null)
+            {
+                if (wasOpen) SystemClose();   // no window: never hold the modal / pause for nothing
+                return;
+            }
             if (!wasOpen) return;
             _root.SetActive(true);
-            RenderStep();
+            SafeRender();
         }
 
-        // ================= per-step render =================
+        // ================= render =================
 
-        private static void RenderStep()
+        private static void SafeRender()
         {
-            if (_bodyHost == null || _navHost == null) return;
-            var all = TutorialSteps.All;
-            if (all == null || all.Count == 0) return;
-            _index = Mathf.Clamp(_index, 0, all.Count - 1);
-            var step = all[_index];
-
-            ShowDemo(step.DemoId);
-
-            Clear(_bodyHost);
-            Clear(_navHost);
-            _bodyLabel = null;
-            _headingField = null;
-            _bodyField = null;
-            _toast = null;
-
-            if (_stepHeading != null)
-                _stepHeading.text = Resolve(TutorialTextStore.Heading(step)).ToUpperInvariant();
-
-            if (_devEdit) BuildEditBody(step, all.Count);
-            else BuildReadBody(step, all.Count);
-            BuildNav(all.Count);
-            PaintChip();
+            try { Render(); }
+            catch (Exception e)
+            {
+                _rendering = false;
+                UIALog.Error("TutorialCoach render failed: " + e);
+                SystemClose();
+            }
         }
 
-        private static void BuildReadBody(TutorialStep step, int count)
+        private static void Render()
         {
-            // The step heading lives ABOVE the demo now (_stepHeading, set in RenderStep) -
-            // the body is just the centered copy.
-            var textGo = UiaUi.Go("copy", _bodyHost);
+            if (_root == null || _spec == null) return;
+            try { CommitFields(); } catch { }   // typed text only (see Present)
+            _rendering = true;
+            try
+            {
+                _builtDev = DevActive();
+                _bodyLabel = null;
+                _headingField = null;
+                _bodyField = null;
+                _editHeadingKey = null;
+                _editBodyKey = null;
+                _headingDirty = _bodyDirty = false;   // new fields, seeded from the store
+                _toast = null;
+                _countLabel = null;
+
+                bool card = _mode == Mode.Card;
+                _canvas.sortingOrder = card ? CardSortOrder : CalloutSortOrder;
+                if (_card != null && _card.gameObject.activeSelf != card) _card.gameObject.SetActive(card);
+                if (_callout != null && _callout.gameObject.activeSelf == card) _callout.gameObject.SetActive(!card);
+                if (card) { SetActive(_ring, false); SetActive(_pointer, false); }
+                if (card) RenderCard();
+                else RenderCallout();
+                Place();
+                PaintChip();
+            }
+            finally { _rendering = false; }
+        }
+
+        private static void RenderCard()
+        {
+            var spec = _spec;
+            if (_cardHeading != null) _cardHeading.text = Upper(_liveHeading);
+
+            bool demo = _demo != null && !string.IsNullOrEmpty(spec.DemoId) && KnownDemo(spec.DemoId);
+            if (_demoArea != null && _demoArea.activeSelf != demo) _demoArea.SetActive(demo);
+            if (demo) ShowDemo(spec.DemoId);
+
+            bool edit = _builtDev && !string.IsNullOrEmpty(spec.StepId);
+            if (_editBtnCard != null && _editBtnCard.activeSelf != edit) _editBtnCard.SetActive(edit);
+            if (_titleBtns != null)
+                _titleBtns.sizeDelta = new Vector2(edit ? 76f + UiaTheme.Gap + EditBtnW : 76f, 30f);
+
+            Clear(_cardBody);
+            Clear(_cardNav);
+            float bodyH = _builtDev ? BodyEditH : BodyReadH;
+            UiaUi.Size(_cardBody.gameObject, bodyH);
+            if (_builtDev) BuildEditBody(_cardBody, spec);
+            else _bodyLabel = BuildReadLabel(_cardBody, DisplayBody(), UiaTheme.LabelSize, TextAlignmentOptions.Top, 96f);
+            BuildButtons(_cardNav, spec, NavH - 4f, WinW - UiaTheme.Pad * 2f, false);
+
+            int children = demo ? 6 : 5;
+            float h = UiaTheme.Pad * 2f + UiaTheme.TitleH + 2f + HeadingH + bodyH + NavH
+                + (demo ? DemoH : 0f) + UiaTheme.Gap * (children - 1);
+            _card.sizeDelta = new Vector2(WinW, h);
+        }
+
+        private static void RenderCallout()
+        {
+            var spec = _spec;
+            Clear(_calloutContent);
+
+            // Header row: heading + (dev) EDIT + a drawn X.
+            var head = UiaUi.Go("head", _calloutContent);
+            UiaUi.Size(head, CalloutHeadH);
+            UiaUi.HLayout((RectTransform)head.transform, 6f, 0, 0, 0, 0, TextAnchor.MiddleLeft);
+            var ht = UiaUi.Text(head.transform, Upper(_liveHeading), UiaTheme.SmallSize, UiaTheme.Accent,
+                TextAlignmentOptions.Left);
+            ht.richText = false;
+            ht.fontStyle = FontStyles.Bold;
+            ht.characterSpacing = 4f;
+            UiaControls.FitText(ht, 9f, false);
+            var hle = ht.gameObject.AddComponent<LayoutElement>();
+            hle.flexibleWidth = 1f;
+            hle.minWidth = 0f;
+            if (_builtDev && !string.IsNullOrEmpty(spec.StepId))
+            {
+                var eb = UiaControls.Button(head.transform, "EDIT", OpenEditor, 48f, 22f, UiaControls.ButtonStyle.Panel);
+                ShrinkLabel(eb, UiaTheme.SmallSize);
+            }
+            var x = UiaControls.Button(head.transform, "", Later, 24f, 22f, UiaControls.ButtonStyle.Panel);
+            if (x != null) UiaIcons.SetButtonIcon(x, UiaIcon.X, 10f);
+
+            // Optional mini demo under the header (the callout grows 82 px to make room).
+            bool demo = _calloutDemo != null && !string.IsNullOrEmpty(spec.DemoId) && KnownDemo(spec.DemoId);
+            if (_calloutDemoArea != null && _calloutDemoArea.activeSelf != demo) _calloutDemoArea.SetActive(demo);
+            if (demo)
+            {
+                UiaUi.Size(UiaUi.Go("demo-space", _calloutContent), MiniH);
+                try { _calloutDemo.Show(spec.DemoId, GlyphFn, true); }
+                catch (Exception e) { UIALog.Warn("Tutorial callout demo '" + spec.DemoId + "' failed to show: " + e.Message); }
+            }
+
+            // Body copy (160-char budget): auto-shrinks rather than spilling out.
+            _bodyLabel = BuildReadLabel(_calloutContent, DisplayBody(), UiaTheme.SmallSize + 1f,
+                TextAlignmentOptions.TopLeft, 60f);
+
+            var nav = UiaUi.Go("nav", _calloutContent);
+            UiaUi.Size(nav, 28f);
+            UiaUi.HLayout((RectTransform)nav.transform, 6f, 0, 0, 0, 0, TextAnchor.MiddleCenter);
+            BuildButtons(nav.transform, spec, 26f, CalloutW - CalloutPad * 2f, true);
+
+            _callout.sizeDelta = new Vector2(CalloutW, demo ? CalloutH + MiniH + 6f : CalloutH);
+        }
+
+        private static TextMeshProUGUI BuildReadLabel(RectTransform host, string text, float size,
+            TextAlignmentOptions align, float slotH)
+        {
+            var textGo = UiaUi.Go("copy", host);
             var t = textGo.AddComponent<TextMeshProUGUI>();
             t.font = UiaTheme.Font();
-            t.fontSize = UiaTheme.LabelSize;
+            t.fontSize = size;
             t.color = UiaTheme.Text;
-            t.alignment = TextAlignmentOptions.Top;   // horizontally centered, top-anchored
+            t.alignment = align;
             t.raycastTarget = false;
             t.richText = false;                 // a '<' in dev-edited copy is text, not markup
             t.enableWordWrapping = true;
             t.overflowMode = TextOverflowModes.Overflow;
             t.margin = new Vector4(2f, 2f, 2f, 2f);
-            // Auto-size guards against a dev-edited step that runs long: it shrinks rather than
-            // spilling out of the card.
+            // Auto-size guards against copy that runs long: it shrinks rather than spilling out.
             t.enableAutoSizing = true;
-            t.fontSizeMin = 11f;
-            t.fontSizeMax = UiaTheme.LabelSize;
-            t.text = DisplayBody(step);
+            t.fontSizeMin = 10f;
+            t.fontSizeMax = size;
+            t.text = text ?? "";
             // An EXPLICIT preferred height, not the TMP's own: auto-sizing text inside a layout
             // group whose height it also feeds is the classic TMP oscillation. The label owns a
             // fixed slot (plus any slack) and shrinks its glyphs inside it.
-            UiaUi.Size(textGo, 96f, flexH: 1f);
+            UiaUi.Size(textGo, slotH, flexH: 1f);
             var le = textGo.GetComponent<LayoutElement>();
-            if (le != null) le.minHeight = 60f;
-            _bodyLabel = t;
-
-            BuildProgressRow(count);
-
-            if (_index == count - 1) BuildFinishExtras();
+            if (le != null) le.minHeight = Mathf.Min(slotH, 40f);
+            return t;
         }
 
-        private static void BuildEditBody(TutorialStep step, int count)
+        /// <summary>The card's buttons, left to right, the primary one in the primary style. Widths
+        /// come from each label (measured with the real font) and share the row fairly.</summary>
+        private static void BuildButtons(Transform row, TCardSpec spec, float height, float rowW, bool small)
         {
-            _headingField = TutorialTextField.Make(_bodyHost, TutorialTextStore.Heading(step),
-                "Step heading", false, 80);
-            UiaUi.Size(_headingField.gameObject, UiaTheme.RowH);
-
-            _bodyField = TutorialTextField.Make(_bodyHost, TutorialTextStore.Body(step),
-                "Step body copy - ASCII only", true, 900);
-            UiaUi.Size(_bodyField.gameObject, 110f, flexH: 1f);
-            var ble = _bodyField.gameObject.GetComponent<LayoutElement>();
-            if (ble != null) ble.minHeight = 96f;
-
-            BuildProgressRow(count);
-
-            // Save / Revert / Reset row + the fading confirmation label.
-            var rowGo = UiaUi.Go("edit-actions", _bodyHost);
-            UiaUi.Size(rowGo, UiaTheme.RowH);
-            UiaUi.HLayout((RectTransform)rowGo.transform, UiaTheme.Gap, 0, 0, 0, 0, TextAnchor.MiddleLeft);
-            UiaControls.Button(rowGo.transform, "Save", DoSave, 92f, UiaTheme.RowH, UiaControls.ButtonStyle.Primary);
-            UiaControls.Button(rowGo.transform, "Revert step", DoRevertStep, 120f, UiaTheme.RowH);
-            UiaControls.Button(rowGo.transform, "Reset all", DoResetAll, 108f, UiaTheme.RowH, UiaControls.ButtonStyle.Danger);
-            _toast = UiaUi.Text(rowGo.transform, "", UiaTheme.SmallSize, UiaTheme.Good, TextAlignmentOptions.Left);
-            UiaUi.Size(_toast.gameObject, UiaTheme.RowH, 200f, flexW: 1f);
-            var tc = _toast.color; tc.a = 0f; _toast.color = tc;
-
-            // Literal token text - deliberately NOT run through Resolve().
-            UiaControls.Note(_bodyHost,
-                "Tokens: {UIA_Grid} {V:SmartStow} - ASCII only - saved to config/StationeersUIMod/Tutorial. "
-                + "Back/Next keeps your edits in memory; Save writes to disk.");
-        }
-
-        private static void BuildProgressRow(int count)
-        {
-            var rowGo = UiaUi.Go("progress", _bodyHost);
-            UiaUi.Size(rowGo, 20f);
-            UiaUi.HLayout((RectTransform)rowGo.transform, UiaTheme.Gap, 0, 0, 0, 0, TextAnchor.MiddleLeft);
-
-            var dotsGo = UiaUi.Go("dots", rowGo.transform);
-            UiaUi.Size(dotsGo, 20f, 200f, flexW: 1f);
-            UiaUi.HLayout((RectTransform)dotsGo.transform, 4f, 0, 0, 0, 0, TextAnchor.MiddleLeft);
-            for (int i = 0; i < count; i++)
+            var labels = spec.Buttons;
+            if (labels == null || labels.Length == 0)
             {
-                var dotGo = UiaUi.Go("dot", dotsGo.transform);
-                UiaUi.Size(dotGo, 8f, 8f, flexW: 0f);
-                var img = dotGo.AddComponent<Image>();
-                img.raycastTarget = false;
-                UiaImages.Round(img);
-                img.color = i == _index ? UiaTheme.Selected
-                          : (i < _index ? UiaTheme.AccentDim : UiaTheme.Off);
+                MakeButton(row, "Close", -1, height, true, rowW, small);
+                return;
             }
-
-            var lbl = UiaUi.Text(rowGo.transform, "Step " + (_index + 1) + " of " + count,
-                UiaTheme.SmallSize, UiaTheme.TextDim, TextAlignmentOptions.Right);
-            UiaUi.Size(lbl.gameObject, 20f, 130f, flexW: 0f);
+            int primary = Mathf.Clamp(spec.PrimaryIndex, 0, labels.Length - 1);
+            float each = (rowW - UiaTheme.Gap * (labels.Length - 1)) / labels.Length;
+            for (int i = 0; i < labels.Length; i++)
+                MakeButton(row, Tok(labels[i]), i, height, i == primary, each, small);
         }
 
-        /// <summary>Step 15's two extra affordances, above the nav row (plan section 6, step 15).</summary>
-        private static void BuildFinishExtras()
+        private static void MakeButton(Transform row, string label, int index, float height, bool primary,
+            float maxW, bool small)
         {
-            var rowGo = UiaUi.Go("finish-extras", _bodyHost);
-            UiaUi.Size(rowGo, UiaTheme.RowH);
-            UiaUi.HLayout((RectTransform)rowGo.transform, UiaTheme.Gap, 0, 0, 0, 0, TextAnchor.MiddleLeft);
-            UiaControls.Button(rowGo.transform, "Open the Designer Handbook", OpenHandbook, 250f, UiaTheme.RowH);
-            UiaControls.Button(rowGo.transform, "Replay tutorial", Replay, 150f, UiaTheme.RowH);
-            var spacer = UiaUi.Go("spacer", rowGo.transform);
-            UiaUi.Size(spacer, UiaTheme.RowH, 0f, flexW: 1f);
+            int idx = index;
+            Action click;
+            if (idx < 0) click = Later;
+            else click = () => Press(idx);
+            var btn = UiaControls.Button(row, label ?? "", click, 120f, height,
+                primary ? UiaControls.ButtonStyle.Primary : UiaControls.ButtonStyle.Panel);
+            if (btn == null) return;
+            var t = btn.GetComponentInChildren<TextMeshProUGUI>();
+            float w = 120f;
+            if (t != null)
+            {
+                t.richText = false;
+                if (small) t.fontSize = UiaTheme.SmallSize;
+                try { w = t.GetPreferredValues(label ?? "").x + (small ? 22f : 34f); } catch { }
+                UiaControls.FitText(t, 9f, false);   // no ellipsis: shrink inside the button
+            }
+            w = Mathf.Clamp(w, small ? 56f : 96f, Mathf.Max(56f, maxW));
+            var le = btn.GetComponent<LayoutElement>();
+            if (le != null) { le.preferredWidth = w; le.minWidth = w; }
         }
 
-        private static void BuildNav(int count)
+        private static void ShrinkLabel(UiaControls.UiaButton btn, float size)
         {
-            UiaControls.Button(_navHost, "Skip tutorial", Skip, 140f, NavH - 4f);
-
-            var spacer = UiaUi.Go("spacer", _navHost);
-            UiaUi.Size(spacer, NavH - 4f, 0f, flexW: 1f);
-
-            var back = UiaControls.Button(_navHost, "Back", Back, 100f, NavH - 4f);
-            if (back != null) back.SetEnabled(_index > 0);
-
-            bool last = _index >= count - 1;
-            UiaControls.Button(_navHost, last ? "Got it - start playing" : "Next", Next,
-                last ? 220f : 110f, NavH - 4f, UiaControls.ButtonStyle.Primary);
+            if (btn == null) return;
+            var t = btn.GetComponentInChildren<TextMeshProUGUI>();
+            if (t != null) t.fontSize = size;
         }
 
-        /// <summary>Point the stage at this step's scene. Steps 4 and 5 deliberately share the
-        /// belt-wheel scene (plan section 7); the stage's own Show() is a documented no-op when the
-        /// id is already on screen, so the loop keeps running across that boundary and we do not
-        /// need to de-dupe here.</summary>
         private static void ShowDemo(string demoId)
         {
             if (_demo == null || string.IsNullOrEmpty(demoId)) return;
-            try { _demo.Show(demoId); }
+            try { _demo.Show(demoId, GlyphFn, false); }
             catch (Exception e) { UIALog.Warn("Tutorial demo '" + demoId + "' failed to show: " + e.Message); }
         }
 
-        // ================= copy resolution =================
-
-        /// <summary>The body text to draw: the store's copy (override or shipped), with the
-        /// welcome step's multiplayer variant applied when we are NOT holding the pause, then all
-        /// glyph tokens resolved. The MP swap is skipped in edit mode and whenever the step has a
-        /// hand-written override - a dev editing that step must see exactly what they typed.</summary>
-        private static string DisplayBody(TutorialStep step)
+        private static bool KnownDemo(string id)
         {
-            if (step == null) return "";
-            string raw = TutorialTextStore.Body(step);
-            if (!_devEdit && step.Id == "welcome" && !PauseHeld()
-                && !TutorialTextStore.HasOverride(step.Id))
-                raw = raw.Replace(PausedLine, RunningLine);
-            return Resolve(raw);
+            try { return TutorialDemoStage.IsKnownDemo(id); }
+            catch { return false; }
+        }
+
+        // ================= placement =================
+
+        /// <summary>Scrim (hole), then the card or the callout (+ ring + pointer), in coach-canvas
+        /// local space (centre origin).</summary>
+        private static void Place()
+        {
+            if (_rootRt == null) return;
+            LayoutScrim();
+            if (_mode == Mode.Card) PlaceCard();
+            else if (_mode == Mode.Callout) PlaceCallout();
+            if (_canvas != null) _placedScale = _canvas.scaleFactor;
+            _placedW = Screen.width;
+            _placedH = Screen.height;
+        }
+
+        private static bool HoleWanted()
+        {
+            return _mode == Mode.Card && _spec != null && _spec.HasHole
+                && _spec.HoleScreenRect.width > 0.5f && _spec.HoleScreenRect.height > 0.5f;
+        }
+
+        private static void LayoutScrim()
+        {
+            bool card = _mode == Mode.Card;
+            bool hole = HoleWanted();
+            SetActive(_scrimFull, card && !hole);
+            SetActive(_scrimTop, hole);
+            SetActive(_scrimBottom, hole);
+            SetActive(_scrimLeft, hole);
+            SetActive(_scrimRight, hole);
+            if (!hole) return;
+            Rect c = _rootRt.rect;
+            Rect h = Expand(ScreenToLocal(_spec.HoleScreenRect), HoleMargin);
+            h = Rect.MinMaxRect(Mathf.Clamp(h.xMin, c.xMin, c.xMax), Mathf.Clamp(h.yMin, c.yMin, c.yMax),
+                Mathf.Clamp(h.xMax, c.xMin, c.xMax), Mathf.Clamp(h.yMax, c.yMin, c.yMax));
+            SetRect(_scrimTop, c.xMin, h.yMax, c.xMax, c.yMax);
+            SetRect(_scrimBottom, c.xMin, c.yMin, c.xMax, h.yMin);
+            SetRect(_scrimLeft, c.xMin, h.yMin, h.xMin, h.yMax);
+            SetRect(_scrimRight, h.xMax, h.yMin, c.xMax, h.yMax);
+        }
+
+        /// <summary>Centred; with a hole the card slides vertically off it when they would overlap
+        /// (clamped to the screen; stays centred if it cannot clear).</summary>
+        private static void PlaceCard()
+        {
+            if (_card == null) return;
+            Vector2 pos = Vector2.zero;
+            if (HoleWanted())
+            {
+                Rect hole = Expand(ScreenToLocal(_spec.HoleScreenRect), HoleMargin);
+                Vector2 size = _card.sizeDelta;
+                Rect c = _rootRt.rect;
+                var centred = new Rect(-size.x * 0.5f, -size.y * 0.5f, size.x, size.y);
+                if (centred.Overlaps(hole))
+                {
+                    const float gap = 16f;
+                    float y = hole.center.y < 0f
+                        ? hole.yMax + gap + size.y * 0.5f      // hole low: the card goes up
+                        : hole.yMin - gap - size.y * 0.5f;     // hole high: the card goes down
+                    float half = size.y * 0.5f;
+                    y = Mathf.Clamp(y, c.yMin + EdgeMargin + half, Mathf.Max(c.yMin + EdgeMargin + half, c.yMax - EdgeMargin - half));
+                    var moved = new Rect(-size.x * 0.5f, y - half, size.x, size.y);
+                    if (!moved.Overlaps(hole)) pos = new Vector2(0f, y);
+                }
+            }
+            _card.anchoredPosition = pos;
+        }
+
+        /// <summary>Beside the anchor: below, then right, left, above - the first that clears the
+        /// anchor inside the screen. Adds the pulsing ring on the anchor and the drawn pointer.</summary>
+        private static void PlaceCallout()
+        {
+            if (_callout == null) return;
+            Vector2 csize = _callout.sizeDelta;
+            float w = csize.x, h = csize.y;
+            bool hasAnchor = _anchorScreen.width > 0.5f && _anchorScreen.height > 0.5f;
+            if (!hasAnchor)
+            {
+                _callout.anchoredPosition = Vector2.zero;
+                if (_ring != null) _ring.gameObject.SetActive(false);
+                if (_pointer != null) _pointer.gameObject.SetActive(false);
+                return;
+            }
+            Rect c = _rootRt.rect;
+            Rect a = ScreenToLocal(_anchorScreen);
+            Rect keepOut = Expand(a, CalloutGap * 0.5f);
+            int side = -1;
+            Vector2 pos = Vector2.zero;
+            for (int s = 0; s < 4; s++)
+            {
+                Vector2 p = ClampCentre(CandidateCentre(s, a, w, h), w, h, c);
+                var r = new Rect(p.x - w * 0.5f, p.y - h * 0.5f, w, h);
+                if (r.Overlaps(keepOut)) continue;
+                side = s;
+                pos = p;
+                break;
+            }
+            if (side < 0) { side = 0; pos = ClampCentre(CandidateCentre(0, a, w, h), w, h, c); }
+            _callout.anchoredPosition = pos;
+
+            if (_ring != null && _ringG != null)
+            {
+                Rect ra = Expand(a, AnchorPad);
+                _ring.anchoredPosition = ra.center;
+                _ring.sizeDelta = ra.size;
+                _ringG.SetShape(ra.width, ra.height, Mathf.Min(8f, Mathf.Min(ra.width, ra.height) * 0.5f));
+                _ringG.BorderColor = UiaTheme.Accent;
+                _ring.gameObject.SetActive(true);
+                _ring.SetAsLastSibling();
+            }
+            PlacePointer(side, a, pos, w, h);
+        }
+
+        /// <summary>Side 0 below the anchor, 1 right of it, 2 left, 3 above.</summary>
+        private static Vector2 CandidateCentre(int side, Rect a, float w, float h)
+        {
+            switch (side)
+            {
+                case 0: return new Vector2(a.center.x, a.yMin - CalloutGap - h * 0.5f);
+                case 1: return new Vector2(a.xMax + CalloutGap + w * 0.5f, a.center.y);
+                case 2: return new Vector2(a.xMin - CalloutGap - w * 0.5f, a.center.y);
+                default: return new Vector2(a.center.x, a.yMax + CalloutGap + h * 0.5f);
+            }
+        }
+
+        private static Vector2 ClampCentre(Vector2 p, float w, float h, Rect c)
+        {
+            float hw = w * 0.5f, hh = h * 0.5f;
+            p.x = Mathf.Clamp(p.x, c.xMin + EdgeMargin + hw, Mathf.Max(c.xMin + EdgeMargin + hw, c.xMax - EdgeMargin - hw));
+            p.y = Mathf.Clamp(p.y, c.yMin + EdgeMargin + hh, Mathf.Max(c.yMin + EdgeMargin + hh, c.yMax - EdgeMargin - hh));
+            return p;
+        }
+
+        private static void PlacePointer(int side, Rect a, Vector2 calloutPos, float w, float h)
+        {
+            if (_pointer == null || _pointerG == null) return;
+            const float inset = 18f;
+            float off = PointerSize * 0.36f + 1f;   // the triangle's half-height, just outside the edge
+            Vector2 local;
+            float rot;
+            bool up;
+            switch (side)
+            {
+                case 0:   // callout below the anchor: pointer on its top edge, pointing up
+                    local = new Vector2(Mathf.Clamp(a.center.x - calloutPos.x, -w * 0.5f + inset, w * 0.5f - inset), h * 0.5f + off);
+                    rot = 0f; up = true; break;
+                case 1:   // right of the anchor: left edge, pointing left
+                    local = new Vector2(-w * 0.5f - off, Mathf.Clamp(a.center.y - calloutPos.y, -h * 0.5f + inset, h * 0.5f - inset));
+                    rot = 90f; up = true; break;
+                case 2:   // left of the anchor: right edge, pointing right
+                    local = new Vector2(w * 0.5f + off, Mathf.Clamp(a.center.y - calloutPos.y, -h * 0.5f + inset, h * 0.5f - inset));
+                    rot = -90f; up = true; break;
+                default:  // above the anchor: bottom edge, pointing down
+                    local = new Vector2(Mathf.Clamp(a.center.x - calloutPos.x, -w * 0.5f + inset, w * 0.5f - inset), -h * 0.5f - off);
+                    rot = 0f; up = false; break;
+            }
+            _pointerG.color = UiaTheme.Border;
+            _pointerG.Configure(up, PointerSize);
+            _pointer.anchoredPosition = local;
+            _pointer.localEulerAngles = new Vector3(0f, 0f, rot);
+            _pointer.gameObject.SetActive(true);
+        }
+
+        private static Rect ScreenToLocal(Rect screen)
+        {
+            Vector2 a, b;
+            RectTransformUtility.ScreenPointToLocalPointInRectangle(_rootRt, screen.min, null, out a);
+            RectTransformUtility.ScreenPointToLocalPointInRectangle(_rootRt, screen.max, null, out b);
+            return Rect.MinMaxRect(Mathf.Min(a.x, b.x), Mathf.Min(a.y, b.y), Mathf.Max(a.x, b.x), Mathf.Max(a.y, b.y));
+        }
+
+        private static Rect Expand(Rect r, float by)
+        {
+            return Rect.MinMaxRect(r.xMin - by, r.yMin - by, r.xMax + by, r.yMax + by);
+        }
+
+        private static void SetRect(Image img, float x0, float y0, float x1, float y1)
+        {
+            if (img == null) return;
+            var rt = img.rectTransform;
+            rt.sizeDelta = new Vector2(Mathf.Max(0f, x1 - x0), Mathf.Max(0f, y1 - y0));
+            rt.anchoredPosition = new Vector2((x0 + x1) * 0.5f, (y0 + y1) * 0.5f);
+        }
+
+        private static void SetActive(Component c, bool on)
+        {
+            if (c == null) return;
+            if (c.gameObject.activeSelf != on) c.gameObject.SetActive(on);
+        }
+
+        // ================= copy =================
+
+        private static string Tok(string s)
+        {
+            if (string.IsNullOrEmpty(s)) return s ?? "";
+            if (s.IndexOf('{') < 0) return s;
+            try { return TutorialTokens.Resolve(s); }
+            catch { return s; }
+        }
+
+        private static string Upper(string s) { return (s ?? "").ToUpperInvariant(); }
+
+        /// <summary>The body to draw: the live copy with its pause sentence swapped when the freeze
+        /// is not there - for the card's RunningLine when no pause can be owned (multiplayer), for
+        /// "Your game is still running." when single-player simply is not paused (auto-pause off, or
+        /// the player un-paused from the header). Replacement only; a body without a pause sentence
+        /// is returned unchanged.</summary>
+        private static string DisplayBody()
+        {
+            string body = _liveBody ?? "";
+            if (body.Length == 0) return body;
+            string replacement = null;
+            if (!CanOwnPauseSafe()) replacement = _spec != null ? Tok(_spec.RunningLine) : null;
+            if (string.IsNullOrEmpty(replacement) && !PauseHeld()) replacement = RunningFallback;
+            if (string.IsNullOrEmpty(replacement)) return body;
+            for (int i = 0; i < PauseSentences.Length; i++)
+            {
+                int at = body.IndexOf(PauseSentences[i], StringComparison.Ordinal);
+                if (at < 0) continue;
+                return body.Substring(0, at) + replacement + body.Substring(at + PauseSentences[i].Length);
+            }
+            return body;
         }
 
         private static void RepaintBodyText()
         {
-            if (_bodyLabel == null) return;
-            var step = Current();
-            if (step == null) return;
-            _bodyLabel.text = DisplayBody(step);
+            if (_bodyLabel == null || !_open) return;
+            _bodyLabel.text = DisplayBody();
         }
 
-        /// <summary>Replace every <c>{token}</c> with the player's CURRENT key glyph, in brackets.
-        /// Re-run on every step render, so a rebind between steps is picked up. Unresolvable
-        /// tokens degrade to their own inner name rather than throwing.</summary>
-        private static string Resolve(string s)
+        // ================= dev edit (uiadev) =================
+
+        private static void OpenEditor()
         {
-            if (string.IsNullOrEmpty(s)) return s ?? "";
-            if (s.IndexOf('{') < 0) return s;
-            var sb = new StringBuilder(s.Length + 24);
-            int pos = 0;
-            while (pos < s.Length)
-            {
-                int open = s.IndexOf('{', pos);
-                if (open < 0) { sb.Append(s, pos, s.Length - pos); break; }
-                int close = s.IndexOf('}', open + 1);
-                if (close < 0) { sb.Append(s, pos, s.Length - pos); break; }
-                sb.Append(s, pos, open - pos);
-                sb.Append(GlyphFor(s.Substring(open + 1, close - open - 1)));
-                pos = close + 1;
-            }
-            return sb.ToString();
+            string id = _spec != null ? _spec.StepId : null;
+            try { TutorialEditorWindow.OpenAt(id); }
+            catch (Exception e) { UIALog.Warn("TutorialEditorWindow.OpenAt failed: " + e.Message); }
         }
 
-        private static string GlyphFor(string token)
+        /// <summary>The key an in-place field edits for one line of the card: the spec's explicit key
+        /// (<see cref="TCardSpec.HeadingKey"/> / <see cref="TCardSpec.BodyKey"/> - the Director names
+        /// the variant it actually showed), else the step's default field via <see cref="EditKey"/>.
+        /// "" = composed text, read-only. An explicit key neither the step declares nor the shipped
+        /// copy knows is read-only too (writing it would create an orphan override).</summary>
+        private static string SpecKey(string explicitKey, string stepId, string field, string fallbackField)
         {
-            if (string.IsNullOrEmpty(token)) return "";
-            string inner = token;
-            string glyph = null;
+            if (explicitKey == null) return EditKey(stepId, field, fallbackField);
+            if (explicitKey.Length == 0) return null;
+            return KnownKey(explicitKey) ? explicitKey : null;
+        }
+
+        private static bool KnownKey(string key)
+        {
+            int bar = key.IndexOf('|');
+            if (bar <= 0 || bar >= key.Length - 1) return false;
+            TField f;
+            if (TryField(key.Substring(0, bar), key.Substring(bar + 1), out f)) return true;
+            try { return TutorialTextStore.HasDefault(key); }
+            catch { return false; }
+        }
+
+        /// <summary>The store key an in-place field edits, or null when this step owns no such field
+        /// (writing one would create an orphan key the exporter never emits). Headings fall back to
+        /// the step "title" - a Watch-mode card is headed by its step's title.</summary>
+        private static string EditKey(string stepId, string field, string fallbackField)
+        {
+            if (string.IsNullOrEmpty(stepId)) return null;
+            if (StepHasField(stepId, field)) return stepId + "|" + field;
+            if (fallbackField != null && StepHasField(stepId, fallbackField)) return stepId + "|" + fallbackField;
+            return null;
+        }
+
+        private static bool StepHasField(string stepId, string field)
+        {
+            TField f;
+            return TryField(stepId, field, out f);
+        }
+
+        /// <summary>Find a step's field by name; TField.Key may be the full "stepId|field" key or the
+        /// bare field name, both accepted.</summary>
+        private static bool TryField(string stepId, string field, out TField found)
+        {
+            found = default(TField);
             try
             {
-                if (token.StartsWith("V:", StringComparison.Ordinal))
+                var step = TutorialChapters.FindStep(stepId);
+                if (step == null || step.Fields == null) return false;
+                string full = stepId + "|" + field;
+                for (int i = 0; i < step.Fields.Length; i++)
                 {
-                    // A VANILLA button, live from the game's own registry (GLOBAL namespace).
-                    inner = token.Substring(2);
-                    KeyCode k = KeyManager.GetKey(inner);
-                    if (k != KeyCode.None) glyph = UiaKeybinds.Glyph(k);
-                }
-                else
-                {
-                    UiaKeybinds.EnsureBuilt();
-                    if (UiaKeybinds.Find(token) != null)
+                    string k = step.Fields[i].Key;
+                    if (k == null) continue;
+                    if (string.Equals(k, full, StringComparison.Ordinal) || string.Equals(k, field, StringComparison.Ordinal))
                     {
-                        KeyCode k = UiaKeybinds.Key(token);
-                        if (k != KeyCode.None) glyph = UiaKeybinds.Glyph(k);
+                        found = step.Fields[i];
+                        return true;
                     }
                 }
             }
-            catch { glyph = null; }
-            if (string.IsNullOrEmpty(glyph) || glyph == "-") glyph = Friendly(inner);
-            return "[" + glyph + "]";
+            catch { }
+            return false;
         }
 
-        /// <summary>Fallback label for an unbound/unknown token: the bare id, minus our own
-        /// "UIA_" prefix so it at least reads like a control name.</summary>
-        private static string Friendly(string inner)
+        private static int BudgetOf(string key, int fallback)
         {
-            if (string.IsNullOrEmpty(inner)) return "?";
-            return inner.StartsWith("UIA_", StringComparison.Ordinal) ? inner.Substring(4) : inner;
+            if (string.IsNullOrEmpty(key)) return fallback;
+            int bar = key.IndexOf('|');
+            if (bar <= 0) return fallback;
+            TField f;
+            if (TryField(key.Substring(0, bar), key.Substring(bar + 1), out f) && f.Budget > 0) return f.Budget;
+            return fallback;
         }
 
-        // ================= edit mode plumbing =================
-
-        /// <summary>Auto-apply the fields to the IN-MEMORY override before navigating (documented
-        /// in the hint line: Save is what writes to disk). Text identical to the shipped copy is
-        /// stored as "no override", so simply paging through edit mode never bloats the file.</summary>
-        private static void CaptureFields()
+        private static string StoreGet(string key)
         {
-            if (!_devEdit) return;
-            if (_headingField == null || _bodyField == null) return;
-            var step = Current();
-            if (step == null) return;
-            string h = _headingField.text ?? "";
-            string b = _bodyField.text ?? "";
-            if (h == (step.DefaultHeading ?? "") && b == (step.DefaultBody ?? ""))
+            try { return TutorialTextStore.Get(key) ?? ""; }
+            catch { return ""; }
+        }
+
+        private static void BuildEditBody(RectTransform host, TCardSpec spec)
+        {
+            // The keys the Director actually read this card from (a body variant such as
+            // "entry.welcome|body@mp"), else the step's default fields.
+            _editHeadingKey = SpecKey(spec.HeadingKey, spec.StepId, "heading", "title");
+            _editBodyKey = SpecKey(spec.BodyKey, spec.StepId, "body", null);
+
+            // Seeded from the store while _rendering is set, so the seed's own change callback is
+            // not mistaken for typing (only typing sets a field dirty).
+            if (_editHeadingKey != null)
             {
-                if (TutorialTextStore.HasOverride(step.Id)) TutorialTextStore.ClearOverride(step.Id);
+                _headingField = TutorialTextField.Make(host, StoreGet(_editHeadingKey),
+                    "Card heading - ASCII only", false, 80, OnHeadingChanged);
+                UiaUi.Size(_headingField.gameObject, UiaTheme.RowH);
+                _headingField.onEndEdit.AddListener(OnHeadingEndEdit);
+            }
+            if (_editBodyKey != null)
+            {
+                _bodyField = TutorialTextField.Make(host, StoreGet(_editBodyKey),
+                    "Card body - ASCII only", true, 900, OnBodyChanged);
+                UiaUi.Size(_bodyField.gameObject, 110f, flexH: 1f);
+                var ble = _bodyField.gameObject.GetComponent<LayoutElement>();
+                if (ble != null) ble.minHeight = 90f;
+                _bodyField.onEndEdit.AddListener(OnBodyEndEdit);
+            }
+            else
+            {
+                // A composed body (Watch mode: Says + Then) has no single field to write - read it
+                // here, edit it in the lesson editor (EDIT, top right).
+                _bodyLabel = BuildReadLabel(host, DisplayBody(), UiaTheme.LabelSize, TextAlignmentOptions.Top, 90f);
+            }
+
+            var rowGo = UiaUi.Go("edit-status", host);
+            UiaUi.Size(rowGo, 20f);
+            UiaUi.HLayout((RectTransform)rowGo.transform, UiaTheme.Gap, 0, 0, 0, 0, TextAnchor.MiddleLeft);
+            _countLabel = UiaUi.Text(rowGo.transform, "", UiaTheme.SmallSize, UiaTheme.TextDim, TextAlignmentOptions.Left);
+            _countLabel.richText = false;
+            UiaUi.Size(_countLabel.gameObject, 20f, 200f, flexW: 1f);
+            _toast = UiaUi.Text(rowGo.transform, "", UiaTheme.SmallSize, UiaTheme.Good, TextAlignmentOptions.Right);
+            _toast.richText = false;
+            UiaUi.Size(_toast.gameObject, 20f, 300f, flexW: 0f);
+            var tc = _toast.color; tc.a = 0f; _toast.color = tc;
+            UpdateCounts();
+
+            // Literal token text - deliberately NOT resolved.
+            UiaControls.Note(host, _editHeadingKey == null && _editBodyKey == null
+                ? "Dev (uiadev): this card has no heading/body field of its own - EDIT opens the lesson editor at this step."
+                : "Dev (uiadev): saved when you leave a field. Tokens stay as typed, e.g. {UIA_Grid} {V:SmartStow}. EDIT opens the lesson editor.");
+        }
+
+        /// <summary>A heading keystroke (TMP onValueChanged). The seed set during the build fires this
+        /// too - with _rendering set, and that is not typing.</summary>
+        private static void OnHeadingChanged(string _)
+        {
+            if (_rendering) return;
+            _headingDirty = true;
+            UpdateCounts();
+        }
+
+        private static void OnBodyChanged(string _)
+        {
+            if (_rendering) return;
+            _bodyDirty = true;
+            UpdateCounts();
+        }
+
+        private static void UpdateCounts()
+        {
+            if (_countLabel == null) return;
+            string s = "";
+            if (_headingField != null)
+                s = "Heading " + (_headingField.text ?? "").Length + "/" + BudgetOf(_editHeadingKey, 28);
+            if (_bodyField != null)
+                s += (s.Length > 0 ? "    " : "") + "Body " + (_bodyField.text ?? "").Length + "/" + BudgetOf(_editBodyKey, 280);
+            _countLabel.text = s;
+        }
+
+        // TMP fires onEndEdit on EVERY deselect, typed or not: only a dirty field is written.
+        private static void OnHeadingEndEdit(string v)
+        {
+            if (_rendering || !_open || !_headingDirty) return;
+            CommitOne(_editHeadingKey, v, true);
+        }
+
+        private static void OnBodyEndEdit(string v)
+        {
+            if (_rendering || !_open || !_bodyDirty) return;
+            CommitOne(_editBodyKey, v, false);
+        }
+
+        /// <summary>Commit what the player TYPED into the in-place fields (close, card swap, button,
+        /// restyle, re-render). A field nobody typed into writes nothing - its text may be stale, and
+        /// comparing it with the live store would write the old text back over a Lesson Editor edit
+        /// (plus Save). Unchanged typed text writes nothing either.</summary>
+        private static void CommitFields()
+        {
+            if (_rendering) return;
+            if (_headingDirty && _headingField != null && _editHeadingKey != null) CommitOne(_editHeadingKey, _headingField.text, true);
+            if (_bodyDirty && _bodyField != null && _editBodyKey != null) CommitOne(_editBodyKey, _bodyField.text, false);
+        }
+
+        /// <summary>Write one TYPED field through the text store (ASCII-sanitised there; empty or equal
+        /// to the shipped default reverts) and save at once, then show the store's own result on the
+        /// card and the lint verdict in the toast. Clears that field's dirty flag.</summary>
+        private static void CommitOne(string key, string text, bool heading)
+        {
+            if (heading) _headingDirty = false; else _bodyDirty = false;
+            if (string.IsNullOrEmpty(key)) return;
+            text = text ?? "";
+            if (string.Equals(StoreGet(key), text, StringComparison.Ordinal)) return;
+            bool saved;
+            try
+            {
+                TutorialTextStore.Set(key, text);
+                saved = TutorialTextStore.Save();
+            }
+            catch (Exception e)
+            {
+                UIALog.Warn("TutorialCoach: saving '" + key + "' failed: " + e.Message);
+                Toast("SAVE FAILED - see the log", false);
                 return;
             }
-            TutorialTextStore.SetOverride(step.Id, h, b);
+            string stored = StoreGet(key);
+            if (heading)
+            {
+                _liveHeading = Tok(stored);
+                if (_cardHeading != null && _mode == Mode.Card) _cardHeading.text = Upper(_liveHeading);
+            }
+            else _liveBody = Tok(stored);
+            if (!saved)
+            {
+                // Kept in memory (the card shows it), but NOT on disk: the store refused (a
+                // TutorialText.xml it could not read, or uiareset) or the write failed. The Lesson
+                // Editor's status line / the log say which.
+                bool blocked = false;
+                try { blocked = TutorialTextStore.SaveBlockedReason != null; } catch { }
+                Toast(blocked ? "NOT SAVED - saving is off (F8 editor says why)" : "SAVE FAILED - see the log", false);
+                return;
+            }
+            string problem = null;
+            try { problem = TutorialLint.CheckField(key, stored, BudgetOf(key, heading ? 28 : 280)); } catch { }
+            Toast(problem == null ? "saved" : "saved - " + problem, problem == null);
         }
 
-        private static void DoSave()
-        {
-            CaptureFields();
-            Toast(TutorialTextStore.Save()
-                ? "saved"
-                : "SAVE FAILED - see the log (file locked or folder read-only?)");
-        }
-
-        private static void DoRevertStep()
-        {
-            var step = Current();
-            if (step == null) return;
-            TutorialTextStore.ClearOverride(step.Id);
-            RenderStep();          // fields reload from the shipped copy
-            Toast("step reverted (not saved yet)");
-        }
-
-        private static void DoResetAll()
-        {
-            TutorialTextStore.ResetAll();
-            RenderStep();
-            Toast("all steps reset - file deleted");
-        }
-
-        private static void Toast(string msg)
+        private static void Toast(string msg, bool good)
         {
             if (_toast == null) return;
             _toast.text = msg ?? "";
-            var c = UiaTheme.Good; c.a = 1f;
+            var c = good ? UiaTheme.Good : UiaTheme.Warn;
+            c.a = 1f;
             _toast.color = c;
             _toastUntil = Time.unscaledTime + ToastSeconds;
         }
 
-        /// <summary>Fade the confirmation label out over its final second. Unscaled - the game is
+        /// <summary>Fade the confirmation label out over its final second. Unscaled - the game may be
         /// paused behind us.</summary>
         private static void ToastTick()
         {
@@ -762,12 +1495,6 @@ namespace StationeersUIMod.UI.Menu.Tutorial
             if (Mathf.Abs(c.a - a) > 0.004f) { c.a = a; _toast.color = c; }
         }
 
-        private static void OpenHandbook()
-        {
-            try { HandbookViewer.Open(); }
-            catch (Exception e) { UIALog.Warn("HandbookViewer.Open failed: " + e.Message); }
-        }
-
         // ================= pause chip =================
 
         private static bool PauseHeld()
@@ -776,23 +1503,30 @@ namespace StationeersUIMod.UI.Menu.Tutorial
             catch { return false; }
         }
 
-        /// <summary>Repaint the header pause button from the live world state: lit while OUR
-        /// latch holds the freeze, greyed when a pause cannot be owned (multiplayer, or a
-        /// vanilla-owned pause) - same truth-table as the F10 header button.</summary>
+        private static bool CanOwnPauseSafe()
+        {
+            try { return GamePause.CanOwnPause(); }
+            catch { return false; }
+        }
+
+        /// <summary>Repaint the header pause button from the live world state: lit while OUR latch
+        /// holds the freeze, greyed when a pause cannot be owned (multiplayer, or a vanilla-owned
+        /// pause) - the same truth table as the F10 header button.</summary>
         private static void PaintChip()
         {
             if (_pauseBtn == null) return;
             bool held = PauseHeld();
             _pauseBtn.SetSelected(held);
-            _pauseBtn.SetEnabled(held || (GamePause.CanOwnPause() && !WorldManager.IsGamePaused));
+            _pauseBtn.SetEnabled(held || (CanOwnPauseSafe() && !WorldManager.IsGamePaused));
         }
 
         private static void TogglePause()
         {
             if (GamePause.Held) GamePause.Release(PauseReason);
             else GamePause.Hold(PauseReason, InputStateKey);
+            if (_open && !GamePause.Held) ModalInputChain.ReassertTop();
             PaintChip();
-            RepaintBodyText();   // the welcome step's copy differs paused vs running
+            RepaintBodyText();   // a pause sentence in the copy follows the freeze
         }
 
         /// <summary>Stored delegate so the unsubscribe in <see cref="UnhookPause"/> matches - an
@@ -813,8 +1547,8 @@ namespace StationeersUIMod.UI.Menu.Tutorial
             _pausedHandler = null;
         }
 
-        /// <summary>Anything else unpausing (the player round-tripped Esc) repaints the chip - and
-        /// the welcome step's copy, whose third sentence depends on it.</summary>
+        /// <summary>Anything else pausing / unpausing (the player round-tripped Esc) repaints the
+        /// chip and the body copy, whose pause sentence depends on it.</summary>
         private static void OnPausedChanged(bool paused)
         {
             PaintChip();
@@ -838,13 +1572,14 @@ namespace StationeersUIMod.UI.Menu.Tutorial
             _modalHeld = false;
             try { KeyManager.RemoveInputState(InputStateKey); } catch { }
             // If our key was current, KeyManager pops to the map's LAST entry - which is
-            // "WorldManager"/Paused whenever a pause is still latched (e.g. F10's own) - leaving
-            // a still-open layer underneath in the wrong state. Hand Typing back explicitly.
+            // "WorldManager"/Paused whenever a pause is still latched (e.g. F10's own) - leaving a
+            // still-open layer underneath in the wrong state. Hand Typing back explicitly. (Callers
+            // clear _open FIRST, so this can never re-assert the coach's own key.)
             ModalInputChain.ReassertTop();
             try { MouseModeController.RemoveModal(_modal); } catch { }
             CursorBlockArbiter.Release(CursorHoldId);
-            // Only re-lock the cursor when no other UIA surface still holds it - the Guide tab
-            // opens the coach OVER the F10 window, and closing must not yank F10's free cursor.
+            // Only re-lock the cursor when no other UIA surface still holds it - a callout / the
+            // Guide tab's Watch opens the coach OVER F10, and closing must not yank F10's cursor.
             if (CursorBlockArbiter.AnyHold) return;
             try
             {
@@ -874,38 +1609,73 @@ namespace StationeersUIMod.UI.Menu.Tutorial
                 try { _demo.Destroy(); } catch (Exception e) { UIALog.Warn("Tutorial demo teardown: " + e.Message); }
                 _demo = null;
             }
-            if (_windowPanel != null) { try { UI.Hud.HudFxMaterials.Unassign(_windowPanel); } catch { } }
+            if (_calloutDemo != null)
+            {
+                try { _calloutDemo.Destroy(); } catch (Exception e) { UIALog.Warn("Tutorial callout demo teardown: " + e.Message); }
+                _calloutDemo = null;
+            }
+            if (_cardPanel != null) { try { HudFxMaterials.Unassign(_cardPanel); } catch { } }
+            if (_calloutPanel != null) { try { HudFxMaterials.Unassign(_calloutPanel); } catch { } }
             if (_root != null) UnityEngine.Object.Destroy(_root);
             _root = null;
-            _window = null;
-            _windowPanel = null;
-            _demoHost = null;
-            _bodyHost = null;
-            _navHost = null;
+            _canvas = null;
+            _rootRt = null;
+            _scrimFull = _scrimTop = _scrimBottom = _scrimLeft = _scrimRight = null;
+            _card = null;
+            _cardPanel = null;
+            _titleBtns = null;
+            _editBtnCard = null;
             _pauseBtn = null;
-            _stepHeading = null;
+            _cardHeading = null;
+            _demoArea = null;
+            _demoHost = null;
+            _cardBody = null;
+            _cardNav = null;
+            _callout = null;
+            _calloutPanel = null;
+            _calloutContent = null;
+            _calloutDemoArea = null;
+            _pointer = null;
+            _pointerG = null;
+            _ring = null;
+            _ringG = null;
+            _ringGroup = null;
             _bodyLabel = null;
-            _toast = null;
             _headingField = null;
             _bodyField = null;
+            _headingDirty = _bodyDirty = false;
+            _toast = null;
+            _countLabel = null;
+            _placedScale = -1f;
         }
 
         /// <summary>Hot-reload / plugin teardown. Must leave NOTHING behind: no canvas, no borrowed
-        /// pause, no modal input state, no live event subscription, no cached text.</summary>
+        /// pause, no modal input state, no live event subscription, no callback into the Director.
+        /// The open flag drops BEFORE the modal release so ModalInputChain.ReassertTop cannot put
+        /// the coach's own Typing state straight back (the pre-0.9.8.0 teardown order could strand
+        /// it across an F6).</summary>
         internal static void Shutdown()
         {
             UnhookPause();
             try { GamePause.Release(PauseReason); } catch { }
-            ReleaseModal();
             _open = false;
+            ReleaseModal();
             DestroyRoot();
-            _index = 0;
-            _devEdit = false;
-            _builtDevEdit = false;
+            _spec = null;
+            _mode = Mode.None;
+            _anchorScreen = default(Rect);
+            _liveHeading = _liveBody = null;
+            _editHeadingKey = _editBodyKey = null;
+            _headingDirty = _bodyDirty = false;
+            _builtDev = false;
+            _rendering = false;
+            _gen = 0;
             _builtThemeHash = 0;
             _lastRestyle = 0f;
             _toastUntil = 0f;
-            TutorialTextStore.Shutdown();
+            _openedAt = 0f;
+            _placedW = _placedH = 0;
+            _lastFieldFocusFrame = -999;
         }
     }
 }

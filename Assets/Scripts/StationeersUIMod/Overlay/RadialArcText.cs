@@ -174,8 +174,8 @@ namespace StationeersUIMod.Overlay
     }
 
     /// <summary>
-    /// A curved label on a glass PLATE hugging a ring from the OUTSIDE — the D-022 action word over
-    /// the ring's top and the D-021 key hints under its bottom. The plate is an annular sector drawn
+    /// A curved label on a glass PLATE hugging a ring from the OUTSIDE — the D-022 action word outside
+    /// the hovered wedge and the D-021 key hints under the ring's bottom. The plate is an annular sector drawn
     /// by the same <see cref="UI.RadialWedgeGraphic"/> as the wedges (so it takes the radial's
     /// border, feather and glass FX and reads as part of the wheel), and the text is bent glyph by
     /// glyph by <see cref="RadialArcText.Curve"/>.
@@ -187,8 +187,20 @@ namespace StationeersUIMod.Overlay
     /// (one ForceMeshUpdate) runs only when the radius / side changed or TMP regenerated its mesh since
     /// the last bend — detected by a one-vertex probe of the glyph buffer TMP writes in place — so a
     /// steady label costs a handful of compares a frame. Fades through a CanvasGroup (alpha never
-    /// regenerates the text mesh). Owned by the canvas it is parented to: destroyed with it, nothing
-    /// static.</para>
+    /// regenerates the text mesh). Owned by the canvas it is parented to: destroyed with it; the only
+    /// static state is the value-type occluder record below.</para>
+    /// <para>Any angle (2026-09-26, FlorpyDorp: the action word "dynamically adjusts to each wedge"):
+    /// <see cref="LayoutAt"/> centres the plate on ANY angle around the ring. The text keeps the same
+    /// seal convention everywhere — on the upper half (and exactly at 3 / 9 o'clock) its "up" points
+    /// outward and it reads clockwise; on the lower half its "up" points inward and it reads
+    /// counter-clockwise, i.e. left-to-right and upright. The top/bottom <see cref="Layout"/> is
+    /// just LayoutAt at -90 / +90 degrees.</para>
+    /// <para>Yield: a label flagged <see cref="Occludes"/> (the action word) publishes where it sits
+    /// each frame; any OTHER arc label around the same centre whose band it overlaps (the key-hint
+    /// strip under the ring) fades out smoothly while it does — the same "yield to what swung over
+    /// you" rule the hint strip already applies to a child ring. The published record is plain value
+    /// types gated by frame count (never a reference): a stale record is ignored, and
+    /// <see cref="ResetOccluder"/> clears it on teardown.</para>
     /// </summary>
     public sealed class ArcPlateLabel
     {
@@ -197,6 +209,33 @@ namespace StationeersUIMod.Overlay
         public readonly TextMeshProUGUI Text;
         private readonly CanvasGroup _group;
         private float _alpha;
+
+        /// <summary>This label floats OVER other arc labels (the action word): it publishes its
+        /// footprint for them to yield to, and never yields itself.</summary>
+        public bool Occludes;
+
+        // text placement cache (setters on RectTransform are only touched when the value moved)
+        private Vector2 _textPos = new Vector2(float.NaN, float.NaN);
+        private float _textRotDeg = float.NaN;
+
+        // ---- the published occluder (see class remarks). Value types only; frame-gated. ----
+        private static int _occFrame = -100;
+        private static Vector2 _occCenter;
+        private static float _occMid, _occHalf, _occRIn, _occROut, _occAlpha;
+        /// <summary>How close (px of arc) the occluder may come before a yielding label starts to fade:
+        /// the fade ramps over this distance, so a plate sliding toward the strip dims it smoothly.</summary>
+        private const float YieldSoftPx = 14f;
+        /// <summary>|sin| below which a label counts as "on the horizontal" and keeps the upper-half
+        /// convention, so 3 and 9 o'clock never flicker between the two on float noise.</summary>
+        private const float UprightEps = 1e-3f;
+
+        /// <summary>Hot-reload / teardown: forget the published occluder.</summary>
+        public static void ResetOccluder()
+        {
+            _occFrame = -100;
+            _occCenter = Vector2.zero;
+            _occMid = _occHalf = _occRIn = _occROut = _occAlpha = 0f;
+        }
 
         // plate style cache (RadialWedgeGraphic's border fields don't dirty the mesh themselves)
         private Color _plateBorder = new Color(-1f, 0f, 0f, 0f);
@@ -261,6 +300,9 @@ namespace StationeersUIMod.Overlay
                 if (active) Invalidate(); // a re-enabled TMP rebuilds a FLAT mesh: bend it again
             }
             _group.alpha = _alpha;
+            // Fully faded out: LayoutAt stops publishing, so zero the record now instead of leaving
+            // the last (small) fade alpha for a yielding label to read for up to two more frames.
+            if (Occludes && !active) _occAlpha = 0f;
             return active;
         }
 
@@ -269,6 +311,7 @@ namespace StationeersUIMod.Overlay
         {
             _alpha = 0f;
             _group.alpha = 0f;
+            if (Occludes) _occAlpha = 0f; // nothing to yield to any more
             if (Root.gameObject.activeSelf) Root.gameObject.SetActive(false);
         }
 
@@ -306,16 +349,48 @@ namespace StationeersUIMod.Overlay
         /// final — the bend reads the built mesh.
         /// </summary>
         public void Layout(Vector2 centerAnchored, float innerR, float thickness, bool top, float textLen, float padPx)
+            // RadialWedgeGraphic takes ImGui-convention angles (y-down): -PI/2 = top, +PI/2 = bottom.
+            => LayoutAt(centerAnchored, innerR, thickness, top ? -Mathf.PI * 0.5f : Mathf.PI * 0.5f, textLen, padPx);
+
+        /// <summary>
+        /// Lay the label around a ring centred on ANY angle. <paramref name="midAngle"/> is in the
+        /// wedges' ImGui convention (radians, y-down, clockwise on screen): -PI/2 = 12 o'clock, 0 = 3,
+        /// +PI/2 = 6, PI = 9 — so the outward direction in canvas (y-up) space is (cos a, -sin a).
+        /// The plate spans radii [<paramref name="innerR"/>, innerR + thickness] and
+        /// <see cref="HalfSpanFor"/> either side of the angle; the text rides the plate's mid radius,
+        /// rotated to the tangent and bent glyph by glyph, upright on both halves (class remarks).
+        /// Call AFTER the text, font, size and colour are final — the bend reads the built mesh.
+        /// </summary>
+        public void LayoutAt(Vector2 centerAnchored, float innerR, float thickness, float midAngle, float textLen, float padPx)
         {
-            Root.anchoredPosition = centerAnchored;
+            if (Root.anchoredPosition != centerAnchored) Root.anchoredPosition = centerAnchored;
             float rMid = innerR + thickness * 0.5f;
             float half = HalfSpanFor(textLen, padPx, rMid);
-            // RadialWedgeGraphic takes ImGui-convention angles (y-down): -PI/2 = top, +PI/2 = bottom.
-            float mid = top ? -Mathf.PI * 0.5f : Mathf.PI * 0.5f;
-            Plate.SetGeometry(innerR, innerR + thickness, mid - half, mid + half, fullRing: false);
+            Plate.SetGeometry(innerR, innerR + thickness, midAngle - half, midAngle + half, fullRing: false);
+
+            // Outward unit vector in canvas space, and which half of the ring we are on. The upper
+            // half (incl. the exact horizontal) reads with "up" OUTWARD (rotation = theta - 90), the
+            // lower half with "up" INWARD (theta + 90) — the binding label / CornerTag rule, so every
+            // curved word on the wheel follows one convention.
+            var dir = new Vector2(Mathf.Cos(midAngle), -Mathf.Sin(midAngle));
+            bool outwardUp = dir.y >= -UprightEps;
+            float thetaDeg = Mathf.Atan2(dir.y, dir.x) * Mathf.Rad2Deg;
+            float rotDeg = outwardUp ? thetaDeg - 90f : thetaDeg + 90f;
 
             var trt = Text.rectTransform;
-            trt.anchoredPosition = new Vector2(0f, top ? rMid : -rMid);
+            var pos = dir * rMid;
+            if (!(Mathf.Abs(pos.x - _textPos.x) < 0.001f && Mathf.Abs(pos.y - _textPos.y) < 0.001f))
+            {
+                _textPos = pos;
+                trt.anchoredPosition = pos;
+            }
+            // Rotating the rect never touches the TMP mesh (it lives in local space), so the bend
+            // cache stays valid while the label slides round the ring — only the side matters to it.
+            if (!(Mathf.Abs(Mathf.DeltaAngle(rotDeg, _textRotDeg)) < 0.001f))
+            {
+                _textRotDeg = rotDeg;
+                trt.localRotation = Quaternion.Euler(0f, 0f, rotDeg);
+            }
             var size = new Vector2(Mathf.Max(8f, textLen + 8f), Mathf.Max(8f, thickness));
             if ((trt.sizeDelta - size).sqrMagnitude > 0.01f)
             {
@@ -323,7 +398,36 @@ namespace StationeersUIMod.Overlay
                 _bend.Invalidate(); // a resize dirties TMP's LAYOUT (not its properties): bend it again
             }
 
-            _bend.CurveIfStale(Text, rMid, top);
+            _bend.CurveIfStale(Text, rMid, outwardUp);
+
+            if (Occludes)
+            {
+                _occFrame = Time.frameCount;
+                _occCenter = centerAnchored;
+                _occMid = midAngle;
+                _occHalf = half;
+                _occRIn = innerR;
+                _occROut = innerR + thickness;
+                _occAlpha = _alpha;
+            }
+            else
+            {
+                // Yield to a fresh occluder around the SAME ring centre whose band overlaps ours: fade
+                // by how close its angular span comes to ours (full at touching, none YieldSoftPx of arc
+                // apart), times its own fade — so it tracks the plate's slide and fade with no pops.
+                // The occluder is published from the radial's draw hook and read here from Update, so
+                // "fresh" allows the one-step lag between the two.
+                float yieldAmt = 0f;
+                if (Time.frameCount - _occFrame <= 2 && _occAlpha > 0.001f
+                    && (_occCenter - centerAnchored).sqrMagnitude < 4f
+                    && _occRIn < innerR + thickness && _occROut > innerR)
+                {
+                    float d = Mathf.Abs(Mathf.DeltaAngle(_occMid * Mathf.Rad2Deg, midAngle * Mathf.Rad2Deg)) * Mathf.Deg2Rad;
+                    float sep = (d - _occHalf - half) * rMid;          // px of arc between the two spans
+                    yieldAmt = _occAlpha * Mathf.Clamp01(1f - sep / YieldSoftPx);
+                }
+                _group.alpha = _alpha * (1f - yieldAmt);
+            }
         }
     }
 }

@@ -112,62 +112,41 @@ namespace StationeersUIMod.UI.Menu.Kit
             return h;
         }
 
+        /// <summary>Fixed sizes are MINIMUMS too (2026-09-26 visual fix wave): a preferred-only
+        /// height lets a layout group under space pressure crush every fixed row toward 0 while
+        /// its Overflow-mode text keeps painting over the neighbours — the squash class behind
+        /// the broken F10 render. This kit never wants a sub-preferred row; anything that should
+        /// shrink lives inside a ScrollView, whose content is CSF-driven and unaffected. The
+        /// explicit <paramref name="minW"/> still wins over the derived minimum.</summary>
         public static LayoutElement Size(GameObject go, float h = -1f, float w = -1f,
             float flexW = -1f, float flexH = -1f, float minW = -1f)
         {
             var le = go.GetComponent<LayoutElement>();
             if (le == null) le = go.AddComponent<LayoutElement>();
-            if (h >= 0f) le.preferredHeight = h;
-            if (w >= 0f) le.preferredWidth = w;
+            if (h >= 0f) { le.preferredHeight = h; le.minHeight = h; }
+            if (w >= 0f) { le.preferredWidth = w; le.minWidth = w; }
             if (minW >= 0f) le.minWidth = minW;
             if (flexW >= 0f) le.flexibleWidth = flexW;
             if (flexH >= 0f) le.flexibleHeight = flexH;
             return le;
         }
 
-        /// <summary>A single-line text input (TMP_InputField), built in code with no template prefab.</summary>
+        /// <summary>A single-line text input. As of Kit v2 this is a THIN WRAPPER over
+        /// <see cref="UiaInputs.TextInput"/> — the one input implementation (intrinsic layout
+        /// height so no host can collapse it to the D-009 hairline, themed caret/selection,
+        /// glass border, ASCII discipline, Esc-cancels-without-closing-F10). Same signature and
+        /// contract as before for every existing caller: <paramref name="onChanged"/> fires live
+        /// per keystroke, and the returned TMP_InputField accepts <c>.text = ...</c> seeding.
+        /// New code should call <see cref="UiaInputs.TextInput"/> directly for commit/draft/
+        /// validation support.</summary>
         public static TMPro.TMP_InputField InputField(Transform parent, string placeholder,
             System.Action<string> onChanged)
         {
-            var go = Go("input", parent);
-            // The root has no intrinsic preferred size of its own (a spriteless Image reports 0,
-            // and TMP_InputField itself does not implement ILayoutElement), so every caller wraps
-            // this in a fixed-height row and gives THAT row an HLayout (UiaUi.HLayout always sets
-            // childControlHeight = true). Without a LayoutElement here, that parent layout group
-            // dutifully controls this child down to its unset ~0 preferred height instead of the
-            // row's real height - rendering as a hairline with its text viewport clipped to
-            // nothing (Ningy/FlorpyDorp, D-009: "renders as a thin line... typed text doesn't
-            // show" - both symptoms are this ONE collapse, since the text area is inset from
-            // whatever height this root actually gets). flexibleHeight stretches it to fill
-            // whatever height the parent row allocates (26-30px across current callers);
-            // preferredHeight is only a fallback for a caller with no controlling parent layout.
-            Size(go, h: UiaTheme.RowH, flexH: 1f);
-            var bg = go.AddComponent<Image>(); bg.color = UiaTheme.PanelRaised;
-            OutlineOf(bg, UiaTheme.AccentDim, 1f);
-            var input = go.AddComponent<TMPro.TMP_InputField>();
-
-            var areaGo = Go("area", go.transform);
-            var area = (RectTransform)areaGo.transform; Fill(area, 6f);
-            areaGo.AddComponent<RectMask2D>();
-
-            var ph = Text(area, placeholder, UiaTheme.SmallSize, UiaTheme.TextMute, TMPro.TextAlignmentOptions.Left);
-            Fill((RectTransform)ph.transform);
-            var txt = Text(area, "", UiaTheme.SmallSize, UiaTheme.Text, TMPro.TextAlignmentOptions.Left);
-            Fill((RectTransform)txt.transform);
-
-            input.textViewport = area;
-            input.textComponent = txt;
-            input.placeholder = ph;
-            input.lineType = TMPro.TMP_InputField.LineType.SingleLine;
-            // An unset caret/selection colour defaults to near-black, which is as good as invisible
-            // against this kit's dark panels - correct only the text itself would still have left
-            // a player unable to see what they were typing WHILE typing it.
-            input.customCaretColor = true;
-            input.caretColor = UiaTheme.Text;
-            input.caretWidth = 2;
-            input.selectionColor = UiaTheme.SelectedDim;
-            input.onValueChanged.AddListener(v => { if (onChanged != null) onChanged(v); });
-            return input;
+            var opt = new UiaInputs.TextInputOptions();
+            opt.Placeholder = placeholder;
+            opt.OnChanged = onChanged;
+            var handle = UiaInputs.TextInput(parent, opt);
+            return handle != null ? handle.Field : null;
         }
 
         /// <summary>A vertical scroll region. Returns the CONTENT RectTransform (already carrying a

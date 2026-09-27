@@ -68,7 +68,9 @@ namespace StationeersUIMod.UI.Hud.Widgets
         private const float DefaultMaxRange = 200f;
         private const float MinMaxRange = 10f;
         private const float MaxMaxRange = 500f;
-        private const float MetersToFeet = 3.28084f;
+        /// <summary>International foot. <c>internal</c> (not private) only for the uiatest harness
+        /// (Testing/UiaTestHarness.cs), which asserts the unit math against it.</summary>
+        internal const float MetersToFeet = 3.28084f;
 
         private static readonly string[] UnitNames = { "Meters", "Feet" };
 
@@ -177,8 +179,9 @@ namespace StationeersUIMod.UI.Hud.Widgets
         /// non-trigger surfaces on any layer except "Ignore Raycast", "Player" and "PlayerImmune". Wrapped in
         /// try/catch and returns false on any failure (camera/physics can be momentarily absent
         /// during a scene transition) — this must degrade to "--", never throw into HudSystem's
-        /// per-panel update loop (rule 5, fail soft).</summary>
-        private static bool TryMeasure(float maxRange, out float meters)
+        /// per-panel update loop (rule 5, fail soft). <c>internal</c> (not private) only so the uiatest
+        /// harness (Testing/UiaTestHarness.cs) can assert the layer mask with physics probes.</summary>
+        internal static bool TryMeasure(float maxRange, out float meters)
         {
             meters = 0f;
             try

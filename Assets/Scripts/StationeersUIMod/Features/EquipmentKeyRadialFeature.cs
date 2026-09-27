@@ -4,6 +4,7 @@ using Assets.Scripts.Objects;
 using Assets.Scripts.Objects.Entities;
 using StationeersUIMod.Core;
 using StationeersUIMod.Overlay;
+using StationeersUIMod.UI.Menu.Tutorial;
 using UnityEngine;
 
 namespace StationeersUIMod.Features
@@ -111,12 +112,12 @@ namespace StationeersUIMod.Features
             if (slot.Get() != null)
             {
                 var source = new ScannedSlot { Slot = slot, Holder = slot.Parent, Location = _buttonName }.Pin();
-                ItemActions.EquipToActiveHand(source);
+                if (ItemActions.EquipToActiveHand(source)) TutorialSignals.Raise(TSignal.GearHeld);
                 return;
             }
             var held = Assets.Scripts.Inventory.InventoryManager.ActiveHandSlot?.Get();
-            if (held != null && Slot.AllowMove(held, slot))
-                ItemActions.StowActiveHandTo(slot);
+            if (held != null && Slot.AllowMove(held, slot) && ItemActions.StowActiveHandTo(slot))
+                TutorialSignals.Raise(TSignal.GearHeld);
         }
     }
 }

@@ -3,6 +3,7 @@ using System.Globalization;
 using Assets.Scripts;
 using Assets.Scripts.Localization2;
 using Assets.Scripts.UI;
+using StationeersUIMod.UI.Menu.Tutorial;
 using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
@@ -648,8 +649,6 @@ namespace StationeersUIMod.UI.Hud.Widgets
             private VitalsPanelWidget _owner;
             private bool _available;
             private bool _hovered;
-            private float _diagAt = -999f;   // throttle for the temporary hover diagnostic
-            private int _diagCount;          // capped so the log never floods
 
             internal VitalsTooltipReceiver(VitalsPanelWidget owner)
             {
@@ -673,14 +672,6 @@ namespace StationeersUIMod.UI.Hud.Widgets
                     canvasPoint = HudWarp.Unwarp(canvasPoint);
                     over = logicalRect.Contains(canvasPoint);
                 }
-                // TEMPORARY diagnostic (remove once confirmed): capped + throttled, shows whether the
-                // gate passes and whether the cursor maps inside the card rect.
-                if (UnityEngine.Time.unscaledTime - _diagAt > 1.5f && _diagCount < 12)
-                {
-                    _diagAt = UnityEngine.Time.unscaledTime; _diagCount++;
-                    Core.UIALog.Info("VitalsTip diag: available=" + available + " over=" + over
-                        + " cursor=" + canvasPoint + " rect=" + logicalRect + " warp=" + HudWarp.Active);
-                }
                 if (over == _hovered) return;
                 _hovered = over;
                 if (!over || _owner == null) return;
@@ -696,6 +687,9 @@ namespace StationeersUIMod.UI.Hud.Widgets
                     Core.VanillaTooltip.Lift(panel); // keep the tooltip above the mod's UI canvases
                     panel.SetUpTooltip(GameStrings.PlayerStatsTooltipTitle.DisplayString,
                         human.GetStatsTooltip(), this);
+                    // Tutorial hook (Build Contract s4): the tooltip just opened (over went false->true
+                    // above), not a per-frame re-affirmation while it stays shown.
+                    TutorialSignals.Raise(TSignal.VitalsTooltipShown);
                 }
                 catch { _hovered = false; }
             }

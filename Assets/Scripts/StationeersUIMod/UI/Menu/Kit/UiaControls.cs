@@ -15,6 +15,45 @@ namespace StationeersUIMod.UI.Menu.Kit
         /// <summary>Where dropdown popups mount so they float above everything (set by the window).</summary>
         public static RectTransform PopupLayer;
 
+        /// <summary>The dropdown whose popup is open right now (only ever one — opening a popup
+        /// mounts a full-layer catcher, so a second dropdown's click lands on the catcher first).
+        /// Lets the window's Esc chain close the popup instead of the window. Cleared by
+        /// ClosePopup, and belt-and-braces wherever PopupLayer is dropped.</summary>
+        internal static UiaDropdown OpenDropdown;
+
+        /// <summary>Close the open dropdown popup, if any. True = there was one (Esc consumed).</summary>
+        internal static bool CloseOpenDropdown()
+        {
+            var dd = OpenDropdown;
+            OpenDropdown = null;
+            if (dd == null) return false;   // none, or destroyed with its page (Unity-null)
+            dd.CloseFromEsc();
+            return true;
+        }
+
+        // ================= No-ellipsis text fitting =================
+
+        /// <summary>The kit's NO-ELLIPSIS rule (FlorpyDorp, 2026-09-26: "We should never cut
+        /// anything off by an ellipses"). Fit a label that lives in a FIXED-size box: TMP
+        /// auto-size shrinks it from its authored size down to <paramref name="minSize"/>, and
+        /// with <paramref name="wrap"/> it may break onto a second line first when the box is
+        /// tall enough (TMP picks the LARGEST size that fits, so a label a hair too wide stays one
+        /// line at a slightly smaller size rather than jumping to two). Overflow mode is plain
+        /// Overflow — never Ellipsis/Truncate/Masking — so at the true extreme (still too long
+        /// at the floor) the text spills past its box rather than hiding characters. Call AFTER
+        /// the text's fontSize is set. Idempotent: a second call keeps the original max size.
+        /// Where the ROW can grow instead, prefer plain word-wrap and let the layout size it.</summary>
+        public static void FitText(TMP_Text t, float minSize = 9f, bool wrap = true)
+        {
+            if (t == null) return;
+            float max = t.enableAutoSizing ? Mathf.Max(t.fontSize, t.fontSizeMax) : t.fontSize;
+            t.fontSizeMax = max;
+            t.fontSizeMin = Mathf.Min(minSize, max);
+            t.enableAutoSizing = true;
+            t.enableWordWrapping = wrap;
+            t.overflowMode = TextOverflowModes.Overflow;
+        }
+
         // ================= Button =================
 
         public sealed class UiaButton : MonoBehaviour,
@@ -152,6 +191,10 @@ namespace StationeersUIMod.UI.Menu.Kit
 
         // ================= Dropdown =================
 
+        /// <summary>Dropdown v2 (F10 plan pain 9): the popup clamps to the screen edges and
+        /// FLIPS above the field when the space below is too short; lists longer than 10 rows
+        /// scroll (as before); and past 12 options a search box appears at the top of the popup
+        /// filtering the rows live (the 45-entry slot-class list's fix). Public API unchanged.</summary>
         public sealed class UiaDropdown : MonoBehaviour, IPointerClickHandler
         {
             public Action<int> OnChanged;
@@ -160,6 +203,8 @@ namespace StationeersUIMod.UI.Menu.Kit
             private TextMeshProUGUI _label;
             private GameObject _popup;
             private GameObject _catcher;
+            private RectTransform _rowsHost;   // the scroll content the option rows rebuild into
+            private string _filter = "";
 
             public UiaDropdown Init(TextMeshProUGUI label, List<string> options, int index)
             {
@@ -190,9 +235,17 @@ namespace StationeersUIMod.UI.Menu.Kit
                 OpenPopup();
             }
 
+            private const int ScrollBeyond = 10;   // more rows than this -> the list scrolls
+            private const int SearchBeyond = 12;   // more options than this -> a search box
+
+            /// <summary>The Esc chain's close: identical to a catcher click.</summary>
+            internal void CloseFromEsc() => ClosePopup();
+
             private void OpenPopup()
             {
                 var layer = PopupLayer != null ? PopupLayer : (RectTransform)transform.root;
+                _filter = "";
+                OpenDropdown = this;
 
                 // A full-layer transparent catcher below the popup: clicking anywhere off the
                 // list closes it (the standard dropdown dismiss).
@@ -209,8 +262,9 @@ namespace StationeersUIMod.UI.Menu.Kit
                 bg.color = UiaTheme.PanelRaised;
                 UiaImages.Round(bg);
                 UiaUi.OutlineOf(bg, UiaTheme.AccentDim, 1f);
+                prt.SetAsLastSibling();
 
-                // Position directly under the field, matched to its width.
+                // Field corners in layer space (for width + anchoring).
                 var self = (RectTransform)transform;
                 Vector3[] corners = new Vector3[4];
                 self.GetWorldCorners(corners); // 0=BL,1=TL,2=TR,3=BR
@@ -220,28 +274,97 @@ namespace StationeersUIMod.UI.Menu.Kit
                 RectTransformUtility.ScreenPointToLocalPointInRectangle(layer,
                     RectTransformUtility.WorldToScreenPoint(null, corners[2]), null, out trLocal);
                 float width = Mathf.Abs(trLocal.x - blLocal.x);
-                int show = Mathf.Min(_options.Count, 10);
+
                 float rowH = UiaTheme.RowH;
-                float height = show * rowH + 4f;
-                prt.pivot = new Vector2(0f, 1f);
+                bool search = _options.Count > SearchBeyond;
+                float searchH = search ? rowH + 6f : 0f;
+                int show = Mathf.Min(_options.Count, ScrollBeyond);
+                float wantH = show * rowH + 6f + searchH;
+
+                // Clamp / flip at the screen (= layer) edges: below by preference, above when
+                // the space below is too short and above is roomier; height caps to the side
+                // chosen and the ScrollView absorbs the difference.
+                Rect lr = layer.rect;
+                float spaceBelow = blLocal.y - lr.yMin - 6f;
+                float spaceAbove = lr.yMax - trLocal.y - 6f;
+                bool flipUp = wantH > spaceBelow && spaceAbove > spaceBelow;
+                float height = Mathf.Min(wantH, Mathf.Max(rowH * 3f + searchH,
+                    flipUp ? spaceAbove : spaceBelow));
+                float x = blLocal.x;
+                if (x + width > lr.xMax - 4f) x = lr.xMax - 4f - width;
+                if (x < lr.xMin + 4f) x = lr.xMin + 4f;
+
                 prt.anchorMin = prt.anchorMax = new Vector2(0.5f, 0.5f);
-                prt.anchoredPosition = new Vector2(blLocal.x, blLocal.y);
+                prt.pivot = flipUp ? new Vector2(0f, 0f) : new Vector2(0f, 1f);
+                prt.anchoredPosition = flipUp
+                    ? new Vector2(x, trLocal.y + 2f)
+                    : new Vector2(x, blLocal.y);
                 prt.sizeDelta = new Vector2(width, height);
-                prt.SetAsLastSibling();
+
+                if (search)
+                {
+                    // The kit text input, riding the top of the popup. Esc in it cancels the
+                    // search (UiaInputs consumes the key), a second Esc closes nothing else —
+                    // the catcher owns dismissal.
+                    var searchHost = UiaUi.Go("dd-search", prt);
+                    var shRt = (RectTransform)searchHost.transform;
+                    shRt.anchorMin = new Vector2(0f, 1f);
+                    shRt.anchorMax = new Vector2(1f, 1f);
+                    shRt.pivot = new Vector2(0.5f, 1f);
+                    shRt.offsetMin = new Vector2(3f, -(searchH));
+                    shRt.offsetMax = new Vector2(-3f, -3f);
+                    UiaUi.HLayout(shRt, 0f, 0, 0, 0, 0, TextAnchor.MiddleLeft, true);
+                    var opt = new UiaInputs.TextInputOptions();
+                    opt.Placeholder = "Search...";
+                    opt.Height = rowH;
+                    opt.OnChanged = v => { _filter = v ?? ""; RebuildRows(); };
+                    var box = UiaInputs.TextInput(searchHost.transform, opt);
+                    box.Focus();
+                }
+
+                // The scrolling rows area fills the rest, below the (optional) search box.
+                var rowsAreaGo = UiaUi.Go("dd-rows", prt);
+                var raRt = (RectTransform)rowsAreaGo.transform;
+                raRt.anchorMin = Vector2.zero;
+                raRt.anchorMax = Vector2.one;
+                raRt.offsetMin = new Vector2(2f, 2f);
+                raRt.offsetMax = new Vector2(-2f, -(searchH + 2f));
 
                 ScrollRect scroll;
-                var content = UiaUi.ScrollView(prt, out scroll, 0f);
-                UiaUi.Fill((RectTransform)scroll.gameObject.transform, 2f);
+                _rowsHost = UiaUi.ScrollView(raRt, out scroll, 0f);
+                UiaUi.Fill((RectTransform)scroll.gameObject.transform);
+                RebuildRows();
+            }
+
+            /// <summary>(Re)build the option rows into the open popup, honouring the live
+            /// filter. A user gesture path — plain rebuild, no pooling needed.</summary>
+            private void RebuildRows()
+            {
+                if (_rowsHost == null) return;
+                for (int i = _rowsHost.childCount - 1; i >= 0; i--)
+                {
+                    var c = _rowsHost.GetChild(i);
+                    c.gameObject.SetActive(false);
+                    UnityEngine.Object.Destroy(c.gameObject);
+                }
+                float rowH = UiaTheme.RowH;
+                string f = _filter != null ? _filter.Trim() : "";
                 for (int i = 0; i < _options.Count; i++)
                 {
+                    if (f.Length > 0 && (_options[i] == null
+                        || _options[i].IndexOf(f, StringComparison.OrdinalIgnoreCase) < 0))
+                        continue;
                     int idx = i;
-                    var row = UiaUi.Go("opt", content);
+                    var row = UiaUi.Go("opt", _rowsHost);
                     var rimg = row.AddComponent<Image>();
                     rimg.color = idx == _index ? UiaTheme.SelectedDim : UiaTheme.PanelRaised;
                     UiaUi.Size(row, rowH);
                     var t = UiaUi.Text(row.transform, _options[i], UiaTheme.SmallSize,
                         idx == _index ? UiaTheme.Selected : UiaTheme.Text, TextAlignmentOptions.Left);
+                    // No ellipsis: shrink toward 9pt, wrapping to a 2nd line inside the 30px row.
+                    FitText(t, 9f);
                     var trt = (RectTransform)t.transform; UiaUi.Fill(trt, 0f); trt.offsetMin = new Vector2(8f, 0f);
+                    trt.offsetMax = new Vector2(-4f, 0f);
                     row.AddComponent<UiaButton>().Init(rimg, rimg.color, UiaTheme.PanelHover, UiaTheme.SelectedDim)
                         .OnClick = () => { _index = idx; Refresh(); ClosePopup(); if (OnChanged != null) OnChanged(idx); };
                 }
@@ -256,6 +379,9 @@ namespace StationeersUIMod.UI.Menu.Kit
                 if (_catcher != null) UnityEngine.Object.Destroy(_catcher);
                 _popup = null;
                 _catcher = null;
+                _rowsHost = null;
+                _filter = "";
+                if (ReferenceEquals(OpenDropdown, this)) OpenDropdown = null;
             }
 
             private void OnDisable() => ClosePopup();
@@ -266,11 +392,15 @@ namespace StationeersUIMod.UI.Menu.Kit
         public static TextMeshProUGUI Header(Transform parent, string text)
         {
             var go = UiaUi.Go("header", parent);
-            UiaUi.Size(go, 30f);
+            UiaUi.Size(go, 32f);
             var v = (RectTransform)go.transform;
-            var t = UiaUi.Text(go.transform, text.ToUpperInvariant(), UiaTheme.SmallSize, UiaTheme.Accent, TextAlignmentOptions.BottomLeft);
+            // Headers are the near-full-saturation cyan token (UiaTheme.HeaderText, the
+            // concept's #0AF4FA family), ~25% larger. No duplicate-TMP "bloom" behind it: a
+            // copy at a different size drifts across the word as it goes (FlorpyDorp's ghosted
+            // "POWER & GLITCH"), and a same-size copy only doubles the glyph edges.
+            var t = UiaUi.Text(go.transform, text.ToUpperInvariant(), 16f, UiaTheme.HeaderText, TextAlignmentOptions.BottomLeft);
             var trt = (RectTransform)t.transform; UiaUi.Fill(trt); trt.offsetMin = new Vector2(2f, 2f);
-            t.characterSpacing = 6f;
+            t.characterSpacing = 5f;
             // underline divider
             var line = UiaUi.Image(go.transform, UiaTheme.Divider, "rule");
             var lrt = (RectTransform)line.transform;
@@ -281,8 +411,11 @@ namespace StationeersUIMod.UI.Menu.Kit
 
         public static TextMeshProUGUI Note(Transform parent, string text)
         {
-            // The TMP lives on the SAME GameObject as the ContentSizeFitter so the fitter can read
-            // its preferred height (TMP is an ILayoutElement). The parent VLayout controls the width.
+            // TMP is an ILayoutElement, so a parent layout group reads its wrapped preferred
+            // height DIRECTLY — no ContentSizeFitter (a fitter driving a layout-group child is
+            // the driven-transform conflict UiaComposite's cards document; it was also
+            // redundant here). The LayoutElement only pins a one-line MINIMUM so a squashed
+            // page can never crush the note to a zero-height text smear (fix wave 2026-09-26).
             var go = UiaUi.Go("note", parent);
             var t = go.AddComponent<TextMeshProUGUI>();
             t.font = UiaTheme.Font();
@@ -294,8 +427,8 @@ namespace StationeersUIMod.UI.Menu.Kit
             t.overflowMode = TextOverflowModes.Overflow;
             t.margin = new Vector4(2f, 3f, 2f, 3f);
             t.text = text ?? "";
-            var fit = go.AddComponent<ContentSizeFitter>();
-            fit.verticalFit = ContentSizeFitter.FitMode.PreferredSize;
+            var le = go.AddComponent<LayoutElement>();
+            le.minHeight = 18f;
             return t;
         }
 
@@ -308,7 +441,7 @@ namespace StationeersUIMod.UI.Menu.Kit
             var lbl = lblGo.AddComponent<TextMeshProUGUI>();
             lbl.font = UiaTheme.Font(); lbl.fontSize = UiaTheme.LabelSize; lbl.color = UiaTheme.Text;
             lbl.alignment = TextAlignmentOptions.Left; lbl.raycastTarget = false; lbl.text = label;
-            lbl.overflowMode = TextOverflowModes.Ellipsis; lbl.enableWordWrapping = false;
+            FitText(lbl, 9f);   // no ellipsis: shrink, then 2 lines inside the RowH row
             var le = lblGo.AddComponent<LayoutElement>(); le.flexibleWidth = 1f; le.minWidth = 60f;
             right = (RectTransform)row.transform;
             return (RectTransform)row.transform;
@@ -383,9 +516,8 @@ namespace StationeersUIMod.UI.Menu.Kit
             UiaUi.OutlineOf(bg, UiaTheme.AccentDim, 1f);
             var lbl = UiaUi.Text(ddGo.transform, "", UiaTheme.SmallSize, UiaTheme.Text, TextAlignmentOptions.Left);
             var lrt = (RectTransform)lbl.transform; UiaUi.Fill(lrt); lrt.offsetMin = new Vector2(8f, 0f); lrt.offsetMax = new Vector2(-18f, 0f);
-            lbl.overflowMode = TextOverflowModes.Ellipsis;
-            var caret = UiaUi.Text(ddGo.transform, "v", UiaTheme.SmallSize, UiaTheme.TextDim, TextAlignmentOptions.Right);
-            var crt = (RectTransform)caret.transform; UiaUi.Fill(crt); crt.offsetMax = new Vector2(-6f, 0f);
+            FitText(lbl, 9f);   // no ellipsis: the chosen option shrinks/wraps inside the field
+            UiaIcons.AttachAt(ddGo.transform, UiaIcon.CaretDown, 12f, UiaTheme.TextDim, 1f, 0.5f, -6f, 0f);
             var dd = ddGo.AddComponent<UiaDropdown>().Init(lbl, options, index);
             dd.OnChanged = onChanged;
             return dd;

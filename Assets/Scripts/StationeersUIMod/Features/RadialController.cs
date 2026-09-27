@@ -3,6 +3,7 @@ using Assets.Scripts;
 using Assets.Scripts.Objects;
 using StationeersUIMod.Core;
 using StationeersUIMod.Overlay;
+using StationeersUIMod.UI.Menu.Tutorial;
 using UnityEngine;
 
 namespace StationeersUIMod.Features
@@ -33,12 +34,19 @@ namespace StationeersUIMod.Features
     public sealed class RadialController
     {
         private readonly List<IRadialFeature> _features = new List<IRadialFeature>();
-        private readonly RadialMenu _menu = new RadialMenu();
+        /// <summary>The one shared menu. <c>internal</c> (not private) only so the uiatest harness
+        /// (Testing/UiaTestHarness.cs) can read the live ring and stage parked chips on it.</summary>
+        internal readonly RadialMenu _menu = new RadialMenu();
         private readonly ModalScope _modal = new ModalScope("UIAscended_Radial");
 
         private IRadialFeature _pending;   // key down, waiting to resolve tap vs hold
         private float _pendingSince;
         private IRadialFeature _active;    // radial open
+        // Tutorial hook (Build Contract s3/s4): the active radial's kind, set explicitly at each open
+        // site rather than re-derived from _active's runtime type — the same BagRadialFeature instance
+        // backs both the Tab root and a Ctrl+number bound-bag dive, which only the OPEN SITE can tell
+        // apart. Read through the static ActiveWheelKind property below.
+        private TWheelKind _activeKind = TWheelKind.Other;
         private KeyCode _releaseKey;       // key to wait out during a deferred modal release
 
         // #3: Ctrl still opens a bound bag (Ctrl+number). The toolbelt<->backpack SWAP moved off
@@ -75,6 +83,33 @@ namespace StationeersUIMod.Features
 
         public bool IsRadialOpen => _menu.IsOpen;
         public IRadialFeature ActiveFeature => _active;
+
+        /// <summary>Tutorial hook (Build Contract s4): the active radial's kind, or <c>Other</c> when
+        /// none is open. Search mode overrides whatever feature is behind it (the Hub's SEARCH wedge
+        /// flips the SAME menu into search, without changing <see cref="_active"/>).</summary>
+        internal static TWheelKind ActiveWheelKind
+        {
+            get
+            {
+                var c = Active;
+                if (c == null || !c._menu.IsOpen) return TWheelKind.Other;
+                if (c._menu.IsSearchOpen) return TWheelKind.Search;
+                return c._activeKind;
+            }
+        }
+
+        /// <summary>Classify a feature instance into its tutorial wheel kind. The toolbelt ring is
+        /// checked first (both the MMB feature and the 6-key equipment feature show it, D-007) so the
+        /// 6 key never falls through to the generic Gear bucket.</summary>
+        private static TWheelKind ClassifyFeatureKind(IRadialFeature f)
+        {
+            if (f == null) return TWheelKind.Other;
+            if (IsToolbeltRing(f)) return TWheelKind.Belt;
+            if (f is EquipmentKeyRadialFeature) return TWheelKind.Gear;
+            if (f is ToolRadialFeature) return TWheelKind.HeldTool;
+            if (f is BagRadialFeature) return TWheelKind.Bag;
+            return TWheelKind.Other;
+        }
 
         /// <summary>The live controller (there is exactly one, built by the plugin). Null before
         /// construction and after <see cref="ShutdownImmediate"/>, so a stale reference can never
@@ -136,6 +171,7 @@ namespace StationeersUIMod.Features
 
             _pending = null;
             _active = null;          // no owning feature: no owner key, no re-press-to-close
+            _activeKind = TWheelKind.Other;
             _adHocClosed = onClosed;
             _modal.Open();
             _menu.Open(title, provider, sticky: true);
@@ -305,9 +341,11 @@ namespace StationeersUIMod.Features
                 return;
             }
             _active = feature;
+            _activeKind = ClassifyFeatureKind(feature);
             Core.CursorDiag.NoteRadial("OPEN " + feature.Title + " sticky=" + sticky);
             _modal.Open();
             _menu.Open(feature.Title, feature.BuildRoot, sticky);
+            TutorialSignals.Raise(TSignal.WheelOpened, TutorialSignals.Pack((int)_activeKind, sticky ? 1 : 0));
             UIAudioManager.Play(UIAudioManager.ClickLightHash);
         }
 
@@ -430,6 +468,9 @@ namespace StationeersUIMod.Features
                     if (pickerReturns && !_menu.IsDragging && Input.GetMouseButtonDown(1))
                     {
                         SwitchToFeature(_active);
+                        // Tutorial hook: the D-064 RMB-back gesture specifically (SwitchToFeature is
+                        // also reached by Tab-swap and the 1-6 jump, which are not "picker back").
+                        TutorialSignals.Raise(TSignal.BeltPickerBack);
                         return;
                     }
                 }
@@ -546,8 +587,10 @@ namespace StationeersUIMod.Features
 
         /// <summary>E.4: swap the ring's root to the belt-picker (choose which tool-belt to wear).
         /// Keeps <c>_active</c> as the toolbelt feature so re-press/close still track the toolbelt
-        /// key. Selecting a belt runs its own OnSelect (the swap, built in ToolbeltRadialFeature).</summary>
-        private void OpenBeltPicker()
+        /// key. Selecting a belt runs its own OnSelect (the swap, built in ToolbeltRadialFeature).
+        /// <c>internal</c> (not private) only so the uiatest harness (Testing/UiaTestHarness.cs) can
+        /// drive the Q branch's action without a synthesized key press.</summary>
+        internal void OpenBeltPicker()
         {
             List<RadialEntry> picker;
             try { picker = ToolbeltRadialFeature.BuildBeltPicker(); }
@@ -565,6 +608,9 @@ namespace StationeersUIMod.Features
             if (!_modal.IsOpen) _modal.Open();
             _menu.Open("Swap Belt", ToolbeltRadialFeature.BuildBeltPicker, sticky: true);
             _inBeltPicker = true; // D-064: RMB from here returns to _active's ring instead of closing
+            _activeKind = TWheelKind.BeltPicker;   // tutorial hook: Q replaced the root with the picker
+            TutorialSignals.Raise(TSignal.WheelOpened, TutorialSignals.Pack((int)TWheelKind.BeltPicker, 1));
+            TutorialSignals.Raise(TSignal.BeltPickerOpened);
             // B15b: publish it at once (UpdateOpen re-asserts it every frame from here on), so the
             // strip reads "RMB back" from the picker's very first frame.
             _menu.RmbReturnsFromRoot = CanReturnTo(_active);
@@ -634,7 +680,9 @@ namespace StationeersUIMod.Features
                     if (eq != null)
                     {
                         if (_active == eq) { CloseAll("eq-key-toggle"); return true; }
-                        SwitchToFeature(eq); return true;
+                        SwitchToFeature(eq);
+                        TutorialSignals.Raise(TSignal.InWheelDigitJump);
+                        return true;
                     }
                 }
                 return true; // a number press is always consumed while a radial is open
@@ -693,18 +741,26 @@ namespace StationeersUIMod.Features
         }
 
         /// <summary>Reopen the (sticky) radial on another feature's root, keeping the modal — the
-        /// switch used by the Tab swap and 1–6.</summary>
-        private void SwitchToFeature(IRadialFeature f)
+        /// switch used by the Tab swap and 1–6 (and the D-064 RMB return). <c>internal</c> (not private)
+        /// only so the uiatest harness (Testing/UiaTestHarness.cs) can open a ring sticky and drive the
+        /// RMB-return branch's action without synthesized input.</summary>
+        internal void SwitchToFeature(IRadialFeature f)
         {
             if (f == null || !f.Enabled || !f.CanOpen())
             {
                 UIAudioManager.Play(UIAudioManager.ActionFailHash);
                 return;
             }
+            bool wasOpen = _menu.IsOpen;   // tutorial hook: a switch REPLACES an open ring (D-004)
             _active = f;
+            _activeKind = ClassifyFeatureKind(f);
             _inBeltPicker = false; // D-064: any explicit switch leaves the Q belt-picker behind
             if (!_modal.IsOpen) _modal.Open();
             _menu.Open(f.Title, f.BuildRoot, sticky: true);
+            // Tutorial hook: raised AFTER Open() actually replaces the ring (D-004's ReleaseHeldItems
+            // runs at the top of Open — the old ring's held chips are already resolved by this point).
+            if (wasOpen) TutorialSignals.Raise(TSignal.WheelClosed, (int)TCloseRoute.Switch);
+            TutorialSignals.Raise(TSignal.WheelOpened, TutorialSignals.Pack((int)_activeKind, 1));
             UIAudioManager.Play(UIAudioManager.ClickLightHash);
         }
 
@@ -713,10 +769,17 @@ namespace StationeersUIMod.Features
         {
             if (bag == null) return;
             var b = bag;
+            bool wasOpen = _menu.IsOpen;   // tutorial hook: a switch REPLACES an open ring (D-004)
             _active = BagFeature(); // owner key = Tab, for close/re-press (null-safe)
+            _activeKind = TWheelKind.BoundBag;   // a direct Ctrl+number dive, not the Tab/Hub root
             _inBeltPicker = false; // D-064: Ctrl+number (reachable while the picker is up) leaves it behind
             if (!_modal.IsOpen) _modal.Open();
             _menu.Open(b.DisplayName, () => BagRadialFeature.BuildBagLevel(b), sticky: true);
+            // Tutorial hook: raised AFTER Open() actually replaces the ring (D-004's ReleaseHeldItems
+            // runs at the top of Open — the old ring's held chips are already resolved by this point).
+            if (wasOpen) TutorialSignals.Raise(TSignal.WheelClosed, (int)TCloseRoute.Switch);
+            TutorialSignals.Raise(TSignal.WheelOpened, TutorialSignals.Pack((int)TWheelKind.BoundBag, 1));
+            TutorialSignals.Raise(TSignal.BoundBagOpened);
             UIAudioManager.Play(UIAudioManager.ClickLightHash);
         }
 
@@ -759,6 +822,7 @@ namespace StationeersUIMod.Features
         public void CloseAll(string reason = null)
         {
             Core.CursorDiag.NoteRadial("CLOSE reason=" + (reason ?? "?") + " sticky=" + _menu.IsSticky);
+            TutorialSignals.Raise(TSignal.WheelClosed, (int)MapCloseReason(reason));
             // A2: whatever the menu's close does, the modal below is ALWAYS released — a throw here
             // must never strand the cursor/input lock behind a half-closed radial.
             try { _menu.Close(); }
@@ -767,6 +831,7 @@ namespace StationeersUIMod.Features
             _modal.RequestDeferredClose();
             _modal.Pump(_releaseKey);
             _active = null;
+            _activeKind = TWheelKind.Other;
             _pending = null;
             _inBeltPicker = false; // D-064: never survives a close
             _menu.RmbReturnsFromRoot = false; // B15b: its menu-side mirror (Close resets it too)
@@ -776,6 +841,23 @@ namespace StationeersUIMod.Features
             // Hand the opening surface (The Grid) its modal state back — the ModalScope close above
             // cleared BlockCursorRaycast, which that surface's own modal still wants held.
             FinishAdHoc(true);
+        }
+
+        /// <summary>Tutorial hook (Build Contract s3): best-effort <see cref="TCloseRoute"/> for
+        /// CloseAll's free-text diagnostic reason. Several sticky-mode gestures (Escape, RMB-at-root,
+        /// MMB, the close band, an executed action) all collapse into the SAME "sticky-menu-closed" /
+        /// "holdB-menu-closed" reason here — RadialMenu's own internal Close() call sites decide the
+        /// wheel's fate without reporting back which one fired, so those fall to Other rather than
+        /// guess wrong. The unambiguous reasons (a guard tripping, the opener key, hold-mode Escape)
+        /// map precisely.</summary>
+        private static TCloseRoute MapCloseReason(string reason)
+        {
+            if (string.IsNullOrEmpty(reason)) return TCloseRoute.Other;
+            if (reason.StartsWith("cankeep:", System.StringComparison.Ordinal)) return TCloseRoute.Guard;
+            if (reason == "sticky-repress" || reason == "hold-released" || reason == "eq-key-toggle")
+                return TCloseRoute.OpenerKey;
+            if (reason == "escape-hold") return TCloseRoute.Esc;
+            return TCloseRoute.Other;
         }
 
         /// <summary>Immediate teardown (plugin OnDestroy / hot reload) — no deferred release.</summary>
@@ -795,6 +877,7 @@ namespace StationeersUIMod.Features
             BeltBindingStore.Reset(); // same for belt tool-home bindings; the per-save file is untouched
             RadialMenu.ResetRepeatCache(); // R3: drop the cached last-commit delegate (it pins live game objects)
             _active = null;
+            _activeKind = TWheelKind.Other;
             _pending = null;
             _inBeltPicker = false; // D-064: hot-reload safety — a double-F6 must strand nothing
             _menu.RmbReturnsFromRoot = false; // B15b: its menu-side mirror

@@ -4,6 +4,7 @@ using Assets.Scripts;
 using Assets.Scripts.Objects;
 using ImGuiNET;
 using StationeersUIMod.Core;
+using StationeersUIMod.UI.Menu.Tutorial;
 using UnityEngine;
 
 namespace StationeersUIMod.Overlay
@@ -393,6 +394,11 @@ namespace StationeersUIMod.Overlay
         private bool _sticky;
         private int _hovered = -1;          // index on the main ring
         private int _lastHovered = -1;      // R8: last-ticked main-ring hover (hover-tick de-dupe)
+        // Tutorial hook (Build Contract s3/s4): the last entry WedgeHovered fired for, across EITHER
+        // ring, so switching rings (main <-> satellite) or hovering a different entry both count as a
+        // change, but resting on the same one never re-fires. Kept separate from _lastHovered (which
+        // only tracks the main ring's index, for the hover-tick sound).
+        private RadialEntry _lastHoverSignalEntry;
         private int _satHovered = -1;       // index on the satellite ring
         // The source wedge whose satellite the user just RMB-closed. Its satellite sits PAST the
         // ring's outer edge, so without this the slide-out dwell would instantly re-open it (RMB
@@ -414,7 +420,10 @@ namespace StationeersUIMod.Overlay
         private const float SatGraceSec = 0.25f;        // fresh satellites don't steal hold-releases
 
         // --- Option A: click-on-release, drag-out parking, search mode ---
-        private readonly ParkingState _parking = new ParkingState();
+        /// <summary>The drag-out parking state. <c>internal</c> (not private) ONLY so the uiatest
+        /// harness (Testing/UiaTestHarness.cs) can stage the exact chip states the drag layer mints
+        /// without synthesizing mouse input — nothing else touches it from outside this class.</summary>
+        internal readonly ParkingState _parking = new ParkingState();
         private RadialEntry _press;         // wedge pressed but not yet released
         private bool _pressFromSat;
         private float _pressAt;
@@ -642,6 +651,7 @@ namespace StationeersUIMod.Overlay
             {
                 // "Keep it open, I'm not done" — the radial goes sticky. (Shift held by default;
                 // the inverted option makes staying open the default and Shift the closer.)
+                TutorialSignals.Raise(TSignal.KeepOpenUsed);
                 _sticky = true;
                 _satellite = null;
                 Top().Refresh();
@@ -736,6 +746,7 @@ namespace StationeersUIMod.Overlay
                     _stack.RemoveAt(_stack.Count - 1);
                     Top().Refresh(); // the re-exposed level may be stale (items moved since)
                     _hovered = -1;
+                    TutorialSignals.Raise(TSignal.BackedOut);
                 }
                 return;
             }
@@ -781,6 +792,7 @@ namespace StationeersUIMod.Overlay
             if (KeepOpenAfterAction)
             {
                 // "Keep it open, I'm not done" — stay transient, just refreshed.
+                TutorialSignals.Raise(TSignal.KeepOpenUsed);
                 _satellite = null;
                 Top().Refresh();
                 _hovered = -1;
@@ -840,7 +852,12 @@ namespace StationeersUIMod.Overlay
                 _press = null; // whatever was pressed no longer means what it meant
                 // RMB mid-drag is NOT a close: it cancels just this drag (the item goes back where
                 // it was — it never left its slot), and the radial stays open.
-                if (_parking.Dragging != null) { _parking.Dragging = null; return; }
+                if (_parking.Dragging != null)
+                {
+                    _parking.Dragging = null;
+                    TutorialSignals.Raise(TSignal.ChipsCancelled);
+                    return;
+                }
                 // A child radial (satellite) is TRANSIENT — RMB ignores it and acts on the MAIN
                 // radial as if the child were gone: drop the child, then go back one main level,
                 // or close everything when already at the first main level. Suppress an instant
@@ -853,6 +870,7 @@ namespace StationeersUIMod.Overlay
                     _stack.RemoveAt(_stack.Count - 1);
                     Top().Refresh(); // the re-exposed level may be stale (items moved since)
                     _hovered = -1;
+                    TutorialSignals.Raise(TSignal.BackedOut);
                     return;
                 }
                 Close(); // main first radial → close everything (Close drops parked items, D-004)
@@ -981,6 +999,7 @@ namespace StationeersUIMod.Overlay
                 if (!entry.Enabled)
                 {
                     try { UIAudioManager.Play(UIAudioManager.ActionFailHash); } catch { }
+                    TutorialSignals.Raise(TSignal.GreyClicked);
                     return;
                 }
 
@@ -1011,6 +1030,9 @@ namespace StationeersUIMod.Overlay
                 Close(); // one action, radial goes away
                 return;
             }
+            // Tutorial hook: only when the Shift/keep-open MECHANIC is why it stayed open — parked
+            // chips alone (KeepOpenAfterAction false) are a different reason and must not count.
+            if (KeepOpenAfterAction) TutorialSignals.Raise(TSignal.KeepOpenUsed);
             // Parking locks the radial open; KeepOpenAfterAction means "I'm not done yet".
             _satellite = null;
             Top().Refresh();
@@ -1046,6 +1068,7 @@ namespace StationeersUIMod.Overlay
                     };
                     _satellite = null; // hands are busy: no child radials while dragging
                     UIAudioManager.Play(UIAudioManager.ObjectIntoHandHash);
+                    TutorialSignals.Raise(TSignal.WorldReachGrab);
                     return true;
                 }
                 // Bug 8: grab an item OUT of a physical-world object's slot (a locker, a
@@ -1067,6 +1090,7 @@ namespace StationeersUIMod.Overlay
                     };
                     _satellite = null; // hands are busy: no child radials while dragging
                     UIAudioManager.Play(UIAudioManager.ObjectIntoHandHash);
+                    TutorialSignals.Raise(TSignal.WorldReachGrab);
                     return true;
                 }
             }
@@ -1118,6 +1142,9 @@ namespace StationeersUIMod.Overlay
                 if (!Input.GetMouseButton(0))
                 {
                     _hubDragging = false;
+                    // Tutorial hook: fires on release, not gated on distance moved — a plain click on
+                    // the hub (no real move) also counts, which is a harmless over-match.
+                    TutorialSignals.Raise(TSignal.HubMoved);
                 }
                 else
                 {
@@ -1233,6 +1260,7 @@ namespace StationeersUIMod.Overlay
                 Top().Refresh();
                 _hovered = -1;
                 _pendingRefreshAt = Time.unscaledTime + 0.6f;
+                TutorialSignals.Raise(TSignal.ChipDroppedOnTarget);
                 return;
             }
 
@@ -1255,6 +1283,7 @@ namespace StationeersUIMod.Overlay
                     // server round-trip); a second refresh once it lands makes the item appear
                     // in the wedge without reopening the radial. Matches the scroll/select paths.
                     _pendingRefreshAt = Time.unscaledTime + 0.6f;
+                    TutorialSignals.Raise(TSignal.ChipDroppedOnTarget);
                     return;
                 }
                 UIAudioManager.Play(UIAudioManager.ActionFailHash);
@@ -1286,8 +1315,13 @@ namespace StationeersUIMod.Overlay
                 chip.Pos = mouse;
                 _parking.Chips.Add(chip);
                 UIAudioManager.Play(UIAudioManager.ObjectPutHash);
+                TutorialSignals.Raise(TSignal.ChipParked);
             }
-            // else: released over dead space inside the rings, or the screen is full — cancel.
+            else
+            {
+                // released over dead space inside the rings, or the screen is full — cancel.
+                TutorialSignals.Raise(TSignal.ChipsCancelled);
+            }
         }
 
         /// <summary>0.6.2: drop a dragged chip onto a visor HUD hand/equipment box. Returns
@@ -1312,6 +1346,7 @@ namespace StationeersUIMod.Overlay
                     Top().Refresh();
                     _hovered = -1;
                     _pendingRefreshAt = Time.unscaledTime + 0.6f; // MP: box refills post-roundtrip
+                    TutorialSignals.Raise(TSignal.ChipDroppedOnTarget);
                 }
                 // failure already played the fail sound inside ItemActions.Fail()
                 return true;
@@ -1345,6 +1380,7 @@ namespace StationeersUIMod.Overlay
                     Top().Refresh();
                     _hovered = -1;
                     _pendingRefreshAt = Time.unscaledTime + 0.6f;
+                    TutorialSignals.Raise(TSignal.ChipDroppedOnTarget);
                 }
                 return true;
             }
@@ -1543,7 +1579,14 @@ namespace StationeersUIMod.Overlay
                     UIALog.Warn("Radial close: dropping a parked item failed: " + e.Message);
                 }
             }
-            if (dropped > 0) UIAudioManager.Play(UIAudioManager.ObjectPutHash);
+            if (dropped > 0)
+            {
+                UIAudioManager.Play(UIAudioManager.ObjectPutHash);
+                // Tutorial hook (Build Contract s4): only when at least one chip actually dropped —
+                // the D-004 shared close handler, so every close route (RMB, the opener key, MMB, the
+                // close band, Esc...) that drops something raises this the same way.
+                TutorialSignals.Raise(TSignal.ChipsDroppedOnClose);
+            }
         }
 
         /// <summary>Own per-frame raycast (mirrors InputMouse.Idle's, InputMouse.cs:381-384) —
@@ -1614,10 +1657,12 @@ namespace StationeersUIMod.Overlay
             // anything else — empty space, the hub, or a plain wedge with no value modifier — changes
             // how many wedges the ring shows: down toward 2, up toward the configured max.
             if (entry?.OnScroll == null) { AdjustVisibleWedges(s > 0f ? 1 : -1); return; }
+            bool scrolledOk = true;
             try { entry.OnScroll(s > 0f ? 1 : -1); }
-            catch (Exception e) { UIALog.Warn("Scroll adjust failed: " + e.Message); }
+            catch (Exception e) { UIALog.Warn("Scroll adjust failed: " + e.Message); scrolledOk = false; }
             if (_satellite != null) RefreshSatellite();
             _pendingRefreshAt = Time.unscaledTime + 0.6f; // MP: values re-sync after roundtrip
+            if (scrolledOk) TutorialSignals.Raise(TSignal.ValueScrolled);
         }
 
         /// <summary>#4: hover a device-setting wedge and press an allowed letter to bind that
@@ -1689,7 +1734,9 @@ namespace StationeersUIMod.Overlay
 
         private Level Top() => _stack[_stack.Count - 1];
 
-        private RadialEntry MainEntry(int i)
+        /// <summary>The visible main-ring entry at a page-relative index, or null. <c>internal</c> (not
+        /// private) only so the uiatest harness (Testing/UiaTestHarness.cs) can read the live ring.</summary>
+        internal RadialEntry MainEntry(int i)
         {
             var entries = Top().Visible;   // hover indices are page-relative
             return i >= 0 && i < entries.Count ? entries[i] : null;
@@ -1702,13 +1749,19 @@ namespace StationeersUIMod.Overlay
             return i >= 0 && i < entries.Count ? entries[i] : null;
         }
 
-        private void PushBranch(RadialEntry branch)
+        /// <summary>Enter a branch wedge's level (what a click on it runs, via SelectSticky).
+        /// <c>internal</c> (not private) only so the uiatest harness (Testing/UiaTestShots.cs) can open
+        /// The Hub for its screenshots without a synthesized click.</summary>
+        internal void PushBranch(RadialEntry branch)
         {
             var level = new Level { Title = branch.Label, Provider = branch.ChildProvider };
             level.Refresh();
             _stack.Add(level);
             _satellite = null;
             _hovered = -1;
+            // Tutorial hook: a branch dive (The Hub, a category, a nested bag...) opened a child ring.
+            // flag 2 = a branch DIVE (the director tells dives from slide-outs by these bits)
+            TutorialSignals.Raise(TSignal.ChildWheelOpened, TutorialSignals.Pack((int)ClassifyWedge(branch), 2));
         }
 
         /// <summary>The satellite's level becomes the main ring (used when navigating deeper from a satellite).</summary>
@@ -1724,8 +1777,13 @@ namespace StationeersUIMod.Overlay
         private void Execute(RadialEntry entry)
         {
             UnparkActedOn(entry); // A6: before the action runs, while the held item is still in hand
+            // Tutorial: classify BEFORE the action runs. On single-player/host the move lands
+            // immediately, so ClickVerb read afterwards sees the item already in hand and reports a
+            // TAKE as a SWAP (review finding: that silently marked lesson 3 learned).
+            TWedgeKind committedKind = entry.OnSelect != null ? ClassifyWedge(entry) : TWedgeKind.Other;
+            bool committedOk = true;
             try { entry.OnSelect?.Invoke(); }
-            catch (Exception e) { UIALog.Error($"Radial action '{entry.Label}' failed: {e}"); }
+            catch (Exception e) { UIALog.Error($"Radial action '{entry.Label}' failed: {e}"); committedOk = false; }
 
             // R3: cache the committed action under the active feature (the ROOT level title,
             // stable across branch dives) so a double-tap of the feature key can repeat it.
@@ -1739,6 +1797,11 @@ namespace StationeersUIMod.Overlay
             // hover tick. UIAudioManager.Play is a cheap pooled-source call.
             if (UIAConfig.RadialWedgeSounds != null && UIAConfig.RadialWedgeSounds.Value)
                 UIAudioManager.Play(UIAudioManager.ClickMediumHash);
+
+            // Tutorial hook (Build Contract s4): a wedge action committed successfully, classified
+            // the same way the curved D-022 action word is, so a lesson can never disagree with it.
+            if (committedOk && entry.OnSelect != null)
+                TutorialSignals.Raise(TSignal.WedgeCommitted, (int)committedKind);
         }
 
         /// <summary>
@@ -1836,6 +1899,10 @@ namespace StationeersUIMod.Overlay
                 SourceIndex = sourceIndex,
             };
             _satHovered = -1;
+            // Tutorial hook: the slide-out gesture opened a satellite ring (core.pushout,
+            // tools.careful, split.open all key off this).
+            // flag 1 = a SLIDE-OUT satellite (not a dive) - see the ChildWheelOpened arg bits
+            TutorialSignals.Raise(TSignal.ChildWheelOpened, TutorialSignals.Pack((int)ClassifyWedge(entry), 1));
         }
 
         /// <summary>D-021: fold one ring's visible wedges into the hint strip's level-wide flags —
@@ -1866,6 +1933,44 @@ namespace StationeersUIMod.Overlay
             var e = MainEntry(_hovered);
             if (e != null && e.Enabled)
                 UIAudioManager.Play(UIAudioManager.HoverLightHash);
+        }
+
+        /// <summary>Tutorial hook (Build Contract s3/s4): the wedge's TWedgeKind for WedgeHovered /
+        /// WedgeCommitted, read from the SAME fields and the SAME <see cref="RadialEntry.ClickVerb"/>
+        /// the curved D-022 action word uses, so a lesson can never name a different action than the
+        /// wheel just showed. "Equip" folds into Take (both land the item in a hand); the branch verb
+        /// "Open" is IsBranch's own word. Verbs with no clean bucket (Search, Sort, Split, Wear,
+        /// Activate/Deactivate, Lock/Unlock, a generic Use/Drop/Eject/Insert/Install/Unpack/Replace-as-
+        /// a-branch-label) fall to Other by design — the enum has 9 buckets, not one per verb, and
+        /// Other is a safe default, never a wrong specific one.</summary>
+        private static TWedgeKind ClassifyWedge(RadialEntry e)
+        {
+            if (e == null) return TWedgeKind.Other;
+            if (ReferenceEquals(e.Tag, HubTag)) return TWedgeKind.Hub;
+            if (e.IsScrollAdjust) return TWedgeKind.Value;
+            if (e.CanHotkey) return TWedgeKind.Setting;
+            if (e.StowStyle) return TWedgeKind.Stow;
+            string verb = e.ClickVerb();
+            if (verb == null) return TWedgeKind.Other;
+            if (verb == "Take" || verb == "Take 1" || verb == "Take half" || verb == "Equip") return TWedgeKind.Take;
+            if (verb == "Open") return TWedgeKind.Open;
+            if (verb == "Stow" || verb == "Install" || verb == "Insert") return TWedgeKind.Stow;
+            if (verb == "Swap") return TWedgeKind.Swap;
+            return TWedgeKind.Other;
+        }
+
+        /// <summary>Tutorial hook: WedgeHovered fires on a hover CHANGE only (either ring, or a switch
+        /// between them) — never a resting hover, and never every frame. Called once per Draw, right
+        /// after <see cref="HoverTick"/> so both ring hovers are already resolved for the frame.</summary>
+        private void RaiseHoverSignal()
+        {
+            RadialEntry cur = _satellite != null && _satHovered >= 0 ? SatEntry(_satHovered)
+                            : _hovered >= 0 ? MainEntry(_hovered) : null;
+            if (ReferenceEquals(cur, _lastHoverSignalEntry)) return;
+            _lastHoverSignalEntry = cur;
+            if (cur == null) return;
+            int flags = (cur.HasSlideOut ? 1 : 0) | (!cur.Enabled ? 2 : 0);
+            TutorialSignals.Raise(TSignal.WedgeHovered, TutorialSignals.Pack((int)ClassifyWedge(cur), flags));
         }
 
         /// <summary>Which wedge index a mouse delta from the ring centre points at (-1 if the
@@ -2001,6 +2106,7 @@ namespace StationeersUIMod.Overlay
             // R8: hover tick. _hovered is now final for the frame; a fresh landing on an
             // ENABLED wedge ticks once. De-duped so a static hover never repeats the sound.
             HoverTick();
+            RaiseHoverSignal();
 
             // --- slide-out trigger (dwell-gated so fast flick-releases aren't hijacked) ---
             // Never while dragging a chip: the hand is busy — a child radial popping up

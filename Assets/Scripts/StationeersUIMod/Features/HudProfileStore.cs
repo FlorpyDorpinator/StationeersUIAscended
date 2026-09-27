@@ -178,7 +178,7 @@ namespace StationeersUIMod.Features
                             // If the pruned theme was active, fall back to the shipped default.
                             if (string.Equals(HudConfig.HudActiveProfile.Value, profName, StringComparison.OrdinalIgnoreCase))
                                 HudConfig.HudActiveProfile.Value = (string)HudConfig.HudActiveProfile.DefaultValue;
-                            UIALog.Info("Retired shipped HUD theme '" + profName + "' (untouched) removed on update.");
+                            UIALog.Info("Retired shipped UI theme '" + profName + "' (untouched) removed on update.");
                         }
                         // else: edited by the player (or unparseable) → keep it (it's theirs now)
                     }
@@ -237,7 +237,7 @@ namespace StationeersUIMod.Features
                     }
                 }
                 if (filesTouched > 0)
-                    UIALog.Info("HUD theme fold (v2->v3): topped up " + filesTouched +
+                    UIALog.Info("UI theme fold (v2->v3): topped up " + filesTouched +
                         " profile(s) with " + keysAdded + " new theme key(s) total.");
             }
             catch (Exception e) { UIALog.Warn("HudProfileStore.TopUpAllThemes: " + e.Message); }
@@ -400,6 +400,7 @@ namespace StationeersUIMod.Features
                 }
                 doc.Sanitize();
                 doc.Name = name;
+                FixShippedLowPowerThreshold(doc, name);
                 // The style migration is a one-time regression: persist it immediately so the
                 // on-disk XML stops being legacy (else every load re-migrates and re-freezes
                 // Custom snapshots from THAT session's globals — the values would drift).
@@ -419,6 +420,29 @@ namespace StationeersUIMod.Features
             {
                 WarnOnce(file, "HUD profile '" + file + "' failed to load: " + e.Message);
                 return null;
+            }
+        }
+
+        /// <summary>0.9.7.4 shipped every theme with cfg:LowPowerThreshold = 27.034 (an accidental
+        /// slider value; the shipped battery threshold is 10%, FlorpyDorp 2026-09-26). SyncShipped
+        /// refreshes only UNTOUCHED copies, and the active theme is re-saved on any setting change,
+        /// so most players' shipped copies would keep 27% for ever. Exact-value, shipped-name-only
+        /// and in-memory: a player who chose any other value keeps it, a custom profile is never
+        /// touched, and nothing is written here (no hash churn against the shipped manifest) — the
+        /// next ordinary theme save persists it.</summary>
+        private static void FixShippedLowPowerThreshold(HudDocument doc, string name)
+        {
+            if (doc == null || doc.Theme == null || name == null || !ShippedFactories.ContainsKey(name)) return;
+            for (int i = 0; i < doc.Theme.Count; i++)
+            {
+                var e = doc.Theme[i];
+                if (e == null || e.K != "cfg:LowPowerThreshold") continue;
+                float v;
+                if (float.TryParse(e.V, System.Globalization.NumberStyles.Float,
+                        System.Globalization.CultureInfo.InvariantCulture, out v)
+                    && Math.Abs(v - 27.034f) < 0.0005f)
+                    e.V = "10";
+                return;
             }
         }
 
@@ -710,6 +734,61 @@ namespace StationeersUIMod.Features
             }
         }
 
+        // ---------- feedback-report context (read-only; Core.FeedbackService) ----------
+
+        /// <summary>Full on-disk path of a profile's XML, or null for an empty/invalid name. Exists so
+        /// the feedback report's opt-in profile attachment reads the SAME file this store writes (the
+        /// <see cref="SafeFileName"/> rule stays in one place). Does not check existence.</summary>
+        internal static string ProfilePath(string name)
+        {
+            string file = SafeFileName(name);
+            return file == null ? null : Path.Combine(Dir, file + ".xml");
+        }
+
+        /// <summary>For the feedback report's "modified from shipped" field. "no" = a theme we ship
+        /// whose on-disk copy still matches what we ship; "yes" = a shipped name whose file differs
+        /// (or a player-owned copy the manifest stopped tracking); "custom" = the player's own
+        /// profile; "" = could not tell. Compares with <see cref="CanonHash"/> — the SAME canonical
+        /// hash SyncShipped uses — against the mod folder's copy when reachable, else the manifest
+        /// (the F6 flow). Appends " (+unsaved edits)" when the ACTIVE document is known to differ from
+        /// its file: an edit still pending autosave, or one the read-only gate refused this session.
+        /// Read-only, never throws.</summary>
+        internal static string ShippedEditState(string name)
+        {
+            try
+            {
+                string file = SafeFileName(name);
+                if (file == null) return "";
+                string state;
+                if (!IsShippedName(name)) state = "custom";
+                else
+                {
+                    string disk = CanonHash(Path.Combine(Dir, file + ".xml"));
+                    string reference = null;
+                    if (!string.IsNullOrEmpty(_modDirectory))
+                    {
+                        string src = Path.Combine(Path.Combine(_modDirectory, "HudProfiles"), file + ".xml");
+                        if (File.Exists(src)) reference = CanonHash(src);
+                    }
+                    bool tracked = true;
+                    if (reference == null)
+                    {
+                        string prev;
+                        tracked = LoadManifest().TryGetValue(file + ".xml", out prev);
+                        reference = prev;
+                    }
+                    if (disk == null) state = "";
+                    else if (!tracked) state = "yes";   // shipped name, untracked = a player-owned copy
+                    else state = disk == reference ? "no" : "yes";
+                }
+                bool active = string.Equals(name, _activeName, StringComparison.OrdinalIgnoreCase);
+                if (active && (_dirty || _themeDirty || _readOnlyNoticed.Contains(name)))
+                    state = state.Length == 0 ? "unsaved edits" : state + " (+unsaved edits)";
+                return state;
+            }
+            catch { return ""; }
+        }
+
         // ---------- the read-only gate for shipped themes ----------
 
         /// <summary>One notice per THEME per session, so a player who keeps nudging a shipped layout
@@ -750,7 +829,7 @@ namespace StationeersUIMod.Features
             try
             {
                 if (!_readOnlyNoticed.Add(profileName ?? string.Empty)) return;
-                UIALog.Info("HUD theme '" + profileName + "' is one we ship, so it is read-only: "
+                UIALog.Info("UI theme '" + profileName + "' is one we ship, so it is read-only: "
                     + "that edit was not saved. Duplicate it to make it yours (`uiadev` unlocks "
                     + "shipped themes for this session).");
                 Overlay.Toast.Show("Shipped theme - read-only. Duplicate it to make it yours.",
@@ -1080,7 +1159,7 @@ namespace StationeersUIMod.Features
             // palette — before views rebuild. A themeless profile (null/empty Theme) leaves the
             // globals exactly as they are (the pre-theme behaviour), so nothing regresses.
             try { HudTheme.Apply(doc != null ? doc.Theme : null); }
-            catch (Exception e) { UIALog.Warn("HUD theme apply failed: " + e.Message); }
+            catch (Exception e) { UIALog.Warn("UI theme apply failed: " + e.Message); }
             Version++;
             var handler = ActiveReplaced;
             if (handler != null) handler();

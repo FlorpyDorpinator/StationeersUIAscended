@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using Assets.Scripts.Objects;
 using Assets.Scripts.UI;   // InputMouse (the cursor-freed / mouse-control signal)
 using StationeersUIMod.Features;
+using StationeersUIMod.UI.Menu.Tutorial;
 using UnityEngine;
 using UnityEngine.UI;
 
@@ -305,6 +306,8 @@ namespace StationeersUIMod.UI.Grid
                 else if (idx >= n) idx = 0;
             }
             SetCursor(idx, scroll, true);
+            // Tutorial hook (Build Contract s4): one discrete wheel-notch move, not per-frame.
+            TutorialSignals.Raise(TSignal.ScrollHighlightMoved);
         }
 
         // ---------- keys ----------
@@ -379,7 +382,12 @@ namespace StationeersUIMod.UI.Grid
         {
             if (it.Tab != null)
             {
-                if (it.RefId != 0L) GridCollapseStore.ToggleCollapsed(it.RefId);
+                if (it.RefId != 0L)
+                {
+                    GridCollapseStore.ToggleCollapsed(it.RefId);
+                    // Tutorial hook: the keyboard twin of clicking a folder tab (window.tabs).
+                    TutorialSignals.Raise(TSignal.GridTabToggled);
+                }
                 return;
             }
             if (it.Cell != null) it.Cell.ActivateFromKeyboard();

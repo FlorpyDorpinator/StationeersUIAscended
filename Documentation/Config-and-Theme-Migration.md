@@ -20,7 +20,9 @@ When you push a Workshop update, Steam replaces the **mod folder** (`Stationeers
 - `StationeersUIMod/HudProfiles/*.xml` — HUD themes/layouts (shipped **and** player-made).
 - `StationeersUIMod/{Grid,GridPins,Assignments,BeltBindings,Hotkeys,HintUsage,Loadouts,...}` —
   per-world layouts and bindings.
-- `StationeersUIMod/Profiles/profiles.xml`, `HudIcons/`, `ProfilerSnapshots/`.
+- `StationeersUIMod/Profiles/profiles.xml`, `HudIcons/`, `ProfilerSnapshots/`, `Feedback/`
+  (`outbox/` = reports not yet delivered, `sent/` = delivered receipts; `uiareset` warns before
+  wiping unsent ones).
 
 Because that folder persists, **BepInEx reads the STORED value, not your new code default.** So if
 you change a default because the old one was wrong, existing players never see it — only brand-new

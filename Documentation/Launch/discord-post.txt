@@ -1,0 +1,19 @@
+# Stationeers UI Ascended 1.0 is out!
+A UI overhaul that rebuilds Stationeers' inventory and HUD around your two hands.
+
+**What you get**
+- **Radial wheels** - middle mouse for your tool belt, Tab for your bags + search, R for the item in your hand (every setting, scroll to adjust), 1-6 for each piece of gear
+- **Two hands, no hotbar, ever** - hands, batteries and logistics stay; menu-diving goes
+- **Universal Inventory (B)** - every bag you carry in one window: drag & drop, pin bags out, Shift+drag moves a whole item type, drag straight into chargers and lockers
+- **Smart Stow (G) that remembers** - items go back to the exact bag and slot they came from
+- **Curved visor HUD** - compass, vitals with a live hologram portrait; real numbers need a powered suit, and it glitches as your battery dies
+- **4 themes + the F9 HUD Designer** - move, resize and restyle anything, live
+- **F10 Control Center** - every setting with search, and every key rebindable
+- **Report bugs in-game** - F10 > Suggestions/Bugs goes straight to the devs, and you can track it there
+- **In-game tutorial** - 19 short lessons: take the guided tour or learn as you go
+- **Multiplayer-friendly** - every inventory action uses the game's own server-checked path
+
+**Get it:** https://steamcommunity.com/sharedfiles/filedetails/?id=3776545141
+Needs **BepInEx 5 + StationeersLaunchPad**. In game: **F10** for settings, **F9** for the HUD Designer.
+
+**Thank you** to everyone who tested and reported bugs: aproposmath, ConductorWon, Dipole, JoeDiertay, Ningy, PeteWasEre, StormCircuit, ViroMan, Wilhelm W. Walrus, Windsinger and WreckerRecreation - and a special thank-you to **JacksonTheMaster** for helping build UI Ascended and for the built-in profiler.

@@ -2,27 +2,38 @@
   <Name>Stationeers UI Ascended</Name>
   <ModID>StationeersUIAscended</ModID>
   <Author>FlorpyDorp + JXSN</Author>
-  <Version>0.9.7.4</Version>
+  <Version>1.0.0</Version>
   <Description>
 	  [h1]Stationeers UI Ascended[/h1]
 
-    A radial inventory and HUD overhaul for Stationeers, built around a two-hand visor interface: procedural Unity UGUI radials for tools/bags/equipment, SmartStow+, a document-driven visor HUD with per-profile themes, and the Universal Inventory. Client-side optional mod.
-	  [h3]Two curated HUD themes ship in the box — Stationeers Blue and Pure HUD — fully editable in-game with the F9 HUD Designer[/h3]
+    A UI overhaul that rebuilds Stationeers' inventory and HUD around your two hands: radial wheels for tools, bags, gear and devices; a Universal Inventory with every bag you carry in one window; a Smart Stow that sends each item back to the exact slot it came from; and a curved suit-visor HUD you can redesign live in the F9 HUD Designer. No hotbar, ever. Every inventory action goes through the game's own server-checked path, so it plays fair in multiplayer.
+	  [h3]Four themes ship in the box - Stationeers Blue, Stationeers Blue Minimalist, Zirillian Red and Pure HUD. Press F10 for settings, F9 for the HUD Designer.[/h3]
 
   </Description>
   <InGameDescription><![CDATA[<size="30"><color=#4fc3f7>Stationeers UI Ascended</color></size>
 <b>WARNING:</b> <color=#ff0000>This is a StationeersLaunchPad Plugin Mod. It requires BepInEx + StationeersLaunchPad.</color>
 <br>
-<b>Stationeers UI Ascended</b> — Radials for tools/bags/equipment, SmartStow+, the Universal Inventory, and a two-hand visor HUD. Replaces hotbar friction with modern interaction while keeping the game's own physical inventory rules.
+<b>Stationeers UI Ascended</b> - Radial wheels for tools, bags, gear and devices, the Universal Inventory, a Smart Stow that remembers where things go, and a two-hand visor HUD. No hotbar, and the game's own physical inventory rules stay intact.
 <br><br>
-The visor HUD is a document-driven layout you can reshape live in the F9 HUD Designer: move/resize/restyle any element, fork a look per suit tier, and save it as your own profile. Radials, the Universal Inventory and the Control Center menu all retint together with whichever profile theme is active. Two curated themes ship by default: Stationeers Blue and Pure HUD.
+Reshape the visor live in the F9 HUD Designer: move, resize and restyle anything, give it a different look when suited or bare, and save it as your own theme. The wheels, the Universal Inventory and the F10 Control Center all retint with the active theme. Four themes ship: Stationeers Blue, Stationeers Blue Minimalist, Zirillian Red and Pure HUD. Found a bug? F10 - Suggestions/Bugs.
 <br>
 ]]></InGameDescription>
   <ChangeLog>
+    [h3]Version 1.0.0 -- UI Ascended 1.0:[/h3]
+    [list]
+    [*] SMART STOW THAT REMEMBERS (the new default, Simple mode): every item remembers the exact bag and slot you last put it in, in each world, and G sends it back there -- even into a belt inside a backpack. Moving an item by hand moves its home; G, sorting and swaps never steal it. Players who already use Bag Profiles stay on the rule system, now called Complex mode, with a one-time notice
+    [*] NEW IN-GAME TUTORIAL: 19 short lessons. A Welcome card offers a guided tour of the whole mod or lessons that appear the first time you need them, and every lesson can be watched, tried or replayed from F10 - Guide
+    [*] F10 CONTROL CENTER REBUILT: a bigger window with manila folder tabs, a settings search box, the last tab remembered, and More options sections instead of Simple/Advanced. HUD Themes is now UI Themes, the Radial tab gains every wheel colour and glass setting, and Storage is now SmartStow with a three-column Organizer (Storage Layouts, Bags, Bag Profiles). Stow Profiles are now Storage Layouts; the shipped Stationpedia Ascended layout is now Ascended (your edits are kept). Equipped tool belts and jetpacks can take Bag Profiles
+    [*] REPORT BUGS IN-GAME: the new F10 Suggestions/Bugs tab sends a bug or idea straight to the developers as a tracked report -- optionally with your HUD profile or recent log lines -- and shows its status. Anonymous unless you add a contact. Also available as the uiafeedback console command
+    [*] WHEELS: an action word (TAKE / EQUIP / SWAP / OPEN / STOW) shows what a click will do; closing a wheel by any route drops what you dragged out at your feet; a curved, theme-coloured hint ring with clearer wording; bold item names and a Recent item tag; the 6 key opens the full Belt Wheel with The Hub and belt change; hidden built-in slots stay hidden
+    [*] UNIVERSAL INVENTORY: drag into chargers, lockers and other world containers, also from a hand box; Shift+drag moves every stack of a type; compact split buttons including choose-a-number (host/single-player); overlapping popups fixed; a rescue cell recovers items trapped in stacks by old saves
+    [*] HUD: a new Rangefinder element you can add in F9; the low-battery glitch now starts at 10% on the shipped themes; removed a debug line that spammed the log every 1.5 seconds
+    [*] Under the hood: per-world data is now keyed to the world ID, so multiplayer clients no longer mix data between servers; verified against the current game build
+    [/list]
     [h3]Version 0.9.7.4 EXPERIMENTAL -- four shipped themes + play-test round 4:[/h3]
     [list]
     [*] FOUR shipped HUD themes, all at their newest versions: Stationeers Blue, Stationeers Blue Minimalist, Zirillian Red and Pure HUD. Shipped themes are now read-only in the editors (duplicate one to customize it), and the new uiadev console command unlocks them for theme authoring
-    [*] The 1-6 equipment keys now open a worn container INSIDE the Universal Inventory by default; if you pinned it into its own window yourself, the key remembers that and opens the pinned window instead
+    [*] Shift+1-6 (or a mouse-modifier click on a HUD gear box) now opens that worn container INSIDE the Universal Inventory; if you pinned it into its own window yourself, it brings the pinned window forward instead
     [*] Alert glow fixes: a red CRITICAL pulse no longer washes out to white/pink at high brightness on older profiles, and the glow stays visible while the F9 designer is open so you can actually tune it
     [*] F9 designer: a Pause button in the toolbar (single-player; auto-resumes when you close F9), and the editor + element popup now draw above the mod's own HUD elements
     [*] New F10 - HUD - Maintenance - Repair config folders button: non-destructively recreates any missing config folders/files; every store now also survives its folder being deleted mid-session
@@ -34,27 +45,7 @@ The visor HUD is a document-driven layout you can reshape live in the F9 HUD Des
     [*] New option (F10 - Radials - Behaviour): invert what Shift means -- wheels can now default to STAYING OPEN after every action, with Shift closing them instead. Default unchanged
     [*] Vanilla's F2 tips panel now always draws ON TOP of the mod's UI (HUD, wheels, Universal Inventory) -- while still sitting behind the Esc menu and other vanilla menus
     [/list]
-    [h3]Version 0.9.7.2 EXPERIMENTAL -- compass hotfix:[/h3]
-    [list]
-    [*] HOTFIX: 0.9.7.1's compass fix over-corrected on some themes -- nearly every tick gained a cardinal letter (the 'NW NWN N N NE NE NE' strip). Cardinal letters now live on their own true 45-degree bearings, fully independent of the tick-spacing knob, so they can never be misplaced or duplicated again. Minor ticks keep the spacing slider as a pure density control; cardinalDeg now chooses all eight points vs the four majors
-    [/list]
-    [h3]Version 0.9.7.1 EXPERIMENTAL -- CRITICAL public-branch fix + play-test round:[/h3]
-    [list]
-    [*] CRITICAL: fixed a crash loop on the DEFAULT (public) game branch -- a beta-branch field rename made the Universal Inventory throw every frame on public builds, which killed the Grid and starved the radials (the "cardboard box won't open" / "radial menu empty" reports). The mod now detects the game's field shape at runtime and works on BOTH branches
-    [*] Body bags are no longer storage anywhere in the mod: no organ access via radials, the Universal Inventory, search or SmartStow. Vanilla interactions (cryotube revival) are untouched, and the after-death cardboard box still opens normally
-    [*] Compass: North no longer reads ~10 degrees off when approached from below 360 -- the tick strip, cardinal letters and degree readout now agree at the wrap on every profile (including custom ones)
-    [*] Fixed the main menu's "Exit To Desktop" confirmation being unclickable after leaving a dedicated server (a leaked item tooltip left a shared vanilla UI layer's clicks disabled)
-    [/list]
-    [h3]Version 0.9.7.0 EXPERIMENTAL -- SMARTSTOW PROFILES + F9 STYLE PARITY:[/h3]
-    [list]
-    [*] SMARTSTOW PROFILES, REBUILT: bag-routing rules are now organized into "Stow Profiles" -- switchable folders of "Bag Profiles" you can browse, copy between and share. F10's Storage tab is now four clear pages: Bags (card grid, live thumbnails, per-bag exclude + rename), Bag Profiles (the rule editor), Stow Profiles (the set manager) and Settings. Only real containers (backpacks, mining bags, boxes, crates) are assignable. Assigning a profile can auto-rename the bag to match (multiplayer-safe, toggleable). Four shipped sets: By Printer, By Category, Stationpedia Ascended, and Starter. Share your own sets as a compact code (clipboard) or a drop-in XML file. New "UIA class" rule type for smarter, mod-aware catches. Profile and set rename/duplicate/delete finally exist in F10. Loadouts are retired in favor of this
-    [*] F9 STYLE PARITY: every per-element style page now mirrors the F9 global menu exactly (Glass / Edges / Glow / Bloom / Alerts / Transitions) -- one name, one range, everywhere. Each style category (Theme/Glass/Edges/Glow/Transitions) gets its own "follow global" checkbox, and unchecking one changes nothing until you actually edit it. New: make an element INHERIT its style from another element you pick by clicking it, either live-linked or as a one-time copy. Shared-global settings you couldn't reach before now show their real value with a jump-to-F9 button
-    [*] CUT (CHAMFERED) CORNERS: a new corner style alongside rounded -- global or per element, per suit tier, travels with your theme. Full glass effects (frost, chroma, halo, shine) now render identically on cut and rounded corners
-    [*] DETAILED VITALS TOOLTIPS: hover the vitals panel (or the vanilla stats panel) for exact mood/hygiene percentages and per-minute trend rates
-    [*] FROM THE PARALLEL WORK LINE: device internals (drills, tablets, canisters, demo charges) now open in our own themed, resizable window with the device's real switches inside instead of the vanilla popup. A first-run tutorial walks new players through the controls (replayable from the Guide tab), with a pause button for solo games and an in-game Designer Handbook for F9. The Universal Inventory and pinned bags grew a real scrollbar. Hand-box drag-outs, inventory tooltips and 1-6 click-to-pin all had rough edges fixed. F10's "Profiles" tab is renamed "HUD Themes" and "the Grid" is now "Universal Inventory" throughout, to stop it colliding with the new Bag/Stow Profiles
-    [*] RADIAL SIMPLIFICATION: the Hub is now the only interaction model (the old control-scheme choice and per-wheel on/off toggles are gone -- radials are core now); "flick to commit" is removed, fixing wedges that used to fire without the ring appearing
-    [*] Fixes: world-item drops now swap into occupied wedges/boxes/slots like vanilla; F9 correctly previews the Suited HUD when authoring unpowered; separating an element's style no longer strips its frost/glow/edge light; edge-light now fully turns off with the edge masters instead of leaving a static rim; portrait ring and body-doll outline restored; F10 scrollbar crash and drag-hijack fixed; compatibility fix for a renamed internal game API
-    [/list]
+    [h3]Older versions: see the Change Notes tab on the Steam Workshop page.[/h3]
   </ChangeLog>
   <WorkshopHandle>0</WorkshopHandle>
   <Tags>

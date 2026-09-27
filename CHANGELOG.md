@@ -2,6 +2,58 @@
 
 All notable changes to the mod. Detailed engineering write-ups live in `Changes Reports/`.
 
+## 1.0.0 -- 2026-09-26 -- UI ASCENDED 1.0
+
+FlorpyDorp named this release 1.0 on 2026-09-26; it replaces the planned "0.9.8.0". Engineering
+detail: the 2026-09-25/26 Changes Reports - "Triage fix wave 1", "0.9.8.0 SmartStow + F10
+overhaul (orchestrated wave)" and its agent reports, the "Simple SmartStow" pair, the Feedback
+pipeline reports and "Suggestions-Bugs F10 tab", and "Remove VitalsTip hover diagnostic".
+Everything below except fix wave 1 was uncommitted and largely play-untested when this entry
+was written - see `Documentation/0.9.8.0/Play-Test-SIMPLE.md` / `-FULL.md`.
+
+- **Simple SmartStow is the new default**: each item remembers the exact bag and slot it was
+  last placed in (per world, found by identity at any nesting depth) and G returns it there.
+  A manual move re-homes it; G/sort/swap never steal a home. Existing Bag Profile users stay
+  in **Complex** mode (ConfigMigration v4 -> v5, evidence-based) with a one-time notice.
+- **F10 Control Center rebuilt (Kit v2)**: 1450x950 window, manila folder tabs, title-bar
+  settings search, remembered last tab, per-section "More options" instead of the global
+  Simple/Advanced toggle. "HUD Themes" -> **UI Themes**; the Radial tab gains every wheel
+  colour/glass knob; Storage -> **SmartStow** with the three-column Organizer (Storage
+  Layouts / Bags / Bag Profiles), Routing, Return Home and Universal Inventory pages.
+  "Stow Profiles" -> "Storage Layouts"; shipped "Stationpedia Ascended" -> "Ascended"
+  (edits preserved). Equipped tool belts and jetpacks accept Bag Profiles (working slots
+  protected).
+- **In-game feedback**: new F10 **Suggestions/Bugs** tab and the `uiafeedback` console
+  command. Reports are saved to an outbox first, then sent to the feedback relay
+  (FlorpyDorp's server behind a Cloudflare Tunnel), filed as GitHub issues and planned by a
+  Claude triage bot; players see status (Received / Under review / Fixed in / Closed).
+  Anonymous unless a contact is given. New `[Feedback]` cfg section (Enabled, RelayUrl -
+  empty = built-in relay).
+- **Wheels** (fix wave 1): action word plate (TAKE/EQUIP/SWAP/OPEN/STOW) following the
+  hovered wedge; unified close = drop at feet (never ejects world-container items); curved
+  theme-AUTO hint ring with honest wording; bold names, 2x chevron, "Recent item" tag; the 6
+  key opens the full MMB ring (The Hub + Q change belt) and RMB from the belt chooser returns
+  to its ring; vanilla-hidden built-in slots stay hidden (no phantom cable-coil storage).
+- **Universal Inventory** (fix wave 1): drag into world containers/device slots (also from a
+  hand box) with vanilla's placement box; Shift+drag moves every stack of a type; compact
+  square buttons incl. choose-a-number split (host/SP); popup focus fixed; rescue cells for
+  items trapped in stacks.
+- **HUD**: new Rangefinder element (m/ft; not in the shipped themes); shipped themes' glitch
+  threshold 27% -> 10% (with a load-time fix for installed copies); removed the 0.9.7.x
+  "VitalsTip diag" log spam.
+- **Under the hood**: per-save files keyed to the world ID (fixes MP clients sharing an
+  "unsaved" file across servers), atomic per-save writes; verified against game build 27798
+  back to 24790.
+- **Release text**: About.xml description/in-game description rewritten (four themes, no
+  tofu-prone characters); About.xml ChangeLog trimmed to 1.0.0 + 0.9.7.4 + 0.9.7.3 for the
+  8000-char cap (the 0.9.7.4 line now correctly says Shift+1-6); new Workshop description,
+  Steam guide and Reddit/Discord announcements in `Documentation/Launch/`.
+- **New 19-lesson in-game tutorial** (FlorpyDorp: ships live in 1.0): a Welcome card
+  offers a guided tour (overview cards + every lesson in order) or just-in-time lessons;
+  F10 > Guide lists every lesson with Watch / Try it / Skip / Restart; `uiatutorial`
+  console command. Replaces the 0.9.7.0 15-step coach. Engineering detail: the 2026-09-26
+  tutorial Changes Reports.
+
 ## 0.9.7.4 Experimental -- 2026-08-10 -- FOUR SHIPPED THEMES + PLAY-TEST ROUND 4
 
 Engineering detail: the five 2026-08-10 Changes Reports.

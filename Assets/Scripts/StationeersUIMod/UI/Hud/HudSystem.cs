@@ -2119,6 +2119,183 @@ namespace StationeersUIMod.UI.Hud
             }
         }
 
+        /// <summary>Tutorial SPOT support (0.9.8.0 - TutorialSpotlight and the coach's scrim hole):
+        /// the SCREEN rect - pixels, bottom-left origin, y up (<c>Input.mousePosition</c> space) - of
+        /// the FIRST live document element (document order) of <paramref name="type"/> that is
+        /// actually shown right now. For a Readout, <paramref name="srcParam"/> (null/empty = any)
+        /// must equal its "src" param, case-insensitively ("ExternalPressure").
+        ///
+        /// <para>Forward-warped EXACTLY like the F9 handles (<c>HudEditorMode.CanvasToScreen</c>):
+        /// the LOGICAL rect (<see cref="HudElementView.CanvasRect"/>) goes through
+        /// <see cref="HudWarp.WarpPoint"/> ONCE - element placement is never pre-warped, so this is
+        /// never a double warp. The bound is the AABB of 16 warped perimeter points, because a wide
+        /// panel BOWS under the barrel and its four corners alone would under-cover the bulge.</para>
+        ///
+        /// <para>False ("not on screen": the caller skips its outline, the copy still stands) when
+        /// the HUD is not built/active, on the world-canvas curvature (mode C draws with true 3D
+        /// perspective - flat rects miss by 60-150 px, the CollectDropZones precedent), between
+        /// snapshots, while the whole HUD is faded out (low-power dropout), or when no matching
+        /// element is visible at the live tier and overlapping the screen. Read-only,
+        /// allocation-free, never throws.</para></summary>
+        internal static bool TryGetElementScreenRect(HudElementType type, string srcParam, out Rect rect)
+        {
+            rect = default(Rect);
+            try
+            {
+                if (_canvas == null || !_canvas.gameObject.activeInHierarchy) return false;
+                if (HudConfig.Curvature != null
+                    && HudConfig.Curvature.Value == HudCurvature.CurvedWorldCanvas) return false;
+                var snap = LastSnapshot;
+                if (snap == null || !snap.Valid) return false;
+                if (_rootGroup != null && _rootGroup.alpha < 0.05f) return false;
+                float scale = HudConfig.EffectiveHudScale();
+                float hw = Screen.width * 0.5f, hh = Screen.height * 0.5f;
+                bool wantSrc = !string.IsNullOrEmpty(srcParam);
+                foreach (var p in _panels)
+                {
+                    var v = p as HudElementView;
+                    if (v == null || v.Def == null || v.Def.Type != type) continue;
+                    if (wantSrc && !string.Equals(v.Def.GetS("src", ""), srcParam,
+                            StringComparison.OrdinalIgnoreCase)) continue;
+                    if (v.Root == null || !v.Root.gameObject.activeInHierarchy) continue;
+                    if (v.Group != null && v.Group.alpha < 0.05f) continue;
+                    if (!v.VisibleAt(HudElementView.LayoutTier)) continue;
+
+                    Rect r = v.CanvasRect(scale);
+                    if (r.width < 1f || r.height < 1f) continue;
+                    Rect b = WarpedCanvasBounds(r);
+                    // Canvas space is centre-origin screen px; wholly off-screen = not on screen.
+                    if (b.xMax < -hw || b.xMin > hw || b.yMax < -hh || b.yMin > hh) continue;
+                    rect = Rect.MinMaxRect(b.xMin + hw, b.yMin + hh, b.xMax + hw, b.yMax + hh);
+                    return true;
+                }
+            }
+            catch { }
+            rect = default(Rect);
+            return false;
+        }
+
+        /// <summary>The AABB of a LOGICAL canvas rect after ONE forward warp
+        /// (<see cref="HudWarp.WarpPoint"/>), from 16 perimeter samples (t = 0, .25, .5, .75 along each
+        /// edge, walked CCW) - a wide panel BOWS under the barrel, so its four corners alone would
+        /// under-cover the bulge. Canvas coords (centre origin, y up). Shared by
+        /// <see cref="TryGetElementScreenRect"/> and <see cref="TryCollectTopZoneRects"/> so both
+        /// measure exactly what the F9 handles show (never a double warp).</summary>
+        private static Rect WarpedCanvasBounds(Rect r)
+        {
+            float xMin = float.MaxValue, yMin = float.MaxValue;
+            float xMax = float.MinValue, yMax = float.MinValue;
+            for (int e = 0; e < 4; e++)
+            {
+                for (int s = 0; s < 4; s++)
+                {
+                    float t = s * 0.25f;
+                    Vector2 q;
+                    switch (e)
+                    {
+                        case 0: q = new Vector2(Mathf.Lerp(r.xMin, r.xMax, t), r.yMin); break;
+                        case 1: q = new Vector2(r.xMax, Mathf.Lerp(r.yMin, r.yMax, t)); break;
+                        case 2: q = new Vector2(Mathf.Lerp(r.xMax, r.xMin, t), r.yMax); break;
+                        default: q = new Vector2(r.xMin, Mathf.Lerp(r.yMax, r.yMin, t)); break;
+                    }
+                    q = HudWarp.WarpPoint(q);
+                    if (q.x < xMin) xMin = q.x;
+                    if (q.x > xMax) xMax = q.x;
+                    if (q.y < yMin) yMin = q.y;
+                    if (q.y > yMax) yMax = q.y;
+                }
+            }
+            return Rect.MinMaxRect(xMin, yMin, xMax, yMax);
+        }
+
+        /// <summary>Tutorial STRIP placement (0.9.8.0 - <c>TutorialStrip</c> parks a margin under the
+        /// HUD's top zone instead of at a fixed offset): collects into <paramref name="into"/> (cleared
+        /// first; caller-owned, so this allocates nothing) the SCREEN rects - pixels, bottom-left origin,
+        /// y up, the <see cref="TryGetElementScreenRect"/> space - of every live document element that is
+        /// shown right now AND belongs to the TOP ZONE: its forward-warped rect's centre lies in the upper
+        /// <paramref name="zoneFrac"/> of the screen (the rect is "mostly" up there). The same visibility
+        /// gates as <see cref="TryGetElementScreenRect"/>: active root, per-panel alpha, and the element's
+        /// tier mask against the LIVE tier (<see cref="HudElementView.LayoutTier"/>) - so the bare tier's
+        /// missing top bar, a custom minimal HUD, a different profile/theme/HUD scale/resolution or
+        /// curvature strength are all measured, never assumed.
+        ///
+        /// <para>Forward-warped EXACTLY like the F9 handles (<see cref="WarpedCanvasBounds"/>: the logical
+        /// rect through <see cref="HudWarp.WarpPoint"/> ONCE). The borrowed moodlet row
+        /// (<see cref="HudElementType.MoodletDashboard"/>) is measured at its RENDERED cell height, which
+        /// overhangs the authored box whenever the scaled cell is taller (see
+        /// <see cref="WithMoodletCells"/>).</para>
+        ///
+        /// <para>Returns false ("cannot measure" - the caller keeps its last placement) when the HUD is not
+        /// built/active, on the world-canvas curvature (mode C draws with true 3D perspective - flat rects
+        /// miss by 60-150 px), between snapshots, or while the whole HUD is faded out (low-power dropout).
+        /// True with an EMPTY list = measured, nothing up there. Read-only, never throws.</para></summary>
+        internal static bool TryCollectTopZoneRects(List<Rect> into, float zoneFrac)
+        {
+            if (into == null) return false;
+            into.Clear();
+            try
+            {
+                if (_canvas == null || !_canvas.gameObject.activeInHierarchy) return false;
+                if (HudConfig.Curvature != null
+                    && HudConfig.Curvature.Value == HudCurvature.CurvedWorldCanvas) return false;
+                var snap = LastSnapshot;
+                if (snap == null || !snap.Valid) return false;
+                if (_rootGroup != null && _rootGroup.alpha < 0.05f) return false;
+                float scale = HudConfig.EffectiveHudScale();
+                float hw = Screen.width * 0.5f, hh = Screen.height * 0.5f;
+                // The zone's lower edge in canvas y (centre origin, y up).
+                float zoneLine = hh - Screen.height * Mathf.Clamp01(zoneFrac);
+                foreach (var p in _panels)
+                {
+                    var v = p as HudElementView;
+                    if (v == null || v.Def == null) continue;
+                    if (v.Root == null || !v.Root.gameObject.activeInHierarchy) continue;
+                    if (v.Group != null && v.Group.alpha < 0.05f) continue;
+                    if (!v.VisibleAt(HudElementView.LayoutTier)) continue;
+
+                    Rect r = v.CanvasRect(scale);
+                    if (r.width < 1f || r.height < 1f) continue;
+                    Rect b = WarpedCanvasBounds(r);
+                    if (v.Def.Type == HudElementType.MoodletDashboard) b = WithMoodletCells(v, r, b, scale);
+                    if (b.xMax < -hw || b.xMin > hw || b.yMax < -hh || b.yMin > hh) continue; // off screen
+                    if ((b.yMin + b.yMax) * 0.5f < zoneLine) continue;                         // not top zone
+                    into.Add(Rect.MinMaxRect(b.xMin + hw, b.yMin + hh, b.xMax + hw, b.yMax + hh));
+                }
+                return true;
+            }
+            catch
+            {
+                into.Clear();
+                return false;
+            }
+        }
+
+        /// <summary>The moodlet row's RENDERED extent grown into its warped box. MoodletBorrowWidget
+        /// scales vanilla's 192 px cells by <c>moodletScale x scale</c> and lays them along the
+        /// element's centre line, warping each cell's CENTRE through the same barrel (the cell itself
+        /// only translates), so a scaled cell taller than the authored box overhangs it by its own
+        /// half-height around the warped centre line - on FlorpyDorp's 2026-09-26 profile
+        /// (moodletScale 0.398 at HUD scale 1.58) by ~24 px, exactly the band the lesson strip was
+        /// covering. The warped centre line's extremes lie at its ends or its middle (the barrel term
+        /// is monotone in |x|). Vertical mode (a column whose length follows the live moodlet count,
+        /// which the box is sized for) keeps the box. Canvas coords (centre origin, y up); read-only,
+        /// mirrors MoodletBorrowWidget.Apply / LayoutCellsCurved.</summary>
+        private static Rect WithMoodletCells(HudElementView v, Rect logical, Rect warped, float scale)
+        {
+            bool bare = HudElementView.LayoutBare;
+            if (v.Def.GetBFor(bare, "vertical", false)) return warped;
+            float half = 96f * Mathf.Clamp(v.Def.GetFFor(bare, "moodletScale", 0.32f), 0.08f, 1.5f) * scale;
+            float yMin = warped.yMin, yMax = warped.yMax;
+            float cy = logical.center.y;
+            for (int i = 0; i < 3; i++)
+            {
+                Vector2 q = HudWarp.WarpPoint(new Vector2(Mathf.Lerp(logical.xMin, logical.xMax, i * 0.5f), cy));
+                if (q.y - half < yMin) yMin = q.y - half;
+                if (q.y + half > yMax) yMax = q.y + half;
+            }
+            return Rect.MinMaxRect(warped.xMin, yMin, warped.xMax, yMax);
+        }
+
         /// <summary>Targeted relayout for a live drag: reposition ONE element and re-warp
         /// only its own meshes — a full RelayoutAll+DirtyAllMeshes per dragged frame would
         /// rebuild the whole canvas. The drag's single MarkChanged on release does the

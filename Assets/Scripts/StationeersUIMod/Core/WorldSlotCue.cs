@@ -1,6 +1,7 @@
 using Assets.Scripts;          // CursorManager, CameraController
 using Assets.Scripts.Objects;  // Slot, Interactable, DynamicThing, Thing
 using Assets.Scripts.UI;       // InputMouse, DragResult
+using StationeersUIMod.UI.Menu.Tutorial;
 using UnityEngine;
 
 namespace StationeersUIMod.Core
@@ -50,6 +51,9 @@ namespace StationeersUIMod.Core
             {
                 DragResult result = InputMouse.IsValid(carried, slot);
                 CursorManager.SetSelection(interactable.GetSelection(), ResultColor(result));
+                // Tutorial hook (Build Contract s4): fires on the "just appeared" edge only (the box
+                // is ticked every frame while a drag lingers over the same slot).
+                if (!_showing) TutorialSignals.Raise(TSignal.WorldSlotCueShown);
                 _showing = true;
             }
             catch { Hide(); }

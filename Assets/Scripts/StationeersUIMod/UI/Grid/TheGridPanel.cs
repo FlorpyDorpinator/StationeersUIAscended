@@ -3,6 +3,7 @@ using Assets.Scripts;
 using Assets.Scripts.UI;
 using StationeersUIMod.Features;
 using StationeersUIMod.UI.Hud;
+using StationeersUIMod.UI.Menu.Tutorial;
 using TMPro;
 using UnityEngine;
 using UnityEngine.EventSystems;
@@ -138,7 +139,7 @@ namespace StationeersUIMod.UI.Grid
         private static PanelButton _profBtn;
         private static PolygonPanelGraphic _profGlyph;
         private static readonly List<Vector2> _tagPts = new List<Vector2>(5);
-        private static int _profileStamp = int.MinValue;   // GridProfileMode.ChromeStamp at last build
+        private static int _profileStamp = int.MinValue;   // ProfileChromeStamp() at last build
 
         private static RectTransform _titleBar;   // invisible drag strip over the title text
         private static WindowDrag _titleDrag;
@@ -255,6 +256,9 @@ namespace StationeersUIMod.UI.Grid
             LoadGeometry();           // re-clamp against the CURRENT resolution every open
             _haveSignature = false;   // force a structural rebuild on the next Tick
             Rebuild();
+            // Tutorial hook (Build Contract s4): the peek/latched split is gone (every open behaves
+            // the same now), so "latched" is always true here.
+            TutorialSignals.Raise(TSignal.GridOpened, 1);
         }
 
         /// <summary>No-op kept for the hold-to-peek call site: there is nothing to promote now that
@@ -275,6 +279,7 @@ namespace StationeersUIMod.UI.Grid
         /// blocked.</summary>
         public static void Hide()
         {
+            bool wasOpen = _open;   // tutorial hook: only a genuine open->closed transition counts
             _open = false;
             _menuHidden = false;   // a stand-down must never strand the menu-hidden flag
             // Drop the scroll-select cursor + its flat nav list: the next open starts fresh, and the
@@ -293,6 +298,7 @@ namespace StationeersUIMod.UI.Grid
             ApplyInteractive();     // main raycaster off; pins keep whatever the mouse state says
             ReleaseCursorBlock();
             if (_root != null && _root.activeSelf) _root.SetActive(false);
+            if (wasOpen) TutorialSignals.Raise(TSignal.GridClosed);
         }
 
         /// <summary>LIGHT re-layout with NO tree rebuild: re-place the chrome at the current window size
@@ -385,6 +391,16 @@ namespace StationeersUIMod.UI.Grid
         private static bool EditorActive()
         {
             try { return Windows.HudEditorMode.Active; }
+            catch { return false; }
+        }
+
+        /// <summary>Is Smart Stow in SIMPLE mode right now (0.9.8.0 plan §9.2)? Fail-soft:
+        /// <see cref="StowModeConfig.Available"/> false, or any hiccup reading it, reads as
+        /// Complex — today's behaviour, unchanged (CLAUDE.md rule 8 / this task's rule 5) — so a
+        /// config glitch can never wink the Bag-Profile chrome out from under a Complex player.</summary>
+        private static bool SimpleModeActive()
+        {
+            try { return StowModeConfig.Available && StowModeConfig.Mode == StowMode.Simple; }
             catch { return false; }
         }
 
@@ -519,6 +535,15 @@ namespace StationeersUIMod.UI.Grid
             }
             if (vanillaFront) return;   // skip the whole Tick body (pin pump + open check) while suppressed
 
+            // SmartStow Simple mode (0.9.8.0 plan §9.2): profile mode has no meaning without the
+            // Bag Profile system it edits, so a live Simple flip (F10, mid-session) force-exits it
+            // — even with the main window closed and only a pinned window live, since BagGridCell's
+            // dim and GridRegionView's strip/badges on a pin also read GridProfileMode.Active
+            // directly. A real flip bumps GridProfileMode.Version, which both this window's
+            // ProfileChromeStamp() and PinnedInventoryWindow's own stamp diff pick up next tick.
+            // One bool read when there is nothing to fix.
+            if (GridProfileMode.Active && SimpleModeActive()) GridProfileMode.SetActive(false);
+
             // Per-tier skin (0.9.2.5): publish the tier the HUD is currently showing so GridTheme's
             // bare overrides can resolve. Set BEFORE the style-hash polls below — the slot folds
             // into StyleHash, so a suit-power flip repaints an already-open window (and every
@@ -604,7 +629,7 @@ namespace StationeersUIMod.UI.Grid
 
             long sig = GridModel.ComputeSignature();
             int pinVer = GridPinStore.PinVersion;
-            int profStamp = GridProfileMode.ChromeStamp();
+            int profStamp = ProfileChromeStamp();
             if (!_haveSignature || sig != _signature || pinVer != _pinVersion || profStamp != _profileStamp)
             {
                 Rebuild();
@@ -614,6 +639,21 @@ namespace StationeersUIMod.UI.Grid
             StyleChrome();
             if (_rootRegion != null) _rootRegion.RefreshIfDirty();
             PinnedInventoryWindow.TickAll();
+        }
+
+        /// <summary>The value <see cref="Tick"/>/<see cref="Rebuild"/> actually diff for a chrome
+        /// rebuild: <see cref="GridProfileMode.ChromeStamp"/> folded with the live SmartStow
+        /// Simple/Complex bit (0.9.8.0 plan §9.2). A bare mode flip with profile mode never having
+        /// been entered this session moves NO GridProfileMode state (Active stays false, Version
+        /// never bumps), yet the per-region badge/strip conditions in GridRegionView now key off
+        /// the mode too — so without this fold a flip made while profile mode was already inactive
+        /// would leave stale badges on screen until something else happened to move the stamp.
+        /// Still one int compare per frame at the call site; this just adds one bool read here.</summary>
+        private static int ProfileChromeStamp()
+        {
+            int stamp = GridProfileMode.ChromeStamp();
+            bool simple = SimpleModeActive();
+            unchecked { return stamp * 2 + (simple ? 1 : 0); }
         }
 
         /// <summary>Restyle when the theme actually moved — a follow-mode palette drag and an
@@ -863,7 +903,7 @@ namespace StationeersUIMod.UI.Grid
             // BEFORE the region binds, so a pinned bag never renders in both places for a frame.
             GridPinStore.EnsureSaveLoaded();
             _pinVersion = GridPinStore.PinVersion;
-            _profileStamp = GridProfileMode.ChromeStamp();   // this rebuild carries the new chrome
+            _profileStamp = ProfileChromeStamp();   // this rebuild carries the new chrome
             _pinNodes.Clear();
             if (root != null && GridPinStore.Count > 0) PrunePinned(root);
             SyncPinnedWindows();
@@ -921,6 +961,7 @@ namespace StationeersUIMod.UI.Grid
             float x = (Screen.width - PinW) * 0.5f + off;
             float y = (Screen.height - PinH) * 0.5f + off;
             GridPinStore.Pin(containerRefId, new Rect(x, y, PinW, PinH));
+            TutorialSignals.Raise(TSignal.PinCreated);
 
             if (!_open) ShowLatched();      // Show() forces a rebuild, which spawns the window
             else ForceRebuild();
@@ -936,6 +977,7 @@ namespace StationeersUIMod.UI.Grid
             var w = PinnedInventoryWindow.Find(containerRefId);
             if (w != null) w.Close();
             GridPinStore.Unpin(containerRefId);
+            TutorialSignals.Raise(TSignal.PinClosed);
             if (_open) ForceRebuild();
         }
 
@@ -953,6 +995,11 @@ namespace StationeersUIMod.UI.Grid
             // Keyboard repeat on an already-shown, already-expanded region collapses it; otherwise expand.
             bool collapseNow = toggle && _open && !wasCollapsed;
             GridCollapseStore.SetCollapsed(containerRefId, collapseNow);
+            // Tutorial hook (Build Contract s3 arg table): fires on the OPEN outcome only (never the
+            // keyboard's collapse-back half). 1 = gear key (this method's own "keyboard half" =
+            // toggle=true), 2 = HUD box click (the mouse half, toggle=false) — the two callers this
+            // method actually has today; "3 other" has no current caller to attribute.
+            if (!collapseNow) TutorialSignals.Raise(TSignal.InGridOpened, toggle ? 1 : 2);
             if (!_open) { ShowLatched(); return; }   // Show forces the rebuild that renders it expanded
             // Grid already open: rebuild only when the expand/collapse actually flipped, so a repeat open
             // of an already-expanded region does not needlessly rebuild (which would reset the scroll).
@@ -997,6 +1044,7 @@ namespace StationeersUIMod.UI.Grid
             x = Mathf.Clamp(x, 0f, Mathf.Max(0f, Screen.width - PinW));
             y = Mathf.Clamp(y, 0f, Mathf.Max(0f, Screen.height - PinH));
             GridPinStore.Pin(id, new Rect(x, y, PinW, PinH));
+            TutorialSignals.Raise(TSignal.PinCreated);
 
             ForceRebuild();
             Focus(id);
@@ -1153,20 +1201,35 @@ namespace StationeersUIMod.UI.Grid
             // The profile-mode button: LATCHED accent while the mode is on (the same "mode reveals
             // editing chrome" read F9 trains), hover accent otherwise. The glyph is drawn
             // iconography — its line inherits the theme border weight, never an absolute width.
-            bool pActive = GridProfileMode.Active;
-            bool pHover = _profBtn != null && _profBtn.Hover;
-            if (_profBg != null)
-                GridTheme.ApplyBox(_profBg, ProfBtnW, closeSz, GridTheme.GridSurface.Button, pHover || pActive);
-            if (_profGlyph != null)
+            //
+            // SmartStow Simple mode (0.9.8.0 plan §9.2): the whole Bag-Profile system this button
+            // opens is dormant in Simple, so the button itself hides (hide, never destroy — the
+            // GameObject stays built, just inactive). Polled here rather than gated at build time
+            // because the mode can flip live (F10) while this window is open; StyleChrome already
+            // runs every Tick, so a flip shows/hides within one frame. The chrome-width reservation
+            // in LayoutChrome is left untouched (a hidden control leaves a blank gap rather than
+            // reflowing the title) — acceptable for a toggle that reappears the moment Complex
+            // comes back.
+            bool showProfBtn = !SimpleModeActive();
+            if (_profBg != null && _profBg.gameObject.activeSelf != showProfBtn)
+                _profBg.gameObject.SetActive(showProfBtn);
+            if (showProfBtn)
             {
-                Color gcol = pHover || pActive
-                    ? (HudPalette.LineAccent != null ? HudPalette.LineAccent.Value : GridTheme.Border)
-                    : GridTheme.Border;
-                Color gfill = gcol;
-                gfill.a *= pActive ? 0.30f : 0.10f;
-                _profGlyph.color = gfill;
-                _profGlyph.BorderColor = gcol;
-                _profGlyph.BorderWidth = Mathf.Max(0.8f, GridTheme.BorderWidth * 0.8f);
+                bool pActive = GridProfileMode.Active;
+                bool pHover = _profBtn != null && _profBtn.Hover;
+                if (_profBg != null)
+                    GridTheme.ApplyBox(_profBg, ProfBtnW, closeSz, GridTheme.GridSurface.Button, pHover || pActive);
+                if (_profGlyph != null)
+                {
+                    Color gcol = pHover || pActive
+                        ? (HudPalette.LineAccent != null ? HudPalette.LineAccent.Value : GridTheme.Border)
+                        : GridTheme.Border;
+                    Color gfill = gcol;
+                    gfill.a *= pActive ? 0.30f : 0.10f;
+                    _profGlyph.color = gfill;
+                    _profGlyph.BorderColor = gcol;
+                    _profGlyph.BorderWidth = Mathf.Max(0.8f, GridTheme.BorderWidth * 0.8f);
+                }
             }
 
             if (_gripLines != null)
@@ -1288,7 +1351,9 @@ namespace StationeersUIMod.UI.Grid
         /// DRAWN luggage-tag glyph — a 5-point <see cref="PolygonPanelGraphic"/> pentagon, never a
         /// TMP dingbat (tofu). Clicking flips <see cref="GridProfileMode"/>; the mode's chrome
         /// (chips, CAPTURE, badges swap) arrives via the stamp-diffed rebuild. Styled latched
-        /// (accent) while the mode is on — see <see cref="StyleChrome"/>.</summary>
+        /// (accent) while the mode is on — see <see cref="StyleChrome"/>, which also HIDES this
+        /// whole button while SmartStow is in Simple mode (0.9.8.0 plan §9.2) — built once here,
+        /// same as always; only its active state is live-gated.</summary>
         private static void BuildProfileButton()
         {
             var go = new GameObject("ProfileMode", typeof(RectTransform));

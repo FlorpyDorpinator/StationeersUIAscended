@@ -3,6 +3,7 @@ using System.Linq;
 using System.Xml.Serialization;
 using Assets.Scripts.Objects;
 using StationeersUIMod.Core;
+using StationeersUIMod.UI.Menu.Tutorial;
 
 namespace StationeersUIMod.Features
 {
@@ -26,7 +27,10 @@ namespace StationeersUIMod.Features
     /// bag's radial wherever the bag currently lives in your inventory. Bindings are PER SAVE —
     /// ReferenceIds are save-scoped, so a new map starts empty — mirroring the per-save assignment
     /// storage in <see cref="BagProfileStore"/>. Persisted to
-    /// <c>BepInEx/config/StationeersUIMod/Hotkeys/&lt;saveKey&gt;.xml</c>.
+    /// <c>BepInEx/config/StationeersUIMod/Hotkeys/&lt;worldKey&gt;.xml</c>, keyed via
+    /// <see cref="SaveScopedXmlStore.ResolveSaveKey"/> (the per-world <c>World.CurrentId</c>, not the
+    /// station name — SmartStow-Simple-Refactor-Plan §7.7). No key yet (main menu, or a legacy SP
+    /// world before its first save) means memory-only — see <see cref="EnsureSaveLoaded"/>.
     ///
     /// Slots are indexed 0-9 internally; the number ROW is 1,2,…,9,0, so display slot i shows the
     /// digit <c>(i + 1) % 10</c>. A binding survives the holding container being taken off and put
@@ -61,14 +65,42 @@ namespace StationeersUIMod.Features
         /// <summary>The digit shown to the player for slot i (1..9,0).</summary>
         public static int DisplayDigit(int i) => (i + 1) % 10;
 
-        // --- per-save load/save (keyed off the same save name BagProfileStore uses) ---
+        // --- per-save load/save (keyed off the per-world identity, plan §7.1/§7.7) ---
 
+        /// <summary>(Re)load for the CURRENT world key. No key yet means: hold the in-memory table
+        /// as-is, touch nothing on disk — never "unsaved.xml". A memory-only table that GAINS a key
+        /// mid-session (this session's own bindings, made before any key existed) is carried into
+        /// the newly-keyed file, mirroring <c>StowHomeStore.EnsureLoaded</c>.</summary>
         public static void EnsureSaveLoaded()
         {
-            string key = BagProfileStore.CurrentSaveKey();
+            string key;
+            if (!SaveScopedXmlStore.ResolveSaveKey(StoreFolder, _loadedSaveKey, out key)) { StandDown(); return; }
             if (key == _loadedSaveKey) return;
+
+            Dictionary<int, long> carried = null;
+            if (_loadedSaveKey == null && _binds.Count > 0)
+                carried = new Dictionary<int, long>(_binds);
+
             _loadedSaveKey = key;
             _binds.Clear();
+            LoadInto(key);
+
+            // Fix-wave finding 5: an empty result under a brand-new key may mean adoption ran too
+            // early (before the station name was set) and missed a legacy file that exists NOW.
+            if (_binds.Count == 0 && SaveScopedXmlStore.RetryAdoptionIfEmpty(StoreFolder, key))
+                LoadInto(key);
+
+            if (carried != null)
+            {
+                foreach (var kv in carried) _binds[kv.Key] = kv.Value;   // this session's memory wins over disk
+                Save();
+            }
+        }
+
+        /// <summary>The actual per-save deserialize-and-populate step, split out so
+        /// <see cref="EnsureSaveLoaded"/> can retry it once after finding 5's adoption retry.</summary>
+        private static void LoadInto(string key)
+        {
             var parsed = SaveScopedXmlStore.LoadPerSave<BagHotkeyFile>(StoreFolder, key, StoreLabel);
             if (parsed?.Binds == null) return;
             foreach (var b in parsed.Binds)
@@ -76,8 +108,22 @@ namespace StationeersUIMod.Features
             UIALog.Info($"Loaded {_binds.Count} bag hotkey(s) for save '{key}'.");
         }
 
+        /// <summary>Fix-wave finding 1: drop a dead world's table+key the moment no key resolves any
+        /// more (world left, or between-worlds transition), so a stray mutation can never keep
+        /// writing into the PREVIOUS world's file under a stale <see cref="_loadedSaveKey"/>. No-op
+        /// once already standing down (cheap to call on every failed resolve).</summary>
+        private static void StandDown()
+        {
+            if (_loadedSaveKey == null) return;
+            _loadedSaveKey = null;
+            _binds.Clear();
+        }
+
+        /// <summary>Write the table now. Memory-only (no world key resolved) NEVER writes — see
+        /// <see cref="EnsureSaveLoaded"/>.</summary>
         private static void Save()
         {
+            if (_loadedSaveKey == null) return;
             var file = new BagHotkeyFile
             {
                 Binds = _binds.Select(kv => new BagHotkeyBind { Slot = kv.Key, BagReferenceId = kv.Value }).ToList(),
@@ -102,6 +148,9 @@ namespace StationeersUIMod.Features
                 _binds.Remove(s);
             _binds[slot] = id;
             Save();
+            // Tutorial hook (Build Contract s4): a NEW bind only — the toggle-off branch above
+            // returns before here, so this never fires for an unbind.
+            TutorialSignals.Raise(TSignal.BagBound);
         }
 
         public static void Unbind(int slot)

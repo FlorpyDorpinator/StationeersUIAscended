@@ -110,7 +110,7 @@ namespace StationeersUIMod.UI.Menu.Kit
             {
                 var o = _ov[i];
                 o.Entry = cfg.Bind(Section, "Menu" + o.Name, HudPalette.ToHexRef(o.Def),
-                    "Menu " + o.Label + " when NOT following the HUD theme. A palette entry name " +
+                    "Menu " + o.Label + " when NOT following the UI theme. A palette entry name " +
                     "(e.g. HudPanelFill) or a #RRGGBBAA literal.");
             }
         }

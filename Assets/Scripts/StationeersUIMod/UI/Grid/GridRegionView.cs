@@ -393,8 +393,16 @@ namespace StationeersUIMod.UI.Grid
                 // only OUTSIDE profile mode (the mode's chip strip supersedes it) and behind its
                 // config off-switch. Store reads happen here — a structural rebuild — never per
                 // frame; ProfileTag is cached per loaded profile name.
+                //
+                // SmartStow Simple mode (0.9.8.0 plan §9.2 / §10.2): the whole Bag-Profile system
+                // this badge advertises is dormant in Simple — the assignment stays on disk (hide,
+                // never destroy) but the badge itself never shows. Gated explicitly on the mode
+                // rather than relying on GridProfileMode.Active alone: Active is force-kept false
+                // in Simple (TheGridPanel.Tick), but "not in profile mode" is also the ordinary
+                // Complex state the badge is FOR, so without this the badge would show in Simple
+                // exactly where it should not.
                 string badge = null;
-                if (node.Container != null && !GridProfileMode.Active && ProfileBadgesOn())
+                if (node.Container != null && !SimpleModeOn() && !GridProfileMode.Active && ProfileBadgesOn())
                 {
                     try
                     {
@@ -415,15 +423,20 @@ namespace StationeersUIMod.UI.Grid
             if (_sortGo.activeSelf != _sortable) _sortGo.SetActive(_sortable);
 
             // Profile-mode strip (design O4a): chip + CAPTURE, per real bag region, only while the
-            // mode is on. Mode flips force a rebuild (TheGridPanel diffs GridProfileMode's stamp),
-            // so evaluating here — structurally — is enough; nothing profile-ish runs per frame.
-            // Gated on the ONE assignability predicate (redesign plan Q5 / FlorpyDorp's "only
-            // backpacks and boxes are assignable"): a region for a suit, a tool with slots or a
-            // packaging box renders normally but offers no chip and no CAPTURE, because neither
+            // mode is on. Mode flips force a rebuild (TheGridPanel diffs its ProfileChromeStamp,
+            // which folds in the live Simple/Complex bit), so evaluating here — structurally — is
+            // enough; nothing profile-ish runs per frame.
+            // Gated on the ONE assignability predicate (redesign plan Q5; since 2026-09-26 that is
+            // backpacks, jetpacks, every tool belt, reusable boxes and crates): a region for a suit,
+            // a tool with slots or a packaging box renders normally but offers no chip and no CAPTURE, because neither
             // gesture has anywhere legitimate to write. The passive BADGE above is deliberately
-            // NOT gated — an assignment made before this rule existed stays visible (hide, never
-            // destroy) even though the router no longer honours it.
-            _stripVisible = GridProfileMode.Active && !_collapsed && !_isRoot
+            // NOT gated on assignability — an assignment made before this rule existed stays
+            // visible (hide, never destroy) even though the router no longer honours it. It IS
+            // gated on Simple mode, same as the badge: GridProfileMode.Active can never go true in
+            // Simple (TheGridPanel force-exits it), so this condition is already unreachable there
+            // in practice, but the explicit mode check keeps that invariant from being the ONLY
+            // thing standing between Simple and a stray strip.
+            _stripVisible = !SimpleModeOn() && GridProfileMode.Active && !_collapsed && !_isRoot
                 && node != null && BagProfileGate.IsAssignableContainer(node.Container);
             if (_chipGo.activeSelf != _stripVisible) _chipGo.SetActive(_stripVisible);
             if (_capGo.activeSelf != _stripVisible) _capGo.SetActive(_stripVisible);
@@ -535,7 +548,13 @@ namespace StationeersUIMod.UI.Grid
             bool addCount = stack && ItemActions.CanSplitCount(thing);
             long thingId = 0L;
             try { thingId = thing != null ? thing.ReferenceId : 0L; } catch { }
-            if (thingId != _splitCountFor) { _splitCountFor = thingId; _splitCount = 1; }
+            if (thingId != _splitCountFor)
+            {
+                _splitCountFor = thingId;
+                _splitCount = 1;
+                // Tutorial (lesson 4.3): a stack's square split controls just came up for a new stack.
+                if (stack) UI.Menu.Tutorial.TutorialSignals.Raise(UI.Menu.Tutorial.TSignal.GridStackPopupOpened);
+            }
 
             int n = _ctrlControls.Count + (addCount ? 1 : 0);
             EnsureCtrlPool(n);
@@ -551,7 +570,13 @@ namespace StationeersUIMod.UI.Grid
                     else if (ia.Action == InteractableType.Button2) kind = CtrlKind.SplitHalf;
                 }
                 b.Bind(kind, t, ia, _ctrlControls[i].Label, _ctrlControls[i].Enabled);
-                b.Input.Clicked = () => ItemActions.PressInteractable(t, ia);
+                bool isSplit = kind != CtrlKind.Generic;
+                b.Input.Clicked = () =>
+                {
+                    // Tutorial (lesson 4.3): only a split that actually went through counts.
+                    if (ItemActions.PressInteractable(t, ia) && isSplit)
+                        UI.Menu.Tutorial.TutorialSignals.Raise(UI.Menu.Tutorial.TSignal.GridSplitDone);
+                };
                 b.Input.Scrolled = null;   // a plain control hands the wheel on to the list
             }
             if (addCount)
@@ -593,7 +618,8 @@ namespace StationeersUIMod.UI.Grid
             var thing = _node != null ? _node.Container : null;
             if (thing == null) return;
             _splitCount = Mathf.Clamp(_splitCount, 1, SplitCountMax());
-            ItemActions.SplitStackCount(thing, _splitCount);
+            if (ItemActions.SplitStackCount(thing, _splitCount))
+                UI.Menu.Tutorial.TutorialSignals.Raise(UI.Menu.Tutorial.TSignal.GridSplitDone);
             _nextCtrlPoll = 0f;
         }
 
@@ -1035,6 +1061,16 @@ namespace StationeersUIMod.UI.Grid
         {
             try { return UIAConfig.GridProfileBadges == null || UIAConfig.GridProfileBadges.Value; }
             catch { return true; }
+        }
+
+        /// <summary>Is Smart Stow in SIMPLE mode right now (0.9.8.0 plan §9.2)? Fail-soft:
+        /// <see cref="StowModeConfig.Available"/> false, or any hiccup reading it, reads as
+        /// Complex — today's behaviour, unchanged — so a config glitch can never hide the
+        /// Bag-Profile chrome from a Complex player.</summary>
+        private static bool SimpleModeOn()
+        {
+            try { return StowModeConfig.Available && StowModeConfig.Mode == StowMode.Simple; }
+            catch { return false; }
         }
 
         /// <summary>Sort this region's container through the mutation funnel —

@@ -1,4 +1,5 @@
 using Assets.Scripts.Objects;
+using StationeersUIMod.UI.Menu.Tutorial;
 
 namespace StationeersUIMod.Core
 {
@@ -46,7 +47,9 @@ namespace StationeersUIMod.Core
                     global::StationeersUIMod.UI.Grid.TheGridPanel.UnpinContainer(id);   // already open → close
                     return true;
                 }
-                return global::StationeersUIMod.UI.Grid.TheGridPanel.PinContainer(id);   // closed → open
+                bool opened = global::StationeersUIMod.UI.Grid.TheGridPanel.PinContainer(id);   // closed → open
+                if (opened) TutorialSignals.Raise(TSignal.DeviceWindowOpened);
+                return opened;
             }
             catch { return false; }
         }

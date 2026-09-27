@@ -85,6 +85,12 @@
     <Reference Include="UnityEngine.IMGUIModule" Private="false">
       <HintPath>$(Managed)\UnityEngine.IMGUIModule.dll</HintPath>
     </Reference>
+    <!-- UnityWebRequest — Core/FeedbackService posts reports to the feedback relay. Same story as
+         IMGUIModule above: the asmdef needs no change (noEngineReferences is false and the Unity
+         project's Packages/manifest.json already includes com.unity.modules.unitywebrequest). -->
+    <Reference Include="UnityEngine.UnityWebRequestModule" Private="false">
+      <HintPath>$(Managed)\UnityEngine.UnityWebRequestModule.dll</HintPath>
+    </Reference>
     <!-- Procedural UGUI radial: MaskableGraphic / Image / Canvas + TMP labels -->
     <Reference Include="UnityEngine.UI" Private="false">
       <HintPath>$(Managed)\UnityEngine.UI.dll</HintPath>

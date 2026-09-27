@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using StationeersUIMod.UI.Hud;
+using StationeersUIMod.UI.Menu.Tutorial;
 using TMPro;
 using UnityEngine;
 using UnityEngine.EventSystems;
@@ -602,7 +603,11 @@ namespace StationeersUIMod.UI.Grid
 
             if (!outside)
             {
-                if (Clicked != null) Clicked();     // released inside: this was a click after all
+                if (Clicked != null)
+                {
+                    Clicked();     // released inside: this was a click after all
+                    TutorialSignals.Raise(TSignal.GridTabToggled);
+                }
                 return;
             }
             var handler = DragOutRequested;         // copy: the handler may rebuild/recycle this tab
@@ -812,7 +817,11 @@ namespace StationeersUIMod.UI.Grid
                 // again in EndDragOut's inside-release branch, netting a no-op. The drag path owns
                 // the outcome; a plain (undragged) click still falls through to Clicked().
                 if (e.dragging) return;
-                if (Owner != null && Owner.Clicked != null) Owner.Clicked();
+                if (Owner != null && Owner.Clicked != null)
+                {
+                    Owner.Clicked();
+                    TutorialSignals.Raise(TSignal.GridTabToggled);
+                }
             }
 
             public void OnPointerEnter(PointerEventData e) { Hover = true; }

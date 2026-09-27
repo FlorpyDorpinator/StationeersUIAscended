@@ -43,8 +43,13 @@ namespace StationeersUIMod
         public static ConfigEntry<bool> GuideShown;
         /// <summary>Set true when the tutorial was FINISHED (last step's "start playing"), not skipped.</summary>
         public static ConfigEntry<bool> TutorialCompleted;
-        /// <summary>Pause the game (SP only, via Core.GamePause) while the first-run tutorial is open.</summary>
+        /// <summary>Pause the game (SP only, via Core.GamePause) while a lesson card is open (0.9.8.0:
+        /// every card - the Welcome, replays, the F10 tour; the hands-on strips never pause).</summary>
         public static ConfigEntry<bool> TutorialAutoPause;
+        /// <summary>0.9.8.0: just-in-time lessons on/off (plan A.12). A personal preference like
+        /// ShiftKeepsRadialOpen - not theme, not per-tier (CLAUDE.md rule 8: documented shared knob).
+        /// A new key, so no ConfigMigration step.</summary>
+        public static ConfigEntry<bool> TutorialTips;
         public static ConfigEntry<bool> CursorLatchEnabled;
         public static ConfigEntry<int> CursorLatchMs;
 
@@ -329,9 +334,13 @@ namespace StationeersUIMod
             TutorialCompleted = cfg.Bind("1. General", "TutorialCompleted", false,
                 "Internal: set once the first-run tutorial was finished (not skipped). Informational only.");
             TutorialAutoPause = cfg.Bind("1. General", "TutorialAutoPause", true,
-                "Pause the game (single-player only) while the FIRST-RUN tutorial is open, so a fresh " +
-                "spawn isn't burning oxygen while reading. Manual replays never auto-pause; use the " +
-                "pause button in the F10 menu header instead.");
+                "Pause the game (single-player only) while a lesson CARD is open (the Welcome, the " +
+                "lesson replays, the F10 tour...), so you are not burning oxygen while reading. The " +
+                "hands-on lesson strips never pause - you practice on the live game.");
+            TutorialTips = cfg.Bind("1. General", "TutorialTips", true,
+                "Show short hands-on lessons the first time something new comes up (a tablet in hand, " +
+                "a second belt, your first F10). Off = no lessons pop up by themselves; every lesson " +
+                "stays in F10 > Guide, and 'uiatutorial tips on|off' flips this from the console.");
             CursorLatchEnabled = cfg.Bind("1. General", "CursorLatchOnDoubleTap", true,
                 "Double-tap the mouse-modifier key (the one you normally HOLD to free the cursor) to " +
                 "LATCH the cursor up, so you can click around hands-free. Press the same key once more " +
@@ -733,6 +742,10 @@ namespace StationeersUIMod
             // The Universal Inventory window's theme (follows the global box theme by default).
             // Same ordering reason as above: it derives from a live HudPalette/HudConfig.
             UI.Grid.GridTheme.Bind(cfg);
+
+            // In-game feedback (section "Feedback": Enabled + RelayUrl). Infrastructure, not look -
+            // deliberately outside HudConfig so no theme ever carries it. Self-guarded (fail-soft).
+            Core.FeedbackService.Bind(cfg);
         }
     }
 }

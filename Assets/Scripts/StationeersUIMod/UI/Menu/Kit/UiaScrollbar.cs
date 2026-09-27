@@ -47,9 +47,18 @@ namespace StationeersUIMod.UI.Menu.Kit
         private RectTransform _thumbRt;
         private Image _thumb;
 
-        private const float Pad = 2f;       // inset from the viewport's top/right/bottom edge
-        private const float Width = 6f;     // bar width, px
+        private const float Pad = 4f;       // inset from the viewport's top/right/bottom edge
+        private const float Width = 4f;     // bar width, px (combined visual round: was 6)
         private const float MinThumb = 18f; // shortest readable thumb, px
+
+        // Auto-hide (combined visual round: the concept shows no resting scrollbar — ours
+        // was a bright stripe splitting the columns). The bar fades in on scroll activity
+        // or a thumb drag and fades back out ~0.7s after the motion stops.
+        private const float FadeTime = 0.3f;
+        private const float ShowFor = 0.7f;
+        private float _lastNorm = -1f;
+        private float _activeUntil;
+        private float _alpha;               // current fade state, 0..1
 
         /// <summary>Build the bar under <paramref name="viewport"/> and bind it to
         /// <paramref name="scroll"/>. No-op (returns null) if either is missing.</summary>
@@ -131,9 +140,25 @@ namespace StationeersUIMod.UI.Menu.Kit
             _thumbRt.sizeDelta = new Vector2(Width, thumbH);
             _thumbRt.anchoredPosition = new Vector2(0f, -topOffset);
 
-            _thumb.color = UiaTheme.AccentDim;
-            var mute = UiaTheme.TextMute;
-            _track.color = new Color(mute.r, mute.g, mute.b, 0.18f);
+            // Auto-hide: any scroll motion re-arms the bar; it fades out when idle. The
+            // first Repaint of a fresh bar shows once briefly (position "announcement").
+            if (_lastNorm < 0f || Mathf.Abs(vnorm - _lastNorm) > 0.001f)
+                _activeUntil = Time.unscaledTime + ShowFor;
+            _lastNorm = vnorm;
+            float target = Time.unscaledTime < _activeUntil ? 1f : 0f;
+            _alpha = Mathf.MoveTowards(_alpha, target, Time.unscaledDeltaTime / FadeTime);
+
+            // Thumb = the accent at low alpha over the panel (no resting track at all —
+            // the track survives only as the drag hit area logic on the thumb itself).
+            Color acc = UiaTheme.Accent;
+            _thumb.color = new Color(acc.r, acc.g, acc.b, 0.30f * _alpha);
+            _track.color = new Color(0f, 0f, 0f, 0f);
+        }
+
+        /// <summary>Called by the drag handler so a thumb drag keeps the bar awake.</summary>
+        internal void NoteActive()
+        {
+            _activeUntil = Time.unscaledTime + ShowFor;
         }
 
         // ---- drag the thumb to scroll (driven by UiaScrollbarDrag on the bar root) ----
@@ -176,7 +201,7 @@ namespace StationeersUIMod.UI.Menu.Kit
     {
         internal UiaScrollbar Owner;
 
-        public void OnBeginDrag(PointerEventData e) { if (Owner != null) Owner.DragTo(e); }
-        public void OnDrag(PointerEventData e) { if (Owner != null) Owner.DragTo(e); }
+        public void OnBeginDrag(PointerEventData e) { if (Owner != null) { Owner.NoteActive(); Owner.DragTo(e); } }
+        public void OnDrag(PointerEventData e) { if (Owner != null) { Owner.NoteActive(); Owner.DragTo(e); } }
     }
 }

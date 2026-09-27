@@ -465,8 +465,10 @@ namespace StationeersUIMod.UI.Grid
         }
 
         /// <summary>The live window the player would HIT at this screen point — the highest-focus one
-        /// whose panel contains it (drawn on top there, so it is also first in the raycast order).</summary>
-        private static PinnedInventoryWindow TopWindowAt(Vector2 screenPoint)
+        /// whose panel contains it (drawn on top there, so it is also first in the raycast order).
+        /// <c>internal</c> (not private) only so the uiatest harness (Testing/UiaTestHarness.cs) can drive
+        /// the pointer-down raise's hit test without synthesized mouse input.</summary>
+        internal static PinnedInventoryWindow TopWindowAt(Vector2 screenPoint)
         {
             PinnedInventoryWindow best = null;
             for (int i = 0; i < _live.Count; i++)

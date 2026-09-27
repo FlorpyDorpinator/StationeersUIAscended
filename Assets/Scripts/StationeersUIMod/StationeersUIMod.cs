@@ -18,8 +18,8 @@ namespace StationeersUIMod
     /// </summary>
     public sealed class StationeersUIMod : MonoBehaviour
     {
-        public const string ModVersion = "0.9.7.4";
-        public const string VersionDisplay = "0.9.7.4 Experimental";
+        public const string ModVersion = "1.0.0";
+        public const string VersionDisplay = "1.0.0";
         public const string ModGuid = "com.stationeersuimod.ui";
 
         public static StationeersUIMod Instance { get; private set; }
@@ -167,7 +167,7 @@ namespace StationeersUIMod
                 // profile-aware wrapper (defers to vanilla per-compare when a bag has no profile;
                 // restored in OnDestroy). Reflection field swap, fail-soft — see ProfileSort.
                 Features.ProfileSort.Install();
-                // Shipped HUD themes (zip: StationeersUIMod/HudProfiles/) are synced into config
+                // Shipped UI themes (zip: StationeersUIMod/HudProfiles/) are synced into config
                 // each launch: seed if absent, refresh an untouched shipped theme we've updated, and
                 // prune a retired shipped theme the player never edited — never touching the player's
                 // own profiles. Fail-soft; inert under F6 (ModDirectory null). See SyncShipped.
@@ -229,10 +229,27 @@ namespace StationeersUIMod
                     // logging. Read-only; the trace itself is off unless the console command turns it on.
                     typeof(Core.Patch_CursorManager_SetCursor),
                     typeof(Core.Patch_MouseModeController_AddModal),
-                    typeof(Core.Patch_MouseModeController_RemoveModal));
+                    typeof(Core.Patch_MouseModeController_RemoveModal),
+                    // 0.9.8.0 Simple SmartStow, OBSERVE-ONLY capture (Core/VanillaPlacementPatches.cs):
+                    // the Slot.Take landing observer (a SECOND postfix beside BeltBindingStore's — they
+                    // compose), five Slot.Player* explicit-gesture intent prefixes, and the stack
+                    // split/merge lineage. All read-only; G routing is unchanged in this phase. Each
+                    // class fails soft on its own if a game update moves one target.
+                    typeof(Core.Patch_Slot_Take_StowHomes),
+                    typeof(Core.Patch_Slot_PlayerMoveToSlot_StowIntent),
+                    typeof(Core.Patch_Slot_PlayerSwapToSlot_StowIntent),
+                    typeof(Core.Patch_Slot_PlayerMergeToSlot_StowIntent),
+                    typeof(Core.Patch_Slot_PlayerInsertToFreeSlot_StowIntent),
+                    typeof(Core.Patch_Slot_PlayerSwapToWorld_StowIntent),
+                    typeof(Core.Patch_Stackable_OnSplitStack_StowHomes),
+                    typeof(Core.Patch_Thing_Merge_StowHomes));
 
                 // The static `new Mod(...)` above registers us with LaunchPadBooster for the optional client-side mod list.
                 // (Proper direct reference - no reflection hack.)
+
+                // Feedback outbox: if reports are waiting and a relay is configured, schedule ONE
+                // delayed background retry sweep. Network + mod-own files only; fail-soft inside.
+                Core.FeedbackService.Init();
 
                 UIALog.Info($"{VersionDisplay} initialized. " +
                             $"Hold {UIAConfig.ToolbeltRadialKey.Value} for the toolbelt radial, " +
@@ -256,10 +273,8 @@ namespace StationeersUIMod
             if (Instance != null && Instance != this) return;
         }
 
-        // First-run tutorial gate: -1 = gate not currently satisfied; else the unscaled time the
-        // gate FIRST passed. The coach only opens after the gate has held for the settle window.
-        private float _firstRunGateSince = -1f;
-        private const float FirstRunSettleSec = 1.0f;
+        // (The first-run tutorial gate and its 1 s settle moved into UI.Menu.Tutorial.TutorialDirector
+        // in 0.9.8.0 - same gate, same settle; see TutorialDirector.FirstRunGate.)
 
         private void Update()
         {
@@ -386,45 +401,49 @@ namespace StationeersUIMod
                 Core.CursorLatch.Tick(_radials != null && _radials.IsRadialOpen);
                 Core.UiaAbDriver.Tick(); // A/B capture state machine (inert unless a run is active)
 
+                // 0.9.8.0 Simple SmartStow: the homes snapshot/top-up pump + debounced flush.
+                // Cheap early-outs every frame; the inventory walk runs only at first world-ready
+                // (after a ~3s settle) and again on a world-key or local-human change. Observe-only.
+                Features.StowHomeStore.Tick();
+
+                // Dev screenshot server (file-triggered, player-inert): one File.Exists per second
+                // unless BepInEx/uia-shot-request.txt exists. See Testing/UiaShotServer.cs.
+                Testing.UiaShotServer.Tick();
+
                 // The UGUI Control Center (F10) is the player-facing front door. Pump it every
                 // frame (it owns its own Escape/close and rebind capture) and toggle on the key.
                 UI.Menu.UiaControlCenter.Update();
                 UI.Menu.Tutorial.TutorialCoach.Update();
                 UI.Menu.HandbookViewer.Update();
 
-                // First run: open the tutorial coach once, the moment the player is safely in-game
-                // WITH control. Stricter than CanToggleMenus alone: never over a pause or a vanilla
-                // menu (an MP client's Esc menu doesn't pause, so CanToggleMenus can't see it), never
-                // for an unresponsive body, and only after the gate has held for a short settle so it
-                // can't pop on the world's fade-in frame.
-                if (!UIAConfig.GuideShown.Value)
+                // Lessons (0.9.8.0): the director owns the first-run gate (moved here unchanged from
+                // this spot - same gate, same 1 s settle, GuideShown consumed only when the Welcome
+                // card really opened), the lesson queue and every trigger; the strip and spotlight
+                // then draw what it decided this frame. Each is fail-soft on its own: a throwing
+                // tutorial logs once and never trips this Update's circuit breaker - and after 30
+                // failing frames in a row its own breaker switches that one tick off for the session.
+                if (!UI.Menu.Tutorial.TutorialDirector.TickDisabled("director"))
+                    UI.Menu.Tutorial.TutorialDirector.Tick();
+                if (!UI.Menu.Tutorial.TutorialDirector.TickDisabled("strip"))
                 {
-                    bool firstRunGate = Guards.CanToggleMenus()
-                        && !UI.Menu.UiaControlCenter.IsOpen && !_radials.IsRadialOpen
-                        && !Windows.HudEditorMode.Active && !Windows.RadialEditorMode.Active
-                        && !UI.Grid.TheGridPanel.IsOpen
-                        && KeyManager.InputState == KeyInputState.Game
-                        && !WorldManager.IsGamePaused && !Guards.VanillaMenuWantsFront()
-                        && Assets.Scripts.Inventory.InventoryManager.ParentHuman != null
-                        && !Assets.Scripts.Inventory.InventoryManager.ParentHuman.IsUnresponsive;
-                    if (!firstRunGate) _firstRunGateSince = -1f;
-                    else if (_firstRunGateSince < 0f) _firstRunGateSince = Time.unscaledTime;
-                    else if (Time.unscaledTime - _firstRunGateSince >= FirstRunSettleSec)
-                    {
-                        UI.Menu.Tutorial.TutorialCoach.OpenFirstRun();
-                        // Consume the one-shot only when the coach genuinely opened — a transient
-                        // build failure must not burn the auto-tutorial forever.
-                        if (UI.Menu.Tutorial.TutorialCoach.IsOpen) UIAConfig.GuideShown.Value = true;
-                        else _firstRunGateSince = -1f;   // re-settle before the retry
-                    }
+                    try { UI.Menu.Tutorial.TutorialStrip.Tick(); UI.Menu.Tutorial.TutorialDirector.TickSucceeded("strip"); }
+                    catch (Exception e) { UI.Menu.Tutorial.TutorialDirector.TickFailed("strip", e); }
+                }
+                if (!UI.Menu.Tutorial.TutorialDirector.TickDisabled("spotlight"))
+                {
+                    try { UI.Menu.Tutorial.TutorialSpotlight.Tick(); UI.Menu.Tutorial.TutorialDirector.TickSucceeded("spotlight"); }
+                    catch (Exception e) { UI.Menu.Tutorial.TutorialDirector.TickFailed("spotlight", e); }
                 }
 
                 // F10 opens even while the F9 HUD editor is active: the menu then becomes a
                 // live-themed EDITABLE surface (click it in the editor to theme it). It refuses
-                // only during a radial.
+                // only during a radial - and in the frame the tutorial closed F10 itself (F10 pressed
+                // on a lesson-16 callout of the first-run tour: the director already closed the menu
+                // for lesson 17's strip; toggling now would re-open it).
                 if (Input.GetKeyDown(UIAConfig.SettingsWindowKey.Value) && Guards.CanToggleMenus()
                     && !_radials.IsRadialOpen
-                    && !UI.Menu.Tutorial.TutorialCoach.IsOpen && !UI.Menu.HandbookViewer.IsOpen)
+                    && !UI.Menu.Tutorial.TutorialCoach.IsOpen && !UI.Menu.HandbookViewer.IsOpen
+                    && !UI.Menu.Tutorial.TutorialDirector.MenuClosedThisFrame)
                     UI.Menu.UiaControlCenter.Toggle();
 
                 if (Input.GetKeyDown(UI.Hud.HudConfig.HudEditorKey.Value) && Guards.CanToggleMenus()
@@ -562,6 +581,8 @@ namespace StationeersUIMod
             // character, not a command: neither open nor close on it. (Same reasoning as the
             // editor's own delete/undo hotkeys, which check WantCaptureKeyboard.)
             if (Windows.HudEditorMode.Active && ImGuiOwnsKeyboard()) return;
+            // Same for the Lesson Editor (F8): typing a "b" into a lesson line is text, not a toggle.
+            if (UI.Menu.Tutorial.TutorialEditorWindow.OwnsKeyboard) return;
 
             if (Input.GetKeyDown(key))
             {
@@ -935,6 +956,11 @@ namespace StationeersUIMod
                 // The click-to-edit popup rides the game's ImGui frame.
                 Windows.HudEditorWindow.DrawPopupOverlay();
 
+                // The lesson editor (dev only: `uiadev`, then `uiatutorial edit`) rides the same frame.
+                // Guarded on its own so a broken editor can never starve the radial draw below.
+                try { UI.Menu.Tutorial.TutorialEditorWindow.Draw(); }
+                catch (Exception e) { ReportDrawException(e); }
+
                 // The visor HUD is pure UGUI and draws from Update (HudSystem stands down, and
                 // restores vanilla's panels, when VisorHudEnabled is off). The 0.1.0 ImGui HUD
                 // overlay was retired in 0.9.2.5 — document mode IS the HUD now.
@@ -1028,6 +1054,9 @@ namespace StationeersUIMod
             }
             else
             {
+                // Lesson 17: the FIRST open while lessons are on shows the HUD Designer card instead;
+                // its first button calls back in here (by then the lesson is Done, so this passes).
+                if (UI.Menu.Tutorial.TutorialDirector.InterceptDesignerOpen()) return;
                 if (Windows.RadialEditorMode.Active) Windows.RadialEditorMode.Exit();
                 ImGuiWindowManager.Open(_hudEditorWindow);
                 Windows.HudEditorMode.Enter();
@@ -1082,6 +1111,9 @@ namespace StationeersUIMod
                 UI.Grid.TheGridPanel.Shutdown();   // destroys its canvas + unhooks OnUIClose
                 Features.GridCollapseStore.Reset(); // drop the per-save collapse cache
                 Features.GridPinStore.Reset();      // drop the per-save pin cache (disk file survives)
+                Features.StowHomeStore.Reset();     // flush a dirty homes table, drop every static (intents, latches)
+                Features.StowModeConfig.Reset();    // drop the lazily-bound SmartStow mode entries
+                Testing.UiaShotServer.Reset();      // destroy the shot-server runner, drop its statics
                 UI.Grid.GridModel.Reset();          // drop the cached model/signature state
                 _gridPeeking = false;
                 _gridEditPreviewOpened = false;
@@ -1126,10 +1158,25 @@ namespace StationeersUIMod
                 // reloaded assembly's Unhook removes only its OWN delegate, so a skip here is
                 // unrecoverable without a game restart), and the modals hold KeyManager input
                 // states + MouseModeController modals + the Esc-swallow Typing state.
+                // Lessons (0.9.8.0): editor, director, strip and spotlight first (they sit on top of
+                // the coach), then the coach, then the stores. The director leaves progress consistent
+                // (an interrupted lesson becomes Offered) and the progress store flushes it.
+                try { UI.Menu.Tutorial.TutorialEditorWindow.Shutdown(); }
+                catch (Exception e) { UIALog.Error("TutorialEditorWindow.Shutdown failed: " + e); }
+                try { UI.Menu.Tutorial.TutorialDirector.Shutdown(); }
+                catch (Exception e) { UIALog.Error("TutorialDirector.Shutdown failed: " + e); }
+                try { UI.Menu.Tutorial.TutorialStrip.Shutdown(); }
+                catch (Exception e) { UIALog.Error("TutorialStrip.Shutdown failed: " + e); }
+                try { UI.Menu.Tutorial.TutorialSpotlight.Shutdown(); }
+                catch (Exception e) { UIALog.Error("TutorialSpotlight.Shutdown failed: " + e); }
                 try { UI.Menu.Tutorial.TutorialCoach.Shutdown(); }
                 catch (Exception e) { UIALog.Error("TutorialCoach.Shutdown failed: " + e); }
                 try { UI.Menu.Tutorial.TutorialTextStore.Shutdown(); }
                 catch (Exception e) { UIALog.Error("TutorialTextStore.Shutdown failed: " + e); }
+                try { UI.Menu.Tutorial.TutorialSignals.Shutdown(); }
+                catch (Exception e) { UIALog.Error("TutorialSignals.Shutdown failed: " + e); }
+                try { UI.Menu.Tutorial.TutorialProgressStore.Shutdown(); }
+                catch (Exception e) { UIALog.Error("TutorialProgressStore.Shutdown failed: " + e); }
                 try { UI.Menu.HandbookViewer.Shutdown(); }
                 catch (Exception e) { UIALog.Error("HandbookViewer.Shutdown failed: " + e); }
                 try { Core.ModalInputChain.Release(); }
@@ -1148,6 +1195,12 @@ namespace StationeersUIMod
                 catch (Exception e) { UIALog.Error("HelperHintsLift.Shutdown failed: " + e); }
                 try { Core.Patch_Human_GetStatsTooltip_Details.ResetRuntimeState(); }
                 catch (Exception e) { UIALog.Error("DetailedVitalsTooltip reset failed: " + e); }
+                // Feedback pump: stop its coroutines, abort any in-flight request (lossless - the
+                // report is still in the outbox) and reset its statics. Unskippable because a pump
+                // surviving into the reloaded session would race the new startup sweep and could
+                // send the same outbox file twice (= a duplicate GitHub issue).
+                try { Core.FeedbackService.Shutdown(); }
+                catch (Exception e) { UIALog.Error("FeedbackService.Shutdown failed: " + e); }
                 try { _harmony?.UnpatchSelf(); }
                 catch (Exception e) { UIALog.Error("UnpatchSelf failed: " + e); }
                 _harmony = null;   // this instance's patches are gone; never let a re-entry re-unpatch

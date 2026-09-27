@@ -83,6 +83,13 @@ namespace StationeersUIMod.Features
         /// the index of any prefab that remains; existing Loadouts keep resolving. The depth-2 cap
         /// is deliberately UNCHANGED for the same reason (raising it would interleave deeper bags
         /// into the depth-first order and DOES shift same-prefab indices).</para>
+        ///
+        /// <para>2026-09-26: the gate now ADMITS worn jetpacks and tool belts (FlorpyDorp: "The bags
+        /// that you have equipped should show up too. Toolbelt/jetpack."), so they appear in F10's
+        /// BAGS list and can be captured into / applied from a Loadout. Adding whole prefabs is as
+        /// index-safe as dropping them: occurrence is per prefab, so no existing entry's bag moves.
+        /// Loadout apply only writes assignments; routing into those bags skips their device
+        /// sockets (<see cref="BagProfileGate.IsDeviceSlot"/>).</para>
         /// </summary>
         public static void CollectWornBags(List<DynamicThing> into)
         {
