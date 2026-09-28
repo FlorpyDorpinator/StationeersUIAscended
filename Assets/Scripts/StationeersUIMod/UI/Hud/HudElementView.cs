@@ -85,14 +85,57 @@ namespace StationeersUIMod.UI.Hud
             }
         }
 
+        /// <summary>GROUP SCALING (<see cref="HudGroupScale"/>, GitHub #4): elements that touch at 100%
+        /// scale as ONE piece about the screen edge/corner their group sits nearest, capped so the
+        /// group never runs off screen or into another group. <see cref="GroupRatio"/> is this
+        /// element's group size over the slider size (1 unless its group is capped);
+        /// <see cref="GroupOffset"/> is the canvas-px shift that turns scaling about the element's
+        /// OWN anchor into scaling about its GROUP's pivot. Both are identity (1, zero) at the
+        /// layout's design size (HudDocument.DesignScale) and for any element the pass hasn't placed,
+        /// which is exactly the pre-grouping layout. Recomputed by every HudSystem.RelayoutAll.</summary>
+        internal float GroupRatio = 1f;
+        internal Vector2 GroupOffset;
+
+        /// <summary>The screen point this element's group pivots on, from the last full grouping
+        /// pass. While the F9 editor is open the assignment is FROZEN (HudGroupScale re-uses it, only
+        /// the sizes are recomputed), so an edit can't make an element hop to another group and jump
+        /// on release. <see cref="GroupAssigned"/> is false for anything not grouped yet (e.g. an
+        /// element created in F9), which then stays at identity.</summary>
+        internal Vector2 GroupPivot;
+        internal bool GroupAssigned;
+
+        /// <summary>This element's EFFECTIVE scale for a GLOBAL HUD scale: what Layout/UpdatePanel
+        /// receive, and what its fonts, gaps and padding use. Callers that hold the global scale
+        /// (editor drag maths, drop zones) convert through this.</summary>
+        internal float ScaleFor(float globalScale) => globalScale * GroupRatio;
+
         /// <summary>Element centre in UNWARPED canvas coords: anchor point plus the stored
-        /// offset, scaled. This is the element's logical position — the editor hit-rect and
-        /// handle math live here (the mouse is inverse-warped to meet it).</summary>
+        /// offset, scaled, plus the group shift. <paramref name="scale"/> is this element's
+        /// EFFECTIVE scale (<see cref="ScaleFor"/>) — what Layout/UpdatePanel were handed. This is
+        /// the element's logical position — the editor hit-rect and handle math live here (the
+        /// mouse is inverse-warped to meet it).</summary>
         protected Vector2 CenterForLogical(float scale)
         {
             bool bare = LayoutBare;
             return HudElementDef.AnchorPoint(Def.AnchorFor(bare, LayoutMode), Screen.width * 0.5f, Screen.height * 0.5f)
-                + new Vector2(Def.XFor(bare, LayoutMode), Def.YFor(bare, LayoutMode)) * scale;
+                + new Vector2(Def.XFor(bare, LayoutMode), Def.YFor(bare, LayoutMode)) * scale
+                + GroupOffset;
+        }
+
+        /// <summary>HudGroupScale input: this element's anchor point and its rect at the layout's
+        /// "100%" scale (<paramref name="resScale"/> = resolution factor only), with no group shift.
+        /// Reads the same layout slot (tier + curvature mode) the renderer does.</summary>
+        internal void DesignGeometry(float resScale, out Vector2 anchor, out Rect rect, out bool pctW, out bool pctH)
+        {
+            bool bare = LayoutBare;
+            anchor = HudElementDef.AnchorPoint(Def.AnchorFor(bare, LayoutMode), Screen.width * 0.5f, Screen.height * 0.5f);
+            Vector2 c = anchor + new Vector2(Def.XFor(bare, LayoutMode), Def.YFor(bare, LayoutMode)) * resScale;
+            float wp = Def.WPctFor(bare, LayoutMode), hp = Def.HPctFor(bare, LayoutMode);
+            pctW = wp > 0f;
+            pctH = hp > 0f;
+            float w = pctW ? Screen.width * wp : Def.WFor(bare, LayoutMode) * resScale;
+            float h = pctH ? Screen.height * hp : Def.HFor(bare, LayoutMode) * resScale;
+            rect = new Rect(c.x - w * 0.5f, c.y - h * 0.5f, w, h);
         }
 
         /// <summary>Element centre for placement — the LOGICAL centre. Curvature is applied
@@ -117,9 +160,11 @@ namespace StationeersUIMod.UI.Hud
 
         /// <summary>The element's rect in canvas coords — the designer's hit/handle box.
         /// LOGICAL (unwarped) space: the editor inverse-warps the mouse to meet it and
-        /// forward-warps the drawn handles, so both agree with the visually-warped element.</summary>
-        internal Rect CanvasRect(float scale)
+        /// forward-warps the drawn handles, so both agree with the visually-warped element.
+        /// Takes the GLOBAL HUD scale (every caller holds that) and applies this element's group.</summary>
+        internal Rect CanvasRect(float globalScale)
         {
+            float scale = ScaleFor(globalScale);
             var c = CenterForLogical(scale);
             var s = SizeFor(scale);
             return new Rect(c.x - s.x * 0.5f, c.y - s.y * 0.5f, s.x, s.y);
@@ -134,7 +179,7 @@ namespace StationeersUIMod.UI.Hud
         internal bool EnsureOnScreen(float scale)
         {
             if (Def == null) return false;
-            var r = CanvasRect(scale);
+            var r = CanvasRect(scale); // global scale in; the group transform is applied inside
             float halfW = Screen.width * 0.5f, halfH = Screen.height * 0.5f;
             // "Totally off" = no meaningful screen overlap on SOME axis (an 8px sliver counts
             // as gone — it is unreachable in practice). Rects overlap only when BOTH axes do.
@@ -152,7 +197,8 @@ namespace StationeersUIMod.UI.Hud
             if (dx == 0f && dy == 0f) return false;
 
             bool bare = LayoutBare;
-            float s = Mathf.Max(0.01f, scale);
+            // An offset unit moves this element by its EFFECTIVE scale (group-capped), not the global one.
+            float s = Mathf.Max(0.01f, ScaleFor(scale));
             Def.SetXFor(bare, LayoutMode, Def.XFor(bare, LayoutMode) + dx / s);
             Def.SetYFor(bare, LayoutMode, Def.YFor(bare, LayoutMode) + dy / s);
             return true;

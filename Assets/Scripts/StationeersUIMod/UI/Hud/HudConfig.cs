@@ -249,13 +249,22 @@ namespace StationeersUIMod.UI.Hud
         public static float EffectiveHudScale()
         {
             float s = HudScale != null ? HudScale.Value : 1f;
-            if (HudScaleWithRes == null || !HudScaleWithRes.Value) return s;
+            return s * EffectiveResolutionScale();
+        }
+
+        /// <summary>The resolution-compensation half of <see cref="EffectiveHudScale"/> on its own (1
+        /// when ScaleWithResolution is off): the scale at which the active layout sits exactly as it
+        /// was designed. <see cref="HudGroupScale"/> finds the groups at this "100%" size, then applies
+        /// the manual slider (<see cref="HudScale"/>) on top.</summary>
+        public static float EffectiveResolutionScale()
+        {
+            if (HudScaleWithRes == null || !HudScaleWithRes.Value) return 1f;
             int sw = Screen.width, sh = Screen.height;
-            if (sw <= 0 || sh <= 0) return s;
+            if (sw <= 0 || sh <= 0) return 1f;
             float rw, rh;
             ReferenceResolution(out rw, out rh);
             float m = HudScaleMatch != null ? Mathf.Clamp01(HudScaleMatch.Value) : 0.5f;
-            return s * Mathf.Pow(sw / rw, 1f - m) * Mathf.Pow(sh / rh, m);
+            return Mathf.Pow(sw / rw, 1f - m) * Mathf.Pow(sh / rh, m);
         }
 
         /// <summary>The resolution the ACTIVE layout was designed at. The profile's own RefW/RefH win

@@ -2,6 +2,33 @@
 
 All notable changes to the mod. Detailed engineering write-ups live in `Changes Reports/`.
 
+## 1.0.1 -- 2026-09-27 -- HUD size in groups, Hydration, Vulkan/DX12
+
+Fixes the first in-game player reports (GitHub issues #4, #5, #6). FlorpyDorp named this
+release 1.0.1.
+
+- **The HUD size scales in groups** (#4). Raising the F9 "Overall HUD scale" used to slide
+  boxes pinned to different anchors into each other, and centre-anchored pieces drifted away
+  from the corners they sit beside. Now:
+  - Groups are measured at the size the layout was designed at: the new profile attribute
+    `DesignScale`, stamped from the theme's own `cfg:HudScale`. The shipped themes are tuned at
+    about 1.21, so a player who never moves the slider sees exactly the old HUD.
+  - Elements that touch at that size form a group. A backdrop such as the top bar takes in what
+    sits on it; a thin stroke takes in nothing.
+  - Every group on the same screen corner, edge or centre scales as one piece about that point.
+  - A piece stops growing where a member would leave the screen (thin decorative strokes may run
+    past it), or where its content would meet another piece's.
+  - While F9 is open the group assignment is frozen, so an edit can't make an element jump.
+    Elements hidden in the current tier keep their place during power transitions.
+  - Also fixed: after many edits in one session, a HUD-scale change could fail to re-lay-out the
+    HUD, because the layout hash's float tolerance swallowed it.
+- **Hydration above 100%** (#6): the vitals card's Thirst row and the Hydration readout show the
+  game's real value, up to 175%, instead of freezing at 100%.
+- **Vulkan and DirectX 12** (#5): the effects bundle is built for DirectX 11, DirectX 12 and
+  Vulkan, so the glass and glow effects work under `-force-vulkan` / `-force-d3d12` instead of
+  drawing pink squares. A shader the running graphics API can't use now falls back to plain
+  panels instead of Unity's pink error shader.
+
 ## 1.0.0 -- 2026-09-26 -- UI ASCENDED 1.0
 
 FlorpyDorp named this release 1.0 on 2026-09-26; it replaces the planned "0.9.8.0". Engineering

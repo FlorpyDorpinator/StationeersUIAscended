@@ -56,6 +56,15 @@ namespace StationeersUIMod.UI.Hud
         private static bool _prevPowered;
         private static bool _hasPrev;
         private static float _layoutHash;
+        // The HUD scale the last RelayoutAll used, compared EXACTLY: in the float hash the store
+        // Version term dominates and Approximately's tolerance grows with it, so after a few hundred
+        // edits a small HUD-scale slider move could slip under the tolerance and never re-lay-out.
+        private static float _layoutScale = -1f;
+        // Group scaling inputs the hash doesn't cover: the F9 editor freezes group assignments (its
+        // open/close must relayout), and the VISIBLE tier can change without the style slot (an F9
+        // preview switch while the player is Robot, or Bare with BareFlattens off).
+        private static bool _editorActive, _layoutFrozen;
+        private static HudTier _layoutTier = (HudTier)(-1);
         private static int _screenW, _screenH;
         private static HudCurvature _appliedMode = HudCurvature.Flat;
 
@@ -905,6 +914,10 @@ namespace StationeersUIMod.UI.Hud
             HudGlitch.Shutdown(); // kill any camera image-effect + material before the reload
             HudAlertPulse.Shutdown();   // alert latch + the StatusUpdates delegate binds
             HudText.Shutdown();
+            HudGroupScale.Reset();      // group-scaling scratch (holds view references)
+            _layoutScale = -1f;
+            _editorActive = _layoutFrozen = false;
+            _layoutTier = (HudTier)(-1);
             Core.FinderCommands.ResetSessionState(); // un-arm the `uiareset` two-step confirm
             HudWarp.Active = HudWarp.Kind.None;
             HudWarp.BareFlat = false; // reset alongside Active so a reload starts un-flattened
@@ -944,6 +957,7 @@ namespace StationeersUIMod.UI.Hud
             // its landing observed rather than timing out unseen.
             try { Core.SlotFlash.Tick(); } catch { }
 
+            _editorActive = editorActive; // RelayoutAll freezes group assignments while F9 is open
             bool enabled = HudConfig.VisorHudEnabled != null && HudConfig.VisorHudEnabled.Value;
             if (editorActive) enabled = true;
 
@@ -1178,15 +1192,30 @@ namespace StationeersUIMod.UI.Hud
             {
                 float hash = LayoutHash(scale);
                 bool resized = _screenW != Screen.width || _screenH != Screen.height;
+                bool heal = resized || _healPending;
+                _healPending = false;
+
+                if (!Mathf.Approximately(hash, _layoutHash) || resized || scale != _layoutScale
+                    || _editorActive != _layoutFrozen || HudElementView.LayoutTier != _layoutTier)
+                {
+                    _layoutHash = hash;
+                    _layoutScale = scale;
+                    _layoutFrozen = _editorActive;
+                    _layoutTier = HudElementView.LayoutTier;
+                    _screenW = Screen.width;
+                    _screenH = Screen.height;
+                    RelayoutAll();
+                }
 
                 // Stranded-element self-heal: a resolution/aspect hop (streaming the game to
                 // another device, windowed resize) can leave elements anchored entirely outside
                 // the screen we came back to — unreachable even by the editor. On a resize, a
                 // document build/swap, or an editor drag commit (never MID-drag, so it can't
                 // fight a gesture), any element with no usable screen overlap is pulled back in.
-                if (resized || _healPending)
+                // Runs AFTER the relayout so it measures each element where group scaling will
+                // actually draw it; a rescue moves layout inputs, so it re-lays-out once more.
+                if (heal)
                 {
-                    _healPending = false;
                     int rescued = 0;
                     foreach (var p in _panels)
                     {
@@ -1197,16 +1226,9 @@ namespace StationeersUIMod.UI.Hud
                     {
                         Features.HudProfileStore.MarkChanged(); // persists via the autosave debounce
                         Core.UIALog.Info(rescued + " HUD element(s) were fully off-screen and were pulled back into view.");
-                        hash = LayoutHash(scale); // the rescue moved layout inputs
+                        RelayoutAll();
+                        _layoutHash = LayoutHash(scale); // the rescue bumped the store version
                     }
-                }
-
-                if (!Mathf.Approximately(hash, _layoutHash) || resized)
-                {
-                    _layoutHash = hash;
-                    _screenW = Screen.width;
-                    _screenH = Screen.height;
-                    RelayoutAll();
                 }
                 ApplyCurvature();
             }
@@ -1273,7 +1295,7 @@ namespace StationeersUIMod.UI.Hud
                     {
                         try
                         {
-                            p.UpdatePanel(snap, scale);
+                            p.UpdatePanel(snap, ScaleOf(p, scale));
                             // Breathing pulse: a uniform CanvasRenderer tint on the element's
                             // OWN (IHudFxGraphic-marked) graphics — never CanvasGroup.alpha
                             // (the animator owns it) and never a re-mesh (review 2026-07-13).
@@ -1509,12 +1531,47 @@ namespace StationeersUIMod.UI.Hud
             float scale = HudConfig.EffectiveHudScale();
             HudWarp.HalfW = Screen.width * 0.5f;
             HudWarp.HalfH = Screen.height * 0.5f;
+            // Group scaling (GitHub #4): which elements scale together, about which screen point,
+            // capped to fit. Must run before any Layout; identity at the layout's design size.
+            try { HudGroupScale.Apply(_panels, scale, Features.HudProfileStore.Active, _editorActive); }
+            catch (Exception e) { UIALog.Warn("HUD group scaling: " + e.Message); }
             foreach (var p in _panels)
             {
-                try { p.Layout(scale); } catch (Exception e) { UIALog.Warn("HUD layout " + p.Id + ": " + e.Message); }
+                try { p.Layout(ScaleOf(p, scale)); } catch (Exception e) { UIALog.Warn("HUD layout " + p.Id + ": " + e.Message); }
                 try { (p as HudElementView)?.ApplyWarpMult(); } catch { }
             }
             DirtyAllMeshes();
+        }
+
+        /// <summary>Dev diagnostics (the shot server's <c>hudrects=</c> step): every document element
+        /// with its logical canvas rect (unwarped; origin at screen centre, +y up) and its group share,
+        /// so a layout change can be checked by numbers as well as by eye. Read-only.</summary>
+        internal static void DescribeLayout(List<string> into)
+        {
+            var inv = System.Globalization.CultureInfo.InvariantCulture;
+            float scale = HudConfig.EffectiveHudScale();
+            var doc = Features.HudProfileStore.Active;
+            into.Add(string.Format(inv, "screen {0}x{1} tier {2} global {3:F3} res {4:F3} slider {5:F3} design {6:F3} editor {7}",
+                Screen.width, Screen.height, HudElementView.LayoutTier, scale,
+                HudConfig.EffectiveResolutionScale(), HudConfig.HudScale != null ? HudConfig.HudScale.Value : 1f,
+                doc != null ? doc.DesignScale : 0f, _editorActive));
+            foreach (var p in _panels)
+            {
+                var v = p as HudElementView;
+                if (v == null || v.Def == null) continue;
+                Rect r = v.CanvasRect(scale);
+                into.Add(string.Format(inv, "{0} {1} {2} x[{3:F0},{4:F0}] y[{5:F0},{6:F0}] ratio {7:F3} off ({8:F0},{9:F0})",
+                    v.VisibleAt(HudElementView.LayoutTier) ? "vis" : "hid", v.Def.Type, v.Def.Id,
+                    r.xMin, r.xMax, r.yMin, r.yMax, v.GroupRatio, v.GroupOffset.x, v.GroupOffset.y));
+            }
+        }
+
+        /// <summary>The scale a panel lays out and draws at: an element's group-capped share of the
+        /// global HUD scale (HudGroupScale), or the global scale for anything else.</summary>
+        private static float ScaleOf(HudPanel p, float scale)
+        {
+            var v = p as HudElementView;
+            return v != null ? v.ScaleFor(scale) : scale;
         }
 
         private static float LayoutHash(float scale)
@@ -2256,7 +2313,8 @@ namespace StationeersUIMod.UI.Hud
                     Rect r = v.CanvasRect(scale);
                     if (r.width < 1f || r.height < 1f) continue;
                     Rect b = WarpedCanvasBounds(r);
-                    if (v.Def.Type == HudElementType.MoodletDashboard) b = WithMoodletCells(v, r, b, scale);
+                    // The widget sizes its cells at ITS effective (group) scale, not the global one.
+                    if (v.Def.Type == HudElementType.MoodletDashboard) b = WithMoodletCells(v, r, b, v.ScaleFor(scale));
                     if (b.xMax < -hw || b.xMin > hw || b.yMax < -hh || b.yMin > hh) continue; // off screen
                     if ((b.yMin + b.yMax) * 0.5f < zoneLine) continue;                         // not top zone
                     into.Add(Rect.MinMaxRect(b.xMin + hw, b.yMin + hh, b.xMax + hw, b.yMax + hh));
@@ -2305,7 +2363,7 @@ namespace StationeersUIMod.UI.Hud
             if (view == null || view.Root == null) return;
             try
             {
-                view.Layout(HudConfig.EffectiveHudScale());
+                view.Layout(view.ScaleFor(HudConfig.EffectiveHudScale()));
                 view.ApplyWarpMult();
                 foreach (var g in view.Root.GetComponentsInChildren<UnityEngine.UI.Graphic>(true))
                 {
@@ -2350,7 +2408,7 @@ namespace StationeersUIMod.UI.Hud
                 {
                     if (p.Group == null || p.Group.alpha < 0.5f || !p.Root.gameObject.activeSelf)
                         continue;
-                    p.CollectDropZones(into, snap, scale);
+                    p.CollectDropZones(into, snap, ScaleOf(p, scale));
                 }
                 catch { }
             }
@@ -2386,7 +2444,7 @@ namespace StationeersUIMod.UI.Hud
                     // Alpha is deliberately NOT consulted here (that is the availability gate's job in
                     // CollectDropZones) — only whether the panel actually renders.
                     if (p.Group == null || !p.Root.gameObject.activeSelf) continue;
-                    p.CollectDropZones(into, snap, scale);
+                    p.CollectDropZones(into, snap, ScaleOf(p, scale));
                 }
                 catch { }
             }

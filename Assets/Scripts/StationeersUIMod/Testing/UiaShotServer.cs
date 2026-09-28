@@ -495,7 +495,8 @@ namespace StationeersUIMod.Testing
                         }
                     }
                     else if (key == "theme" || key == "radial" || key == "hover" || key == "burst"
-                             || key == "sub" || key == "cmd" || key == "grid")
+                             || key == "sub" || key == "cmd" || key == "grid"
+                             || key == "hudscale" || key == "hudrects")
                         steps.Add(new Step { Kind = key, Arg = val });
                 }
             }
@@ -572,6 +573,7 @@ namespace StationeersUIMod.Testing
 
             // ---- run the steps, in request order ----
             string originalTheme = null;
+            float originalHudScale = -1f;
             for (int i = 0; i < steps.Count; i++)
             {
                 Step step = steps[i];
@@ -631,6 +633,44 @@ namespace StationeersUIMod.Testing
                     try { global::Util.Commands.CommandLine.Process(step.Arg); report.Add("OK cmd: " + step.Arg); }
                     catch (Exception e) { report.Add("FAIL cmd '" + step.Arg + "': " + e.Message); }
                 }
+                else if (step.Kind == "hudscale")
+                {
+                    // hudscale=<0.6-1.6> — the F9 "Overall HUD scale" slider, for group-scaling shots.
+                    // The first use remembers the player's value; the end of the request restores it.
+                    try
+                    {
+                        var entry = UI.Hud.HudConfig.HudScale;
+                        float want;
+                        if (entry == null) report.Add("FAIL hudscale: not bound");
+                        else if (!float.TryParse(step.Arg, System.Globalization.NumberStyles.Float,
+                                     System.Globalization.CultureInfo.InvariantCulture, out want))
+                            report.Add("FAIL hudscale: '" + step.Arg + "' is not a number");
+                        else
+                        {
+                            if (originalHudScale < 0f) originalHudScale = entry.Value;
+                            entry.Value = want;
+                            report.Add("OK hudscale " + entry.Value.ToString(System.Globalization.CultureInfo.InvariantCulture));
+                        }
+                    }
+                    catch (Exception e) { report.Add("FAIL hudscale: " + e.Message); }
+                    yield return new WaitForSecondsRealtime(waitMs / 1000f);
+                }
+                else if (step.Kind == "hudrects")
+                {
+                    // hudrects=<file.txt> — every HUD element's logical rect + group share (read-only).
+                    try
+                    {
+                        var lines = new List<string>();
+                        UI.Hud.HudSystem.DescribeLayout(lines);
+                        Directory.CreateDirectory(ShotsDir);
+                        string name = SafeFileName(step.Arg);          // forces ".png"; a text dump
+                        if (name.EndsWith(".txt.png", StringComparison.OrdinalIgnoreCase)) // wants its own
+                            name = name.Substring(0, name.Length - 4);
+                        File.WriteAllLines(Path.Combine(ShotsDir, name), lines.ToArray());
+                        report.Add("OK hudrects " + step.Arg + " (" + (lines.Count - 1) + " elements)");
+                    }
+                    catch (Exception e) { report.Add("FAIL hudrects: " + e.Message); }
+                }
                 else if (step.Kind == "burst")
                 {
                     var burst = Burst(step.Arg, report);
@@ -646,6 +686,11 @@ namespace StationeersUIMod.Testing
                 _radialOpenedHere = false;
             }
             if (originalTheme != null) ApplyTheme(originalTheme, report);
+            if (originalHudScale >= 0f)
+            {
+                try { UI.Hud.HudConfig.HudScale.Value = originalHudScale; report.Add("OK hudscale restored"); }
+                catch (Exception e) { report.Add("FAIL hudscale restore: " + e.Message); }
+            }
 
             if (editSet)
             {

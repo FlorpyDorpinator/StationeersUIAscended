@@ -2,7 +2,7 @@
   <Name>Stationeers UI Ascended</Name>
   <ModID>StationeersUIAscended</ModID>
   <Author>FlorpyDorp + JXSN</Author>
-  <Version>1.0.0</Version>
+  <Version>1.0.1</Version>
   <Description>
 	  [h1]Stationeers UI Ascended[/h1]
 
@@ -19,6 +19,12 @@ Reshape the visor live in the F9 HUD Designer: move, resize and restyle anything
 <br>
 ]]></InGameDescription>
   <ChangeLog>
+    [h3]Version 1.0.1 -- HUD size, Hydration, Vulkan and DX12:[/h3]
+    [list]
+    [*] HUD SIZE THAT HOLDS TOGETHER: the Overall HUD scale (F9 - Global) now scales the HUD in groups. Things that sit together grow together from the screen corner or edge they are nearest, and a group stops growing where it would run off the screen or into another group -- no more boxes sliding over each other or drifting apart. At a theme's own size nothing changes
+    [*] Hydration shows its real value above 100% (up to 175%) instead of stopping at 100%
+    [*] Vulkan and DirectX 12 (-force-vulkan, -force-d3d12): the glass and glow effects now work there instead of drawing pink squares, and any graphics mode that cannot run them falls back to plain panels
+    [/list]
     [h3]Version 1.0.0 -- UI Ascended 1.0:[/h3]
     [list]
     [*] SMART STOW THAT REMEMBERS (the new default, Simple mode): every item remembers the exact bag and slot you last put it in, in each world, and G sends it back there -- even into a belt inside a backpack. Moving an item by hand moves its home; G, sorting and swaps never steal it. Players who already use Bag Profiles stay on the rule system, now called Complex mode, with a one-time notice

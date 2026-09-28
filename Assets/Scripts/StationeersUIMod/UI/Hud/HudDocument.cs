@@ -128,6 +128,15 @@ namespace StationeersUIMod.UI.Hud
         [XmlAttribute] public float RefW;
         [XmlAttribute] public float RefH;
 
+        /// <summary>The HUD-size slider value (<see cref="HudConfig.HudScale"/>) this layout was
+        /// DESIGNED at. Group scaling (<see cref="HudGroupScale"/>) measures its groups at this size
+        /// and only acts when the slider moves away from it, so a layout always looks exactly as
+        /// authored at its own size (the shipped themes are tuned at about 1.21, not 1.0 — adversarial
+        /// review 2026-09-27). 0 = unset: stamped in memory at the first relayout from the theme's own
+        /// cfg:HudScale and persisted with the profile's next save. Shipped themes are read-only, so
+        /// they simply re-derive it on every load.</summary>
+        [XmlAttribute] public float DesignScale;
+
         [XmlElement("El")] public List<HudElementDef> Elements = new List<HudElementDef>();
 
         /// <summary>Transient: set by <see cref="Sanitize"/> when the style migration rewrote
@@ -162,7 +171,7 @@ namespace StationeersUIMod.UI.Hud
             var copy = new HudDocument
             {
                 Schema = Schema, Name = Name, Font = Font, Description = Description, Author = Author,
-                RefW = RefW, RefH = RefH,
+                RefW = RefW, RefH = RefH, DesignScale = DesignScale,
                 Theme = HudTheme.CopyOf(Theme), // the captured global look travels with an undo clone
             };
             copy.Elements = new List<HudElementDef>(Elements.Count);

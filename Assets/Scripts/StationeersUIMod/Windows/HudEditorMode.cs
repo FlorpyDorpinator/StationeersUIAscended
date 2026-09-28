@@ -716,7 +716,10 @@ namespace StationeersUIMod.Windows
             if (v == null) return;
             var d = v.Def;
             bool bare = _dragBare; // write the bare override or the base layout (captured at grab)
-            Vector2 delta = (p - _dragStart) / Mathf.Max(0.01f, scale);
+            // Screen px -> this element's reference px. Its EFFECTIVE scale, not the global one: a
+            // group capped by HudGroupScale moves slower per offset unit, and the drag must track the
+            // cursor 1:1 anyway.
+            Vector2 delta = (p - _dragStart) / Mathf.Max(0.01f, v.ScaleFor(scale));
             if (!_dragMoved && delta.sqrMagnitude < 4f) return; // 2px dead zone
             _dragMoved = true;
 
@@ -751,7 +754,7 @@ namespace StationeersUIMod.Windows
                     if (i >= 0 && i < ptsL.Length && ptsL.Length >= 2)
                     {
                         int j = (i + 1) % ptsL.Length;
-                        Vector2 pe = (p - v.CanvasRect(scale).center) / Mathf.Max(0.01f, scale);
+                        Vector2 pe = (p - v.CanvasRect(scale).center) / Mathf.Max(0.01f, v.ScaleFor(scale));
                         Vector2 mid = (ptsL[i] + ptsL[j]) * 0.5f;
                         Vector2 bow = (pe - mid) / 0.75f;
                         var hinL = EnsureHandleList(d, "hin");
@@ -795,8 +798,11 @@ namespace StationeersUIMod.Windows
                         Vector2 orig;
                         if (!_dragOrig.TryGetValue(view.Def.Id, out orig)) continue;
                         bool b = UI.Hud.HudElementView.EditBareLayout(view.Def);
-                        view.Def.SetXFor(b, _dragMode, Snap(orig.x + delta.x, snap, grid));
-                        view.Def.SetYFor(b, _dragMode, Snap(orig.y + delta.y, snap, grid));
+                        // Each member converts the SAME screen motion at its own effective scale
+                        // (members of different groups can be capped differently).
+                        Vector2 dv = (p - _dragStart) / Mathf.Max(0.01f, view.ScaleFor(scale));
+                        view.Def.SetXFor(b, _dragMode, Snap(orig.x + dv.x, snap, grid));
+                        view.Def.SetYFor(b, _dragMode, Snap(orig.y + dv.y, snap, grid));
                         HudSystem.RelayoutElement(view);
                     }
                     return;
@@ -809,8 +815,8 @@ namespace StationeersUIMod.Windows
                 var mode = _dragMode;
                 // A resized percent-sized element becomes fixed-size: the user just chose
                 // exact pixels, and mixing both would make the handles fight the screen.
-                if (d.WPctFor(bare, mode) > 0f && ResizesX(_dragHandle)) { if (_origW <= 2f) _origW = v.CanvasRect(scale).width / scale; d.SetWFor(bare, mode, _origW); d.SetWPctFor(bare, mode, -1f); }
-                if (d.HPctFor(bare, mode) > 0f && ResizesY(_dragHandle)) { if (_origH <= 2f) _origH = v.CanvasRect(scale).height / scale; d.SetHFor(bare, mode, _origH); d.SetHPctFor(bare, mode, -1f); }
+                if (d.WPctFor(bare, mode) > 0f && ResizesX(_dragHandle)) { if (_origW <= 2f) _origW = v.CanvasRect(scale).width / v.ScaleFor(scale); d.SetWFor(bare, mode, _origW); d.SetWPctFor(bare, mode, -1f); }
+                if (d.HPctFor(bare, mode) > 0f && ResizesY(_dragHandle)) { if (_origH <= 2f) _origH = v.CanvasRect(scale).height / v.ScaleFor(scale); d.SetHFor(bare, mode, _origH); d.SetHPctFor(bare, mode, -1f); }
 
                 float dx = delta.x, dy = delta.y;
                 // Corner/edge semantics: move the grabbed edge(s); the opposite edge pins.
@@ -924,10 +930,10 @@ namespace StationeersUIMod.Windows
 
             // Segment interactions are measured against the RENDERED curve (a bowed Bézier
             // segment can run far from its straight chord), in screen px.
-            Vector2 pe = (p - v.CanvasRect(scale).center) / Mathf.Max(0.01f, scale);
+            Vector2 pe = (p - v.CanvasRect(scale).center) / Mathf.Max(0.01f, v.ScaleFor(scale));
             float distSq; Vector2 onCurve;
             int seg = NearestSegment(v.Def, pe, out distSq, out onCurve);
-            bool nearSegment = seg >= 0 && Mathf.Sqrt(distSq) * scale <= 12f;
+            bool nearSegment = seg >= 0 && Mathf.Sqrt(distSq) * v.ScaleFor(scale) <= 12f;
 
             if (nearSegment && bezier)
             {
@@ -1004,7 +1010,7 @@ namespace StationeersUIMod.Windows
         /// <summary>Anchor screen positions: element centre + point·scale, forward-warped so they
         /// hug the curved shape (matches the gizmo, which draws through the same transform).</summary>
         internal static Vector2 PointCanvas(UI.Hud.HudElementView v, Vector2 pt, float scale)
-            => v.CanvasRect(scale).center + pt * scale;
+            => v.CanvasRect(scale).center + pt * v.ScaleFor(scale);
 
         private static int PointHandleAt(UI.Hud.HudElementView v, Vector2 mouseScreen, float scale)
         {
@@ -1122,7 +1128,7 @@ namespace StationeersUIMod.Windows
             var pts = d.GetPoints("pts");
             if (pts.Length < 2) return false;
             // Work in element-relative reference px (the space `pts` live in).
-            Vector2 pe = (p - v.CanvasRect(scale).center) / Mathf.Max(0.01f, scale);
+            Vector2 pe = (p - v.CanvasRect(scale).center) / Mathf.Max(0.01f, v.ScaleFor(scale));
             float distSq; Vector2 onCurve;
             int bestSeg = NearestSegment(d, pe, out distSq, out onCurve);
             if (bestSeg < 0) return false;

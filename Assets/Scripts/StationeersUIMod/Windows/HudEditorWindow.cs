@@ -1583,14 +1583,17 @@ namespace StationeersUIMod.Windows
         /// drawn so the grid stays readable and cheap — every drawn line is still a snap line.</summary>
         private static void DrawGrid(ImGuiNET.ImDrawListPtr dl, UI.Hud.HudElementView sel, float scale)
         {
-            float cell = Mathf.Max(1f, HudConfig.GridSnapSize.Value) * scale;
+            // The snap lattice of the SELECTED element: its offsets snap in reference px at its own
+            // effective (group) scale, measured from its anchor plus its group shift.
+            float es = sel != null ? sel.ScaleFor(scale) : scale;
+            float cell = Mathf.Max(1f, HudConfig.GridSnapSize.Value) * es;
             float g = cell;
             while (g < 6f) g += cell;   // keep on-screen spacing >= ~6px (multiple of the snap cell)
             float hw = Screen.width * 0.5f, hh = Screen.height * 0.5f;
             var anchor = sel != null
                 ? sel.Def.AnchorFor(UI.Hud.HudElementView.LayoutBare, UI.Hud.HudElementView.LayoutMode)
                 : UI.Hud.HudAnchor.Center;
-            Vector2 o = UI.Hud.HudElementDef.AnchorPoint(anchor, hw, hh);
+            Vector2 o = UI.Hud.HudElementDef.AnchorPoint(anchor, hw, hh) + (sel != null ? sel.GroupOffset : Vector2.zero);
             uint col = ImGui.GetColorU32(new Vector4(0.25f, 0.85f, 0.93f, 0.14f));
             uint axis = ImGui.GetColorU32(new Vector4(0.25f, 0.85f, 0.93f, 0.40f)); // the anchor's own row/column
 
