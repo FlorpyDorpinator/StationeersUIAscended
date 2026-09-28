@@ -20,8 +20,7 @@
       powershell -ExecutionPolicy Bypass -File C:\Services\UIAFeedbackRelay\setup-dell.ps1 -ReportsPerHour 10
   A limit set this way is kept by later runs of this script until changed again.
 
-  Issues go to the PRIVATE repo FlorpyDorpinator/StationeersUIAscended-Feedback (players' reports
-  stay private; the code repo is public). To point a LIVE relay at another repo, keeping its token:
+  To point a LIVE relay at another repo, keeping its token:
       powershell -ExecutionPolicy Bypass -File C:\Services\UIAFeedbackRelay\setup-dell.ps1 -Repo owner/name
 
   Keep this file ASCII-only: Windows PowerShell 5.1 misreads non-ASCII characters in scripts.
@@ -29,7 +28,7 @@
 param(
     [switch]$GoLive,
     [int]$Port = 8080,
-    [string]$Repo = 'FlorpyDorpinator/StationeersUIAscended-Feedback',
+    [string]$Repo = 'FlorpyDorpinator/StationeersUIAscended',
     [int]$ReportsPerHour = 0     # 0 = keep the current setting (or the relay's default of 6)
 )
 

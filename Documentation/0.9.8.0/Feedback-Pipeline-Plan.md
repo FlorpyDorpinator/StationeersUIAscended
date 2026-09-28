@@ -1,11 +1,6 @@
 # In-game feedback button → GitHub issues → Claude triage bot
 
-> **Update 2026-09-27:** built and shipped in 1.0.0. When this code repo went public, the issues
-> moved to the PRIVATE repo `FlorpyDorpinator/StationeersUIAscended-Feedback` (players' reports stay
-> private), and the triage workflow moved there with them. It checks this repo out read-only. Where
-> the text below says "the repo" for issues, labels or the Actions secret, read the feedback repo.
-
-**Status (original): PROPOSED — awaiting FlorpyDorp's approval. Nothing is implemented.**
+**Status: PROPOSED — awaiting FlorpyDorp's approval. Nothing is implemented.**
 Requested by FlorpyDorp 2026-09-25: an in-game bug/suggestion button, modeled on the one in
 the sister app (a sister project), that files a GitHub issue a Claude bot can read, plan
 against, and report back on. Version target is FlorpyDorp's call, per house rules — nothing

@@ -4,11 +4,6 @@ The small service that turns an in-game bug report or suggestion from Stationeer
 a GitHub issue. It holds the GitHub token on your Dell so the mod never ships one. It cleans up
 and rate-limits every report, then files the issue that the triage bot picks up.
 
-**Where the issues go (since 2026-09-27):** the PRIVATE repo
-`FlorpyDorpinator/StationeersUIAscended-Feedback`, so players' reports stay private while this code
-repo is public. The triage workflow (`.github/workflows/feedback-triage.yml`) lives there too and
-checks this repo out read-only to plan against the code.
-
 Spec: `Documentation/0.9.8.0/Feedback-Pipeline-Plan.md` §2 (relay) and §5 (invariants). It is
 ported from the sister app's `api/feedback/github.py`.
 
@@ -90,7 +85,7 @@ What the relay enforces (the mod's own caps are only a courtesy):
 | Variable | Meaning |
 |---|---|
 | `UIA_FEEDBACK_GITHUB_TOKEN` | Fine-grained PAT (see §3). **Secret.** |
-| `UIA_FEEDBACK_REPO` | `owner/name`: `FlorpyDorpinator/StationeersUIAscended-Feedback` (private; never the public code repo) |
+| `UIA_FEEDBACK_REPO` | `owner/name`, e.g. `FlorpyDorpinator/StationeersUIAscended` |
 | `UIA_RELAY_PORT` | Loopback port, default `8080` |
 | `UIA_RELAY_CLIENT_KEY` | Optional. When set, `POST /v1/report` requires a matching `X-UIA-Client` header (compared in constant time). This only keeps drive-by scanners out; it is not real security, because the value ships inside the mod. |
 | `UIA_RELAY_REPORTS_PER_HOUR` | Optional. Reports per hour per client address, 1-100 (default 6). A bad value falls back to 6 with a startup warning. `setup-dell.ps1 -ReportsPerHour N` sets it. `/v1/ping` reports the value in force. |
@@ -162,8 +157,7 @@ of this README assumes that path. `bin/` and `obj/` are git-ignored.
    - Name: `UIA feedback relay`
    - Resource owner: `FlorpyDorpinator`
    - Expiration: pick one and put a rotation reminder in your calendar
-3. **Repository access:** *Only select repositories* -> `StationeersUIAscended-Feedback`. Just that
-   one repo. (An existing token can be edited to add it; its value does not change.)
+3. **Repository access:** *Only select repositories* -> `StationeersUIAscended`. Just that one repo.
 4. **Repository permissions:** set **Issues = Read and write**. Nothing else. GitHub adds
    *Metadata: Read-only* on its own, which is expected.
 5. Generate the token, copy it once, and save it as `C:\Dev\.secrets\UIA Feedback Token.txt`.
@@ -173,7 +167,7 @@ of this README assumes that path. `bin/` and `obj/` are git-ignored.
 Create the labels the relay applies, so GitHub never answers 422 "label missing":
 
 ```powershell
-$repo = "FlorpyDorpinator/StationeersUIAscended-Feedback"
+$repo = "FlorpyDorpinator/StationeersUIAscended"
 gh label create feedback         --repo $repo --color 0E8A16 --description "Filed from in-game feedback" --force
 gh label create "triage:pending" --repo $repo --color FBCA04 --description "Waiting for the triage bot" --force
 gh label create "plan:ready"     --repo $repo --color 1D76DB --description "Triage bot posted a plan"   --force
@@ -195,7 +189,7 @@ for running the exe by hand in a console.
 ### 4a. For console runs (your user account)
 
 ```powershell
-setx UIA_FEEDBACK_REPO "FlorpyDorpinator/StationeersUIAscended-Feedback"
+setx UIA_FEEDBACK_REPO "FlorpyDorpinator/StationeersUIAscended"
 # Read the token from the secrets file so it never appears on a command line or in PSReadLine history:
 [Environment]::SetEnvironmentVariable("UIA_FEEDBACK_GITHUB_TOKEN", (Get-Content "C:\Dev\.secrets\UIA Feedback Token.txt" -Raw).Trim(), "User")
 ```
@@ -214,7 +208,7 @@ That scopes the token to this one service, and it never touches the machine-wide
 $tok = (Get-Content "C:\Dev\.secrets\UIA Feedback Token.txt" -Raw).Trim()
 New-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Services\UIAFeedbackRelay" -Name Environment -PropertyType MultiString -Force -Value @(
     "UIA_FEEDBACK_GITHUB_TOKEN=$tok",
-    "UIA_FEEDBACK_REPO=FlorpyDorpinator/StationeersUIAscended-Feedback",
+    "UIA_FEEDBACK_REPO=FlorpyDorpinator/StationeersUIAscended",
     "UIA_RELAY_CLIENT_KEY=<the same value the mod sends as X-UIA-Client>"
 ) | Out-Null
 Remove-Variable tok
@@ -366,7 +360,7 @@ and run:
 curl.exe -s -X POST "https://uiascended.ssui.dev/v1/report" -H "Content-Type: application/json" -H "X-UIA-Client: <key, if configured>" --data-binary "@test-report.json"
 ```
 
-Expected: `{"number":<n>,"url":"https://github.com/FlorpyDorpinator/StationeersUIAscended-Feedback/issues/<n>"}`.
+Expected: `{"number":<n>,"url":"https://github.com/FlorpyDorpinator/StationeersUIAscended/issues/<n>"}`.
 The issue appears with `feedback`, `bug`, and `triage:pending`. Then
 `curl.exe -s https://uiascended.ssui.dev/v1/status/<n>` returns
 `{"state":"open","labels":[...]}`.

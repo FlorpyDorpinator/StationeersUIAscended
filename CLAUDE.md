@@ -75,11 +75,9 @@ Design sources (read these before large changes):
 - **Commit identity**: `FlorpyDorpinator <90305330+FlorpyDorpinator@users.noreply.github.com>`
   — never the personal Gmail. In PowerShell, write the commit message to a file and
   `git commit -F <file>` (inline `-m` with quotes gets mis-parsed into pathspecs).
-- **Git/GitHub**: repo https://github.com/FlorpyDorpinator/StationeersUIAscended (public code;
-  see the PUBLIC rule below). In-game feedback issues live in the PRIVATE repo
-  https://github.com/FlorpyDorpinator/StationeersUIAscended-Feedback (the relay's
-  `UIA_FEEDBACK_REPO`; the triage workflow lives there too). Never copy player reports into the
-  public repo.
+- **Git/GitHub**: repo https://github.com/FlorpyDorpinator/StationeersUIAscended (public; see the
+  PUBLIC rule below). The only repo: the code AND the in-game feedback issues the relay files, so
+  player reports and the triage bot's plan comments are public too.
   Pushes require the FlorpyDorpinator gh account (`gh auth switch --user FlorpyDorpinator`);
   the repo's credential helper is already routed through gh.
 - **Discord reports**: `tools/fetch-discord.ps1` mirrors the whole UIA Discord server (read-only
