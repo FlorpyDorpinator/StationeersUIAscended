@@ -29,26 +29,38 @@ echo   log    : %LOG%
 
 REM Clean-build ALWAYS: Unity's incremental bundle build can leave a stale output file
 REM untouched even after a shader source change (observed 2026-07-14 ??? DONE was reported
-REM but the bundle mtime never moved). Deleting the output forces a real rewrite.
-if exist "%~dp0Build" rd /s /q "%~dp0Build"
+REM but the bundle mtime never moved). Moving the output away forces a real rewrite, and the
+REM previous bundle is put back if Unity fails (e.g. an expired license, 2026-09-27), so a
+REM failed build never leaves the dev path or the package without a bundle.
+if exist "%~dp0Build.prev" rd /s /q "%~dp0Build.prev"
+if exist "%~dp0Build" move "%~dp0Build" "%~dp0Build.prev" >nul
 
 "%UNITY%" -batchmode -quit -projectPath "%PROJ%" -executeMethod UiaBundleBuilder.Build -logFile "%LOG%"
 if errorlevel 1 (
     echo.
     echo Unity build FAILED. See "%LOG%".
-    exit /b 1
+    goto restore
 )
 
 REM BuildAssetBundles writes into the project-relative "Build" dir, which is %~dp0Build.
 REM No copy is needed - the artifact already lands where HudShaderStore looks for it.
-if exist "%~dp0Build\uia_effects.bundle" (
-    echo.
-    echo DONE. Bundle at "%~dp0Build\uia_effects.bundle"
-) else (
+if not exist "%~dp0Build\uia_effects.bundle" (
     echo.
     echo WARNING: expected bundle not found at "%~dp0Build\uia_effects.bundle".
     echo Check "%LOG%" for details.
-    exit /b 1
+    goto restore
 )
-
+if exist "%~dp0Build.prev" rd /s /q "%~dp0Build.prev"
+echo.
+echo DONE. Bundle at "%~dp0Build\uia_effects.bundle"
 endlocal
+exit /b 0
+
+:restore
+if exist "%~dp0Build.prev" (
+    if exist "%~dp0Build" rd /s /q "%~dp0Build"
+    move "%~dp0Build.prev" "%~dp0Build" >nul
+    echo The previous bundle was put back.
+)
+endlocal
+exit /b 1

@@ -40,7 +40,7 @@ namespace StationeersUIMod.UI.Hud
         public float TempC;
         public float O2Fraction;        // 0..1 of total pressure
         public int SuitBatteryPct = -1; // -1 = no battery
-        public float WaterRatio;        // hydration / nominal store
+        public float WaterRatio;        // hydration / nominal store; can exceed 1 (vanilla over-hydrates to 1.75)
         public string SuitStatus = "";  // NOMINAL / CHECK / WARNING / CRITICAL
         public int SuitStatusLevel;     // 0..3 for colouring
 
@@ -106,7 +106,7 @@ namespace StationeersUIMod.UI.Hud
 
         // Needs. Sanitation (bowel) is simulated server-side only — SanitationValid says
         // whether this client's SanitationRatio can be trusted at all.
-        public float Hydration01;
+        public float Hydration01;       // despite the name, can exceed 1 (up to 1.75), like WaterRatio
         public float Hygiene01;
         public float Sanitation01;
         public bool SanitationValid;
@@ -366,7 +366,10 @@ namespace StationeersUIMod.UI.Hud
             try { s.FoodRatio = Mathf.Clamp01(human.NutritionRatio); } catch { }
             try { s.O2Quality = isRobot ? 1f : Mathf.Clamp01(human.OxygenQuality); } catch { }
             s.HealthRatio = Mathf.Clamp01(1f - damage);
-            s.WaterRatio = Mathf.Clamp01(hydration / 5f);
+            // Floor at 0 only: vanilla over-hydrates to 175% (Entity.Hydration clamps to 0-8.75,
+            // HydrationRatio = Hydration / 5, Entity.cs V27798) and shows it; a 0-1 clamp pinned
+            // our readout at 100% (GitHub issue #6). Thirst words/bands only test the low side.
+            s.WaterRatio = Mathf.Max(0f, hydration / 5f);
             // Speed (m/s): the local Human's own cached rigidbody magnitude — a pure read,
             // MP-safe (it is our own controlled entity). PlayerStateWindow.cs:215-218.
             s.SpeedMs = 0f;
@@ -566,7 +569,7 @@ namespace StationeersUIMod.UI.Hud
             s.Hygiene01 = 0f;
             s.Sanitation01 = 0f;
             s.SanitationValid = false;
-            try { s.Hydration01 = Mathf.Clamp01(human.HydrationRatio); } catch { }
+            try { s.Hydration01 = Mathf.Max(0f, human.HydrationRatio); } catch { } // up to 1.75, see WaterRatio
             try { s.Hygiene01 = Mathf.Clamp01(human.HygieneRatio); } catch { }
             try { s.Sanitation01 = Mathf.Clamp01(human.SanitationRatio); } catch { }
             try { s.SanitationValid = GameManager.RunSimulation; } catch { }

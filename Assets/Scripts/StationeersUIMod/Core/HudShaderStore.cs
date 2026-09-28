@@ -303,6 +303,21 @@ namespace StationeersUIMod.Core
                 }
                 catch { /* fail-soft */ }
             }
+            // A shader with no pass compiled for the running graphics API still LOADS, but Unity
+            // draws it with the magenta error shader (GitHub issue #5: pink squares under
+            // -force-vulkan with a DX11-only bundle). Treat it as missing so the Tier A fallback
+            // runs instead. Never throws.
+            try
+            {
+                if (s != null && !s.isSupported)
+                {
+                    UIALog.Warn("HudShaderStore: " + fullName + " is not supported on " +
+                                SystemInfo.graphicsDeviceType + " (the bundle has no pass for it); " +
+                                "that effect falls back to the plain renderer.");
+                    s = null;
+                }
+            }
+            catch { /* fail-soft */ }
             return s;
         }
 

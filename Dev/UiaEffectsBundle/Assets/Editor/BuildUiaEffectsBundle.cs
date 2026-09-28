@@ -1,6 +1,7 @@
 using System.IO;
 using UnityEditor;
 using UnityEngine;
+using UnityEngine.Rendering;
 
 // Minimal AssetBundle builder for uia_effects.bundle.
 //
@@ -51,7 +52,20 @@ public static class UiaBundleBuilder
         if (!Directory.Exists(OutputDir))
             Directory.CreateDirectory(OutputDir);
 
-        // 3. Build the bundle. ChunkBasedCompression matches Beef's shipped bundles; ForceRebuild
+        // 3. Compile the shaders for EVERY graphics API the game can be launched with. Bundle shaders
+        //    are compiled only for the target's Player-Settings API list, and the Auto list for
+        //    Windows is DirectX 11 alone: under -force-vulkan / -force-d3d12 the effects had no pass,
+        //    so Unity drew them magenta (GitHub issue #5). HudShaderStore also drops any shader the
+        //    running API can't use, so an API missing here degrades to plain panels, never pink.
+        PlayerSettings.SetUseDefaultGraphicsAPIs(BuildTarget.StandaloneWindows64, false);
+        PlayerSettings.SetGraphicsAPIs(BuildTarget.StandaloneWindows64, new[]
+        {
+            GraphicsDeviceType.Direct3D11,
+            GraphicsDeviceType.Direct3D12,
+            GraphicsDeviceType.Vulkan,
+        });
+
+        // 4. Build the bundle. ChunkBasedCompression matches Beef's shipped bundles; ForceRebuild
         //    guarantees a clean artifact every run.
         BuildPipeline.BuildAssetBundles(
             OutputDir,

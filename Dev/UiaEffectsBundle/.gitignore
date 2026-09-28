@@ -11,3 +11,5 @@ build.log
 
 # The built bundle is a generated artifact; rebuild via build-bundle.bat.
 Build/uia_effects.bundle
+# build-bundle.bat parks the previous build here while Unity runs.
+Build.prev/
