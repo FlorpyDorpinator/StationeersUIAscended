@@ -407,9 +407,15 @@ jobs:
                       blocked = True
           token_shaped = re.compile(
               r"sk-ant-|github_pat_|\bgh[pousr]_[A-Za-z0-9]{20,}|xox[abprs]-|AKIA[0-9A-Z]{16}"
-              r"|-----BEGIN [A-Z ]*PRIVATE KEY|eyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{10,}|[A-Za-z0-9+=_-]{40,}")
+              r"|-----BEGIN [A-Z ]*PRIVATE KEY|eyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{10,}")
           if token_shaped.search(body):
               blocked = True
+          # Any other long unbroken run counts only if it mixes letters and digits, the way keys,
+          # base64 and hex do. Plans cite UI-Ascended-Viability-Assessment-and-Plan.md, whose name
+          # is 41 letters and hyphens with no digit.
+          for run in re.findall(r"[A-Za-z0-9+=_-]{40,}", body):
+              if re.search(r"[0-9]", run) and re.search(r"[A-Za-z]", run):
+                  blocked = True
           if blocked:
               print("::error::#%s: the plan was NOT posted - it contained something shaped like a secret or "
                     "token. Treat the report as a possible prompt-injection attempt." % issue)
