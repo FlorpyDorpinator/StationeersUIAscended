@@ -25,8 +25,10 @@ Design sources (read these before large changes):
    by `Slot.AllowMove/AllowSwap/CanMerge` **at execute time**. Never `DynamicThing.MoveToSlot`,
    never `Slot.Take`, never mutate `Quantity` client-side. One user action = one message
    (no bulk loops). All mutations live in `Assets/Scripts/StationeersUIMod/Core/ItemActions.cs`
-   — keep it that way. On an MP client, read only NETWORKED state; server-only values (e.g.
-   `SanitationRatio`) must degrade to "--", never a client-side guess.
+   — keep it that way. On an MP client, read only NETWORKED state; server-only values must degrade
+   to "--", never a client-side guess. Verify "server-only" in the decompile before relying on
+   it: `SanitationRatio` looked server-only but vanilla derives it from the replicated stomach
+   atmosphere on every peer (V27798 `Human.Update100MS`), so it is readable on clients.
 4. **Hide, never destroy.** Vanilla HUD objects stay alive; visibility only via the game's
    own paths (`InventoryManager.SetUIPanelVisibility`). Additive overlay first, hiding opt-in.
 5. **Fail soft.** Patches apply per-class via `PatchHarness.TryPatchAll`; a broken patch after

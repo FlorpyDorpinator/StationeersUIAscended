@@ -120,6 +120,17 @@ namespace StationeersUIMod.UI.Hud.Widgets
             Color wordColor = GlobalOr(Def.GetSFor(LayoutBare, "wordColor", ""), HudPalette.TextValue.Value);
             float wordSize = HudText.Size(Def.GetFFor(LayoutBare, "wordSize", 11f) * Def.FontScaleFor(LayoutBare)) * scale;
 
+            // #10: the helmet-open warning (F10 > HUD, off by default; a player preference in
+            // UIAConfig, see HelmetOpenWarning). While the visor is open the helmet chip alone fills
+            // with the theme's Critical (Red) or Warn (Amber) colour; the other chips keep `fill`.
+            Color helmetFill = fill;
+            var warnMode = UIAConfig.HelmetOpenWarning != null ? UIAConfig.HelmetOpenWarning.Value : HelmetOpenWarningMode.Off;
+            if (helmetOpen && warnMode != HelmetOpenWarningMode.Off)
+            {
+                helmetFill = warnMode == HelmetOpenWarningMode.Amber ? HudPalette.Warn.Value : HudPalette.Critical.Value;
+                helmetFill.a = 0.8f;   // the native-white helmet icon / word stays readable on it
+            }
+
             for (int i = 0; i < N; i++)
             {
                 bool vis = words ? (_wordStr[i] != null) : (_sprite[i] != null);
@@ -128,7 +139,7 @@ namespace StationeersUIMod.UI.Hud.Widgets
                 _word[i].enabled = vis && words;
                 if (!vis) continue;
 
-                _panel[i].color = fill;
+                _panel[i].color = i == Helmet ? helmetFill : fill;
                 _panel[i].BorderColor = border;
                 _panel[i].BorderWidth = bw;
                 ApplyGlass(_panel[i]);

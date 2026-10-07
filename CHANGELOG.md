@@ -2,6 +2,36 @@
 
 All notable changes to the mod. Detailed engineering write-ups live in `Changes Reports/`.
 
+## 1.0.2 -- 2026-10-07 -- HUD behind game windows, helmet warning, Stow rebinds, waste on MP
+
+Fixes and answers the player reports filed after 1.0.1 (GitHub issues #9, #10, #11) and a
+Steam Workshop comment. FlorpyDorp named this release 1.0.2.
+
+- **The HUD steps behind the game's own windows** (#9). It already stepped behind the pause
+  menu, the console, the IC10 editor, Stationpedia and the creative menu. Now it also does
+  for the rocket UI, the trader, the comms terminal, plant genetics, the scoreboard, the portal
+  panel and confirmation prompts. It reads the game's own list of open windows, and checks the
+  rocket UI, trader, comms terminal and plant genetics by name as a fallback. The Grid closes
+  when one of them opens. World-space screens (a computer's own display, tablets) are part of
+  the 3D scene, so an overlay can't step behind them.
+- **Optional helmet-open warning** (#10). F10 > HUD > Show > Helmet-open warning turns the
+  helmet chip red or amber, in the theme's own colours, while the visor is open. Off by
+  default. It's a player setting, so it doesn't change with the theme.
+- **Smart Stow rebinds** (#11). Smart Stow is the game's own key (Settings > Controls >
+  Inventory), and mouse buttons work. A rebound key now also stows with a wheel open: the game
+  never refreshes its old `KeyMap.SmartStow` field after a rebind, so the mod now reads the
+  live binding. The Guide tab shows the real key and where to change it.
+- **Toilet (waste) level on multiplayer clients** (Workshop comment). It was blank for every
+  MP client because the mod treated it as server-only. The game works it out on every player
+  from the replicated stomach atmosphere, so clients now see it too. As before, the bare tier
+  shows words rather than a %, and Easy/Creative worlds have no sanitation.
+- **Report reply cards.** A player who sent a report from F10 > Suggestions/Bugs gets a
+  one-time in-game card when it's fixed or answered. The replies are written into the mod;
+  no text comes from GitHub. For other reports, a closed issue labelled `fixed-in:<version>`
+  gives a generic "fixed in" card once the player runs that version.
+- Holding Tab in multiplayer (the scoreboard) now also pushes the HUD back, closes The Grid
+  and pauses a running lesson, like the other game windows.
+
 ## 1.0.1 -- 2026-09-27 -- HUD size in groups, Hydration, Vulkan/DX12
 
 Fixes the first in-game player reports (GitHub issues #4, #5, #6). FlorpyDorp named this

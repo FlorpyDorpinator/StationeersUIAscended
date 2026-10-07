@@ -14,6 +14,17 @@ namespace StationeersUIMod
         StowOnly,
     }
 
+    /// <summary>The helmet-open warning on the HUD's state-chip strip (GitHub #10).</summary>
+    public enum HelmetOpenWarningMode
+    {
+        /// <summary>No warning: the helmet chip keeps its normal fill.</summary>
+        Off,
+        /// <summary>The helmet chip fills with the theme's Critical colour while the visor is open.</summary>
+        Red,
+        /// <summary>The helmet chip fills with the theme's Warn colour while the visor is open.</summary>
+        Amber,
+    }
+
     /// <summary>
     /// All user-facing configuration. Bound once at plugin init; StationeersLaunchPad
     /// auto-renders the resulting .cfg in its in-game mod config panel.
@@ -228,6 +239,13 @@ namespace StationeersUIMod
         public static ConfigEntry<bool> HideVanillaClothing;
         public static ConfigEntry<bool> HideVanillaStatus;
         public static ConfigEntry<bool> HideVanillaPlayerState;
+        /// <summary>Helmet-open warning on the state-chip strip (#10). Deliberately a UIAConfig player
+        /// preference, not a HudConfig look knob: it is an ALERT the player opts into, so it must not
+        /// switch off when they change UI theme (a theme-carried key would also revert on every
+        /// relaunch under a read-only shipped theme). The look still follows the theme: the fill is
+        /// the theme's own HudPalette Critical / Warn colour. Shared across tiers by design (the chip
+        /// only shows while a helmet is worn).</summary>
+        public static ConfigEntry<HelmetOpenWarningMode> HelmetOpenWarning;
 
         // --- Radial visuals ---
         public static ConfigEntry<float> RadialOuterRadius;
@@ -566,6 +584,11 @@ namespace StationeersUIMod
                 "Hide vanilla's bottom-right instrument cluster (internal/external/jetpack/" +
                 "health boxes) through the game's own visibility path — the HUD's readout " +
                 "cards replace them. Restored the moment this is turned off.");
+            HelmetOpenWarning = cfg.Bind("7. HUD", "HelmetOpenWarning", HelmetOpenWarningMode.Off,
+                "Helmet-open warning: while your helmet visor is open, the helmet chip on the HUD's " +
+                "state-chip strip turns red (Red) or amber (Amber). Off by default. A personal alert " +
+                "setting, so it stays the same whichever UI theme is active; the red and amber are " +
+                "the theme's own Critical and Warn colours.");
             // HardcoreGating removed in Wave B: it gated the legacy ImGui overlay's helmet/sensor
             // visibility, which no longer exists. The LIVE diegetic system is HudConfig.DiegeticTiers.
             // Key pruned from player cfgs by ConfigMigration step 2.

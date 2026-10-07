@@ -18,8 +18,8 @@ namespace StationeersUIMod
     /// </summary>
     public sealed class StationeersUIMod : MonoBehaviour
     {
-        public const string ModVersion = "1.0.1";
-        public const string VersionDisplay = "1.0.1";
+        public const string ModVersion = "1.0.2";
+        public const string VersionDisplay = "1.0.2";
         public const string ModGuid = "com.stationeersuimod.ui";
 
         public static StationeersUIMod Instance { get; private set; }
@@ -434,6 +434,11 @@ namespace StationeersUIMod
                     try { UI.Menu.Tutorial.TutorialSpotlight.Tick(); UI.Menu.Tutorial.TutorialDirector.TickSucceeded("spotlight"); }
                     catch (Exception e) { UI.Menu.Tutorial.TutorialDirector.TickFailed("spotlight", e); }
                 }
+
+                // "Your report was fixed / answered" cards (GitHub #9-#11): once per session, only
+                // for a player holding a matching report receipt, in a quiet moment after the
+                // tutorial's own cards. Fail-soft on its own (stands down after repeated errors).
+                Core.ReportNotices.Tick(_radials != null && _radials.IsRadialOpen);
 
                 // F10 opens even while the F9 HUD editor is active: the menu then becomes a
                 // live-themed EDITABLE surface (click it in the editor to theme it). It refuses
@@ -1201,6 +1206,10 @@ namespace StationeersUIMod
                 // send the same outbox file twice (= a duplicate GitHub issue).
                 try { Core.FeedbackService.Shutdown(); }
                 catch (Exception e) { UIALog.Error("FeedbackService.Shutdown failed: " + e); }
+                try { Core.ReportNotices.Shutdown(); }
+                catch (Exception e) { UIALog.Error("ReportNotices.Shutdown failed: " + e); }
+                try { Core.Guards.ResetForReload(); }
+                catch (Exception e) { UIALog.Error("Guards.ResetForReload failed: " + e); }
                 try { _harmony?.UnpatchSelf(); }
                 catch (Exception e) { UIALog.Error("UnpatchSelf failed: " + e); }
                 _harmony = null;   // this instance's patches are gone; never let a re-entry re-unpatch

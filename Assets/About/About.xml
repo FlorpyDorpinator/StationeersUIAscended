@@ -2,7 +2,7 @@
   <Name>Stationeers UI Ascended</Name>
   <ModID>StationeersUIAscended</ModID>
   <Author>FlorpyDorp + JXSN</Author>
-  <Version>1.0.1</Version>
+  <Version>1.0.2</Version>
   <Description>
 	  [h1]Stationeers UI Ascended[/h1]
 
@@ -19,6 +19,14 @@ Reshape the visor live in the F9 HUD Designer: move, resize and restyle anything
 <br>
 ]]></InGameDescription>
   <ChangeLog>
+    [h3]Version 1.0.2 -- HUD behind game windows, helmet warning, Stow rebinds:[/h3]
+    [list]
+    [*] The HUD now steps behind the rocket UI and the game's other windows while they are open -- the trader, the comms terminal, plant genetics, the scoreboard and pop-up prompts -- instead of covering them
+    [*] Optional helmet-open warning: F10 - HUD - Show - Helmet-open warning turns the helmet chip red or amber while your visor is open. Off by default
+    [*] Smart Stow is the game's own key, so you can rebind it in Settings - Controls - Inventory, mouse buttons included. A rebound key now also works with a wheel open, and the F10 Guide shows your real key
+    [*] Multiplayer clients now see the toilet (waste) level too
+    [*] Sent a report from F10 - Suggestions/Bugs? You now get a one-time card in game when it is fixed or answered
+    [/list]
     [h3]Version 1.0.1 -- HUD size, Hydration, Vulkan and DX12:[/h3]
     [list]
     [*] HUD SIZE THAT HOLDS TOGETHER: the Overall HUD scale (F9 - Global) now scales the HUD in groups. Things that sit together grow together from the screen corner or edge they are nearest, and a group stops growing where it would run off the screen or into another group -- no more boxes sliding over each other or drifting apart. At a theme's own size nothing changes

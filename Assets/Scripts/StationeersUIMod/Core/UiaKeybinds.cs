@@ -238,6 +238,18 @@ namespace StationeersUIMod.Core
             return b != null && b.Get != null ? b.Get() : KeyCode.None;
         }
 
+        /// <summary>Vanilla's Smart Stow key as the game actually fires it: the live
+        /// <c>KeyMap._SmartStow</c> KeyWrap (bound to the stow action at V27798 KeyManager.cs:142,
+        /// reassigned from the saved binding at :689). NOT the plain <c>KeyMap.SmartStow</c> field -
+        /// <c>LoadKeyboardSetting</c> (:600-) never refreshes that one, so after a rebind in Settings >
+        /// Controls it still says G. Falls back to the saved binding, then None.</summary>
+        public static KeyCode VanillaSmartStow()
+        {
+            try { var k = KeyMap._SmartStow.Key; if (k != KeyCode.None) return k; } catch { }
+            try { return KeyManager.GetKey("SmartStow"); } catch { }
+            return KeyCode.None;
+        }
+
         /// <summary>Short on-screen glyph for an action's current key (for the hint bar / chips).</summary>
         public static string Glyph(string id) => Glyph(Key(id));
 

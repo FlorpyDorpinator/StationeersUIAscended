@@ -194,7 +194,7 @@ namespace StationeersUIMod.UI.Menu.Tutorial
                 var info = senses[i];
                 if (info == null || !IsAcute(info.Key)) continue;
                 if (info.NeedsAtmosphere && !s.FeltValid) continue;   // can't feel the warmth of nothing
-                if (info.ServerOnly && !s.SanitationValid) continue;  // server-only sim (MP rule)
+                if (info.ServerOnly && !s.SanitationValid) continue;  // sanitation off / no stomach yet
                 if (robot && info.RobotSuppressed) continue;
                 var bands = info.Bands;
                 for (int b = 0; bands != null && b < bands.Length; b++)

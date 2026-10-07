@@ -22,7 +22,7 @@ namespace StationeersUIMod.UI.Hud.Widgets
     /// MP-safe driver values on the snapshot (temperature, oxygen, pressure, water, food, damage,
     /// sanitation) against per-element threshold overrides — the sampler no longer bakes the word.
     /// The multiplayer guards are honoured here too: temp/air/pressure need a valid atmosphere
-    /// (FeltValid); the toilet sense stays silent unless the server sim is trusted (SanitationValid).
+    /// (FeltValid); the toilet sense stays silent unless sanitation is readable (SanitationValid).
     ///
     /// WHICH sense sits in WHICH row is the <c>order</c> CSV (one token per row); picking a sense
     /// already placed elsewhere SWAPS the two rows. Nominal senses collapse (leave no gap).
@@ -220,7 +220,7 @@ namespace StationeersUIMod.UI.Hud.Widgets
             if (s == null || sense < 0) return;
             var info = SenseCatalog.Senses[sense];
             if (info.NeedsAtmosphere && !s.FeltValid) return;       // can't feel the warmth of nothing
-            if (info.ServerOnly && !s.SanitationValid) return;      // server-only bowel sim (MP rule)
+            if (info.ServerOnly && !s.SanitationValid) return;      // sanitation off / no stomach yet
             // A robot feels almost nothing: the old sampler blanked every felt sense but health for
             // robots and spoke FAILING / DAMAGED instead. That suppression used to arrive baked into
             // the word; now that we evaluate drivers ourselves it has to be reasserted here, or a

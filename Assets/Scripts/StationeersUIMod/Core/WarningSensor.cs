@@ -183,7 +183,7 @@ namespace StationeersUIMod.Core
 
             // The "you are in trouble in the next few minutes" set. Slow/social/cosmetic channels
             // (Mood, Hygiene, Waste, Sanitation) stay out: an alarm that is lit most of the time is
-            // noise, and Sanitation is server-only state besides.
+            // noise.
             Add(su, "Oxygen");      Add(su, "Power");        Add(su, "AirTank");
             Add(su, "Filter");      Add(su, "Nutrition");    Add(su, "Hydration");
             Add(su, "Toxin");       Add(su, "PressureLow");  Add(su, "PressureHigh");

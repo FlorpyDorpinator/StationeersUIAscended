@@ -534,8 +534,12 @@ namespace StationeersUIMod.Features
             if (_menu.IsSearchOpen) return;
             KeyCode ownKey = _active != null ? _active.Key : KeyCode.None;
 
-            if (KeyMap.SmartStow != KeyCode.None && KeyMap.SmartStow != ownKey
-                && Input.GetKeyDown(KeyMap.SmartStow))
+            // The LIVE stow binding (Core.UiaKeybinds.VanillaSmartStow): KeyMap.SmartStow stays G
+            // after a rebind in Settings > Controls, so a player who moved Stow to a mouse button
+            // (#11) got nothing with a wheel open while G still stowed.
+            KeyCode stowKey = Core.UiaKeybinds.VanillaSmartStow();
+            if (stowKey != KeyCode.None && stowKey != ownKey
+                && Input.GetKeyDown(stowKey))
             {
                 try
                 {

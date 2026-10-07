@@ -429,9 +429,15 @@ namespace StationeersUIMod.UI.Menu.Tabs
         private void BuildStorage(Transform col)
         {
             var sec = UiaComposite.Section(col, "guide.storage", "Smart storage");
-            KeyRow(sec.Body, "Smart Stow the held item", "G");
+            // Smart Stow is vanilla's own binding (rebound in the game's Settings > Controls), so
+            // show the live key, not a hard-coded G (GitHub #11 asked to rebind it).
+            KeyCode stowKey = UiaKeybinds.VanillaSmartStow();
+            KeyRow(sec.Body, "Smart Stow the held item", stowKey != KeyCode.None ? UiaKeybinds.Glyph(stowKey) : "unbound");
             UiaControls.Note(sec.Body,
-                "SmartStow+ extends vanilla stow (G): it tops up a matching stack (and keeps going " +
+                "Rebind Smart Stow in the game's own Settings > Controls (Inventory); mouse " +
+                "buttons work too.");
+            UiaControls.Note(sec.Body,
+                "SmartStow+ extends vanilla stow: it tops up a matching stack (and keeps going " +
                 "until the hand is empty), sends components to their sockets (canisters to tanks, " +
                 "batteries to battery slots). It works with a wheel open, too. Two modes, set on " +
                 "the SmartStow tab:");

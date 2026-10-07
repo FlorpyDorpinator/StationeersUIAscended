@@ -104,8 +104,9 @@ namespace StationeersUIMod.UI.Hud
         public bool JetpackCrit;                    // gas delta under 100 kPa
         public float JetpackBatteryPct = -1f;       // electric only; -1 = n/a
 
-        // Needs. Sanitation (bowel) is simulated server-side only — SanitationValid says
-        // whether this client's SanitationRatio can be trusted at all.
+        // Needs. Sanitation (bowel) is derived from the replicated stomach atmosphere on every
+        // peer (see the sampler) — SanitationValid says whether this world has a value at all
+        // (false with sanitation off, or before the stomach exists).
         public float Hydration01;       // despite the name, can exceed 1 (up to 1.75), like WaterRatio
         public float Hygiene01;
         public float Sanitation01;
@@ -562,9 +563,15 @@ namespace StationeersUIMod.UI.Hud
             }
             catch { }
 
-            // ---- needs. Hydration/Hygiene are replicated ratios. Sanitation (bowel) is only
-            // simulated where the stomach tick runs (GameManager.RunSimulation) — a pure
-            // client has no trustworthy value, so it ships a validity flag, not a fake 0. ----
+            // ---- needs. Hydration/Hygiene are replicated ratios. Sanitation (bowel) is DERIVED
+            // FROM REPLICATED STATE on every peer: Human.Update100MS -> UpdateSanitationRatio reads
+            // the stomach's internal atmosphere (a networked Thing atmosphere) with no
+            // RunSimulation gate (V27798 Human.cs:2807-2833, GameManager.cs:1517-1524), and vanilla's
+            // own PlayerStateWindow shows that same value on MP clients (:428-436). Through 1.0.1 this
+            // was RunSimulation-only, which hid the toilet level on every MP client (changed at
+            // FlorpyDorp's call, 2026-10-02). SanitationValid is still a real flag, never a fake 0: false when the
+            // world has sanitation off (Easy/Creative - Stomach.GetWasteRatio returns 0, vanilla shows
+            // nothing) or the stomach/atmosphere is not there yet. ----
             s.Hydration01 = 0f;
             s.Hygiene01 = 0f;
             s.Sanitation01 = 0f;
@@ -572,7 +579,7 @@ namespace StationeersUIMod.UI.Hud
             try { s.Hydration01 = Mathf.Max(0f, human.HydrationRatio); } catch { } // up to 1.75, see WaterRatio
             try { s.Hygiene01 = Mathf.Clamp01(human.HygieneRatio); } catch { }
             try { s.Sanitation01 = Mathf.Clamp01(human.SanitationRatio); } catch { }
-            try { s.SanitationValid = GameManager.RunSimulation; } catch { }
+            s.SanitationValid = SanitationReadable(human);
 
             // 0.9.1 extra moodlet drivers. Defaults chosen so an unread value NEVER fires a word:
             // mood "content" (1), g-force "normal" (1g), stun 0, soiled false, and hygiene a mid 0.5
@@ -590,8 +597,8 @@ namespace StationeersUIMod.UI.Hud
 
             // Consciousness + bowel felt words (bare senses can place these too). Empty when
             // nominal. Consciousness rides O2 quality (low breathable O2 → you black out);
-            // the bowel word needs the server sim (SanitationValid) or it stays silent so a
-            // pure MP client never guesses a server-only value.
+            // the bowel word needs a readable sanitation value (SanitationValid) or it stays
+            // silent - sanitation off in this world, or no stomach yet.
             if (isRobot)
             {
                 s.WordCognition = "";
@@ -702,6 +709,22 @@ namespace StationeersUIMod.UI.Hud
 
         private static bool UsesTiers()
             => HudConfig.DiegeticTiers == null || HudConfig.DiegeticTiers.Value;
+
+        /// <summary>Does this peer have a real sanitation value? Exactly the inputs vanilla's
+        /// Stomach.GetWasteRatio needs (V27798 Stomach.cs:135-145): the world's Sanitation difficulty
+        /// flag (DifficultySetting, GLOBAL namespace; synced on join) and a stomach with its internal
+        /// atmosphere. Host or client alike - see the needs block in Sample.</summary>
+        private static bool SanitationReadable(Human human)
+        {
+            try
+            {
+                var d = DifficultySetting.Current;
+                if (d == null || ReferenceEquals(d.Sanitation, null) || !d.Sanitation) return false;
+                var stomach = human != null ? human.OrganStomach : null;
+                return stomach != null && stomach.InternalAtmosphere != null;
+            }
+            catch { return false; }
+        }
 
         private static void Worst(HudSnapshot s, int level)
         {

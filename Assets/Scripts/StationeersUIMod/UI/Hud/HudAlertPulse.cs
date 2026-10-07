@@ -204,13 +204,15 @@ namespace StationeersUIMod.UI.Hud
             if (!ReferenceEquals(_lastHuman, snap.Human)) { Reset(); _lastHuman = snap.Human; }
 
             // Pause / full-attention menu. WorldManager.IsGamePaused alone is NOT enough: on a
-            // multiplayer client it never becomes true. Guards.VanillaMenuWantsFront() is this
-            // codebase's SP/MP-agnostic answer to the same question (HudSystem.cs:943).
+            // multiplayer client it never becomes true. Guards.GameMenuOrInputFront() is this
+            // codebase's SP/MP-agnostic answer to the same question - the MENU set only, not #9's
+            // wider window set: the rocket UI, trader or comms terminal do not pause the world, so a
+            // danger that develops under one must still be polled.
             // The envelope KEEPS RUNNING (the HUD stays visible behind the menu, so a frozen
             // half-brightness would sit on screen for the whole pause); only the poll and the cycle
             // counter freeze, so a long pause cannot burn the caution's breath budget.
             bool frozen = false;
-            try { frozen = WorldManager.IsGamePaused || Guards.VanillaMenuWantsFront(); } catch { }
+            try { frozen = WorldManager.IsGamePaused || Guards.GameMenuOrInputFront(); } catch { }
 
             if (preview)
             {

@@ -1548,7 +1548,9 @@ namespace StationeersUIMod.UI.Menu.Tutorial
         private static void PollVanillaMenu(float now)
         {
             bool up = false;
-            try { up = Guards.VanillaMenuWantsFront(); } catch { }
+            // The MENU set only (Guards.GameMenuOrInputFront), not VanillaMenuWantsFront's wider #9
+            // window set: a confirmation prompt or the scoreboard is not "Esc opened the game menu".
+            try { up = Guards.GameMenuOrInputFront(); } catch { }
             var step = _flow == Flow.Lesson ? CurrentStep() : null;
             if (up && !_vanillaMenuWasUp && step != null && step.Id == "core.window" && _gridWasOpen) _escOopsArmed = true;
             if (!up && _vanillaMenuWasUp && _escOopsArmed)

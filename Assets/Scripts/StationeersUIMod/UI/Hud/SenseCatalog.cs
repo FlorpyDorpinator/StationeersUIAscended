@@ -68,8 +68,9 @@ namespace StationeersUIMod.UI.Hud
         /// <summary>Requires a valid breathing/world atmosphere this frame (FeltValid) — else silent.
         /// You can't feel the warmth, oxygen or pressure of nothing.</summary>
         public readonly bool NeedsAtmosphere;
-        /// <summary>Server-simulated only (bowel). Silent unless SanitationValid, so a pure MP client
-        /// never guesses a value the server never sent (CLAUDE.md MP rule).</summary>
+        /// <summary>The bowel sense. Silent unless SanitationValid - the world has sanitation on and
+        /// the stomach exists (the value itself is derived from replicated state on every peer - read
+        /// on MP clients too since 2026-10-02; the field name predates that).</summary>
         public readonly bool ServerOnly;
         /// <summary>Silent entirely for a ROBOT wearer. The old sampler blanked every felt sense for
         /// robots except health (which used its own FAILING / DAMAGED words), so all senses default

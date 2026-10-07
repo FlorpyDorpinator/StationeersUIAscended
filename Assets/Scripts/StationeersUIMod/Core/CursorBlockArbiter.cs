@@ -51,7 +51,11 @@ namespace StationeersUIMod.Core
         {
             if (string.IsNullOrEmpty(id)) return;
             if (!_holders.Remove(id)) return;   // this id was not holding — no state change
-            if (_holders.Count == 0) Apply(false);   // 1 → 0: drive the flag off
+            // 1 → 0: drive the flag off - unless a vanilla window that parks the raycast ITSELF is up
+            // (the rocket UI, plant genetics). Since #9 such a window closes The Grid and its pins,
+            // which releases their holds; clearing here would wake world picking under the window.
+            // The window clears the flag itself when it hides.
+            if (_holders.Count == 0 && !Guards.VanillaRaycastWindowOpen()) Apply(false);
             CursorDiag.NoteBlockHolders("release", id, HoldersDebug);
         }
 

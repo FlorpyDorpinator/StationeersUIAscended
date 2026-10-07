@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using StationeersUIMod.UI.Hud;
 using StationeersUIMod.UI.Menu.Kit;
 using UnityEngine;
@@ -93,6 +94,14 @@ namespace StationeersUIMod.UI.Menu.Tabs
                 v => { HudConfig.DetailedVitalsTooltips.Value = v; Features.HudProfileStore.MarkThemeChanged(); });
             UiaSearch.RegisterRow(Title, "hud.show", "Detailed vitals tooltips",
                 UiaSearch.MakeJump(vitals.transform.parent.gameObject));
+
+            // #10: a player preference (UIAConfig), NOT theme-carried - so no MarkThemeChanged, and
+            // it works the same under a read-only shipped theme. Off by default (FlorpyDorp).
+            var helmetWarn = UiaControls.DropdownRow(sec.Body, "Helmet-open warning (helmet chip)",
+                new List<string> { "Off", "Red", "Amber" }, (int)UIAConfig.HelmetOpenWarning.Value,
+                i => UIAConfig.HelmetOpenWarning.Value = (HelmetOpenWarningMode)i);
+            UiaSearch.RegisterRow(Title, "hud.show", "Helmet-open warning",
+                UiaSearch.MakeJump(helmetWarn.transform.parent.gameObject));
 
             if (!diegetics && sec.Extras != null)
             {
