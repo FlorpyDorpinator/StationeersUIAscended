@@ -37,7 +37,8 @@ namespace StationeersUIMod.UI.Grid
     /// <see cref="ItemActions"/> call (DragTo / DragAllOfTypeTo / DropToWorld — one message, the source
     /// pinned to the child and re-verified at execute time). Cancelling sends nothing.</para>
     ///
-    /// <para><b>Lifetime.</b> Ticked from the plugin Update right after <see cref="TheGridPanel.Tick"/>;
+    /// <para><b>Lifetime.</b> Ticked from the plugin Update just before <see cref="TheGridPanel.Tick"/>
+    /// (its own try/catch; the catcher also self-cancels if that Tick stops running);
     /// cancels itself whenever the Universal Inventory (or a pinned window) stops being interactive, a
     /// radial / the F9 editor / F10 / a vanilla menu / the tutorial coach takes over, or the child leaves
     /// its hand. <see cref="Shutdown"/> destroys the catcher canvas and the ghost, releases the
@@ -66,12 +67,27 @@ namespace StationeersUIMod.UI.Grid
         private static EventSystem _pedEs;
         private static readonly List<RaycastResult> _hits = new List<RaycastResult>(16);
 
+        private static bool _swallowUntilUp;           // a press that began during a carry: no grid click on its release
+        private static int _lastTickFrame = -999;      // the catcher's self-hide watchdog reads this
+
         /// <summary>A split child is on the cursor right now.</summary>
         public static bool Active { get { return _source != null; } }
 
-        /// <summary>Per frame, after <see cref="TheGridPanel.Tick"/>.</summary>
+        /// <summary>The grid's own click / drag handlers (cells, region chrome, control squares, tabs)
+        /// refuse while this is true: a carry is live, OR a press that began during the carry has not
+        /// been released yet. Once the place-press is down the catcher is raycast-transparent (so hover
+        /// refreshes for the resolution), which means a SECOND press before the resolve lands on the
+        /// real surfaces underneath; this gate (like <c>HudSlotDrag.CanDrag</c>) keeps that press from
+        /// also clicking a cell, a split square or a tab — even when its release arrives after the
+        /// carry already ended.</summary>
+        internal static bool BlocksGridClicks { get { return _source != null || _swallowUntilUp; } }
+
+        /// <summary>Per frame, BEFORE (and independent of) <see cref="TheGridPanel.Tick"/>, in its own
+        /// try/catch in the plugin Update.</summary>
         public static void Tick()
         {
+            _lastTickFrame = Time.frameCount;
+            if (_swallowUntilUp && !AnyMouseHeldOrReleasing()) _swallowUntilUp = false;
             // Idle (the steady state, and always with the opt-in off): one static compare.
             if (_source == null && !SplitToCursor.Waiting(SplitToCursor.Ctx.Grid)) return;
             bool gate = Gate();
@@ -89,6 +105,13 @@ namespace StationeersUIMod.UI.Grid
             }
 
             if (!gate) { Cancel(); return; }
+
+            // A new press of any button while the place-press is already armed (the catcher is
+            // transparent then): its click must never reach the grid underneath, even if it is
+            // released after this carry ends (BlocksGridClicks).
+            if (_pressed && (Input.GetMouseButtonDown(0) || Input.GetMouseButtonDown(1) || Input.GetMouseButtonDown(2))
+                && Time.frameCount > _pressFrame)
+                _swallowUntilUp = true;
 
             // The child left its hand under us (teammate, despawn, our own placement round-tripped):
             // stop quietly — nothing to place any more.
@@ -126,6 +149,13 @@ namespace StationeersUIMod.UI.Grid
         public static void Cancel()
         {
             try { SplitToCursor.Cancel(SplitToCursor.Ctx.Grid); } catch { }
+            // Ending with a button still down (a second press mid-resolve, or a cancel during the
+            // place-press): that press's release must not click the grid under it.
+            if (_source != null)
+            {
+                try { if (Input.GetMouseButton(0) || Input.GetMouseButton(1) || Input.GetMouseButton(2)) _swallowUntilUp = true; }
+                catch { }
+            }
             if (_source == null && _ghostGo == null && !_blockHeld
                 && (_root == null || !_root.activeSelf)) return;
             bool wasCarrying = _source != null;
@@ -155,6 +185,8 @@ namespace StationeersUIMod.UI.Grid
             if (_root != null) Object.Destroy(_root);
             _root = null;
             _catcher = null;
+            _swallowUntilUp = false;
+            _lastTickFrame = -999;
             _ped = null;
             _pedEs = null;
             _hits.Clear();
@@ -196,9 +228,31 @@ namespace StationeersUIMod.UI.Grid
                 _blockHeld = true;   // vanilla's world hover stands down, like a cell drag (D-002)
                 try { CursorBlockArbiter.Hold(BlockId); } catch { }
             }
-            SpawnGhost(child);
-            try { GridGhostHint.BeginDrag(child, slot); } catch { }   // the would-receive bag glows
+            try
+            {
+                SpawnGhost(child);
+                GridGhostHint.BeginDrag(child, slot);   // the would-receive bag glows
+            }
+            catch (System.Exception ex)
+            {
+                // A broken ghost / hint must never leave the catcher up with the world-pick hold taken.
+                UIALog.Warn("Split-to-cursor: carry start failed (cancelled): " + ex.Message);
+                Cancel();
+                return;
+            }
             try { UIAudioManager.Play(UIAudioManager.ObjectIntoHandHash); } catch { }
+        }
+
+        /// <summary>The catcher's self-hide watchdog (<see cref="SplitCarryCatcher"/>): true when
+        /// <see cref="Tick"/> has not run for a few frames (a broken plugin Update, a stand-down path
+        /// that skipped the cancel). The catcher then cancels the carry rather than eat every click.</summary>
+        internal static bool TickStale() { return Time.frameCount > _lastTickFrame + 5; }
+
+        private static bool AnyMouseHeldOrReleasing()
+        {
+            for (int b = 0; b < 3; b++)
+                if (Input.GetMouseButton(b) || Input.GetMouseButtonUp(b)) return true;
+            return false;
         }
 
         /// <summary>The catcher got the place-press. LMB arms the placement (and turns the catcher
@@ -325,6 +379,7 @@ namespace StationeersUIMod.UI.Grid
             _ghostRt.pivot = new Vector2(0.5f, 0.5f);
             float size = 46f;
             try { size = UIAConfig.GridCellSize.Value; } catch { }
+            size *= WheelGridScale.Geo;   // #12: match the resolution-scaled cell (BagGridCell.SpawnGhost)
             _ghostRt.sizeDelta = new Vector2(size * 0.9f, size * 0.9f);
             var img = _ghostGo.AddComponent<Image>();
             Sprite icon = null;
@@ -403,6 +458,12 @@ namespace StationeersUIMod.UI.Grid
         public bool PassThrough;
 
         public bool IsRaycastLocationValid(Vector2 sp, Camera eventCamera) { return !PassThrough; }
+
+        // Self-hide: a full-screen click eater must never outlive the Tick that drives it.
+        private void Update()
+        {
+            if (GridSplitCarry.TickStale()) GridSplitCarry.Cancel();
+        }
 
         public void OnPointerDown(PointerEventData e) { GridSplitCarry.OnCatcherDown(e); }
 

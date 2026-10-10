@@ -454,6 +454,12 @@ namespace StationeersUIMod.Overlay
         /// parks as a chip on open screen (SearchPanelView uses the same 30 px).</summary>
         private const float ParkMarginPx = 30f;
 
+        /// <summary>#12: the raw-pixel interaction thresholds above (and the hub inset / slide-out
+        /// rim) are 1080p REFERENCE px, like the radii; this turns one into SCREEN px with the same
+        /// factor Draw scales the wheel by, so hit-tests keep their designed feel at 4K. Exactly the
+        /// constant at k = 1.</summary>
+        private static float Px(float referencePx) => referencePx * UI.WheelGridScale.Resolution();
+
         // --- Option B: The Hub + hold-mode navigation ---
         /// <summary>Tag marking the toolbelt's Hub wedge (identification/styling; since
         /// 0.6.1 hold mode dwell-enters ANY branch wedge, not just the Hub).</summary>
@@ -508,7 +514,9 @@ namespace StationeersUIMod.Overlay
         // the child) that follows the pointer WITHOUT the button held. The next LMB click resolves it
         // through the SAME ResolveDragRelease a drag release uses (wedge / HUD box / world slot / park /
         // cancel); RMB just stops carrying (the RMB-mid-drag cancel — the item never left its hand);
-        // any close runs the existing D-004 close-drop (ReleaseHeldItems). Instance flags reset on
+        // any close (Esc, the opener key, MMB, RMB, a replacing open...) CANCELS the carry chip too —
+        // the child stays in the hand (ReleaseHeldItems skips it); chips the player already PARKED
+        // still take the D-004 close-drop. Instance flags reset on
         // every Open/Close; the static request flag is cleared there too, so a split fired by the R3
         // double-tap repeat (no radial open) can never keep a LATER, unrelated radial open.
         private static bool _stayOpenRequested;
@@ -982,8 +990,8 @@ namespace StationeersUIMod.Overlay
 
             // MMB in a sticky radial: the whole gesture is "tap to open, flick, tap to pick",
             // and MMB is the dismiss half of it. Selection is LMB.
-            // (A split-to-cursor CARRY is not a held drag, so MMB still closes — the close-drop
-            // then resolves the carried child like any in-flight chip, D-004/A9.)
+            // (A split-to-cursor CARRY is not a held drag, so MMB still closes — and the close
+            // CANCELS the carried child: it stays in the hand, ReleaseHeldItems skips a carry chip.)
             if (Input.GetMouseButtonDown(2)
                 && (_parking.Dragging == null || _carry) && _press == null)
             {
@@ -1062,7 +1070,7 @@ namespace StationeersUIMod.Overlay
             if (_press != null && Input.GetMouseButton(0))
             {
                 bool heldLong = Time.unscaledTime - _pressAt >= DragHoldSec;
-                bool movedFar = (mouse - _pressPos).magnitude >= DragMovePx;
+                bool movedFar = (mouse - _pressPos).magnitude >= Px(DragMovePx);
                 if (_press.CanDrag && (heldLong || movedFar))
                 {
                     // One slot = one chip: re-dragging an already-parked item's wedge
@@ -1276,7 +1284,7 @@ namespace StationeersUIMod.Overlay
                         return true;
                     }
                     // Grabbing the hub (inside the ring, off the CLOSE band) moves the radial.
-                    float hubR = Mathf.Max(0f, _lastInnerR - 6f);
+                    float hubR = Mathf.Max(0f, _lastInnerR - Px(6f));   // #12: the hub inset is 6 reference px
                     if (_satellite == null && _mainDist < hubR)
                     {
                         _hubDragging = true;
@@ -1512,7 +1520,8 @@ namespace StationeersUIMod.Overlay
         /// there PLACES the item into that slot), and only while the screen has room for one more chip
         /// (<see cref="ParkingState.MaxChips"/>, the release's own cap). Then it joins the parked
         /// chips; anywhere else it cancels — the item never left its slot. World-grabbed chips never
-        /// left the world and are skipped.</item>
+        /// left the world and are skipped. A split-to-cursor CARRY chip (<c>_carry</c>) always
+        /// cancels: it rides the cursor without a held button, so a close is never a release.</item>
         /// <item>Parked chips drop to the ground through <see cref="DumpChipsToGround"/> — the SAME
         /// gated per-chip <c>ItemActions.DropToWorld</c> the RMB exit has always used (each chip
         /// re-verified against its pinned Expected occupant at execute time; no new mutation
@@ -1531,6 +1540,11 @@ namespace StationeersUIMod.Overlay
         private void ReleaseHeldItems()
         {
             var inFlight = _parking.Dragging;
+            // Split-to-cursor: the CARRY chip (cursor-attached, no button held) is not "dragged out
+            // onto the screen" — the player never put it anywhere. Every close route CANCELS it: the
+            // split child simply stays in the hand vanilla put it in. Chips the player already parked
+            // (clicked out onto the screen) still drop below, and a held press-drag is unchanged.
+            if (_carry && inFlight != null) inFlight = null;
             _parking.Dragging = null;
             if (inFlight == null && _parking.Chips.Count == 0) return; // nothing held: every plain open/close
 
@@ -1610,8 +1624,8 @@ namespace StationeersUIMod.Overlay
         /// released drag parks on open screen. One predicate for the release path and the close
         /// path, so "would have parked" and "counts as on the screen" are the same test.</summary>
         private bool BeyondParkingLine(float mainDist, float satDist)
-            => mainDist > _lastOuterR + ParkMarginPx
-               && (_satellite == null || satDist > _satellite.OuterR + ParkMarginPx);
+            => mainDist > _lastOuterR + Px(ParkMarginPx)
+               && (_satellite == null || satDist > _satellite.OuterR + Px(ParkMarginPx));
 
         /// <summary><see cref="BeyondParkingLine"/> measured from the LIVE pointer — the close path
         /// can run from Update before this frame's Draw, or in search mode where Draw skips the
@@ -1637,7 +1651,7 @@ namespace StationeersUIMod.Overlay
             {
                 var mouse = DrawUtil.MousePos();
                 if ((mouse - (DrawUtil.ScreenCenter + _centerOffset)).magnitude <= _lastOuterR * RingReach) return true;
-                return _satellite != null && (mouse - _satellite.Center).magnitude <= _satellite.OuterR + SatReachPx;
+                return _satellite != null && (mouse - _satellite.Center).magnitude <= _satellite.OuterR + Px(SatReachPx);
             }
             catch { return true; }
         }
@@ -1654,7 +1668,7 @@ namespace StationeersUIMod.Overlay
         private bool PointerInRadialMask()
         {
             if (_mainDist <= _lastOuterR * RingReach) return true;
-            return _satellite != null && _satDist <= _satellite.OuterR + SatReachPx;
+            return _satellite != null && _satDist <= _satellite.OuterR + Px(SatReachPx);
         }
 
         /// <summary>The deliberate exit-drop: one drop message per parked chip, each verified
@@ -2180,7 +2194,8 @@ namespace StationeersUIMod.Overlay
             // the click routes to the hub — chip dumps from a click aimed at a wedge.
             var delta = mouse - center;
             _mainDist = delta.magnitude;
-            float hubClaim = innerR - 6f;
+            float hubClaim = innerR - 6f * wheelK;   // #12: 6 reference px, like InCloseButton
+            float slideOutR = outerR + 14f * wheelK; // #12: the slide-out rim, 14 reference px past the ring
             _hovered = _mainDist >= hubClaim ? SectorFromMouse(delta, count) : -1;
             _closeHovered = InCloseButton(delta, innerR);
             if (_closeHovered) _hovered = -1; // highlight and input may never disagree
@@ -2201,7 +2216,7 @@ namespace StationeersUIMod.Overlay
             {
                 var satDelta = mouse - _satellite.Center;
                 _satDist = satDelta.magnitude;
-                if (_satDist <= _satellite.OuterR + SatReachPx)
+                if (_satDist <= _satellite.OuterR + SatReachPx * wheelK)
                 {
                     if (_satDist >= _satellite.InnerR * 0.85f)
                         _satHovered = SectorFromMouse(satDelta, _satellite.Visible.Count);
@@ -2212,7 +2227,7 @@ namespace StationeersUIMod.Overlay
                     _satellite = null;
                 }
                 // Circling past the rim to a DIFFERENT wedge retargets the slide-out.
-                else if (_mainDist > outerR + 14f && _hovered != _satellite.SourceIndex)
+                else if (_mainDist > slideOutR && _hovered != _satellite.SourceIndex)
                 {
                     _satellite = null;
                 }
@@ -2235,11 +2250,11 @@ namespace StationeersUIMod.Overlay
             // the instant the key is released).
             // Drop the RMB-close suppression once the cursor comes back inside the ring or moves
             // onto a different wedge (so a later swipe on that same wedge can still open it).
-            if (_mainDist <= outerR + 14f || (_hovered >= 0 && _hovered != _slideOutSuppressIndex))
+            if (_mainDist <= slideOutR || (_hovered >= 0 && _hovered != _slideOutSuppressIndex))
                 _slideOutSuppressIndex = -1;
 
             if (_satellite == null && _hovered >= 0 && _hovered != _slideOutSuppressIndex
-                && _mainDist > outerR + 14f && _parking.Dragging == null && !altReach)
+                && _mainDist > slideOutR && _parking.Dragging == null && !altReach)
             {
                 var hoveredEntry = MainEntry(_hovered);
                 if (hoveredEntry != null && hoveredEntry.HasSlideOut)
@@ -2260,7 +2275,7 @@ namespace StationeersUIMod.Overlay
                     _slideOutCandidate = -1;
                 }
             }
-            else if (_satellite != null || _mainDist <= outerR + 14f || altReach)
+            else if (_satellite != null || _mainDist <= slideOutR || altReach)
             {
                 _slideOutCandidate = -1;
             }

@@ -858,10 +858,23 @@ namespace StationeersUIMod.UI.Grid
             }
             catch { }
 
-            _winW = Mathf.Clamp(float.IsNaN(w) ? 560f : w, MinW, Mathf.Max(MinW, Mathf.Min(MaxW, Screen.width)));
-            _winH = Mathf.Clamp(float.IsNaN(h) ? 760f : h, MinH, Mathf.Max(MinH, Mathf.Min(MaxH, Screen.height)));
-
             bool firstOpen = x < 0f || y < 0f || float.IsNaN(x) || float.IsNaN(y);
+            if (float.IsNaN(w)) w = 560f;
+            if (float.IsNaN(h)) h = 760f;
+            if (firstOpen)
+            {
+                // #12: a never-placed window opens at its DEFAULT size in 1080p reference px, scaled by
+                // the same resolution factor as its cells (like a new pin's DefaultW/H) — at 4K the
+                // first open is not a postage stamp around double-size cells. Clamped to the screen
+                // below; the scaled size is then stored with the centred position.
+                float g = WheelGridScale.Geo;
+                w *= g;
+                h *= g;
+            }
+
+            _winW = Mathf.Clamp(w, MinW, Mathf.Max(MinW, Mathf.Min(MaxW, Screen.width)));
+            _winH = Mathf.Clamp(h, MinH, Mathf.Max(MinH, Mathf.Min(MaxH, Screen.height)));
+
             if (firstOpen)
             {
                 x = (Screen.width - _winW) * 0.5f;

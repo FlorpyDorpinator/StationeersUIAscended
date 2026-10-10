@@ -34,7 +34,8 @@ namespace StationeersUIMod.Core
     /// <para><b>Multiplayer</b>: the mode is a per-peer rendering preference held in the mod's
     /// own statics - it is never networked, and each peer's scanner draws from its own copy. So
     /// what we show on an MP client is that client's actual truth, not a guess. The gates we add
-    /// (lenses worn, <c>Sensor</c>, <c>OnOff</c>, <c>Powered</c>) are replicated Thing state.</para>
+    /// (lenses worn, <c>Sensor</c>, <c>OnOff</c>, and vanilla's render gate <c>IsOperable</c> +
+    /// <c>InteractOnOff.State</c>) are the same Thing state vanilla's own per-peer render reads.</para>
     ///
     /// <para>The label text MIRRORS the mod's own strings (v0.24) since its text is never stored.
     /// Lookup is by enum NAME, so a reordered enum still labels correctly; an unknown name
@@ -54,6 +55,10 @@ namespace StationeersUIMod.Core
         private static Func<int> _getMode;
         private static Func<int> _getDisplay;
         private static Func<bool> _getLock;   // optional: missing field = no lock suffix
+        // Optional: the mod's private Utils.lockCables - the cable networks its LAST render drew
+        // (rebuilt every Cables-mode render; a lock-in returns a non-empty subset). Its emptiness
+        // decides the Cables + Ctrl title. Missing = assume networks exist (the usual case).
+        private static Func<object> _getCableNets;
 
         // Last label built + the state it was built from, so the steady state allocates nothing.
         private static int _lastKey = int.MinValue;
@@ -68,6 +73,7 @@ namespace StationeersUIMod.Core
             _getMode = null;
             _getDisplay = null;
             _getLock = null;
+            _getCableNets = null;
             _lastKey = int.MinValue;
             _lastLabel = "";
         }
@@ -85,8 +91,12 @@ namespace StationeersUIMod.Core
 
         /// <summary>The scanner mode label for the local player, or false when there is nothing
         /// to show (mod absent, lenses not worn / not the meson SPU / switched off).
-        /// <paramref name="powered"/> mirrors vanilla's render gate: an unpowered scanner keeps
-        /// its mode (the mod still takes input) but draws nothing, so the HUD dims the tag.</summary>
+        /// <paramref name="powered"/> mirrors vanilla's render gate EXACTLY - <c>Sensor != null &amp;&amp;
+        /// IsOperable &amp;&amp; InteractOnOff.State == 1</c> (live V27798 SensorLenses.UpdateEachFrame), the
+        /// only path that calls <c>Sensor.Render</c> and therefore the mod's render prefix. A scanner
+        /// that fails it (flat / missing battery) keeps its mode (the mod still takes input) but draws
+        /// nothing, so the HUD dims the tag. (<c>Powered</c> is NOT that gate: it is set by the
+        /// server's CheckPower and lags the battery, so it could dim a scanner that is drawing.)</summary>
         internal static bool TryGetMode(Human human, out string label, out bool powered)
         {
             label = null;
@@ -102,7 +112,8 @@ namespace StationeersUIMod.Core
                 var slot = human.GlassesSlot;
                 lenses = slot != null ? slot.Get() as SensorLenses : null;
                 if (lenses == null || !(lenses.Sensor is SPUMesonScanner) || !lenses.OnOff) return false;
-                powered = lenses.Powered;
+                var onOff = lenses.InteractOnOff;
+                powered = lenses.IsOperable && onOff != null && onOff.State == 1;
             }
             catch { return false; }
 
@@ -110,7 +121,7 @@ namespace StationeersUIMod.Core
             if (_state != BindState.Ready) return false;
 
             int mode, display;
-            bool locked, ctrl;
+            bool locked, ctrl, noCableNets = false, noPlants = false;
             try
             {
                 mode = _getMode();
@@ -119,6 +130,21 @@ namespace StationeersUIMod.Core
                 // The mod reads the raw LeftControl key for its "+ Connected Devices" variant
                 // (KeyManager.GetButton(KeyCode) = Input.GetKey unless the console is open).
                 ctrl = KeyManager.GetButton(KeyCode.LeftControl);
+                string modeName = NameOf(_modeEnum, mode);
+                string displayName = NameOf(_displayEnum, display);
+                // Cables + Ctrl: the mod switches to "Connected Devices - Operational State" only
+                // INSIDE its per-network loop, so with no cable network drawn its title stays
+                // "<cable mode> + Connected Devices".
+                if (ctrl && modeName == "Cables" && _getCableNets != null)
+                {
+                    var nets = _getCableNets() as System.Collections.ICollection;
+                    noCableNets = nets != null && nets.Count == 0;
+                }
+                // Other / Mode1 (plants): the mod sets its title only inside the per-plant loop, so
+                // with no plant in the world its title is EMPTY. Plant.AllPlants is vanilla's own
+                // list (live V27798 Plant.cs:29), maintained on every peer.
+                if (modeName == "Other" && displayName == "Mode1")
+                    noPlants = Plant.AllPlants.Count == 0;
             }
             catch (Exception e)
             {
@@ -126,11 +152,12 @@ namespace StationeersUIMod.Core
                 return false;
             }
 
-            int key = (mode & 0xFF) | ((display & 0xFF) << 8) | (ctrl ? 1 << 16 : 0) | (locked ? 1 << 17 : 0);
+            int key = (mode & 0xFF) | ((display & 0xFF) << 8) | (ctrl ? 1 << 16 : 0) | (locked ? 1 << 17 : 0)
+                | (noCableNets ? 1 << 18 : 0) | (noPlants ? 1 << 19 : 0);
             if (key != _lastKey)
             {
                 _lastKey = key;
-                _lastLabel = BuildLabel(mode, display, ctrl, locked);
+                _lastLabel = BuildLabel(mode, display, ctrl, locked, noCableNets, noPlants);
             }
             label = _lastLabel;
             return true;
@@ -193,6 +220,14 @@ namespace StationeersUIMod.Core
                     catch { _getLock = null; } // optional - the label just loses its lock suffix
                 }
 
+                var fCables = utils.GetField("lockCables", Any);
+                if (fCables != null && !fCables.FieldType.IsValueType
+                    && typeof(System.Collections.ICollection).IsAssignableFrom(fCables.FieldType))
+                {
+                    try { _getCableNets = StaticGetter<Func<object>>(fCables, typeof(object)); }
+                    catch { _getCableNets = null; } // optional - Cables + Ctrl assumes networks exist
+                }
+
                 _state = BindState.Ready;
                 UIALog.Info("Elmotrix's Meson Scanner detected - its scanner mode shows on the HUD glasses box.");
             }
@@ -207,6 +242,7 @@ namespace StationeersUIMod.Core
             _state = BindState.Off;
             _getMode = _getDisplay = null;
             _getLock = null;
+            _getCableNets = null;
             UIALog.Warn("Meson Scanner compatibility disabled: " + why + ". UI Ascended works normally; only the HUD scanner-mode tag is off.");
         }
 
@@ -245,14 +281,15 @@ namespace StationeersUIMod.Core
 
         /// <summary>Runs only when the mode/keys change. Mirrors the title text the mod's render
         /// prefix builds (v0.24), upper-cased to match the HUD's slot labels. ASCII only (TMP).</summary>
-        private static string BuildLabel(int mode, int display, bool ctrl, bool locked)
+        private static string BuildLabel(int mode, int display, bool ctrl, bool locked, bool noCableNets, bool noPlants)
         {
             string modeName = NameOf(_modeEnum, mode);
             string displayName = NameOf(_displayEnum, display);
-            string body = Describe(modeName, displayName, ctrl);
+            string body = Describe(modeName, displayName, ctrl, noCableNets, noPlants);
             if (body == null)
                 body = (modeName ?? ("MODE " + mode)) + " " + (display + 1);
-            string s = "MESON: " + body.ToUpperInvariant();
+            // The mod's own title is EMPTY here (plants mode, no plants): no mode text, just the tag.
+            string s = body.Length == 0 ? "MESON" : "MESON: " + body.ToUpperInvariant();
             if (locked) s += " [LOCKED]";
             return s;
         }
@@ -263,7 +300,7 @@ namespace StationeersUIMod.Core
             catch { return null; }
         }
 
-        private static string Describe(string mode, string display, bool ctrl)
+        private static string Describe(string mode, string display, bool ctrl, bool noCableNets, bool noPlants)
         {
             const string Devices = " + Connected Devices";
             switch (mode)
@@ -277,13 +314,14 @@ namespace StationeersUIMod.Core
                     }
                     break;
                 case "Cables":
-                    // The mod overwrites its cable title with this whenever Ctrl is held.
-                    if (ctrl) return "Connected Devices - Operational State";
+                    // The mod overwrites its cable title with this whenever Ctrl is held AND at least
+                    // one cable network is drawn (the overwrite sits inside its per-network loop).
+                    if (ctrl && !noCableNets) return "Connected Devices - Operational State";
                     switch (display)
                     {
-                        case "Mode1": return "Cables + Pipes - Painted Color";
-                        case "Mode2": return "Cables - Painted Color";
-                        case "Mode3": return "Cables - Load";
+                        case "Mode1": return "Cables + Pipes - Painted Color" + (ctrl ? Devices : "");
+                        case "Mode2": return "Cables - Painted Color" + (ctrl ? Devices : "");
+                        case "Mode3": return "Cables - Load" + (ctrl ? Devices : "");
                     }
                     break;
                 case "Chutes":
@@ -297,7 +335,9 @@ namespace StationeersUIMod.Core
                 case "Other":
                     switch (display)
                     {
-                        case "Mode1": return ctrl ? "Plants - Growth Efficiency" : "Plants - Growth Stage";
+                        case "Mode1":
+                            if (noPlants) return "";   // the mod's title stays empty with no plants
+                            return ctrl ? "Plants - Growth Efficiency" : "Plants - Growth Stage";
                         case "Mode2": return "Structures - Convection";
                         case "Mode3": return "Structures - Damage";
                     }

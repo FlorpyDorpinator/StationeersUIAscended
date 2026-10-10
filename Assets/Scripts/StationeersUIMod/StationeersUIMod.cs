@@ -475,10 +475,17 @@ namespace StationeersUIMod
                     // windows stay alive behind the scrim).
                     if (!UI.Menu.Tutorial.TutorialCoach.IsOpen && !UI.Menu.HandbookViewer.IsOpen)
                         HandleGridInput();
-                    UI.Grid.TheGridPanel.Tick();
                     // Opt-in split-to-cursor: attach / drive / resolve a split child riding the cursor
-                    // (self-gating; one bool read + one poll when idle).
-                    UI.Grid.GridSplitCarry.Tick();
+                    // (self-gating; one bool read + one poll when idle). Ticked BEFORE and independently
+                    // of the panel Tick, in its own try/catch: a throwing grid frame must never leave
+                    // the full-screen click catcher up un-ticked (a throw here cancels the carry).
+                    try { UI.Grid.GridSplitCarry.Tick(); }
+                    catch (Exception sc)
+                    {
+                        UIALog.Warn("Split-to-cursor tick failed (carry cancelled): " + sc.Message);
+                        try { UI.Grid.GridSplitCarry.Cancel(); } catch { }
+                    }
+                    UI.Grid.TheGridPanel.Tick();
                 }
                 else
                 {

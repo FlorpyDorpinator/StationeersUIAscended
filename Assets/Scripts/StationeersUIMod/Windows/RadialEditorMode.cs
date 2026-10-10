@@ -148,7 +148,7 @@ namespace StationeersUIMod.Windows
                 HotPalette.Add("HubBorder");
             }
             else if (_demoParking != null && _demoParking.Chips.Count > 0
-                && (mouse - _demoParking.Chips[0].Pos).magnitude <= ParkingState.ChipRadius + 8f)
+                && (mouse - _demoParking.Chips[0].Pos).magnitude <= ParkingState.ChipRadius + 8f * UI.WheelGridScale.Resolution())
             {
                 // Chips draw with the selected-wedge fill and the wedge border as their rim.
                 HotPalette.Add("WedgeSelected");
@@ -192,7 +192,7 @@ namespace StationeersUIMod.Windows
                 }
                 if (hoveredEntry.Enabled) HotPalette.Add("TextPrimary");
             }
-            else if ((mouse - center).magnitude < innerR - 6f)
+            else if ((mouse - center).magnitude < innerR - 6f * UI.WheelGridScale.Resolution())   // #12: 6 reference px
             {
                 HotPalette.Add("HubFill");
                 HotPalette.Add("HubBorder");
@@ -314,7 +314,7 @@ namespace StationeersUIMod.Windows
             if (count <= 0) return -1;
             var delta = mouse - center;
             float dist = delta.magnitude;
-            if (dist < innerR * 0.9f || dist > outerR + 40f) return -1;
+            if (dist < innerR * 0.9f || dist > outerR + 40f * UI.WheelGridScale.Resolution()) return -1;   // #12: reference px
             float angle = Mathf.Atan2(delta.y, delta.x);
             float sector = Mathf.PI * 2f / count;
             float rel = DrawUtil.NormalizeAngle(angle + Mathf.PI * 0.5f + sector * 0.5f);

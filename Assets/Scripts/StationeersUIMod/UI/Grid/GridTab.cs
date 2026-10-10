@@ -346,10 +346,6 @@ namespace StationeersUIMod.UI.Grid
             RefreshStyle();
         }
 
-        /// <summary>Recompute <see cref="PreferredWidth"/> from the CURRENT name text
-        /// (<see cref="_name"/>.text), the live tab font and the measured badge width
-        /// (<see cref="_badgeW"/>). Split out of <see cref="SetCore"/> so a live F9 tab-text-size edit
-        /// can re-fit the tab through <see cref="SyncTextSize"/> without a structural rebind.</summary>
         /// <summary>Measure the bound profile badge (O4b) at the live badge font into
         /// <see cref="_badgeW"/> and show/hide it. Split out of SetCore so a live #12 text-size change
         /// (SyncTextSize) re-fits it too.</summary>
@@ -370,6 +366,10 @@ namespace StationeersUIMod.UI.Grid
                 _badge.gameObject.SetActive(badgeW > 0f);
         }
 
+        /// <summary>Recompute <see cref="PreferredWidth"/> from the CURRENT name text
+        /// (<see cref="_name"/>.text), the live tab font and the measured badge width
+        /// (<see cref="_badgeW"/>). Split out of <see cref="SetCore"/> so a live F9 tab-text-size edit
+        /// can re-fit the tab through <see cref="SyncTextSize"/> without a structural rebind.</summary>
         private void MeasurePreferred()
         {
             float nameW = 0f;
@@ -840,6 +840,7 @@ namespace StationeersUIMod.UI.Grid
                 // again in EndDragOut's inside-release branch, netting a no-op. The drag path owns
                 // the outcome; a plain (undragged) click still falls through to Clicked().
                 if (e.dragging) return;
+                if (GridSplitCarry.BlocksGridClicks) return;   // a press during a split carry belongs to the carry
                 if (Owner != null && Owner.Clicked != null)
                 {
                     Owner.Clicked();

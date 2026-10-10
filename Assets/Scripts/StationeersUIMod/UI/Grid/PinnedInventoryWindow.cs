@@ -384,6 +384,8 @@ namespace StationeersUIMod.UI.Grid
         private RectTransform _grip;
         private WindowResize _gripDrag;
         private PolylineGraphic[] _gripLines;
+        private float _gripLinesSize = -1f;   // the grip edge the strokes were last laid out at
+        private static readonly float[] GripLineFrac = { 0.30f, 0.56f, 0.82f };   // stroke length / grip edge
 
         private RectTransform _viewport;
         private RectTransform _content;
@@ -1005,10 +1007,8 @@ namespace StationeersUIMod.UI.Grid
             _gripDrag = gGo.AddComponent<WindowResize>();
             _gripDrag.Owner = this;
 
-            float h = GripSize * 0.5f;
-            float[] len = { GripSize * 0.30f, GripSize * 0.56f, GripSize * 0.82f };
-            _gripLines = new PolylineGraphic[len.Length];
-            for (int i = 0; i < len.Length; i++)
+            _gripLines = new PolylineGraphic[GripLineFrac.Length];
+            for (int i = 0; i < GripLineFrac.Length; i++)
             {
                 var lGo = new GameObject("GripLine" + i.ToString(), typeof(RectTransform));
                 lGo.transform.SetParent(_grip, false);
@@ -1016,18 +1016,36 @@ namespace StationeersUIMod.UI.Grid
                 lrt.anchorMin = lrt.anchorMax = new Vector2(0.5f, 0.5f);
                 lrt.pivot = new Vector2(0.5f, 0.5f);
                 lrt.anchoredPosition = Vector2.zero;
-                lrt.sizeDelta = new Vector2(GripSize, GripSize);
 
                 var line = lGo.AddComponent<PolylineGraphic>();
                 line.raycastTarget = false;
                 line.Width = Mathf.Max(GripLineMinW, GridTheme.BorderWidth);   // re-asserted every StyleChrome
 
-                _linePts.Clear();
-                _linePts.Add(new Vector2(h - len[i], -h));   // on the bottom edge
-                _linePts.Add(new Vector2(h, -h + len[i]));   // on the right edge
-                line.SetPoints(_linePts, false);
-
                 _gripLines[i] = line;
+            }
+            _gripLinesSize = -1f;
+            LayoutGripLines(GripSize);
+        }
+
+        /// <summary>The three grip strokes' geometry for a grip edge of <paramref name="size"/> px:
+        /// rebuilt only when the edge changed (#12: GripSize rides WheelGridScale.Geo, so a resolution
+        /// change re-sizes the hit box in Layout — and the drawn strokes must follow it, not stay at
+        /// the size the window was built at).</summary>
+        private void LayoutGripLines(float size)
+        {
+            if (_gripLines == null || Mathf.Approximately(size, _gripLinesSize)) return;
+            _gripLinesSize = size;
+            float h = size * 0.5f;
+            for (int i = 0; i < _gripLines.Length; i++)
+            {
+                var line = _gripLines[i];
+                if (line == null) continue;
+                line.rectTransform.sizeDelta = new Vector2(size, size);
+                float len = size * GripLineFrac[i];
+                _linePts.Clear();
+                _linePts.Add(new Vector2(h - len, -h));   // on the bottom edge
+                _linePts.Add(new Vector2(h, -h + len));   // on the right edge
+                line.SetPoints(_linePts, false);
             }
             _linePts.Clear();
         }
@@ -1166,6 +1184,7 @@ namespace StationeersUIMod.UI.Grid
             _grip.anchoredPosition = new Vector2(panelW - GripInset - GripSize * 0.5f,
                                                  -(panelH - GripInset - GripSize * 0.5f));
             _grip.sizeDelta = new Vector2(GripSize, GripSize);
+            LayoutGripLines(GripSize);   // #12: the drawn strokes follow the hit box's size
 
             float vpX = Pad;
             float vpY = Pad + TitleH + TitleGap;

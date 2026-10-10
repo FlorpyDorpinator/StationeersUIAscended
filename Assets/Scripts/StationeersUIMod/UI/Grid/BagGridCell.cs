@@ -380,6 +380,9 @@ namespace StationeersUIMod.UI.Grid
             // ModalScope raises the game's own full-screen UGUI click blocker, but that call is
             // fail-soft by design, so the gate lives here too.)
             if (RadialController.AnyRadialOpen) return;
+            // Split-to-cursor: a press made while a child rides the cursor belongs to the carry (its
+            // catcher is transparent while the place-press resolves) — never also a take / device click.
+            if (GridSplitCarry.BlocksGridClicks) return;
             // UGUI still dispatches OnPointerClick after a drag when press and release land on the
             // same object, and it fires BEFORE OnEndDrag — without this a left-DRAG would also run
             // click-to-hand, mutating state the user never asked to change.
@@ -598,6 +601,7 @@ namespace StationeersUIMod.UI.Grid
         {
             _forwardingDrag = false;
             if (e == null || e.button != PointerEventData.InputButton.Left) return;
+            if (GridSplitCarry.BlocksGridClicks) return;   // the carry owns the pointer (see OnPointerClick)
             // Accept a drag out of a PINNED bag even when the MAIN window is closed. TheGridPanel
             // .IsInteractive is (_open && _interactive) — false whenever the Universal Inventory window
             // is hidden — but a pin stays live after B closes the main window and carries its OWN
@@ -757,8 +761,7 @@ namespace StationeersUIMod.UI.Grid
                     // applied locally, so the next signature diff rebuilds and Bind clears it at once.
                     if (srcCell != null) srcCell.MarkPending();
                     target.MarkPending();
-                    TutorialSignals.Raise(TSignal.GridDragMoved, 1);
-                    if (allOfType) TutorialSignals.Raise(TSignal.GridShiftDragMoved);
+                    RaiseGridMoved(srcCell, source, target._slot, 1, allOfType);
                 }
                 return ok;
             }
@@ -846,8 +849,7 @@ namespace StationeersUIMod.UI.Grid
                 if (r.HasSlot && Drop(source, r.Slot, allOfType))
                 {
                     if (srcCell != null) srcCell.MarkPending();
-                    TutorialSignals.Raise(TSignal.GridDragMoved, r.Surface == Core.DropSurface.HudZone ? 2 : 0);
-                    if (allOfType) TutorialSignals.Raise(TSignal.GridShiftDragMoved);
+                    RaiseGridMoved(srcCell, source, r.Slot, r.Surface == Core.DropSurface.HudZone ? 2 : 0, allOfType);
                     return true;
                 }
                 return false;   // DragTo already played ActionFailHash on an invalid target
@@ -864,8 +866,7 @@ namespace StationeersUIMod.UI.Grid
                     if (Drop(source, worldSlot, allOfType))
                     {
                         if (srcCell != null) srcCell.MarkPending();
-                        TutorialSignals.Raise(TSignal.GridDragMoved, 3);
-                        if (allOfType) TutorialSignals.Raise(TSignal.GridShiftDragMoved);
+                        RaiseGridMoved(srcCell, source, worldSlot, 3, allOfType);
                         return true;
                     }
                     return false;   // refused by the slot: abort (fail cue already played), never the floor
@@ -880,7 +881,7 @@ namespace StationeersUIMod.UI.Grid
                 if (ItemActions.DropToWorld(source))
                 {
                     if (srcCell != null) srcCell.MarkPending();
-                    TutorialSignals.Raise(TSignal.GridDragMoved, 4);
+                    RaiseGridMoved(srcCell, source, null, 4, false);
                     return true;
                 }
             }
@@ -888,6 +889,19 @@ namespace StationeersUIMod.UI.Grid
             // GridCell (the source cell itself / a rescue cell), OtherUi (window chrome / another
             // panel), or a release still over a window's own padding: abort with no message.
             return false;
+        }
+
+        /// <summary>The tutorial's "moved by DRAG" signals (GridDragMoved / GridShiftDragMoved). Raised
+        /// only for a REAL drag source (<paramref name="srcCell"/> non-null): the split-to-cursor
+        /// click-to-place shares <see cref="ResolveRelease"/> but is not a drag, so it must never
+        /// complete a drag lesson. A release onto the slot it came from is DragTo's clean "changed my
+        /// mind" no-op (it returns true without sending anything) and raises nothing either.</summary>
+        private static void RaiseGridMoved(BagGridCell srcCell, ScannedSlot source, Slot dest, int kind, bool allOfType)
+        {
+            if (srcCell == null) return;
+            if (dest != null && source != null && ReferenceEquals(dest, source.Slot)) return;
+            TutorialSignals.Raise(TSignal.GridDragMoved, kind);
+            if (allOfType) TutorialSignals.Raise(TSignal.GridShiftDragMoved);
         }
 
         /// <summary>Is the cursor over the main Universal Inventory window or any pinned window (their

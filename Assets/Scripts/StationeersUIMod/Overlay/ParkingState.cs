@@ -58,7 +58,7 @@ namespace StationeersUIMod.Overlay
         public Chip ChipAt(Vector2 screenPos)
         {
             for (int i = Chips.Count - 1; i >= 0; i--)
-                if ((Chips[i].Pos - screenPos).magnitude <= ChipRadius + 6f)
+                if ((Chips[i].Pos - screenPos).magnitude <= ChipRadius + 6f * UI.WheelGridScale.Resolution())   // #12: 6 reference px of slop
                     return Chips[i];
             return null;
         }

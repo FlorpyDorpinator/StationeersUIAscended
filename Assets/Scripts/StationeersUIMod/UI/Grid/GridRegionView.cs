@@ -1203,6 +1203,7 @@ namespace StationeersUIMod.UI.Grid
             public void OnPointerClick(PointerEventData e)
             {
                 if (e == null || e.button != PointerEventData.InputButton.Left) return;
+                if (GridSplitCarry.BlocksGridClicks) return;   // a press during a split carry belongs to the carry
                 if (Clicked != null) Clicked();
             }
 
@@ -1518,6 +1519,7 @@ namespace StationeersUIMod.UI.Grid
             {
                 if (e == null || e.button != PointerEventData.InputButton.Left) return;
                 if (RadialController.AnyRadialOpen) return;   // a wedge click must never also press a control
+                if (GridSplitCarry.BlocksGridClicks) return;  // nor a press made during a split carry (a second split)
                 if (Clicked != null) Clicked();
             }
 

@@ -199,7 +199,9 @@ namespace StationeersUIMod.UI
             var chip = parking.Dragging;
             parking.Dragging = null;
             if (chip?.Source?.Occupant == null) return;
-            if (dist > outerR + 30f && parking.Chips.Count < ParkingState.MaxChips)
+            // #12: the parking line is 30 REFERENCE px past the ring (RadialMenu.ParkMarginPx), scaled
+            // by the wheel's resolution factor like the ring radii it is measured from.
+            if (dist > outerR + 30f * WheelGridScale.Resolution() && parking.Chips.Count < ParkingState.MaxChips)
             {
                 parking.RemoveBySlot(chip.Source.Slot);
                 chip.Pos = mouse;
