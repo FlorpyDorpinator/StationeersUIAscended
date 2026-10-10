@@ -144,6 +144,14 @@ namespace StationeersUIMod.UI.Hud
         // Jetpack actually flying — vanilla's IsJetpackOn(): ControlMode is Jetpack or
         // JetpackGravity (StatusUpdates.cs:296). Distinct from JetpackPresent (worn).
         public bool JetpackOn;
+
+        // Elmotrix's Meson Scanner mod (soft dependency, Core.MesonScannerCompat): its current
+        // scanner mode while the local player wears switched-on meson Sensor Lenses; "" = nothing
+        // to show (mod absent, lenses off/absent). The mode is per-peer local state in that mod,
+        // never networked - so this is the local truth on a client too. MesonPowered false = the
+        // lenses are on but unpowered (the mode is kept, the scan is not drawn).
+        public string MesonMode = "";
+        public bool MesonPowered;
     }
 
     /// <summary>
@@ -655,6 +663,21 @@ namespace StationeersUIMod.UI.Hud
             try { s.RightHandActive = InventoryManager.ActiveHandSlot == human.RightHandSlot; }
             catch { }
 
+            // ---- Meson Scanner mod mode (read-only, fail-soft; reset first - reused snapshot). ----
+            s.MesonMode = "";
+            s.MesonPowered = false;
+            try
+            {
+                string meson;
+                bool mesonPowered;
+                if (MesonScannerCompat.TryGetMode(human, out meson, out mesonPowered))
+                {
+                    s.MesonMode = meson ?? "";
+                    s.MesonPowered = mesonPowered;
+                }
+            }
+            catch { }
+
             if (DebugShowAll) ForceEverythingVisible(s);
 
             return s;
@@ -688,6 +711,14 @@ namespace StationeersUIMod.UI.Hud
             s.JetpackOn = true;
             s.HelmetPresent = true; s.HelmetClosed = true; s.HelmetLightOn = true;
             s.SuitAcOn = true; s.HasInternals = true; s.InternalsOn = true;
+
+            // The Meson Scanner glasses tag - only for players who actually have that mod, so a
+            // player without it never sees a tag for a feature they can't get.
+            if (string.IsNullOrEmpty(s.MesonMode) && MesonScannerCompat.Installed)
+            {
+                s.MesonMode = "MESON: CABLES - LOAD";
+                s.MesonPowered = true;
+            }
 
             // Bare-tier felt words. The live BareSensesWidget evaluates the real thresholds below
             // instead of these pre-baked strings; they are kept as the snapshot's plain-language

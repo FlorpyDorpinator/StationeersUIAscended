@@ -914,6 +914,7 @@ namespace StationeersUIMod.UI.Hud
             HudGlitch.Shutdown(); // kill any camera image-effect + material before the reload
             HudAlertPulse.Shutdown();   // alert latch + the StatusUpdates delegate binds
             HudText.Shutdown();
+            Core.MesonScannerCompat.Shutdown(); // Meson Scanner mod binding (DynamicMethod getters into that mod)
             HudGroupScale.Reset();      // group-scaling scratch (holds view references)
             _layoutScale = -1f;
             _editorActive = _layoutFrozen = false;

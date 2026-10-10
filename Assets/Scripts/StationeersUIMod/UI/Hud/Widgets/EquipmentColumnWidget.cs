@@ -44,6 +44,16 @@ namespace StationeersUIMod.UI.Hud.Widgets
 
         private readonly List<Box> _boxes = new List<Box>();
 
+        // Elmotrix's Meson Scanner mod: a small tag hugging the GLASSES box that names the
+        // scanner's current mode (that mod only ever printed it in the title bar of vanilla's
+        // glasses inventory window, which UIA replaces). Lives on this widget so it appears on
+        // every theme that shows the glasses box - no theme edit needed. Hidden unless
+        // HudSnapshot.MesonMode is set; geometry re-laid only when the text/scale/rect changes.
+        private PanelGraphic _mesonPanel;
+        private TextMeshProUGUI _mesonText;
+        private bool _mesonDirty = true;
+        private const int GlassesIndex = 1;
+
         protected override void BuildContent(RectTransform root)
         {
             for (int i = 0; i < 6; i++)
@@ -69,11 +79,19 @@ namespace StationeersUIMod.UI.Hud.Widgets
                 b.Warn.gameObject.SetActive(false);
                 _boxes.Add(b);
             }
+
+            // Meson Scanner mode tag - created last so it draws over the boxes if a tight custom
+            // layout makes them touch. Wraps to a second line rather than running off wide.
+            _mesonPanel = MakePanel(root, "MesonTag");
+            _mesonText = HudText.Make(root, "MesonText", 10f, TextAlignmentOptions.Center, wrap: true);
+            _mesonPanel.gameObject.SetActive(false);
+            _mesonText.gameObject.SetActive(false);
         }
 
         public override void Layout(float scale)
         {
             Root.anchoredPosition = Vector2.zero;
+            _mesonDirty = true; // rect / scale / slice may have moved the glasses box
 
             var c = CenterFor(scale);
             var s = SizeFor(scale);
@@ -284,6 +302,92 @@ namespace StationeersUIMod.UI.Hud.Widgets
                 }
                 else b.Warn.gameObject.SetActive(false);
             }
+
+            UpdateMesonTag(s, scale, first, count, box, labelColor);
+        }
+
+        /// <summary>The Meson Scanner mode tag (see the field comment). Shown only while the
+        /// glasses box is in this element's slice, the snapshot carries a mode, and the
+        /// per-tier "mesonTag" knob is on (default on, so every existing theme gets it).</summary>
+        private void UpdateMesonTag(HudSnapshot s, float scale, int first, int count, float box, Color textColor)
+        {
+            if (_mesonPanel == null || _mesonText == null) return;
+            string label = s != null ? s.MesonMode : null;
+            bool want = !string.IsNullOrEmpty(label)
+                && GlassesIndex >= first && GlassesIndex < first + count
+                && Def.GetBFor(LayoutSlot, "mesonTag", true);
+            if (!want)
+            {
+                if (_mesonPanel.gameObject.activeSelf) _mesonPanel.gameObject.SetActive(false);
+                if (_mesonText.gameObject.activeSelf) _mesonText.gameObject.SetActive(false);
+                return;
+            }
+            if (!_mesonPanel.gameObject.activeSelf)
+            {
+                _mesonPanel.gameObject.SetActive(true);
+                _mesonText.gameObject.SetActive(true);
+                _mesonDirty = true;
+            }
+
+            HudText.Sync(_mesonText);
+            float fontSize = HudText.Size(9.9f * Def.FontScaleFor(LayoutBare)) * scale;
+            if (!Mathf.Approximately(_mesonText.fontSize, fontSize)) { _mesonText.fontSize = fontSize; _mesonDirty = true; }
+            if (_mesonText.text != label) { _mesonText.text = label; _mesonDirty = true; }
+            if (_mesonDirty) LayoutMesonTag(scale, first, count, box, label);
+
+            // Same chrome as the equipment boxes; an unpowered scanner (mode kept, nothing drawn)
+            // reads dimmed, like an empty slot.
+            bool powered = s.MesonPowered;
+            var fill = FillColor();
+            var border = BorderColor();
+            var tc = textColor;
+            if (!powered) { fill.a *= 0.55f; border.a *= 0.45f; tc.a *= 0.5f; }
+            _mesonPanel.color = fill;
+            _mesonPanel.BorderColor = border;
+            _mesonPanel.BorderWidth = BorderWidthFor();
+            ApplyGlass(_mesonPanel);
+            _mesonText.color = tc;
+        }
+
+        /// <summary>Park the tag against the glasses box, on the side facing the screen interior:
+        /// above a bottom-half row (below a top-half one), beside a column toward the screen's
+        /// centre line. Width fits the text up to about three boxes, then the text wraps.</summary>
+        private void LayoutMesonTag(float scale, int first, int count, float box, string label)
+        {
+            _mesonDirty = false;
+            var c = CenterFor(scale);
+            float gap = Def.GetFFor(LayoutBare, "gap", 8f) * scale;
+            bool horizontal = Def.GetBFor(LayoutBare, "horizontal", false);
+            var center = BoxCenter(GlassesIndex - first, c, box, gap, horizontal, count);
+
+            float padX = 7f * scale, padY = 3f * scale;
+            float maxTextW = Mathf.Max(box * 3f, 150f * scale);
+            Vector2 pref;
+            try { pref = _mesonText.GetPreferredValues(label, maxTextW, 0f); }
+            catch { pref = new Vector2(maxTextW, _mesonText.fontSize * 1.2f); }
+            float tw = Mathf.Min(Mathf.Max(pref.x, 1f), maxTextW);
+            float th = Mathf.Max(pref.y, _mesonText.fontSize);
+            float w = tw + padX * 2f, h = th + padY * 2f;
+            float off = 6f * scale;
+
+            Vector2 pos;
+            if (horizontal)
+                pos = new Vector2(center.x, c.y <= 0f
+                    ? center.y + box * 0.5f + off + h * 0.5f
+                    : center.y - box * 0.5f - off - h * 0.5f);
+            else
+                pos = new Vector2(c.x <= 0f
+                    ? center.x + box * 0.5f + off + w * 0.5f
+                    : center.x - box * 0.5f - off - w * 0.5f, center.y);
+
+            ((RectTransform)_mesonPanel.transform).anchoredPosition = pos;
+            float r = Mathf.Min(h * 0.5f, box * 0.25f);
+            _mesonPanel.SetShape(w, h,
+                Mathf.Min(RadiusTL(), r), Mathf.Min(RadiusTR(), r),
+                Mathf.Min(RadiusBR(), r), Mathf.Min(RadiusBL(), r));
+            var trt = _mesonText.rectTransform;
+            trt.anchoredPosition = pos;
+            trt.sizeDelta = new Vector2(tw + 2f, th);
         }
 
         public override void DescribeProps(List<HudProp> into)
@@ -309,6 +413,12 @@ namespace StationeersUIMod.UI.Hud.Widgets
             into.Add(HudProp.Bool("Damage bar + leak / fire alert", () => d.GetBFor(EditBare(d), "damageWarn", true), v => d.SetBFor(EditBare(d), "damageWarn", v)));
             into.Add(HudProp.F("Damage bar thickness (× box)", () => d.GetFFor(EditBare(d), "damageBarThick", 0.085f), v => d.SetFFor(EditBare(d), "damageBarThick", Mathf.Clamp(v, 0.03f, 0.25f)), 0.03f, 0.25f));
             into.Add(HudProp.F("Leak / fire glyph scale (× box)", () => d.GetFFor(EditBare(d), "warnScale", 0.72f), v => d.SetFFor(EditBare(d), "warnScale", Mathf.Clamp(v, 0.2f, 1.2f)), 0.2f, 1.2f));
+            // Elmotrix's Meson Scanner mod: the scanner-mode tag on the glasses box. Content, not
+            // look, but per-tier capable like "Show labels" (HudStyleSlot fork), and it travels
+            // with the profile as an element param - no config key, so no ConfigMigration.
+            into.Add(HudProp.Bool("Meson Scanner mode tag (if that mod is installed)",
+                () => d.GetBFor(EditSlot(d), "mesonTag", true),
+                v => d.SetBFor(EditSlot(d), "mesonTag", v)));
             into.Add(HudProp.I("First slot (0=helmet)", () => d.GetI("first", 0), v => d.SetI("first", Mathf.Clamp(v, 0, 5)), 0, 5));
             into.Add(HudProp.I("Slot count", () => d.GetI("count", 6), v => d.SetI("count", Mathf.Clamp(v, 1, 6)), 1, 6));
 
