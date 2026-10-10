@@ -706,22 +706,25 @@ namespace StationeersUIMod.Features
             var s = thing as Assets.Scripts.Objects.Items.Stackable;
             if (s == null) return entries;
             var t = thing;
+            // Opt-in split-to-cursor (SplitToCursor): read per BUILD, so the wedge text follows the
+            // F10 toggle on the next refresh. OFF = byte-identical entries/behaviour to before.
+            bool toCursor = SplitToCursor.Enabled;
 
             // Text-only wedges — the SPLIT level names the actions ("SPLIT ONE" / "SPLIT HALF" /
             // "SPLIT COUNT"), it doesn't re-show the item you're already splitting.
             entries.Add(new RadialEntry
             {
                 Label = "Split one",
-                ActionText = "Take 1 to hand",
+                ActionText = toCursor ? "Take 1 to cursor" : "Take 1 to hand",
                 Sublabel = "peel one off",
-                OnSelect = () => ItemActions.SplitStack(t, half: false),
+                OnSelect = () => SplitFromRadial(t, () => ItemActions.SplitStack(t, half: false)),
             });
             entries.Add(new RadialEntry
             {
                 Label = "Split half",
-                ActionText = "Take half to hand",
+                ActionText = toCursor ? "Take half to cursor" : "Take half to hand",
                 Sublabel = "split the stack in two",
-                OnSelect = () => ItemActions.SplitStack(t, half: true),
+                OnSelect = () => SplitFromRadial(t, () => ItemActions.SplitStack(t, half: true)),
             });
             if (ItemActions.CanSplitCount(t))
             {
@@ -730,14 +733,30 @@ namespace StationeersUIMod.Features
                 entries.Add(new RadialEntry
                 {
                     Label = "Split count",
-                    ActionText = "Split off this many",
+                    ActionText = toCursor ? "Split this many to cursor" : "Split off this many",
                     Sublabel = "scroll to choose",
                     OnScroll = d => _splitCount = UnityEngine.Mathf.Clamp(_splitCount + d, 1, max),
                     ValueText = () => _splitCount.ToString(),
-                    OnSelect = () => ItemActions.SplitStackCount(t, _splitCount),
+                    OnSelect = () => SplitFromRadial(t, () => ItemActions.SplitStackCount(t, _splitCount)),
                 });
             }
             return entries;
+        }
+
+        /// <summary>A radial split wedge's action. Opt-in OFF: exactly the old call (the dispatch
+        /// runs, nothing else). ON: the SAME dispatch runs through <see cref="SplitToCursor.Run"/>,
+        /// which watches for the child landing in a hand; while a child is on its way
+        /// (<see cref="SplitToCursor.Expecting"/>: found, or an MP client still waiting for the server
+        /// echo) the radial is asked to stay open (<see cref="RadialMenu.RequestStayOpen"/>) so the
+        /// child can attach to the cursor as a parking chip. A host/SP split that merged into a hand
+        /// stack or fell to the floor closes the radial exactly as vanilla would. The split itself
+        /// never changes: vanilla's Button1/Button2 or the host-only count split.</summary>
+        private static void SplitFromRadial(Thing source, System.Func<bool> dispatch)
+        {
+            if (!SplitToCursor.Enabled) { dispatch(); return; }
+            if (SplitToCursor.Run(SplitToCursor.Ctx.Radial, source, dispatch)
+                && SplitToCursor.Expecting(SplitToCursor.Ctx.Radial))
+                RadialMenu.RequestStayOpen();
         }
 
         /// <summary>#6: the vanilla Sort/organise button as a wedge, for a container vanilla would

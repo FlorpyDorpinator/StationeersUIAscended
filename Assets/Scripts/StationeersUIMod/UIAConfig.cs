@@ -63,6 +63,14 @@ namespace StationeersUIMod
         public static ConfigEntry<bool> TutorialTips;
         public static ConfigEntry<bool> CursorLatchEnabled;
         public static ConfigEntry<int> CursorLatchMs;
+        /// <summary>Opt-in "split onto the cursor" (Features.SplitToCursor): after a split in a radial
+        /// or the Universal Inventory, the split-off child rides the cursor until the next click
+        /// places it. OFF (default) = vanilla, the split goes to an empty hand. Deliberately a
+        /// UIAConfig player preference, NOT a theme knob (CLAUDE.md rule 8, clauses 1/2 — the
+        /// HelmetOpenWarning precedent): it changes what a CLICK does, so switching UI theme must
+        /// never flip it, and it is not listed in HudTheme's RadialThemeKeys. Shared across tiers by
+        /// design (an input behaviour, not a look). A new key, so no ConfigMigration step.</summary>
+        public static ConfigEntry<bool> SplitToCursor;
 
         // --- Radial feel (interaction deltas: double-tap, sounds, hints) ---
         // NOTE: flick-commit (FlickCommit / FlickWindowMs) was DELETED in the post-0.9.2.5 play-test round — it was a
@@ -366,6 +374,12 @@ namespace StationeersUIMod
             CursorLatchMs = cfg.Bind("1. General", "CursorLatchWindowMs", 250,
                 new ConfigDescription("How close together the two taps must be to latch the cursor (ms).",
                     new AcceptableValueRange<int>(120, 500)));
+            SplitToCursor = cfg.Bind("1. General", "SplitToCursor", false,
+                "Split stacks onto the cursor. Off (default) = the base game: a split goes to an empty " +
+                "hand. On = after you split a stack in a wheel or the Universal Inventory, the split-off " +
+                "part rides on your cursor and your next click places it (a slot, a hand box, a bag; in " +
+                "a wheel, open screen parks it and closing the wheel drops parked items). Right-click " +
+                "cancels and the part simply stays in your hand.");
 
             RadialDoubleTapRepeat = cfg.Bind("1b. Radial Feel", "DoubleTapRepeat", false,
                 "Double-tap a radial key to repeat its last committed action without reopening the ring " +

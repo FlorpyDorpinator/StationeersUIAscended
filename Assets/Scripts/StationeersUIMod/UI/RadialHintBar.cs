@@ -260,6 +260,14 @@ namespace StationeersUIMod.UI
             {
                 // ResolveDragRelease: a wedge / HUD box / world slot (outside the wheel) takes it, open
                 // screen parks it. RMB mid-drag cancels just the drag (UpdateSticky).
+                // Split-to-cursor CARRY: no button is held, so the PLACE gesture is a click, and RMB
+                // keeps the split child in the hand it landed in.
+                if (RadialHintContext.Carrying)
+                {
+                    Add(K_PlaceOrPark, "Click", "place or park", fadeOn);
+                    Add(K_Cancel, "RMB", "keep in hand", fadeOn);
+                    return;
+                }
                 Add(K_PlaceOrPark, "Release", "place or park", fadeOn);
                 Add(K_Cancel, "RMB", "cancel drag", fadeOn);
                 return;
@@ -337,6 +345,7 @@ namespace StationeersUIMod.UI
             if (ActiveIsToolbelt()) f |= 1 << 13;
             if (ActiveOpensOnBoth()) f |= 1 << 14;
             if (RadialHintContext.BackDropsParked) f |= 1 << 15;
+            if (RadialHintContext.Carrying) f |= 1 << 16;   // split-to-cursor carry words
             return f;
         }
 

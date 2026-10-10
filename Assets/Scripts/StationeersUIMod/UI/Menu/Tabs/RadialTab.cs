@@ -87,6 +87,12 @@ namespace StationeersUIMod.UI.Menu.Tabs
                 UiaSearch.MakeJump(hold.transform.parent.gameObject));
             UiaSearch.RegisterRow(Title, "radial.behaviour", "Holding Shift keeps the wheel open",
                 UiaSearch.MakeJump(shift.transform.parent.gameObject));
+
+            // Opt-in split-to-cursor: a MIRROR of the Controls tab's "Splitting stacks" row (same
+            // ConfigEntry, same wording via the shared builder). Input preference, not theme.
+            var split = ControlsTab.SplitToCursorRow(sec.Body);
+            UiaSearch.RegisterRow(Title, "radial.behaviour", "Split stacks onto the cursor",
+                UiaSearch.MakeJump(split.transform.parent.gameObject));
         }
 
         // ---------- Size & readout ----------

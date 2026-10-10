@@ -476,9 +476,13 @@ namespace StationeersUIMod
                     if (!UI.Menu.Tutorial.TutorialCoach.IsOpen && !UI.Menu.HandbookViewer.IsOpen)
                         HandleGridInput();
                     UI.Grid.TheGridPanel.Tick();
+                    // Opt-in split-to-cursor: attach / drive / resolve a split child riding the cursor
+                    // (self-gating; one bool read + one poll when idle).
+                    UI.Grid.GridSplitCarry.Tick();
                 }
                 else
                 {
+                    UI.Grid.GridSplitCarry.Cancel();   // never carry through a stand-down
                     if (UI.Grid.TheGridPanel.IsOpen) UI.Grid.TheGridPanel.Hide();
                     if (UI.Grid.PinnedInventoryWindow.LiveCount > 0)
                         UI.Grid.PinnedInventoryWindow.CloseAll();
@@ -771,6 +775,9 @@ namespace StationeersUIMod
         private void TryPinFromHudEquipmentClick()
         {
             if (_radials != null && _radials.IsRadialOpen) { ClearPinPress(); return; }
+            // Split-to-cursor: while a split child rides the cursor, the next click PLACES it (a
+            // click on an equipment box puts it there) — it must never also pin that box's bag.
+            if (UI.Grid.GridSplitCarry.Active) { ClearPinPress(); return; }
 
             // A drag observed at ANY point in this gesture disqualifies it, permanently — the release
             // frame itself is caught by LastDragEndFrame, because HudSlotDrag clears _source in its
@@ -1113,6 +1120,8 @@ namespace StationeersUIMod
                 UI.Menu.UiaControlCenter.Shutdown();
                 UI.Menu.Kit.UiaRebindCapture.Reset();
                 UI.RadialHintBar.Shutdown();
+                UI.Grid.GridSplitCarry.Shutdown(); // split-to-cursor: catcher canvas, ghost, world-pick hold
+                Features.SplitToCursor.Shutdown(); // ...and its pending/ready child refs
                 UI.Grid.TheGridPanel.Shutdown();   // destroys its canvas + unhooks OnUIClose
                 Features.GridCollapseStore.Reset(); // drop the per-save collapse cache
                 Features.GridPinStore.Reset();      // drop the per-save pin cache (disk file survives)

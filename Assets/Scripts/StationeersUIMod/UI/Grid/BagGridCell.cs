@@ -650,7 +650,7 @@ namespace StationeersUIMod.UI.Grid
             BagGridCell target;
             GridTab tabTarget;
             bool overUi;
-            FindDropUnder(e, out target, out tabTarget, out overUi);
+            FindDropUnder(e, this, out target, out tabTarget, out overUi);
             if (target != _dropTarget)
             {
                 if (_dropTarget != null) _dropTarget.SetDropHighlight(false);
@@ -705,7 +705,7 @@ namespace StationeersUIMod.UI.Grid
             BagGridCell target = null;
             GridTab dropTab = null;
             // (overUi is unused on release: TryDropOffGrid re-resolves the surface itself.)
-            if (e != null) FindDropUnder(e, out target, out dropTab, out _);
+            if (e != null) FindDropUnder(e, this, out target, out dropTab, out _);
             if (_dropTarget != null) { _dropTarget.SetDropHighlight(false); _dropTarget = null; }
             if (_dropTabTarget != null) { _dropTabTarget.SetDropHighlight(false); _dropTabTarget = null; }
             DestroyGhost();
@@ -718,41 +718,68 @@ namespace StationeersUIMod.UI.Grid
             _dragSource = null;
             _dragSlot = null;
 
-            if (sourceValid && target != null && target._slot != null && _slot != null)
+            // One shared resolution (also the split-to-cursor click-to-place, ResolveCarryClick).
+            if (!sourceValid || !ResolveRelease(this, source, target, dropTab, allOfType))
+                Repaint();   // stale source / abort / invalid target (DragTo already played the fail cue)
+        }
+
+        /// <summary>THE release resolution for an item carried off a grid cell — the drag release
+        /// (<see cref="OnEndDrag"/>, <paramref name="srcCell"/> = the source cell) and the opt-in
+        /// split-to-cursor click (<see cref="ResolveCarryClick"/>, no source cell) share it, so a
+        /// click places exactly where a drag release would. Returns true only when an authoritative
+        /// move message went out (the caller then leaves the source dimmed-pending).
+        /// <list type="bullet">
+        /// <item>A target CELL (<paramref name="target"/>, already resolved by the caller's ray-pick):
+        /// one <see cref="Drop"/> (DragTo / Shift sweep); both ends dim until the server echo.</item>
+        /// <item>A manila TAB in profile mode: drag-to-pin (design O4c) — records an ITEM RULE in that
+        /// bag's profile (a config/profile write ONLY; the item does NOT move, no message). The
+        /// ray-pick reports a tab only while GridProfileMode.Active, so normal drags never land here.</item>
+        /// <item>Neither: the release landed OUTSIDE the grid's own cells and tabs — a HUD hand /
+        /// worn-equipment box, an open vanilla window slot, a physical-world slot, or open space —
+        /// <see cref="TryDropOffGrid"/>.</item>
+        /// </list></summary>
+        private static bool ResolveRelease(BagGridCell srcCell, ScannedSlot source, BagGridCell target, GridTab dropTab, bool allOfType)
+        {
+            if (source == null || source.Slot == null) return false;
+            if (target != null)
             {
+                if (target._slot == null) return false;   // an unbound target cell: no message
                 bool ok = Drop(source, target._slot, allOfType); // one authoritative message (+ vanilla's Shift sweep)
                 if (ok)
                 {
                     // Send-only on a client: keep both ends dimmed until the server echo changes the
                     // occupant (RefreshIfDirty clears it) or the backstop elapses. On host/SP the move
                     // applied locally, so the next signature diff rebuilds and Bind clears it at once.
-                    MarkPending();
+                    if (srcCell != null) srcCell.MarkPending();
                     target.MarkPending();
                     TutorialSignals.Raise(TSignal.GridDragMoved, 1);
                     if (allOfType) TutorialSignals.Raise(TSignal.GridShiftDragMoved);
                 }
-                else Repaint();   // invalid: DragTo already played ActionFailHash; just restore the source look
+                return ok;
             }
-            else if (sourceValid && target == null && dropTab != null)
+            if (dropTab != null)
             {
-                // Drag-to-pin (design O4c): released on a bag's manila tab in profile mode. This
-                // records an ITEM RULE in that bag's profile (auto-creating an assigned profile
-                // named after the bag when it has none) — a config/profile write ONLY. The item
-                // does NOT move: no ItemActions call, no message, nothing pending. FindDropUnder
-                // reports a tab only while GridProfileMode.Active, so normal drags never land here.
                 PinRuleToTab(source, dropTab);
-                Repaint();
+                return false;   // no move: the caller just restores the source look
             }
-            else if (sourceValid && target == null && dropTab == null)
-            {
-                // The release landed OUTSIDE this grid's own cells and tabs — over a HUD hand /
-                // worn-equipment box, an open vanilla window slot, a slot on a physical-world object
-                // (a charger, a locker), or genuinely open space. Resolve that cross-surface
-                // destination and tear the item OUT of the grid; on success the source cell dims until
-                // the server echo, on any abort surface it just restores.
-                if (!TryDropOffGrid(source, allOfType)) Repaint();
-            }
-            else Repaint();       // stale source or an unbound target cell: no message, restore the look
+            return TryDropOffGrid(srcCell, source, allOfType);
+        }
+
+        /// <summary>Opt-in split-to-cursor (<see cref="GridSplitCarry"/>): resolve a PLACE click for
+        /// the carried split child (its hand slot, pinned) EXACTLY like a drag release from a cell —
+        /// the same top-most ray-pick (<see cref="FindDropUnder"/>; no source cell to skip, the caller
+        /// already treated a click on the child's own hand cell as "keep it") and the same
+        /// <see cref="ResolveRelease"/>. Returns true when a move message went out. Read the cursor
+        /// at call time; never call per frame (one PointerEventData allocation).</summary>
+        internal static bool ResolveCarryClick(ScannedSlot source, bool allOfType)
+        {
+            BagGridCell target = null;
+            GridTab dropTab = null;
+            var es = EventSystem.current;
+            if (es != null)
+                FindDropUnder(new PointerEventData(es) { position = Input.mousePosition }, null,
+                    out target, out dropTab, out _);
+            return ResolveRelease(null, source, target, dropTab, allOfType);
         }
 
         /// <summary>The one drop dispatch every release path shares: the plain gated single move
@@ -804,7 +831,7 @@ namespace StationeersUIMod.UI.Grid
         /// re-verified again inside DragTo/DropToWorld at execute time, on top of the caller's
         /// <c>_dragSlot</c>/<c>_dragSource</c> staleness gate.
         /// </summary>
-        private bool TryDropOffGrid(ScannedSlot source, bool allOfType)
+        private static bool TryDropOffGrid(BagGridCell srcCell, ScannedSlot source, bool allOfType)
         {
             Core.DropResolution r = Core.DropResolver.Resolve();
 
@@ -813,7 +840,7 @@ namespace StationeersUIMod.UI.Grid
             {
                 if (r.HasSlot && Drop(source, r.Slot, allOfType))
                 {
-                    MarkPending();
+                    if (srcCell != null) srcCell.MarkPending();
                     TutorialSignals.Raise(TSignal.GridDragMoved, r.Surface == Core.DropSurface.HudZone ? 2 : 0);
                     if (allOfType) TutorialSignals.Raise(TSignal.GridShiftDragMoved);
                     return true;
@@ -831,7 +858,7 @@ namespace StationeersUIMod.UI.Grid
                 {
                     if (Drop(source, worldSlot, allOfType))
                     {
-                        MarkPending();
+                        if (srcCell != null) srcCell.MarkPending();
                         TutorialSignals.Raise(TSignal.GridDragMoved, 3);
                         if (allOfType) TutorialSignals.Raise(TSignal.GridShiftDragMoved);
                         return true;
@@ -847,7 +874,7 @@ namespace StationeersUIMod.UI.Grid
                 // execute time.
                 if (ItemActions.DropToWorld(source))
                 {
-                    MarkPending();
+                    if (srcCell != null) srcCell.MarkPending();
                     TutorialSignals.Raise(TSignal.GridDragMoved, 4);
                     return true;
                 }
@@ -1004,7 +1031,8 @@ namespace StationeersUIMod.UI.Grid
         }
 
         /// <summary>Ray-pick the top-most drop target under the pointer: a <see cref="BagGridCell"/>
-        /// (skipping THIS source cell), or — in profile mode ONLY — a <see cref="GridTab"/> (the
+        /// (skipping <paramref name="exclude"/>, the drag's source cell; null for the split-to-cursor
+        /// click, which has none), or — in profile mode ONLY — a <see cref="GridTab"/> (the
         /// drag-to-pin drop). One raycast resolves both: a tab and a cell never overlap spatially,
         /// so whichever surfaces first in the (top-most-first) hit list is the target. Outside
         /// profile mode the tab probe never runs, so item-drag behaviour is byte-identical to the
@@ -1013,7 +1041,7 @@ namespace StationeersUIMod.UI.Grid
         /// the target. A take-out-only rescue cell (D-005) is never a target: it occludes like any
         /// cell but resolves to "no cell" (the release then aborts on it). <paramref name="overUi"/>
         /// reports whether ANY UGUI element owns the pixel (the world placement cue stays down).</summary>
-        private void FindDropUnder(PointerEventData e, out BagGridCell cell, out GridTab tab, out bool overUi)
+        private static void FindDropUnder(PointerEventData e, BagGridCell exclude, out BagGridCell cell, out GridTab tab, out bool overUi)
         {
             cell = null;
             tab = null;
@@ -1029,7 +1057,7 @@ namespace StationeersUIMod.UI.Grid
                 var go = RayHits[i].gameObject;
                 if (go == null) continue;
                 var c = go.GetComponentInParent<BagGridCell>();
-                if (c != null && c != this)
+                if (c != null && c != exclude)
                 {
                     if (!c._takeOnly) cell = c;   // a rescue cell occludes, but never receives
                     break;

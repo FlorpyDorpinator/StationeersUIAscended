@@ -502,6 +502,66 @@ namespace StationeersUIMod.Overlay
             return r;
         }
 
+        // ---- opt-in split-to-cursor (Features.SplitToCursor) ----
+        // A split wedge run with the opt-in ON asks the radial to stay open (like Shift) so the split
+        // child can ride the cursor as a CARRY chip: a slot-sourced _parking.Dragging (Expected =
+        // the child) that follows the pointer WITHOUT the button held. The next LMB click resolves it
+        // through the SAME ResolveDragRelease a drag release uses (wedge / HUD box / world slot / park /
+        // cancel); RMB just stops carrying (the RMB-mid-drag cancel — the item never left its hand);
+        // any close runs the existing D-004 close-drop (ReleaseHeldItems). Instance flags reset on
+        // every Open/Close; the static request flag is cleared there too, so a split fired by the R3
+        // double-tap repeat (no radial open) can never keep a LATER, unrelated radial open.
+        private static bool _stayOpenRequested;
+        private bool _carry;          // _parking.Dragging is a click-to-place carry, not a held drag
+        private bool _carryPressed;   // LMB went down while carrying (its UP resolves the carry)
+
+        /// <summary>Split-to-cursor: keep the radial open after the action now running (consumed by
+        /// the select paths like <see cref="RequestSearch"/>).</summary>
+        public static void RequestStayOpen() => _stayOpenRequested = true;
+
+        /// <summary>Drop every split-to-cursor flag + this radial's pending/ready child (Open/Close).
+        /// Never mutates: a child that already landed stays in the hand.</summary>
+        private void ResetSplitCarry()
+        {
+            _carry = false;
+            _carryPressed = false;
+            _stayOpenRequested = false;
+            try { Features.SplitToCursor.Cancel(Features.SplitToCursor.Ctx.Radial); } catch { }
+        }
+        private static bool ConsumeStayOpenRequest()
+        {
+            bool r = _stayOpenRequested;
+            _stayOpenRequested = false;
+            return r;
+        }
+
+        /// <summary>Split-to-cursor: attach a split child that just landed in a hand as a carry chip.
+        /// Only while sticky and idle (no press, no drag in flight, no search, no hub move, no button
+        /// held) — until then the found child waits (SplitToCursor bounds the wait; past it the child
+        /// just stays in the hand where vanilla put it). Visual only: nothing moves until the next
+        /// click resolves the chip through the gated ItemActions funnel.</summary>
+        private void TryAttachSplitCarry()
+        {
+            if (!_sticky || _searchOpen || _press != null || _parking.Dragging != null || _hubDragging) return;
+            if (Input.GetMouseButton(0) || Input.GetMouseButton(1)) return;
+            Slot slot;
+            DynamicThing child;
+            if (!Features.SplitToCursor.TryTake(Features.SplitToCursor.Ctx.Radial, out slot, out child)) return;
+            var source = new ScannedSlot { Slot = slot, Holder = slot.Parent, Location = "" }.Pin();
+            if (!ReferenceEquals(source.Expected, child)) return;   // moved between detection and now
+            Sprite icon = null;
+            try { icon = child.GetThumbnail(); } catch { }
+            string name = "";
+            try { name = child.DisplayName; } catch { }
+            _parking.RemoveBySlot(slot);   // one slot = one chip
+            _parking.Dragging = new ParkingState.Chip { Source = source, Icon = icon, Name = name };
+            _carry = true;
+            _carryPressed = false;
+            _satellite = null;             // hands are busy: no child radials while carrying
+            _satHovered = -1;
+            try { UIAudioManager.Play(UIAudioManager.ObjectIntoHandHash); } catch { }
+        }
+
         /// <summary>Held Shift means "keep the radial open after this action" (Option A).</summary>
         internal static bool ShiftHeld
             => Input.GetKey(KeyCode.LeftShift) || Input.GetKey(KeyCode.RightShift);
@@ -569,6 +629,7 @@ namespace StationeersUIMod.Overlay
             _satHovered = -1;
             _slideOutSuppressIndex = -1;
             _parking.Clear();
+            ResetSplitCarry();   // split-to-cursor: no carry, request or pending child survives a reopen
             _press = null;
             _searchOpen = false;
             _searchRequested = false;
@@ -604,6 +665,7 @@ namespace StationeersUIMod.Overlay
             _satHovered = -1;
             _slideOutSuppressIndex = -1;
             _parking.Clear();
+            ResetSplitCarry();   // split-to-cursor: the carry chip already went through ReleaseHeldItems
             _press = null;
             _searchOpen = false;
             _centerOffset = Vector2.zero;
@@ -640,6 +702,7 @@ namespace StationeersUIMod.Overlay
                 return false;
             }
             Execute(entry);
+            bool stayForCarry = ConsumeStayOpenRequest();   // split-to-cursor: latch sticky for the carry
             if (ConsumeSearchRequest())
             {
                 _sticky = true;
@@ -647,11 +710,11 @@ namespace StationeersUIMod.Overlay
                 UI.SearchPanelView.Begin();
                 return true;
             }
-            if (KeepOpenAfterAction)
+            if (KeepOpenAfterAction || stayForCarry)
             {
                 // "Keep it open, I'm not done" — the radial goes sticky. (Shift held by default;
                 // the inverted option makes staying open the default and Shift the closer.)
-                TutorialSignals.Raise(TSignal.KeepOpenUsed);
+                if (KeepOpenAfterAction) TutorialSignals.Raise(TSignal.KeepOpenUsed);
                 _sticky = true;
                 _satellite = null;
                 Top().Refresh();
@@ -782,11 +845,24 @@ namespace StationeersUIMod.Overlay
                 return;
             }
             Execute(entry);
+            bool stayForCarry = ConsumeStayOpenRequest();
             if (ConsumeSearchRequest())
             {
                 _sticky = true;         // the search panel needs the menu latched open
                 _searchOpen = true;
                 UI.SearchPanelView.Begin();
+                return;
+            }
+            if (stayForCarry)
+            {
+                // Split-to-cursor: the child will ride the cursor, which needs the click model of a
+                // STICKY ring (hold mode dives on LMB and closes on release) — latch it, exactly as a
+                // hold-release keep-open does. The key-up is ignored once sticky.
+                _sticky = true;
+                _satellite = null;
+                Top().Refresh();
+                _hovered = -1;
+                _pendingRefreshAt = Time.unscaledTime + 0.6f;
                 return;
             }
             if (KeepOpenAfterAction)
@@ -831,6 +907,10 @@ namespace StationeersUIMod.Overlay
             }
 
             _parking.Prune();
+            // Split-to-cursor: a carry whose chip went stale (Prune) is over; then attach a split
+            // child that just landed in a hand (no-op unless the opt-in dispatched one for us).
+            if (_parking.Dragging == null) { _carry = false; _carryPressed = false; }
+            TryAttachSplitCarry();
 
             // On a multiplayer client, a keep-open action refreshes entries BEFORE the
             // server has applied it — labels/values would stay one state behind. A second
@@ -852,9 +932,13 @@ namespace StationeersUIMod.Overlay
                 _press = null; // whatever was pressed no longer means what it meant
                 // RMB mid-drag is NOT a close: it cancels just this drag (the item goes back where
                 // it was — it never left its slot), and the radial stays open.
+                // Split-to-cursor: RMB while CARRYING a split child is this same cancel — the child
+                // just stays in the hand vanilla put it in (no message), the radial stays open.
                 if (_parking.Dragging != null)
                 {
                     _parking.Dragging = null;
+                    _carry = false;
+                    _carryPressed = false;
                     TutorialSignals.Raise(TSignal.ChipsCancelled);
                     return;
                 }
@@ -898,8 +982,10 @@ namespace StationeersUIMod.Overlay
 
             // MMB in a sticky radial: the whole gesture is "tap to open, flick, tap to pick",
             // and MMB is the dismiss half of it. Selection is LMB.
+            // (A split-to-cursor CARRY is not a held drag, so MMB still closes — the close-drop
+            // then resolves the carried child like any in-flight chip, D-004/A9.)
             if (Input.GetMouseButtonDown(2)
-                && _parking.Dragging == null && _press == null)
+                && (_parking.Dragging == null || _carry) && _press == null)
             {
                 bool imguiOwnsM = false;
                 try { imguiOwnsM = ImGui.GetIO().WantCaptureMouse; } catch { }
@@ -914,6 +1000,29 @@ namespace StationeersUIMod.Overlay
                     Close();
                     return;
                 }
+            }
+
+            // Split-to-cursor: carrying a split child (no button held). The next LMB PRESS arms the
+            // place-click and its RELEASE resolves the chip exactly like a drag release
+            // (ResolveDragRelease: compatible-stack merge / wedge drop / HUD box / world slot / park
+            // on open screen / cancel over dead ring space). The release of the click that SPLIT is
+            // ignored (no press seen while carrying). Handled before the drag layer and wedge
+            // presses so nothing else can claim the click; a press+release on one frame resolves.
+            if (_carry && _parking.Dragging != null)
+            {
+                if (Input.GetMouseButtonDown(0))
+                {
+                    bool imguiOwnsClick = false;
+                    try { imguiOwnsClick = ImGui.GetIO().WantCaptureMouse; } catch { }
+                    if (!imguiOwnsClick) _carryPressed = true;
+                }
+                if (_carryPressed && Input.GetMouseButtonUp(0))
+                {
+                    _carry = false;
+                    _carryPressed = false;
+                    ResolveDragRelease(mouse);
+                }
+                return;
             }
 
             if (Input.GetMouseButtonDown(0))
@@ -1019,13 +1128,14 @@ namespace StationeersUIMod.Overlay
                 return;
             }
             Execute(entry);
+            bool stayForCarry = ConsumeStayOpenRequest();   // split-to-cursor: the child is coming to the cursor
             if (ConsumeSearchRequest())
             {
                 _searchOpen = true;
                 UI.SearchPanelView.Begin();
                 return;
             }
-            if (!_parking.Active && !KeepOpenAfterAction)
+            if (!_parking.Active && !KeepOpenAfterAction && !stayForCarry)
             {
                 Close(); // one action, radial goes away
                 return;
@@ -1859,6 +1969,7 @@ namespace StationeersUIMod.Overlay
         {
             _lastCommit = null;
             _lastCommitKey = null;
+            _stayOpenRequested = false; // split-to-cursor request flag (static)
             RadialHintContext.Reset(); // D-021 statics: nothing stale survives a double-F6
         }
 
@@ -2196,6 +2307,7 @@ namespace StationeersUIMod.Overlay
                 satPages || level.PageCount > 1, altReach, _parking.Chips.Count, actionVerb,
                 hoverAction, lvlDrag, lvlScroll, lvlAction,
                 rootReturns && _parking.Chips.Count > 0);
+            RadialHintContext.Carrying = _carry && _parking.Dragging != null;   // split-to-cursor wording
 
             // The interaction model (hover, satellites, levels, sticky/hold logic) lives in RadialMenu.
             // Unity UGUI (procedural) is the only renderer — the legacy ImGui draw-list painter
@@ -2243,6 +2355,7 @@ namespace StationeersUIMod.Overlay
         public static bool Search;         // the search panel owns the ring
         public static bool Sticky;         // tap-opened (click to act) vs hold-opened (release to act)
         public static bool Dragging;       // a chip is on the cursor
+        public static bool Carrying;       // ...as a split-to-cursor CARRY (click places it, no button held)
         public static bool CanGoBack;      // RMB backs out (nested level, hold-mode child ring, belt-picker return) instead of closing
         public static bool BackDropsParked; // that RMB "back" replaces the menu (belt-picker return): parked items drop (D-004)
         public static bool Pageable;       // the page key flips something
@@ -2311,7 +2424,7 @@ namespace StationeersUIMod.Overlay
         {
             InteractionFrame = -100;
             Verb = null;
-            Dragging = HoverAction = Search = BackDropsParked = false;
+            Dragging = Carrying = HoverAction = Search = BackDropsParked = false;
             LevelDraggable = LevelScroll = LevelAction = false;
             Parked = 0;
         }

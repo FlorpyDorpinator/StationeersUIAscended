@@ -210,6 +210,10 @@ namespace StationeersUIMod.UI.Hud
             // The radial grabs from these very boxes into its own parking layer.
             if (RadialController.AnyRadialOpen) return false;
 
+            // Opt-in split-to-cursor: a split child rides the cursor and the next click PLACES it
+            // (Grid.GridSplitCarry owns that click, including on these boxes).
+            if (Grid.GridSplitCarry.Active) return false;
+
             // The F9 HUD designer drags the hand-box ELEMENT with its own raw mouse polling, in the
             // same frame. Without this, repositioning a hand box in the editor would ALSO tear the
             // real item out of the hand and drop it on the floor.

@@ -574,7 +574,12 @@ namespace StationeersUIMod.UI.Grid
                 b.Input.Clicked = () =>
                 {
                     // Tutorial (lesson 4.3): only a split that actually went through counts.
-                    if (ItemActions.PressInteractable(t, ia) && isSplit)
+                    // Split squares go through the opt-in split-to-cursor watcher, which is exactly
+                    // the same PressInteractable call when the opt-in is off (GridSplitCarry).
+                    bool ok = isSplit
+                        ? Features.SplitToCursor.Run(Features.SplitToCursor.Ctx.Grid, t, () => ItemActions.PressInteractable(t, ia))
+                        : ItemActions.PressInteractable(t, ia);
+                    if (ok && isSplit)
                         UI.Menu.Tutorial.TutorialSignals.Raise(UI.Menu.Tutorial.TSignal.GridSplitDone);
                 };
                 b.Input.Scrolled = null;   // a plain control hands the wheel on to the list
@@ -618,7 +623,8 @@ namespace StationeersUIMod.UI.Grid
             var thing = _node != null ? _node.Container : null;
             if (thing == null) return;
             _splitCount = Mathf.Clamp(_splitCount, 1, SplitCountMax());
-            if (ItemActions.SplitStackCount(thing, _splitCount))
+            int n = _splitCount;
+            if (Features.SplitToCursor.Run(Features.SplitToCursor.Ctx.Grid, thing, () => ItemActions.SplitStackCount(thing, n)))
                 UI.Menu.Tutorial.TutorialSignals.Raise(UI.Menu.Tutorial.TSignal.GridSplitDone);
             _nextCtrlPoll = 0f;
         }

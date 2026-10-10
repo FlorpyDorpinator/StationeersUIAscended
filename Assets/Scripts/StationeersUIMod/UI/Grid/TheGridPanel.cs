@@ -467,8 +467,9 @@ namespace StationeersUIMod.UI.Grid
         private static int _escSwallowClearFrames;
 
         /// <summary>The Esc chain consumed this press: starve vanilla's Escape key-up until the
-        /// key is released. Idempotent.</summary>
-        private static void BeginEscSwallow()
+        /// key is released. Idempotent. Internal so the split-to-cursor carry (GridSplitCarry) can
+        /// consume its own Esc-cancel the same way.</summary>
+        internal static void BeginEscSwallow()
         {
             if (_escSwallowHeld) return;
             _escSwallowHeld = true;

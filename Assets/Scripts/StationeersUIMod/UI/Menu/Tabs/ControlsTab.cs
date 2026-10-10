@@ -20,10 +20,39 @@ namespace StationeersUIMod.UI.Menu.Tabs
             var col = UiaUi.ScrollView(content, out scroll, UiaTheme.Gap);
             UiaUi.Fill((RectTransform)scroll.gameObject.transform);
 
+            BuildSplitting(col);   // FIRST on purpose: the opt-in must be easy to find (FlorpyDorp)
             BuildHints(col);
             BuildCursor(col);
             BuildKeyBindings(col);
             BuildChorded(col);
+        }
+
+        // ---------- Splitting stacks (opt-in split-to-cursor) ----------
+
+        /// <summary>The split-to-cursor opt-in (<see cref="UIAConfig.SplitToCursor"/>). The SAME
+        /// ConfigEntry is mirrored as a row in Radial &gt; Behaviour and on the Universal Inventory
+        /// page. A personal input preference: never part of a theme, so no MarkThemeChanged.</summary>
+        private void BuildSplitting(Transform col)
+        {
+            var sec = UiaComposite.Section(col, "controls.split", "Splitting stacks");
+            var split = SplitToCursorRow(sec.Body);
+            UiaSearch.RegisterRow(Title, "controls.split", "Split stacks onto the cursor",
+                UiaSearch.MakeJump(split.transform.parent.gameObject));
+        }
+
+        /// <summary>The one split-to-cursor toggle + its explanation, shared by every F10 page that
+        /// offers it so the three rows can never word it differently. ASCII-only text (TMP).</summary>
+        internal static UiaControls.UiaToggle SplitToCursorRow(Transform parent)
+        {
+            var toggle = UiaControls.ToggleRow(parent, "Split stacks onto the cursor",
+                UIAConfig.SplitToCursor.Value, v => UIAConfig.SplitToCursor.Value = v);
+            UiaControls.Note(parent,
+                "Off (default): a split goes to an empty hand, like the base game. On: after you split " +
+                "a stack in a wheel or the Universal Inventory, the split-off part rides on your cursor " +
+                "- click a slot, a hand box or a bag to put it there. In a wheel, clicking open screen " +
+                "parks it and closing the wheel drops parked items at your feet. Right-click keeps it " +
+                "in your hand.");
+            return toggle;
         }
 
         // ---------- On-screen hints ----------

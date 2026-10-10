@@ -52,6 +52,13 @@ namespace StationeersUIMod.UI.Menu.Tabs.Storage
                 UIAConfig.GridGhostHints.Value, v => UIAConfig.GridGhostHints.Value = v);
             UiaSearch.RegisterRow(TabTitle, "smartstow.ui", "Glow the bag Smart Stow would pick",
                 UiaSearch.MakeJump(glow.transform.parent.gameObject));
+
+            // Opt-in split-to-cursor: a MIRROR of the Controls tab's "Splitting stacks" row (same
+            // ConfigEntry, same wording via the shared builder) - it changes what the 1 / 1/2 /
+            // Split N squares do, so it belongs here too. Input preference, not theme.
+            var split = ControlsTab.SplitToCursorRow(sec.Body);
+            UiaSearch.RegisterRow(TabTitle, "smartstow.ui", "Split stacks onto the cursor",
+                UiaSearch.MakeJump(split.transform.parent.gameObject));
         }
     }
 }
