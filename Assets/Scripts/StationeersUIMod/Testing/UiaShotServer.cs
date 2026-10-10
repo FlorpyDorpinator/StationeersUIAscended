@@ -297,7 +297,7 @@ namespace StationeersUIMod.Testing
             float outerR = UIAConfig.RadialOuterRadius != null ? UIAConfig.RadialOuterRadius.Value : 240f;
             float innerR = UIAConfig.RadialInnerRadius != null ? UIAConfig.RadialInnerRadius.Value : 120f;
             innerR = Mathf.Clamp(innerR, 104f, Mathf.Max(104f, outerR - 30f));
-            midR = (innerR + outerR) * 0.5f;
+            midR = (innerR + outerR) * 0.5f * UI.WheelGridScale.Resolution();   // #12: screen px
         }
 
         /// <summary>The pointer on wedge <paramref name="k"/> of <paramref name="count"/>: wedge i's

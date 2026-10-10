@@ -107,7 +107,7 @@ namespace StationeersUIMod.UI.Grid
             }
             if (!_self.gameObject.activeSelf) _self.gameObject.SetActive(true);
 
-            float width = GridTheme.ScrollBarPx;
+            float width = GridTheme.ScrollBarPx * WheelGridScale.Geo;   // #12: 1080p px x resolution
             float barH = Mathf.Max(0f, viewportH - Pad * 2f);
 
             // Right edge of the viewport, inset by Pad on all three sides.

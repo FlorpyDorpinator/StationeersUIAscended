@@ -205,7 +205,12 @@ namespace StationeersUIMod.UI.Grid
 
             _state.rectTransform.sizeDelta = new Vector2(size - 4f, size * 0.30f);
             _state.rectTransform.anchoredPosition = new Vector2(-2f, -size * 0.5f + size * 0.16f);
-            _state.fontSize = HudText.Size(Mathf.Clamp(size * 0.16f, 8f, 13f));
+            // #12: size is already resolution-scaled (GridRegionView.CellPx), so the px bounds scale
+            // with it; the player's text size multiplies on top, capped to the corner box's height
+            // (size x 0.30) so a big text size never spills out of the cell.
+            float gk = WheelGridScale.Geo;
+            _state.fontSize = Mathf.Min(HudText.Size(Mathf.Clamp(size * 0.16f, 8f * gk, 13f * gk) * WheelGridScale.Text()),
+                size * 0.30f);
         }
 
         /// <summary>Bind the cell to a slot and take it out of the pool. Forces an immediate content
@@ -1094,6 +1099,7 @@ namespace StationeersUIMod.UI.Grid
 
             float size = 46f;
             try { size = UIAConfig.GridCellSize.Value; } catch { }
+            size *= WheelGridScale.Geo;   // #12: match the resolution-scaled cell
             _ghostRt.sizeDelta = new Vector2(size * 0.9f, size * 0.9f);
 
             var img = _ghostGo.AddComponent<Image>();

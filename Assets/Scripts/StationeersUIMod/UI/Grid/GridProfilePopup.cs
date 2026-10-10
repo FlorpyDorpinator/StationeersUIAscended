@@ -36,10 +36,12 @@ namespace StationeersUIMod.UI.Grid
     /// </summary>
     public static class GridProfilePopup
     {
-        private const float RowH = 20f;
-        private const float PadAll = 6f;
-        private const float MinW = 150f;
-        private const float MaxW = 320f;
+        // #12: px at 1920x1080, x WheelGridScale.Box (resolution x a larger player text size) — the
+        // popup is a list of text rows, rebuilt on every open, so it always opens at the live size.
+        private static float RowH { get { return 20f * WheelGridScale.Box; } }
+        private static float PadAll { get { return 6f * WheelGridScale.Box; } }
+        private static float MinW { get { return 150f * WheelGridScale.Box; } }
+        private static float MaxW { get { return 320f * WheelGridScale.Box; } }
         /// <summary>Above both windows (5020/5030) and the tab drag ghost (5100); below the
         /// capture confirm panel (5200), which is the more modal of the two.</summary>
         private const int SortOrder = 5150;
@@ -314,7 +316,7 @@ namespace StationeersUIMod.UI.Grid
             row.Click.ProfileName = profileName;
             row.Click.Inert = inert;
 
-            row.Label = HudText.Make(row.Rect, "Label", HudText.Size(11f),
+            row.Label = HudText.Make(row.Rect, "Label", HudText.Size(11f * WheelGridScale.Font),   // #12
                 TextAlignmentOptions.Left, warp: false);
             row.Label.overflowMode = TextOverflowModes.Truncate;   // never "..." — the glyph tofus
             var lrt = row.Label.rectTransform;

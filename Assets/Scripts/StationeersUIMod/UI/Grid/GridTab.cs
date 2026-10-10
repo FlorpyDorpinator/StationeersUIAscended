@@ -41,15 +41,17 @@ namespace StationeersUIMod.UI.Grid
     /// </summary>
     public sealed class GridTab : MonoBehaviour
     {
-        // Layout constants (px, at the canvas' reference resolution).
-        private const float Slant = 9f;        // horizontal inset of the top edge (per side) → the manila slant
-        private const float PadX = 7f;         // inner horizontal padding inside the top (narrow) span
+        // Layout metrics (px at 1920x1080). #12: the tab is a TEXT-BEARING control, so every metric
+        // rides WheelGridScale.Box (resolution x a larger player text size) and its name/badge fonts
+        // ride WheelGridScale.Font, so the label keeps its designed fit at any resolution / text size.
+        private static float Slant { get { return 9f * WheelGridScale.Box; } }      // horizontal inset of the top edge (per side) → the manila slant
+        private static float PadX { get { return 7f * WheelGridScale.Box; } }       // inner horizontal padding inside the top (narrow) span
         private const float IconSizeFallback = 14f;  // used only before UIAConfig binds (hot reload)
-        private const float Gap = 4f;          // gap between icon / name / chevron
-        private const float ChevW = 11f;       // chevron cell width
-        private const float ChevSize = 9f;     // triangle size
-        private const float NameMaxW = 220f;   // clamp so a very long name can't blow the tab out
-        private const float MinW = 46f;
+        private static float Gap { get { return 4f * WheelGridScale.Box; } }        // gap between icon / name / chevron
+        private static float ChevW { get { return 11f * WheelGridScale.Box; } }     // chevron cell width
+        private static float ChevSize { get { return 9f * WheelGridScale.Box; } }   // triangle size
+        private static float NameMaxW { get { return 220f * WheelGridScale.Box; } } // clamp so a very long name can't blow the tab out
+        private static float MinW { get { return 46f * WheelGridScale.Box; } }
 
         /// <summary>The F9-editable tab HEIGHT in px (<see cref="UIAConfig.GridTabHeight"/>, clamped
         /// 14..36, shipped default 20). Read live everywhere the old <c>TabH</c> const was used, so a
@@ -57,9 +59,10 @@ namespace StationeersUIMod.UI.Grid
         /// (hot reload before <c>UIAConfig.Init</c>).</summary>
         private static float TabHeight()
         {
-            try { if (UIAConfig.GridTabHeight != null) return Mathf.Clamp(UIAConfig.GridTabHeight.Value, 14f, 36f); }
+            float h = 20f;
+            try { if (UIAConfig.GridTabHeight != null) h = Mathf.Clamp(UIAConfig.GridTabHeight.Value, 14f, 36f); }
             catch { }
-            return 20f;
+            return h * WheelGridScale.Box;   // #12
         }
 
         /// <summary>The F9-editable tab TEXT size (<see cref="UIAConfig.GridTabTextSize"/>, clamped
@@ -68,10 +71,14 @@ namespace StationeersUIMod.UI.Grid
         /// edit (a pooled tab keeps its Create-time font otherwise).</summary>
         private static float TabTextSize()
         {
-            try { if (UIAConfig.GridTabTextSize != null) return Mathf.Clamp(UIAConfig.GridTabTextSize.Value, 8f, 20f); }
+            float fs = 11f;
+            try { if (UIAConfig.GridTabTextSize != null) fs = Mathf.Clamp(UIAConfig.GridTabTextSize.Value, 8f, 20f); }
             catch { }
-            return 11f;
+            return fs * WheelGridScale.Font;   // #12: resolution x the player's text size
         }
+
+        /// <summary>#12: the profile badge's font (9 at 1080p), riding the same text factor.</summary>
+        private static float BadgeTextSize() { return HudText.Size(9f * WheelGridScale.Font); }
 
         /// <summary>The F9-editable tab ICON size in px (<see cref="UIAConfig.GridTabIconSize"/>, clamped
         /// 8..28, shipped default 14) — the little container thumbnail on the tab, distinct from the
@@ -80,9 +87,10 @@ namespace StationeersUIMod.UI.Grid
         /// before the config binds (hot reload before <c>UIAConfig.Init</c>).</summary>
         private static float TabIconSize()
         {
-            try { if (UIAConfig.GridTabIconSize != null) return Mathf.Clamp(UIAConfig.GridTabIconSize.Value, 8f, 28f); }
+            float s = IconSizeFallback;
+            try { if (UIAConfig.GridTabIconSize != null) s = Mathf.Clamp(UIAConfig.GridTabIconSize.Value, 8f, 28f); }
             catch { }
-            return IconSizeFallback;
+            return s * WheelGridScale.Box;   // #12
         }
 
         private RectTransform _rect;
@@ -112,7 +120,7 @@ namespace StationeersUIMod.UI.Grid
         // Trapezoid contour scratch (instance-local; rebuilt only on SetWidth, not per frame).
         private readonly List<Vector2> _pts = new List<Vector2>(4);
 
-        private float _preferredWidth = MinW;
+        private float _preferredWidth = 46f;   // MinW at 1x; MeasurePreferred sets the live value
         // The tab-icon size the last MeasurePreferred used, so a live F9 tab-icon-size edit (which
         // arrives without a structural rebind) re-fits the tab through SyncTextSize.
         private float _measuredIconSize = IconSizeFallback;
@@ -255,7 +263,7 @@ namespace StationeersUIMod.UI.Grid
 
             // The badge label — created LAST so it draws over a clamped name's overflow rather
             // than under it. Inert (non-raycast) and inactive until a badge is actually bound.
-            tab._badge = HudText.Make(rect, "Badge", HudText.Size(9f),
+            tab._badge = HudText.Make(rect, "Badge", BadgeTextSize(),
                 TextAlignmentOptions.Center, warp: false);
             CentreChild(tab._badge.rectTransform);
             tab._badge.gameObject.SetActive(false);
@@ -331,17 +339,7 @@ namespace StationeersUIMod.UI.Grid
 
             // Profile badge (O4b): measured here so it joins the preferred-width sum in MeasurePreferred
             // below — adding it only in SetWidth would overlap the name under the NameMaxW/region clamps.
-            float badgeW = 0f;
-            if (_badge != null && !string.IsNullOrEmpty(_badgeText))
-            {
-                HudText.Sync(_badge);
-                HudText.Set(_badge, _badgeText);
-                float bm = _badge.GetPreferredValues(_badgeText).x;
-                if (!float.IsNaN(bm) && !float.IsInfinity(bm)) badgeW = bm + 2f;
-            }
-            _badgeW = badgeW;
-            if (_badge != null && _badge.gameObject.activeSelf != (badgeW > 0f))
-                _badge.gameObject.SetActive(badgeW > 0f);
+            MeasureBadge();
 
             MeasurePreferred();
             SetWidth(_preferredWidth);
@@ -352,6 +350,26 @@ namespace StationeersUIMod.UI.Grid
         /// (<see cref="_name"/>.text), the live tab font and the measured badge width
         /// (<see cref="_badgeW"/>). Split out of <see cref="SetCore"/> so a live F9 tab-text-size edit
         /// can re-fit the tab through <see cref="SyncTextSize"/> without a structural rebind.</summary>
+        /// <summary>Measure the bound profile badge (O4b) at the live badge font into
+        /// <see cref="_badgeW"/> and show/hide it. Split out of SetCore so a live #12 text-size change
+        /// (SyncTextSize) re-fits it too.</summary>
+        private void MeasureBadge()
+        {
+            float badgeW = 0f;
+            if (_badge != null && !string.IsNullOrEmpty(_badgeText))
+            {
+                float bfs = BadgeTextSize();
+                if (!Mathf.Approximately(_badge.fontSize, bfs)) _badge.fontSize = bfs;
+                HudText.Sync(_badge);
+                HudText.Set(_badge, _badgeText);
+                float bm = _badge.GetPreferredValues(_badgeText).x;
+                if (!float.IsNaN(bm) && !float.IsInfinity(bm)) badgeW = bm + 2f;
+            }
+            _badgeW = badgeW;
+            if (_badge != null && _badge.gameObject.activeSelf != (badgeW > 0f))
+                _badge.gameObject.SetActive(badgeW > 0f);
+        }
+
         private void MeasurePreferred()
         {
             float nameW = 0f;
@@ -385,7 +403,11 @@ namespace StationeersUIMod.UI.Grid
             bool fontChanged = !Mathf.Approximately(_name.fontSize, fs);
             bool iconChanged = !Mathf.Approximately(_measuredIconSize, TabIconSize());
             if (!fontChanged && !iconChanged) return;
-            if (fontChanged) _name.fontSize = fs;
+            if (fontChanged)
+            {
+                _name.fontSize = fs;
+                MeasureBadge();   // #12: the badge font rides the same text factor
+            }
             MeasurePreferred();
         }
 
@@ -420,6 +442,7 @@ namespace StationeersUIMod.UI.Grid
             _icon.rectTransform.sizeDelta = new Vector2(iconSize, iconSize);
 
             float chevX = rightInner - ChevW * 0.5f;
+            _chev.Configure(false, ChevSize);   // #12: live size (dirty-guarded; the rotation is SetCore's)
             _chevRt.anchoredPosition = new Vector2(chevX, 0f);
             _chevRt.sizeDelta = new Vector2(ChevW, tabH);
 

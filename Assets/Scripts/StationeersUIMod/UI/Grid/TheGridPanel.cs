@@ -86,12 +86,17 @@ namespace StationeersUIMod.UI.Grid
         /// class names) so renaming the UI orphans nothing.</summary>
         public const string WindowTitle = "Universal Inventory";
 
-        // --- layout constants (px, screen-space overlay) ---
-        private const float Pad = 12f;
-        private const float TitleH = 34f;
-        private const float TitleGap = 6f;
+        // --- layout metrics (px at 1920x1080, screen-space overlay) ---
+        // #12: the INTERIOR layout rides WheelGridScale (Geo = resolution, Box = resolution x a larger
+        // player text size for the title band), so the window content keeps its 1080p proportions on a
+        // 4K screen. The window's own position/size, drag, resize and screen clamps stay raw screen px.
+        private static float Pad { get { return 12f * WheelGridScale.Geo; } }
+        private static float TitleH { get { return 34f * WheelGridScale.Box; } }
+        private static float TitleGap { get { return 6f * WheelGridScale.Geo; } }
         private const float CloseSizeFallback = 20f;   // used only before UIAConfig binds (hot reload)
-        private const float ProfBtnW = 26f;     // the profile-mode (luggage-tag) header button
+        private static float ProfBtnW { get { return 26f * WheelGridScale.Geo; } }     // the profile-mode (luggage-tag) header button
+        /// <summary>#12: the window title's font (16 at 1080p) x resolution x the player's text size.</summary>
+        private static float TitleTextSize() { return HudText.Size(16f * WheelGridScale.Font); }
 
         /// <summary>The F9-editable close/chrome BUTTON size in px (<see cref="UIAConfig.GridChromeButtonSize"/>,
         /// clamped 12..40, shipped default 20) — the header X here, and (same config) the pinned windows'
@@ -101,12 +106,15 @@ namespace StationeersUIMod.UI.Grid
         /// the config binds.</summary>
         private static float CloseSize()
         {
-            try { if (UIAConfig.GridChromeButtonSize != null) return Mathf.Clamp(UIAConfig.GridChromeButtonSize.Value, 12f, 40f); }
+            float s = CloseSizeFallback;
+            try { if (UIAConfig.GridChromeButtonSize != null) s = Mathf.Clamp(UIAConfig.GridChromeButtonSize.Value, 12f, 40f); }
             catch { }
-            return CloseSizeFallback;
+            return s * WheelGridScale.Geo;   // #12
         }
-        private const float GripSize = 18f;     // hit box of the bottom-right resize grip
-        private const float GripInset = 3f;     // gap from the panel's bottom-right corner
+        // #12: the grip's hit box scales with the resolution (its drawn lines are built once at
+        // EnsureBuilt, so a resolution change mid-session re-sizes the hit box but not the lines).
+        private static float GripSize { get { return 18f * WheelGridScale.Geo; } }     // hit box of the bottom-right resize grip
+        private static float GripInset { get { return 3f * WheelGridScale.Geo; } }     // gap from the panel's bottom-right corner
 
         // --- geometry clamps (mirror the UIAConfig AcceptableValueRanges) ---
         // MaxW/MaxH are deliberately larger than any real display: every clamp path below caps them
@@ -118,10 +126,12 @@ namespace StationeersUIMod.UI.Grid
         private const float MinH = 300f, MaxH = 8000f;
 
         // --- pinned-window spawn defaults (match PinnedInventoryWindow's own defaults) ---
-        private const float PinW = 360f, PinH = 260f;
-        private const float PinGrabX = 24f;   // where the cursor lands inside the spawned title bar
-        private const float PinGrabY = 12f;
-        private const float PinCascade = 26f; // offset per already-open pin so entry-point pins don't stack
+        // #12: a NEW pin spawns at its 1080p proportions (x the resolution); stored pins keep their px.
+        private static float PinW { get { return 360f * WheelGridScale.Geo; } }
+        private static float PinH { get { return 260f * WheelGridScale.Geo; } }
+        private static float PinGrabX { get { return 24f * WheelGridScale.Geo; } }   // where the cursor lands inside the spawned title bar
+        private static float PinGrabY { get { return 12f * WheelGridScale.Geo; } }
+        private static float PinCascade { get { return 26f * WheelGridScale.Geo; } } // offset per already-open pin so entry-point pins don't stack
 
         private static GameObject _root;
         private static Canvas _canvas;
@@ -721,6 +731,9 @@ namespace StationeersUIMod.UI.Grid
                 h = h * 31 + Mathf.RoundToInt(CfgF(UIAConfig.GridPinTitleTextSize, 12f) * 16f);
                 h = h * 31 + CfgI(UIAConfig.GridCellCols, 5);
                 h = h * 31 + CfgI(UIAConfig.GridMaxBagCols, 2);
+                // #12: a resolution change (or the ScaleWithResolution toggle) and the F10 "Wheel &
+                // inventory text size" slider re-flow the open windows live, main + pinned.
+                h = h * 31 + global::StationeersUIMod.UI.WheelGridScale.Hash();
                 return h;
             }
         }
@@ -1138,6 +1151,8 @@ namespace StationeersUIMod.UI.Grid
             float chromeW = closeSz + 6f + ProfBtnW;
             _title.rectTransform.anchoredPosition = new Vector2(Pad + 2f, -Pad);
             _title.rectTransform.sizeDelta = new Vector2(Mathf.Max(40f, panelW - Pad * 2f - chromeW - 6f), TitleH);
+            float tfs = TitleTextSize();   // #12: live resolution / text size
+            if (!Mathf.Approximately(_title.fontSize, tfs)) _title.fontSize = tfs;
             HudText.Sync(_title);
             HudText.Set(_title, WindowTitle);
 
@@ -1151,7 +1166,12 @@ namespace StationeersUIMod.UI.Grid
             closeRt.anchoredPosition = new Vector2(panelW - Pad - closeSz * 0.5f, -Pad - TitleH * 0.5f); // centre pivot
             closeRt.sizeDelta = new Vector2(closeSz, closeSz);
             if (_closeBtn.Label != null)
+            {
                 _closeBtn.Label.rectTransform.sizeDelta = new Vector2(closeSz, closeSz);
+                // #12: the X is the button's icon, so it follows the button (resolution), not the text size.
+                float xfs = HudText.Size(15f * WheelGridScale.Geo);
+                if (!Mathf.Approximately(_closeBtn.Label.fontSize, xfs)) _closeBtn.Label.fontSize = xfs;
+            }
 
             var profRt = (RectTransform)_profBtn.transform;
             profRt.anchoredPosition = new Vector2(panelW - Pad - closeSz - 6f - ProfBtnW * 0.5f,
@@ -1169,6 +1189,7 @@ namespace StationeersUIMod.UI.Grid
             float vpH = Mathf.Max(40f, panelH - vpY - Pad);
             _viewport.anchoredPosition = new Vector2(vpX, -vpY);
             _viewport.sizeDelta = new Vector2(vpW, vpH);
+            // (#12: the wheel's scroll sensitivity is GridSelection.ApplyScrollMode's, resolution-scaled there.)
 
             StyleChrome();
         }
@@ -1287,7 +1308,7 @@ namespace StationeersUIMod.UI.Grid
             _panelBg = pGo.AddComponent<PanelGraphic>();
             _panelBg.raycastTarget = true;
 
-            _title = HudText.Make(_panel, "Title", HudText.Size(16f),
+            _title = HudText.Make(_panel, "Title", TitleTextSize(),
                 TextAlignmentOptions.Left, warp: false);
             AnchorTopLeft(_title.rectTransform);
 

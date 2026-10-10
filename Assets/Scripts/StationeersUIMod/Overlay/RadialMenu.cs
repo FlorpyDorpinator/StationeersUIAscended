@@ -1991,20 +1991,22 @@ namespace StationeersUIMod.Overlay
             float aMid = -Mathf.PI * 0.5f + sector * sourceIndex;
             // Roomier satellites: scale up with entry count so wedge labels stay readable.
             float satScale = UIAConfig.RadialSatelliteScale != null ? UIAConfig.RadialSatelliteScale.Value : 1f;
-            float outer = Mathf.Clamp(mainOuterR * 0.55f + Mathf.Max(0, entries.Count - 4) * 8f, 130f, 220f) * satScale;
+            // #12: mainOuterR is screen px (resolution-scaled); size in reference px, then scale back.
+            float wheelK = UI.WheelGridScale.Resolution();
+            float outer = Mathf.Clamp(mainOuterR / wheelK * 0.55f + Mathf.Max(0, entries.Count - 4) * 8f, 130f, 220f) * satScale * wheelK;
             // 2a: the child readout's font tracks its hub radius (innerR/110 in ReadoutView), so a
             // tiny hub made the "Stow X into Y" lines shrink to unreadable and overflow. Floor the
             // hub radius, then grow `outer` in step so the larger hub doesn't crush the wedge band.
             float hubRatio = UIAConfig.RadialSatelliteHubRatio != null ? UIAConfig.RadialSatelliteHubRatio.Value : 0.34f;
-            float innerR = Mathf.Max(outer * hubRatio, 76f * satScale);
-            outer = Mathf.Max(outer, innerR + 66f); // keep a usable wedge band around the bigger hub
+            float innerR = Mathf.Max(outer * hubRatio, 76f * satScale * wheelK);
+            outer = Mathf.Max(outer, innerR + 66f * wheelK); // keep a usable wedge band around the bigger hub
             var dir = new Vector2(Mathf.Cos(aMid), Mathf.Sin(aMid));
             _satellite = new SatelliteRing
             {
                 Title = string.IsNullOrEmpty(entry.SlideOutLabel) ? entry.Label : entry.SlideOutLabel + ": " + entry.Label,
                 Provider = entry.SlideOutProvider,
                 Entries = entries,
-                Center = mainCenter + dir * (mainOuterR + outer * 0.75f + 16f),
+                Center = mainCenter + dir * (mainOuterR + outer * 0.75f + 16f * wheelK),
                 OuterR = outer,
                 InnerR = innerR,
                 SourceIndex = sourceIndex,
@@ -2102,7 +2104,7 @@ namespace StationeersUIMod.Overlay
         /// (ImGui screen coords are y-down, so "bottom" is angles around +90°).</summary>
         internal static bool InCloseButton(Vector2 deltaFromCenter, float innerR)
         {
-            float hubR = innerR - 6f;
+            float hubR = innerR - 6f * UI.WheelGridScale.Resolution(); // #12: the drawn hub inset is 6 reference px
             float dist = deltaFromCenter.magnitude;
             // Outer bound matches the DRAWN band (0.94 * hubR) — never larger than the
             // visual, or clicks close from pixels that look like the wedge ring.
@@ -2118,10 +2120,15 @@ namespace StationeersUIMod.Overlay
             if (!IsOpen) return;
 
             var center = DrawUtil.ScreenCenter + _centerOffset;
-            float outerR = UIAConfig.RadialOuterRadius.Value;
+            // #12: the configured radii are 1080p reference px; WheelGridScale.Resolution() (x2 at 4K, 1
+            // when ScaleWithResolution is off) turns them into SCREEN px, so hit-testing below and the
+            // wheel's canvas (scaled by the same factor) agree.
+            float wheelK = UI.WheelGridScale.Resolution();
+            float outerR = UIAConfig.RadialOuterRadius.Value * wheelK;
             _lastOuterR = outerR;
             // Hub floor of 104px: the six-line center readout needs that much vertical room.
-            float innerR = Mathf.Clamp(UIAConfig.RadialInnerRadius.Value, 104f, Mathf.Max(104f, outerR - 30f));
+            float innerR = Mathf.Clamp(UIAConfig.RadialInnerRadius.Value, 104f,
+                Mathf.Max(104f, UIAConfig.RadialOuterRadius.Value - 30f)) * wheelK;
             _lastInnerR = innerR;
             var mouse = DrawUtil.MousePos();
 

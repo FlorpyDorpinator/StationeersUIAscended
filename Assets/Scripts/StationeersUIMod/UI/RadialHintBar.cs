@@ -65,6 +65,11 @@ namespace StationeersUIMod.UI
         // ---- the curved strip (D-021) ----
         private static ArcPlateLabel _arc;
 
+        /// <summary>#12: this canvas' scaleFactor (WheelGridScale.Resolution, x2 at 4K) — the strip is
+        /// laid out in 1080p reference units like the wheel it hugs; RadialHintContext publishes SCREEN
+        /// px, divided by this at each read. Reset in Shutdown.</summary>
+        private static float _k = 1f;
+
         /// <summary>Fallback height when config is unbound; the live value is <c>HintBarHeight</c>.</summary>
         private const float BarH = 30f;
         /// <summary>How far either side of straight-down the hint TEXT may run. Past ~55 degrees the end
@@ -174,6 +179,8 @@ namespace StationeersUIMod.UI
             EnsureBuilt();
             if (_canvas == null) return;
             if (!_canvas.gameObject.activeSelf) _canvas.gameObject.SetActive(true);
+            _k = WheelGridScale.Resolution();
+            if (!Mathf.Approximately(_canvas.scaleFactor, _k)) _canvas.scaleFactor = _k;
 
             float dt = Mathf.Min(Time.unscaledDeltaTime, 0.05f);
             bool ringKnown = RadialHintContext.GeometryFresh;
@@ -395,7 +402,7 @@ namespace StationeersUIMod.UI
         private static bool LayoutArc(float dt)
         {
             if (_arc == null) return false;
-            float outerR = RadialHintContext.OuterR;
+            float outerR = RadialHintContext.OuterR / _k;   // screen px -> canvas units
             float h = HeightPx();
             float innerR = outerR + DropPx();
             float rMid = innerR + h * 0.5f;
@@ -469,7 +476,7 @@ namespace StationeersUIMod.UI
                 : (UIAConfig.RadialBorderWidth != null ? UIAConfig.RadialBorderWidth.Value : 3.2f) * 0.5f;
             _arc.StylePlate(RadialPalette.ArcPlateFill.Value, RadialPalette.ArcPlateBorder.Value, bw);
             ApplyArcFx(_arc.Plate);
-            _arc.Layout(UnityRadialView.CanvasAnchoredPos(RadialHintContext.Center), innerR, h, top: false,
+            _arc.Layout(UnityRadialView.CanvasAnchoredPos(RadialHintContext.Center, _k), innerR, h, top: false,
                 _arcLen, PaddingPx() * 0.5f);
             return true;
         }
@@ -500,14 +507,15 @@ namespace StationeersUIMod.UI
         private static bool CoveredByChildRing(bool arc)
         {
             if (!RadialHintContext.SatelliteShown || !RadialHintContext.GeometryFresh) return false;
-            float inner = RadialHintContext.OuterR + DropPx();
+            // #12: all in canvas units (the published geometry is screen px).
+            float inner = RadialHintContext.OuterR / _k + DropPx();
             float outer = inner + HeightPx();
             float half = arc
                 ? ArcPlateLabel.HalfSpanFor(_arcLen, PaddingPx() * 0.5f, inner + HeightPx() * 0.5f)
                 : Mathf.Atan2((_panel != null ? _panel.sizeDelta.x : 300f) * 0.5f, Mathf.Max(1f, inner));
-            Vector2 d = RadialHintContext.SatCenter - RadialHintContext.Center;   // ImGui coords, y-down
+            Vector2 d = (RadialHintContext.SatCenter - RadialHintContext.Center) / _k;   // ImGui coords, y-down
             float dist = d.magnitude;
-            float rs = RadialHintContext.SatOuterR + 12f;
+            float rs = RadialHintContext.SatOuterR / _k + 12f;
             if (dist - rs > outer || dist + rs < inner) return false;
             float off = Mathf.Abs(Mathf.DeltaAngle(Mathf.Atan2(d.y, d.x) * Mathf.Rad2Deg, 90f)) * Mathf.Deg2Rad;
             float satHalf = dist > rs ? Mathf.Asin(Mathf.Clamp01(rs / dist)) : Mathf.PI;
@@ -554,8 +562,8 @@ namespace StationeersUIMod.UI
             if (!live)
                 _panel.anchoredPosition = new Vector2(0f, -140f);
             else if (ringKnown)
-                _panel.anchoredPosition = UnityRadialView.CanvasAnchoredPos(RadialHintContext.Center)
-                    + new Vector2(0f, -(RadialHintContext.OuterR + drop));
+                _panel.anchoredPosition = UnityRadialView.CanvasAnchoredPos(RadialHintContext.Center, _k)
+                    + new Vector2(0f, -(RadialHintContext.OuterR / _k + drop));
             else
             {
                 float outerR = UIAConfig.RadialOuterRadius != null ? UIAConfig.RadialOuterRadius.Value : 240f;
@@ -567,10 +575,12 @@ namespace StationeersUIMod.UI
         // ---- authored look (F10 → Radial → Hint bar; colours live in RadialPalette) ----
 
         private static float CornerPx() => UIAConfig.HintBarCorner != null ? UIAConfig.HintBarCorner.Value : 12f;
-        private static float HeightPx() => UIAConfig.HintBarHeight != null ? UIAConfig.HintBarHeight.Value : BarH;
-        private static float PaddingPx() => UIAConfig.HintBarPadding != null ? UIAConfig.HintBarPadding.Value : 24f;
+        // #12: the strip's text, and the plate height / end padding that hold it, follow the player's
+        // "Wheel & inventory text size" (WheelGridScale.Text) on top of the authored theme values.
+        private static float HeightPx() => (UIAConfig.HintBarHeight != null ? UIAConfig.HintBarHeight.Value : BarH) * WheelGridScale.Text();
+        private static float PaddingPx() => (UIAConfig.HintBarPadding != null ? UIAConfig.HintBarPadding.Value : 24f) * WheelGridScale.Text();
         private static float DropPx() => UIAConfig.HintBarDrop != null ? UIAConfig.HintBarDrop.Value : 34f;
-        private static float FontSizePx() => UIAConfig.HintBarFontSize != null ? UIAConfig.HintBarFontSize.Value : 11.2f;
+        private static float FontSizePx() => (UIAConfig.HintBarFontSize != null ? UIAConfig.HintBarFontSize.Value : 11.2f) * WheelGridScale.Text();
         private static bool BoldOn() => UIAConfig.HintBarBold == null || UIAConfig.HintBarBold.Value;
 
         /// <summary>Cheap change-detector over the values that affect LAYOUT (not just paint), so the
@@ -737,6 +747,7 @@ namespace StationeersUIMod.UI
             if (_root != null) Object.Destroy(_root);
             _root = null;
             _canvas = null;
+            _k = 1f;
             _rootGroup = null;
             _panel = null;
             _bg = null;

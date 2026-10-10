@@ -53,29 +53,33 @@ namespace StationeersUIMod.UI.Grid
     /// </summary>
     public sealed class GridRegionView : MonoBehaviour
     {
-        // Layout constants (px, at the canvas' reference resolution).
+        // Layout metrics (px at 1920x1080). #12: geometry rides WheelGridScale.Geo (the resolution
+        // factor, x2 at 4K); the TEXT-BEARING controls (Sort, chip, CAPTURE) ride WheelGridScale.Box so
+        // their labels keep their designed fit at a larger player text size.
         private const float CellSizeFallback = 46f; // used only if the config entry is not bound yet
-        private const float CellGap = 3f;        // tighter than Nested mode — the packed "one grid" read
-        private const float Border = 2f;         // region edge -> content inset (border line + breathing room)
-        private const float InnerPad = 5f;       // extra inner padding inside the region border
-        private const float TabLeft = 6f;        // tab's left inset from the region's left corner
-        private const float NestedIndent = 10f;  // nested storage regions inset a touch from the parent grid
-        private const float SectionGap = 6f;     // gap between the cell grid and nested regions (and between regions)
-        private const float MinRegionW = 60f;
-        private const float SortW = 38f;         // per-region Sort control (in the tab band, right of the tab)
-        private const float SortH = 16f;
-        private const float SortTabGap = 6f;     // gap between the manila tab and the Sort control in the tab band
+        private static float CellGap { get { return 3f * WheelGridScale.Geo; } }        // tighter than Nested mode — the packed "one grid" read
+        private static float Border { get { return 2f * WheelGridScale.Geo; } }         // region edge -> content inset (border line + breathing room)
+        private static float InnerPad { get { return 5f * WheelGridScale.Geo; } }       // extra inner padding inside the region border
+        private static float TabLeft { get { return 6f * WheelGridScale.Geo; } }        // tab's left inset from the region's left corner
+        private static float NestedIndent { get { return 10f * WheelGridScale.Geo; } }  // nested storage regions inset a touch from the parent grid
+        private static float SectionGap { get { return 6f * WheelGridScale.Geo; } }     // gap between the cell grid and nested regions (and between regions)
+        private static float MinRegionW { get { return 60f * WheelGridScale.Geo; } }
+        private static float SortW { get { return 38f * WheelGridScale.Box; } }         // per-region Sort control (in the tab band, right of the tab)
+        private static float SortH { get { return 16f * WheelGridScale.Box; } }
+        private static float SortTabGap { get { return 6f * WheelGridScale.Geo; } }     // gap between the manila tab and the Sort control in the tab band
 
         // Profile-mode strip (design O4a): the chip + CAPTURE band seated INSIDE the box's top
         // edge (the same band the Sort control lives in). Inside the box — deliberately NOT on
         // the manila tab band — so it renders identically inside a PinnedInventoryWindow, whose
         // suppressed tab band is shifted out of view.
-        private const float StripH = 16f;        // chip/CAPTURE control height (matches SortH)
-        private const float StripGap = 4f;       // gap between the strip band and the first cell row
-        private const float ChipMinW = 44f;
-        private const float ChipMaxW = 200f;
-        private const float ChipPad = 8f;        // horizontal text padding inside the chip
-        private const float CapBtnW = 56f;       // the CAPTURE button
+        private static float StripH { get { return 16f * WheelGridScale.Box; } }    // chip/CAPTURE control height (matches SortH)
+        private static float StripGap { get { return 4f * WheelGridScale.Geo; } }   // gap between the strip band and the first cell row
+        private static float ChipMinW { get { return 44f * WheelGridScale.Box; } }
+        private static float ChipMaxW { get { return 200f * WheelGridScale.Box; } }
+        private static float ChipPad { get { return 8f * WheelGridScale.Box; } }    // horizontal text padding inside the chip
+        private static float CapBtnW { get { return 56f * WheelGridScale.Box; } }   // the CAPTURE button
+        /// <summary>#12: the Sort / chip / CAPTURE label font (9 at 1080p) x resolution x text size.</summary>
+        private static float StripTextSize() { return HudText.Size(9f * WheelGridScale.Font); }
 
         // Device control buttons (on/off, lock/arm, valve, mode, split) — vanilla's InventoryWindow
         // interaction row, in our theme. D-005 (FlorpyDorp: "The buttons to control stuff should be
@@ -101,9 +105,10 @@ namespace StationeersUIMod.UI.Grid
         /// <c>UIAConfig.Init</c>). Read once per Bind/Layout into a local; never per cell.</summary>
         private static float CellPx()
         {
-            try { if (UIAConfig.GridCellSize != null) return UIAConfig.GridCellSize.Value; }
+            float c = CellSizeFallback;
+            try { if (UIAConfig.GridCellSize != null) c = UIAConfig.GridCellSize.Value; }
             catch { }
-            return CellSizeFallback;
+            return c * WheelGridScale.Geo;   // #12: the configured edge is 1080p px
         }
 
         /// <summary>The configured cells-per-row cap (<see cref="UIAConfig.GridCellCols"/>, 1..10,
@@ -218,6 +223,7 @@ namespace StationeersUIMod.UI.Grid
         private int _activeChildren;
         private float _cellPx = -1f;   // last applied cell edge (so Layout re-sizes only when it moved)
         private float _iconScale = -1f; // last applied icon scale (a live F9 icon-scale edit re-sizes cells even when the edge did not move)
+        private float _cellFont = -1f;  // #12: last applied WheelGridScale.Font (a text-size move re-fonts the cells)
         // Last laid-out region box size. StyleRegion issues the corner sweep through
         // GridTheme.ApplyBox (the ONE place a radius may be decided), which needs the box's w/h —
         // Layout records them here rather than calling SetShape itself.
@@ -299,7 +305,7 @@ namespace StationeersUIMod.UI.Grid
             _sortBg.raycastTarget = true;
             _sortClick = _sortGo.AddComponent<RegionClickable>();
             _sortClick.Clicked = DoSort;
-            _sortLabel = HudText.Make(_sortRt, "SortLabel", HudText.Size(9f),
+            _sortLabel = HudText.Make(_sortRt, "SortLabel", StripTextSize(),
                 TextAlignmentOptions.Center, warp: false);
             var slr = _sortLabel.rectTransform;
             slr.anchorMin = slr.anchorMax = new Vector2(0.5f, 0.5f);
@@ -322,7 +328,7 @@ namespace StationeersUIMod.UI.Grid
             _chipBg.raycastTarget = true;
             _chipClick = _chipGo.AddComponent<RegionClickable>();
             _chipClick.Clicked = OpenProfilePopup;
-            _chipLabel = HudText.Make(_chipRt, "ChipLabel", HudText.Size(9f),
+            _chipLabel = HudText.Make(_chipRt, "ChipLabel", StripTextSize(),
                 TextAlignmentOptions.Center, warp: false);
             _chipLabel.overflowMode = TextOverflowModes.Truncate;   // never "..." — the ellipsis glyph tofus
             var clr = _chipLabel.rectTransform;
@@ -342,7 +348,7 @@ namespace StationeersUIMod.UI.Grid
             _capBg.raycastTarget = true;
             _capClick = _capGo.AddComponent<RegionClickable>();
             _capClick.Clicked = OpenCapturePanel;
-            _capLabel = HudText.Make(_capRt, "CaptureLabel", HudText.Size(9f),
+            _capLabel = HudText.Make(_capRt, "CaptureLabel", StripTextSize(),
                 TextAlignmentOptions.Center, warp: false);
             var cpl = _capLabel.rectTransform;
             cpl.anchorMin = Vector2.zero;
@@ -446,6 +452,7 @@ namespace StationeersUIMod.UI.Grid
                 try { pn = BagProfileStore.GetAssignedProfileName(node.Container); } catch { }
                 _chipAssigned = !string.IsNullOrEmpty(pn);
                 string chipText = _chipAssigned ? pn : "no profile";
+                _chipLabel.fontSize = StripTextSize();   // #12: measure at the live font
                 HudText.Sync(_chipLabel);
                 HudText.Set(_chipLabel, chipText);
                 float m = 40f;
@@ -677,7 +684,12 @@ namespace StationeersUIMod.UI.Grid
                     if (sx > sxMax) sx = sxMax;
                     _sortRt.anchoredPosition = new Vector2(sx, -_tab.Height * 0.5f); // centre pivot
                     _sortRt.sizeDelta = new Vector2(sortW, sortH);
-                    if (_sortLabel != null) _sortLabel.rectTransform.sizeDelta = new Vector2(sortW, sortH);
+                    if (_sortLabel != null)
+                    {
+                        _sortLabel.rectTransform.sizeDelta = new Vector2(sortW, sortH);
+                        float sfs = StripTextSize();   // #12: live resolution / text size
+                        if (!Mathf.Approximately(_sortLabel.fontSize, sfs)) _sortLabel.fontSize = sfs;
+                    }
                     // A live scale edit changes only Layout metrics, not GridTheme.StyleHash, so the
                     // hash-gated StyleRegion below would keep the stale corner sweep — force one restyle.
                     _sortStyled = false;
@@ -691,6 +703,17 @@ namespace StationeersUIMod.UI.Grid
                     // it. The Sort control now lives in the TAB BAND above the box (not inside its
                     // top-right corner), so the strip has the full box width and reserves nothing for
                     // it. The cells start BELOW this band (see the y advance), so nothing here covers a cell.
+                    // #12: a live resolution / text-size change re-fonts the strip labels and
+                    // re-measures the chip (Bind measured it at the old font).
+                    float stripFs = StripTextSize();
+                    if (!Mathf.Approximately(_capLabel.fontSize, stripFs)) _capLabel.fontSize = stripFs;
+                    if (!Mathf.Approximately(_chipLabel.fontSize, stripFs))
+                    {
+                        _chipLabel.fontSize = stripFs;
+                        float mm = _chipLabel.GetPreferredValues(_chipLabel.text).x;
+                        if (!float.IsNaN(mm) && !float.IsInfinity(mm))
+                            _chipPrefW = Mathf.Clamp(mm + ChipPad * 2f, ChipMinW, ChipMaxW);
+                    }
                     float bandY = boxTop + Border + 3f;
                     float left = Border + InnerPad;
                     float rightLimit = width - Border - 3f;
@@ -738,9 +761,11 @@ namespace StationeersUIMod.UI.Grid
                 // change the edge, so an edge-only guard would miss it) — so a window resize-drag
                 // Relayout stays pure RectTransform writes (no mesh rebuilds).
                 float iconScale = BagGridCell.IconScale();
-                bool resize = cell != _cellPx || iconScale != _iconScale;
+                float cellFont = WheelGridScale.Font;   // #12: the corner text rides the text size too
+                bool resize = cell != _cellPx || iconScale != _iconScale || cellFont != _cellFont;
                 _cellPx = cell;
                 _iconScale = iconScale;
+                _cellFont = cellFont;
                 for (int i = 0; i < _activeCells; i++)
                 {
                     if (resize) _cells[i].SetSize(cell);
@@ -1260,6 +1285,7 @@ namespace StationeersUIMod.UI.Grid
             public string Label;          // the FULL vanilla label: the hover tooltip's title
             public bool Enabled = true;
             public float Size = -1f;      // last laid-out edge; -1 forces the next SetSize to re-lay
+            public float FontK = -1f;     // #12: last laid-out font factor (resolution x text size)
 
             public static CtrlButton Create(RectTransform parent)
             {
@@ -1373,8 +1399,13 @@ namespace StationeersUIMod.UI.Grid
             public void SetSize(float s)
             {
                 s = Mathf.Max(16f, s);
-                if (Size > 0f && Mathf.Approximately(s, Size)) return;
+                // #12: s is already resolution-scaled (it is the cell edge); gk = that factor for the
+                // fixed px bounds below, tsz = the player's text size on the fonts. A text-size move
+                // with an unchanged edge must still re-lay the fonts.
+                float gk = WheelGridScale.Geo, tsz = WheelGridScale.Text();
+                if (Size > 0f && Mathf.Approximately(s, Size) && Mathf.Approximately(FontK, gk * tsz)) return;
                 Size = s;
+                FontK = gk * tsz;
                 Rt.sizeDelta = new Vector2(s, s);
 
                 bool split = Kind != CtrlKind.Generic;
@@ -1387,25 +1418,27 @@ namespace StationeersUIMod.UI.Grid
                     float gw = count ? s * 0.62f : s - 6f;
                     g.anchoredPosition = new Vector2(count ? -s * 0.12f : 0f, s * 0.10f);
                     g.sizeDelta = new Vector2(gw, s * 0.56f);
-                    Glyph.fontSizeMin = HudText.Size(8f);
-                    Glyph.fontSizeMax = HudText.Size(Mathf.Clamp(s * 0.36f, 10f, 24f));
+                    Glyph.fontSizeMin = HudText.Size(8f * gk);
+                    Glyph.fontSizeMax = HudText.Size(Mathf.Clamp(s * 0.36f, 10f * gk, 24f * gk) * tsz);
 
                     var c = Caption.rectTransform;
                     c.anchoredPosition = new Vector2(0f, -s * 0.5f + s * 0.16f);
                     c.sizeDelta = new Vector2(s - 4f, s * 0.26f);
-                    Caption.fontSize = HudText.Size(Mathf.Clamp(s * 0.17f, 7f, 10f));
+                    // Fixed size (no auto-size): capped to the caption band so a big text size never
+                    // spills out of the square.
+                    Caption.fontSize = Mathf.Min(HudText.Size(Mathf.Clamp(s * 0.17f, 7f * gk, 10f * gk) * tsz), s * 0.26f);
                 }
                 else
                 {
                     g.anchoredPosition = Vector2.zero;
                     g.sizeDelta = new Vector2(s - 6f, s - 6f);
-                    Glyph.fontSizeMin = HudText.Size(6f);
-                    Glyph.fontSizeMax = HudText.Size(Mathf.Clamp(s * 0.24f, 8f, 13f));
+                    Glyph.fontSizeMin = HudText.Size(6f * gk);
+                    Glyph.fontSizeMax = HudText.Size(Mathf.Clamp(s * 0.24f, 8f * gk, 13f * gk) * tsz);
                 }
 
                 if (count)
                 {
-                    float tri = Mathf.Clamp(s * 0.16f, 5f, 12f);
+                    float tri = Mathf.Clamp(s * 0.16f, 5f * gk, 12f * gk);
                     float tx = s * 0.5f - tri * 0.5f - 4f;
                     var ur = (RectTransform)Up.transform;
                     var dr = (RectTransform)Down.transform;

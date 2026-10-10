@@ -1005,7 +1005,8 @@ namespace StationeersUIMod.UI.Menu.Tutorial
                 }
                 else
                 {
-                    float r = UIAConfig.RadialOuterRadius != null ? UIAConfig.RadialOuterRadius.Value : 240f;
+                    float r = (UIAConfig.RadialOuterRadius != null ? UIAConfig.RadialOuterRadius.Value : 240f)
+                        * global::StationeersUIMod.UI.WheelGridScale.Resolution();   // #12: screen px
                     AddDisc(new Vector2(Screen.width * 0.5f, Screen.height * 0.5f), r + band, sf);
                     estimated = true;
                 }
@@ -1025,8 +1026,8 @@ namespace StationeersUIMod.UI.Menu.Tutorial
             _wheelN++;
         }
 
-        /// <summary>The band an open ring reserves ABOVE its rim, in screen px (the radial canvas is
-        /// unscaled): <c>UnityRadialView.UpdateActionWord</c>'s bandTop - the lift (hover bulge 13 +
+        /// <summary>The band an open ring reserves ABOVE its rim, in screen px (the radial canvas renders
+        /// in 1080p units x WheelGridScale.Resolution, #12): <c>UnityRadialView.UpdateActionWord</c>'s bandTop - the lift (hover bulge 13 +
         /// hover border bw x 1.2 + two AA fringes + VerbGapPx 3), the curved word's plate
         /// (fs x 1.3 + 10), its border and the 12 px counter clearance - plus ~12 px for the page
         /// counter's own glyphs on top of it. Reserved whether or not the word shows (it rides the
@@ -1037,7 +1038,12 @@ namespace StationeersUIMod.UI.Menu.Tutorial
             float bw = UIAConfig.RadialBorderWidth != null ? Mathf.Max(0f, UIAConfig.RadialBorderWidth.Value) : 3.2f;
             float fs = UIAConfig.RadialTextVerb != null ? Mathf.Max(0f, UIAConfig.RadialTextVerb.Value) : 15f;
             float fe = UIAConfig.RadialEdgeFeather != null ? Mathf.Max(0f, UIAConfig.RadialEdgeFeather.Value) : 1.25f;
-            return 13f + bw * 1.2f + 2f * fe + 3f + fs * 1.3f + 10f + bw + 12f + 12f;
+            // #12: the wheel's canvas now renders in 1080p units scaled by WheelGridScale.Resolution,
+            // and the action word and counter follow the player's text size (WheelGridScale.Text) -
+            // so the band is (reference units) x the resolution factor in screen px.
+            float tx = global::StationeersUIMod.UI.WheelGridScale.Text();
+            return (13f + bw * 1.2f + 2f * fe + 3f + fs * tx * 1.3f + 10f + bw + 12f + 12f * tx)
+                * global::StationeersUIMod.UI.WheelGridScale.Resolution();
         }
 
         /// <summary>How far below the top edge (ref px) the highest wheel disc point over the span

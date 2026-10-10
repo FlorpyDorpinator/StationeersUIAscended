@@ -71,14 +71,18 @@ namespace StationeersUIMod.Windows
             EnsureBackdrop();
             _blackCanvas.gameObject.SetActive(true);
 
-            float outerR = UIAConfig.RadialOuterRadius.Value;
-            float innerR = Mathf.Clamp(UIAConfig.RadialInnerRadius.Value, 104f, Mathf.Max(104f, outerR - 30f));
+            // #12: configured radii are 1080p reference px; the preview hit-tests in SCREEN px, so
+            // scale them by the same resolution factor the live radial (RadialMenu.Draw) uses.
+            float wheelK = UI.WheelGridScale.Resolution();
+            float outerCfg = UIAConfig.RadialOuterRadius.Value;
+            float outerR = outerCfg * wheelK;
+            float innerR = Mathf.Clamp(UIAConfig.RadialInnerRadius.Value, 104f, Mathf.Max(104f, outerCfg - 30f)) * wheelK;
             var center = new Vector2(Screen.width * 0.32f, Screen.height * 0.52f);
 
             float satScale = UIAConfig.RadialSatelliteScale.Value;
-            float satOuter = Mathf.Clamp(outerR * 0.55f, 130f, 220f) * satScale;
+            float satOuter = Mathf.Clamp(outerCfg * 0.55f, 130f, 220f) * satScale * wheelK;
             float satInner = satOuter * 0.34f;
-            var satCenter = new Vector2(Screen.width * 0.32f + outerR + satOuter * 0.75f + 16f,
+            var satCenter = new Vector2(Screen.width * 0.32f + outerR + satOuter * 0.75f + 16f * wheelK,
                                         Screen.height * 0.40f);
 
             var entries = BuildDemoEntries();

@@ -16,6 +16,7 @@ namespace StationeersUIMod.UI
     public static class ParkedItemsView
     {
         private static Canvas _canvas;
+        private static float _k = 1f;   // #12: this canvas' scaleFactor (reset in Shutdown)
         private static readonly List<ChipVisual> _pool = new List<ChipVisual>();
         private static ChipVisual _ghost;
 
@@ -36,6 +37,10 @@ namespace StationeersUIMod.UI
             }
             EnsureCanvas();
             _canvas.gameObject.SetActive(true);
+            // #12: drawn in 1080p reference units on a canvas scaled by the wheel's resolution factor
+            // (chip positions are SCREEN px; ParkingState.ChipRadius, the hit radius, is scaled to match).
+            _k = WheelGridScale.Resolution();
+            if (!Mathf.Approximately(_canvas.scaleFactor, _k)) _canvas.scaleFactor = _k;
 
             while (_pool.Count < parking.Chips.Count)
                 _pool.Add(MakeChip("Chip" + _pool.Count));
@@ -46,7 +51,7 @@ namespace StationeersUIMod.UI
                 _pool[i].Root.gameObject.SetActive(used);
                 if (!used) continue;
                 var chip = parking.Chips[i];
-                DressChip(_pool[i], chip, UnityRadialView.CanvasAnchoredPos(chip.Pos), ghost: false);
+                DressChip(_pool[i], chip, UnityRadialView.CanvasAnchoredPos(chip.Pos, _k), ghost: false);
             }
 
             if (_ghost == null) _ghost = MakeChip("DragGhost");
@@ -57,7 +62,7 @@ namespace StationeersUIMod.UI
                 // The ghost follows the cursor and must draw over every parked chip,
                 // including ones pooled AFTER it was created.
                 _ghost.Root.SetAsLastSibling();
-                DressChip(_ghost, parking.Dragging, UnityRadialView.CanvasAnchoredPos(mouseImGui), ghost: true);
+                DressChip(_ghost, parking.Dragging, UnityRadialView.CanvasAnchoredPos(mouseImGui, _k), ghost: true);
             }
         }
 
@@ -70,6 +75,7 @@ namespace StationeersUIMod.UI
         {
             if (_canvas != null) Object.Destroy(_canvas.gameObject);
             _canvas = null;
+            _k = 1f;
             _pool.Clear();
             _ghost = null;
         }
@@ -86,18 +92,23 @@ namespace StationeersUIMod.UI
             rim.a *= ghost ? 0.6f : 1f;
             v.Circle.BorderColor = rim;
             v.Circle.BorderWidth = 2.2f;
-            v.Circle.SetRadius(ParkingState.ChipRadius);
+            float r = ParkingState.ChipRadiusRef;   // canvas units (the canvas carries the resolution)
+            v.Circle.SetRadius(r);
             v.Circle.Refresh();
 
             v.Icon.sprite = chip.Icon;
             v.Icon.enabled = chip.Icon != null;
             v.Icon.color = new Color(1f, 1f, 1f, ghost ? 0.85f : 1f);
-            v.Icon.rectTransform.sizeDelta = Vector2.one * (ParkingState.ChipRadius * 1.5f);
+            v.Icon.rectTransform.sizeDelta = Vector2.one * (r * 1.5f);
 
             v.Name.gameObject.SetActive(!ghost && chip.Icon == null);
             if (v.Name.gameObject.activeSelf)
             {
                 UnityRadialView.SyncFont(v.Name);
+                // #12: the player's text size, in a box that grows to hold it.
+                float tx = WheelGridScale.Text();
+                if (!Mathf.Approximately(v.Name.fontSizeMax, 12f * tx)) v.Name.fontSizeMax = 12f * tx;
+                v.Name.rectTransform.sizeDelta = new Vector2(r * 1.8f, 30f * tx);
                 v.Name.text = UnityRadialView.WedgeText(chip.Name);
             }
         }
@@ -143,7 +154,7 @@ namespace StationeersUIMod.UI
             tmp.fontSizeMin = 8f;
             tmp.fontSizeMax = 12f;
             tmp.raycastTarget = false;
-            tmp.rectTransform.sizeDelta = new Vector2(ParkingState.ChipRadius * 1.8f, 30f);
+            tmp.rectTransform.sizeDelta = new Vector2(ParkingState.ChipRadiusRef * 1.8f, 30f);
 
             return new ChipVisual { Root = rt, Circle = circle, Icon = icon, Name = tmp };
         }

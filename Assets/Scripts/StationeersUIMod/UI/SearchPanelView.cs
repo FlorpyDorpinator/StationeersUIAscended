@@ -269,7 +269,15 @@ namespace StationeersUIMod.UI
         {
             EnsureCanvas();
             _canvas.gameObject.SetActive(true);
-            _root.anchoredPosition = UnityRadialView.CanvasAnchoredPos(center);
+            // #12: like the wheel, the panel renders in 1080p reference units on a canvas scaled by the
+            // resolution factor; the caller's radii are SCREEN px (RadialMenu scales the configured
+            // radii by the same factor for hit-testing), so convert them here. tx = the player's
+            // "Wheel & inventory text size" (font ceilings + the fixed text-box heights).
+            float k = WheelGridScale.Resolution();
+            if (!Mathf.Approximately(_canvas.scaleFactor, k)) _canvas.scaleFactor = k;
+            innerR /= k; outerR /= k;
+            float tx = WheelGridScale.Text();
+            _root.anchoredPosition = UnityRadialView.CanvasAnchoredPos(center, k);
 
             float gapRad = UIAConfig.RadialWedgeGapDeg != null
                 ? UIAConfig.RadialWedgeGapDeg.Value * Mathf.Deg2Rad : 0f;
@@ -296,13 +304,16 @@ namespace StationeersUIMod.UI
             _title.fontStyle = UnityRadialView.WedgeFontStyle();
             _title.text = UnityRadialView.WedgeText("Search");
             _title.color = RadialPalette.TextPrimary.Value;
-            _title.rectTransform.sizeDelta = new Vector2(ringWidth * 1.6f, 22f);
+            SetMax(_title, 20f * tx);
+            _title.rectTransform.sizeDelta = new Vector2(ringWidth * 1.6f, 22f * tx);
             _title.rectTransform.anchoredPosition = new Vector2(0f, midR + ringWidth * 0.14f);
 
             var boxCol = Color.Lerp(Color.black, RadialPalette.WedgeBg.Value, 0.35f);
             boxCol.a = 0.92f;
             _inputBg.color = boxCol;
-            _inputBg.rectTransform.sizeDelta = new Vector2(Mathf.Max(150f, ringWidth * 1.5f), 30f);
+            _inputBg.rectTransform.sizeDelta = new Vector2(Mathf.Max(150f, ringWidth * 1.5f), 30f * tx);
+            SetMax(_queryText, 16f * tx);
+            _queryText.rectTransform.sizeDelta = new Vector2(240f * tx, 26f * tx);
             _inputBg.rectTransform.anchoredPosition = new Vector2(0f, midR - ringWidth * 0.16f);
 
             bool caretOn = Mathf.Repeat(Time.unscaledTime, 1f) < 0.55f;
@@ -329,10 +340,14 @@ namespace StationeersUIMod.UI
                 ? hoveredRow.Location + (hoveredRow.Count > 1 ? "  x" + hoveredRow.Count : "")
                 : _rows.Count > MaxResultWedges ? "wheel = more results" : "";
             _hubLine2.color = RadialPalette.TextDim.Value;
-            _hubLine1.rectTransform.sizeDelta = new Vector2((innerR - 8f) * 1.7f, 20f);
-            _hubLine2.rectTransform.sizeDelta = new Vector2((innerR - 8f) * 1.7f, 18f);
-            _hubLine1.rectTransform.anchoredPosition = new Vector2(0f, 6f);
-            _hubLine2.rectTransform.anchoredPosition = new Vector2(0f, -14f);
+            // Two lines: capped so the pair (~40 tall at 1x) stays inside the hub circle.
+            float th = tx <= 1f ? tx : Mathf.Min(tx, Mathf.Max(1f, (innerR - 8f) * 0.8f / 24f));
+            SetMax(_hubLine1, 15f * th);
+            SetMax(_hubLine2, 12f * th);
+            _hubLine1.rectTransform.sizeDelta = new Vector2((innerR - 8f) * 1.7f, 20f * th);
+            _hubLine2.rectTransform.sizeDelta = new Vector2((innerR - 8f) * 1.7f, 18f * th);
+            _hubLine1.rectTransform.anchoredPosition = new Vector2(0f, 6f * th);
+            _hubLine2.rectTransform.anchoredPosition = new Vector2(0f, -14f * th);
 
             // --- result wedges across the bottom half ---
             int count = visible.Count;
@@ -382,14 +397,16 @@ namespace StationeersUIMod.UI
                 v.Name.fontStyle = UnityRadialView.WedgeFontStyle();
                 v.Name.text = UnityRadialView.WedgeText(row.Name) + (row.Count > 1 ? " x" + row.Count : "");
                 v.Name.color = RadialPalette.TextPrimary.Value;
-                v.Name.rectTransform.sizeDelta = new Vector2(Mathf.Max(60f, chord - 8f), 30f);
-                v.Name.rectTransform.anchoredPosition = slot - new Vector2(0f, iconSize * 0.5f + 10f);
+                SetMax(v.Name, 13f * tx);
+                v.Name.rectTransform.sizeDelta = new Vector2(Mathf.Max(60f, chord - 8f), 30f * tx);
+                v.Name.rectTransform.anchoredPosition = slot - new Vector2(0f, iconSize * 0.5f + 10f * tx);
 
                 UnityRadialView.SyncFont(v.State);
                 v.State.text = row.State ?? "";
                 v.State.color = RadialPalette.TextDim.Value;
-                v.State.rectTransform.sizeDelta = new Vector2(Mathf.Max(60f, iconSize * 1.6f), 15f);
-                v.State.rectTransform.anchoredPosition = slot + new Vector2(0f, iconSize * 0.62f + 6f);
+                SetMax(v.State, 11f * tx);
+                v.State.rectTransform.sizeDelta = new Vector2(Mathf.Max(60f, iconSize * 1.6f), 15f * tx);
+                v.State.rectTransform.anchoredPosition = slot + new Vector2(0f, iconSize * 0.62f + 6f * tx);
             }
         }
 
@@ -463,6 +480,12 @@ namespace StationeersUIMod.UI
             _hub.raycastTarget = false;
             _hubLine1 = MakeText(_root, "HubLine1", 15f);
             _hubLine2 = MakeText(_root, "HubLine2", 12f);
+        }
+
+        /// <summary>#12: set an auto-size ceiling only when it moved (written every frame).</summary>
+        private static void SetMax(TextMeshProUGUI t, float max)
+        {
+            if (t != null && !Mathf.Approximately(t.fontSizeMax, max)) t.fontSizeMax = max;
         }
 
         private static TextMeshProUGUI MakeText(Transform parent, string name, float size)

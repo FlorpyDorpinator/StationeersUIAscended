@@ -30,6 +30,8 @@ namespace StationeersUIMod.UI.Menu.Tabs.Storage
                 }, "0", 1f);
             UiaSearch.RegisterRow(TabTitle, "smartstow.ui", "Universal Inventory cell size",
                 UiaSearch.MakeJump(cell.transform.parent.gameObject));
+            // #12: the same row as F10 Radial > Size & readout (one config entry, two doors).
+            WheelInvTextRow.Build(sec.Body, TabTitle, "smartstow.ui");
 
             // GridSelection reads UIAConfig.GridKeyboardNav live every interactive frame, so the
             // flip takes effect without a rebuild.

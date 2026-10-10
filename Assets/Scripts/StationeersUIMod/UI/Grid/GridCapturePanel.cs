@@ -414,8 +414,15 @@ namespace StationeersUIMod.UI.Grid
             y += BtnH + 10f;
 
             _panelH = y;
-            float px = (Screen.width - PanelW) * 0.5f;
-            float py = (Screen.height - _panelH) * 0.5f;
+            // #12: a centred modal of text rows with no drag/resize, so it takes the CanvasScaler
+            // route: the whole dialog is laid out in 1080p units above and its canvas scales it by
+            // WheelGridScale.Box (resolution x a larger player text size) — capped so it still fits
+            // the screen, never below 1. Rebuilt on every open, so it opens at the live size.
+            float cs = Mathf.Min(WheelGridScale.Box,
+                Mathf.Max(1f, Mathf.Min(Screen.width / (PanelW + 24f), Screen.height / (_panelH + 24f))));
+            canvas.scaleFactor = cs;
+            float px = (Screen.width / cs - PanelW) * 0.5f;
+            float py = (Screen.height / cs - _panelH) * 0.5f;
             px = Mathf.Max(0f, px);
             py = Mathf.Max(0f, py);
             _panel.anchoredPosition = new Vector2(px + PanelW * 0.5f, -(py + _panelH * 0.5f));

@@ -136,7 +136,7 @@ namespace StationeersUIMod.UI.Grid
         {
             if (scroll == null) return;
             bool ownWheel = Enabled && !MouseFreed();
-            scroll.scrollSensitivity = ownWheel ? 0f : DefaultScrollSensitivity;
+            scroll.scrollSensitivity = ownWheel ? 0f : DefaultScrollSensitivity * WheelGridScale.Geo;   // #12: content is resolution-scaled
         }
 
         /// <summary>The cursor is "freed" — mouse-control / double-tap latch, vanilla

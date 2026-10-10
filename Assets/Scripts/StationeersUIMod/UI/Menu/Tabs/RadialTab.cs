@@ -126,6 +126,8 @@ namespace StationeersUIMod.UI.Menu.Tabs
             UiaSearch.RegisterRow(Title, "radial.size", "ALL CAPS labels", UiaSearch.MakeJump(caps.transform.parent.gameObject));
             UiaSearch.RegisterRow(Title, "radial.size", "Live state under icons", UiaSearch.MakeJump(stateTxt.transform.parent.gameObject));
             UiaSearch.RegisterRow(Title, "radial.size", "Show item name under each icon", UiaSearch.MakeJump(wedgeLbl.transform.parent.gameObject));
+            // #12: a personal readability setting, NOT part of the radial theme (no MarkThemeChanged).
+            WheelInvTextRow.Build(sec.Body, Title, "radial.size");
 
             var ex = sec.Extras;
             if (ex == null) return;

@@ -254,6 +254,17 @@ namespace StationeersUIMod
         /// the theme's own HudPalette Critical / Warn colour. Shared across tiers by design (the chip
         /// only shows while a helmet is worn).</summary>
         public static ConfigEntry<HelmetOpenWarningMode> HelmetOpenWarning;
+        /// <summary>GitHub #12: "Wheel &amp; inventory text size" — a multiplier (0.75..2.5, default 1)
+        /// on the text of the radial wheels (wedge labels, hub readout, action word, hint strip,
+        /// search) and the Universal Inventory / pinned storage windows (cell counts, bag tabs,
+        /// titles, buttons), on top of the resolution scaling (<c>UI.WheelGridScale</c>).
+        /// Deliberately a UIAConfig PLAYER preference, not a theme knob (the
+        /// <see cref="HelmetOpenWarning"/> precedent): it is an accessibility / eyesight setting, so
+        /// it must not change when the player tries another UI theme, and it is NOT in HudTheme's
+        /// radial include-list. Shared across tiers by design (the wheel and the windows are not
+        /// tiered HUD elements). Shown in F10 Radial > Size &amp; readout AND F10 Storage >
+        /// Universal Inventory (one config entry, two doors).</summary>
+        public static ConfigEntry<float> WheelInvTextScale;
 
         // --- Radial visuals ---
         public static ConfigEntry<float> RadialOuterRadius;
@@ -518,7 +529,8 @@ namespace StationeersUIMod
             GridCellSize = cfg.Bind("9. The Grid", "CellSize", 46f,
                 new ConfigDescription("Edge length in pixels of one inventory cell. Item icons " +
                     "scale with it (icon = size x 0.7). Adjust from the F10 menu; the open " +
-                    "window relayouts live.",
+                    "window relayouts live. Pixels at 1920x1080: a bigger screen scales the cells " +
+                    "up with it (10. Visor HUD > ScaleWithResolution).",
                     new AcceptableValueRange<float>(28f, 80f)));
             GridCellCols = cfg.Bind("9. The Grid", "CellColumns", 5,
                 new ConfigDescription("How many item cells a storage region shows per row at full " +
@@ -603,6 +615,16 @@ namespace StationeersUIMod
                 "state-chip strip turns red (Red) or amber (Amber). Off by default. A personal alert " +
                 "setting, so it stays the same whichever UI theme is active; the red and amber are " +
                 "the theme's own Critical and Warn colours.");
+            WheelInvTextScale = cfg.Bind("7. HUD", "WheelAndInventoryTextSize", 1.0f,
+                new ConfigDescription("Wheel & inventory text size: a multiplier on the text in the " +
+                    "radial wheels (wedge labels, the hub readout, the action word, the key-hint strip) " +
+                    "and in the Universal Inventory and pinned storage windows (cell counts, bag tabs, " +
+                    "titles, buttons). 1.0 = the designed size. Applied on top of the resolution " +
+                    "scaling (10. Visor HUD > ScaleWithResolution). Labels still fit: their boxes grow " +
+                    "with the text where they can, and text bounded by a wedge, the hub or a cell " +
+                    "shrinks to fit (make the wheel, hub or cells bigger for more room). A personal " +
+                    "readability setting, so it stays the same whichever UI theme is active.",
+                    new AcceptableValueRange<float>(0.75f, 2.5f)));
             // HardcoreGating removed in Wave B: it gated the legacy ImGui overlay's helmet/sensor
             // visibility, which no longer exists. The LIVE diegetic system is HudConfig.DiegeticTiers.
             // Key pruned from player cfgs by ConfigMigration step 2.

@@ -2208,6 +2208,7 @@ namespace StationeersUIMod.Testing
         {
             float r = 240f;
             try { if (UIAConfig.RadialOuterRadius != null) r = UIAConfig.RadialOuterRadius.Value; } catch { }
+            r *= UI.WheelGridScale.Resolution();   // #12: the live ring's radius is screen px
             return DrawUtil.ScreenCenter + new Vector2(r + 140f, 0f);
         }
 

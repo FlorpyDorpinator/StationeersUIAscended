@@ -22,8 +22,14 @@ namespace StationeersUIMod.Overlay
     {
         public const int MaxChips = 12;
 
-        /// <summary>Bubble radius in px — live-tunable in the radial editor.</summary>
-        public static float ChipRadius => UIAConfig.ParkedChipRadius != null
+        /// <summary>Bubble radius in SCREEN px (what the chip hit-tests use) — the configured radius
+        /// (<see cref="ChipRadiusRef"/>) x the wheel's resolution factor (#12, x2 at 4K), so a chip
+        /// keeps its size next to the wheel it was dragged off.</summary>
+        public static float ChipRadius => ChipRadiusRef * UI.WheelGridScale.Resolution();
+
+        /// <summary>The configured bubble radius in 1080p reference px — live-tunable in the radial
+        /// editor; ParkedItemsView draws it on its resolution-scaled canvas.</summary>
+        public static float ChipRadiusRef => UIAConfig.ParkedChipRadius != null
             ? UIAConfig.ParkedChipRadius.Value : 39f;
 
         public sealed class Chip

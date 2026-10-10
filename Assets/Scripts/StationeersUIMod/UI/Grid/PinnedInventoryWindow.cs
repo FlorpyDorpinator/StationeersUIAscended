@@ -58,16 +58,19 @@ namespace StationeersUIMod.UI.Grid
     /// </summary>
     public sealed class PinnedInventoryWindow : MonoBehaviour
     {
-        // --- layout constants (px, screen-space overlay); deliberately the main panel's, one size down ---
-        private const float Pad = 8f;
-        private const float TitleH = 24f;
-        private const float TitleGap = 4f;
+        // --- layout metrics (px at 1920x1080, screen-space overlay); deliberately the main panel's, one size down ---
+        // #12: the INTERIOR layout rides WheelGridScale (Geo = resolution; Box = resolution x a larger
+        // player text size, for the title band) like TheGridPanel's; the window's own position/size,
+        // drag, resize and screen clamps stay raw screen px.
+        private static float Pad { get { return 8f * WheelGridScale.Geo; } }
+        private static float TitleH { get { return 24f * WheelGridScale.Box; } }
+        private static float TitleGap { get { return 4f * WheelGridScale.Geo; } }
         private const float BtnSizeFallback = 20f;   // used only before UIAConfig binds (hot reload)
-        private const float BtnGap = 4f;
+        private static float BtnGap { get { return 4f * WheelGridScale.Geo; } }
         private const float IconSizeFallback = 16f;   // title-icon size before UIAConfig binds (hot reload)
         private const float TitleTextFallback = 12f;  // title font size before UIAConfig binds (hot reload)
-        private const float GripSize = 16f;
-        private const float GripInset = 3f;
+        private static float GripSize { get { return 16f * WheelGridScale.Geo; } }
+        private static float GripInset { get { return 3f * WheelGridScale.Geo; } }
         // No radius or border-width constants: both are inherited from the global box theme through
         // GridTheme.ApplyBox (the grip's drawn strokes take GridTheme.BorderWidth, floored so a
         // near-zero global line does not make the grip invisible).
@@ -81,7 +84,9 @@ namespace StationeersUIMod.UI.Grid
         private const float MinW = 180f, MaxW = 8000f;
         private const float MinH = 120f, MaxH = 8000f;
 
-        private const float DefaultW = 360f, DefaultH = 260f;
+        // #12: a pin with no stored geometry opens at its 1080p proportions (x the resolution).
+        private static float DefaultW { get { return 360f * WheelGridScale.Geo; } }
+        private static float DefaultH { get { return 260f * WheelGridScale.Geo; } }
 
         /// <summary>The F9-editable chrome BUTTON size in px (<see cref="UIAConfig.GridChromeButtonSize"/>,
         /// clamped 12..40, shipped default 20) — the close X and the shrink/restore button, kept one
@@ -91,9 +96,10 @@ namespace StationeersUIMod.UI.Grid
         /// <c>UIAConfig.Init</c>).</summary>
         private static float BtnSize()
         {
-            try { if (UIAConfig.GridChromeButtonSize != null) return Mathf.Clamp(UIAConfig.GridChromeButtonSize.Value, 12f, 40f); }
+            float s = BtnSizeFallback;
+            try { if (UIAConfig.GridChromeButtonSize != null) s = Mathf.Clamp(UIAConfig.GridChromeButtonSize.Value, 12f, 40f); }
             catch { }
-            return BtnSizeFallback;
+            return s * WheelGridScale.Geo;   // #12
         }
 
         /// <summary>The F9-editable title ICON size in px (<see cref="UIAConfig.GridPinTitleIconSize"/>,
@@ -103,9 +109,10 @@ namespace StationeersUIMod.UI.Grid
         /// (hot reload before <c>UIAConfig.Init</c>).</summary>
         private static float PinTitleIconSize()
         {
-            try { if (UIAConfig.GridPinTitleIconSize != null) return Mathf.Clamp(UIAConfig.GridPinTitleIconSize.Value, 8f, 32f); }
+            float s = IconSizeFallback;
+            try { if (UIAConfig.GridPinTitleIconSize != null) s = Mathf.Clamp(UIAConfig.GridPinTitleIconSize.Value, 8f, 32f); }
             catch { }
-            return IconSizeFallback;
+            return s * WheelGridScale.Box;   // #12: sits in the (text-sized) title band
         }
 
         /// <summary>The F9-editable title TEXT size (<see cref="UIAConfig.GridPinTitleTextSize"/>, clamped
@@ -114,9 +121,10 @@ namespace StationeersUIMod.UI.Grid
         /// live edit; falls back to 12 before the config binds (hot reload before <c>UIAConfig.Init</c>).</summary>
         private static float PinTitleTextSize()
         {
-            try { if (UIAConfig.GridPinTitleTextSize != null) return Mathf.Clamp(UIAConfig.GridPinTitleTextSize.Value, 8f, 24f); }
+            float fs = TitleTextFallback;
+            try { if (UIAConfig.GridPinTitleTextSize != null) fs = Mathf.Clamp(UIAConfig.GridPinTitleTextSize.Value, 8f, 24f); }
             catch { }
-            return TitleTextFallback;
+            return fs * WheelGridScale.Font;   // #12: resolution x the player's text size
         }
 
         // ---------- shared canvas + live registry (the only statics; all reset in Shutdown) ----------
@@ -1112,10 +1120,18 @@ namespace StationeersUIMod.UI.Grid
             shrinkRt.sizeDelta = new Vector2(btn, btn);
             if (_shrinkIcon != null)
                 _shrinkIcon.rectTransform.sizeDelta = new Vector2(btn - 6f, btn - 6f);
+            // #12: the X / "-" labels are the buttons' icons, so they follow the button (resolution).
+            float bfs = HudText.Size(12f * WheelGridScale.Geo);
             if (_closeBtn != null && _closeBtn.Label != null)
+            {
                 _closeBtn.Label.rectTransform.sizeDelta = new Vector2(btn, btn);
+                if (!Mathf.Approximately(_closeBtn.Label.fontSize, bfs)) _closeBtn.Label.fontSize = bfs;
+            }
             if (_shrinkBtn != null && _shrinkBtn.Label != null)
+            {
                 _shrinkBtn.Label.rectTransform.sizeDelta = new Vector2(btn, btn);
+                if (!Mathf.Approximately(_shrinkBtn.Label.fontSize, bfs)) _shrinkBtn.Label.fontSize = bfs;
+            }
 
             // Title icon (centre pivot) then the name, both inside the title band. Live F9 icon size,
             // read once and applied to the icon rect; the title font is re-fit below.
@@ -1157,6 +1173,8 @@ namespace StationeersUIMod.UI.Grid
             float vpH = Mathf.Max(30f, panelH - vpY - Pad);
             _viewport.anchoredPosition = new Vector2(vpX, -vpY);
             _viewport.sizeDelta = new Vector2(vpW, vpH);
+            // #12: one wheel notch scrolls the same share of the (resolution-scaled) content.
+            if (_scroll != null) _scroll.scrollSensitivity = 28f * WheelGridScale.Geo;
 
             StyleChrome();
         }
