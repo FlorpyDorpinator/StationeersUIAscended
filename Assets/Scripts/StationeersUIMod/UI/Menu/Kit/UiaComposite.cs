@@ -1223,11 +1223,23 @@ namespace StationeersUIMod.UI.Menu.Kit
                 UiaControls.FitText(_label, 8.5f);
             }
 
+            /// <summary>How far the SELECTED tab's body dips below band-top (2026-10-11, FlorpyDorp's
+            /// "little black line between the manila folder thing and the background orange"):
+            /// the body's bottom anti-alias row and the frame ring's 1px outer fringe both faded
+            /// to transparent on the SAME line, so the dark tab-area backdrop showed through as a
+            /// hairline. Dipping the body 2px into the band lets its edge fade over solid band;
+            /// its bottom colour == the band crown (FrameTop), so the overlap itself is invisible.
+            /// The slant and the feet stay measured from the FACE height (minus this dip).</summary>
+            private const float BandDip = 2f;
+
             internal void SetSelected(bool s)
             {
                 _selected = s;
                 if (_body != null)
+                {
                     _body.offsetMax = new Vector2(0f, s ? 0f : -_raise);   // selected rises 3px
+                    _body.offsetMin = new Vector2(0f, s ? _bandTh - BandDip : _bandTh);
+                }
                 if (_feet != null && _feet.gameObject.activeSelf != s)
                     _feet.gameObject.SetActive(s);
             }
@@ -1243,7 +1255,10 @@ namespace StationeersUIMod.UI.Menu.Kit
                 // The measured silhouettes: r9 arcs + 13-deg slants selected, r6 + 15-deg
                 // unselected; the trapezoid's top narrowing = tan(slant) x face height.
                 float rTop = _selected ? 9f : 6f;
-                float topInset = (_selected ? 0.2309f : 0.2679f) * size.y;
+                // The face height excludes the selected tab's BandDip, so the slant and the feet
+                // land exactly where they did before the dip.
+                float faceH = _selected ? size.y - BandDip : size.y;
+                float topInset = (_selected ? 0.2309f : 0.2679f) * faceH;
 
                 // The MOVING edge light first (the analytic sdfglass path — the shader-time
                 // sweep the HUD boxes run; the strip is never masked, so it is always
@@ -1270,7 +1285,7 @@ namespace StationeersUIMod.UI.Menu.Kit
                     _grad.ConfigureThreeStop(UiaFolderPalette.TabFillTop, UiaFolderPalette.TabFillMid,
                         bot, topInset, rTop);
                     if (_feet != null)
-                        _feet.Configure(size.y, _bandTh, topInset, bot);
+                        _feet.Configure(faceH, _bandTh, topInset, bot);
                 }
                 else
                 {
