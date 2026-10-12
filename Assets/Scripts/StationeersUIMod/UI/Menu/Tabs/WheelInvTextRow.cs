@@ -25,10 +25,12 @@ namespace StationeersUIMod.UI.Menu.Tabs
             {
                 var res = UiaControls.ToggleRow(parent, ResLabel, UIAConfig.WheelInvScaleWithResolution.Value,
                     v => UIAConfig.WheelInvScaleWithResolution.Value = v);
-                UiaControls.Note(parent, "Off (default): the wheels and the inventory windows keep the same "
-                    + "pixel size on every screen - use Wheel size / Cell size to resize them. On: above "
-                    + "1920x1080 they grow with the screen (x2 at 3840x2160). Follows the HUD's Scale with "
-                    + "resolution setting. A personal setting: it stays the same whichever UI theme you use.");
+                UiaControls.Note(parent, "On by default. The wheels and inventory windows are designed at "
+                    + "2560x1440; on any other screen this keeps them the same size relative to your screen, "
+                    + "growing on bigger screens (x1.5 at 3840x2160) and shrinking on smaller ones (x0.75 at "
+                    + "1920x1080). Nothing changes at 2560x1440. Off: they keep the same pixel size on every "
+                    + "screen - use Wheel size / Cell size to resize them. A personal setting: it stays the "
+                    + "same whichever UI theme you use.");
                 var resJump = UiaSearch.MakeJump(res.transform.parent.gameObject);
                 UiaSearch.RegisterRow(tabTitle, sectionId, ResLabel, resJump);
                 UiaSearch.RegisterRow(tabTitle, sectionId, "Wheel and inventory size for 4K / big screens", resJump);

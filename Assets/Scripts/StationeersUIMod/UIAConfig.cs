@@ -541,8 +541,8 @@ namespace StationeersUIMod
             GridCellSize = cfg.Bind("9. The Grid", "CellSize", 46f,
                 new ConfigDescription("Edge length in pixels of one inventory cell. Item icons " +
                     "scale with it (icon = size x 0.7). Adjust from the F10 menu; the open " +
-                    "window relayouts live. (To grow the cells with a big screen automatically, turn on " +
-                    "7. HUD > WheelAndInventoryScaleWithResolution.)",
+                    "window relayouts live. Sized for a 2560x1440 screen; 7. HUD > " +
+                    "WheelAndInventoryScaleFrom1440p (on by default) scales it for other screens.",
                     new AcceptableValueRange<float>(28f, 160f)));
             GridCellCols = cfg.Bind("9. The Grid", "CellColumns", 5,
                 new ConfigDescription("How many item cells a storage region shows per row at full " +
@@ -631,20 +631,23 @@ namespace StationeersUIMod
                 new ConfigDescription("Wheel & inventory text size: a multiplier on the text in the " +
                     "radial wheels (wedge labels, the hub readout, the action word, the key-hint strip) " +
                     "and in the Universal Inventory and pinned storage windows (cell counts, bag tabs, " +
-                    "titles, buttons). 1.0 = the designed size. Applied on top of the opt-in resolution " +
-                    "scaling (WheelAndInventoryScaleWithResolution). Labels still fit: their boxes grow " +
+                    "titles, buttons). 1.0 = the designed size. Applied on top of the automatic screen " +
+                    "scaling (WheelAndInventoryScaleFrom1440p). Labels still fit: their boxes grow " +
                     "with the text where they can, and text bounded by a wedge, the hub or a cell " +
                     "shrinks to fit (make the wheel, hub or cells bigger for more room). A personal " +
                     "readability setting, so it stays the same whichever UI theme is active.",
                     new AcceptableValueRange<float>(0.75f, 2.5f)));
-            WheelInvScaleWithResolution = cfg.Bind("7. HUD", "WheelAndInventoryScaleWithResolution", false,
-                "Scale the radial wheels and the Universal Inventory / pinned storage windows with the " +
-                "screen resolution: on a screen above 1920x1080 their wedges, cells and text grow in step " +
-                "(x2 at 3840x2160), never shrinking below their designed size on a smaller screen. " +
-                "Follows 10. Visor HUD > ScaleWithResolution (off there = off here too). Off (default) = " +
-                "the wheels and windows keep their fixed pixel sizes; use the Wheel size / Cell size " +
-                "sliders to resize them by hand. A personal setting, so it stays the same whichever UI " +
-                "theme is active.");
+            // Key renamed before it ever shipped (the 2026-10-11 dev builds wrote
+            // "WheelAndInventoryScaleWithResolution" = false); the new name gives every player,
+            // FlorpyDorp's own test cfg included, the new default ON. Never released, so no migration.
+            WheelInvScaleWithResolution = cfg.Bind("7. HUD", "WheelAndInventoryScaleFrom1440p", true,
+                "Keep the radial wheels and the Universal Inventory / pinned storage windows the same size " +
+                "relative to the screen. They are designed at 2560x1440: on a bigger screen their wedges, " +
+                "cells and text grow (x1.5 at 3840x2160), on a smaller one they shrink (x0.75 at " +
+                "1920x1080, never below x0.6). Nothing changes at 2560x1440. On (default) = automatic. " +
+                "Off = the wheels and windows keep their fixed pixel sizes on every screen; use the Wheel " +
+                "size / Cell size sliders to resize them by hand. A personal setting, so it stays the " +
+                "same whichever UI theme is active.");
             // HardcoreGating removed in Wave B: it gated the legacy ImGui overlay's helmet/sensor
             // visibility, which no longer exists. The LIVE diegetic system is HudConfig.DiegeticTiers.
             // Key pruned from player cfgs by ConfigMigration step 2.

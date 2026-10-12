@@ -9,23 +9,16 @@ namespace StationeersUIMod.UI
     /// canvases with no CanvasScaler, so before this every wedge, cell and font was a fixed pixel
     /// count: half the apparent size on a 3840x2160 screen.
     ///
-    /// <para><b>OPT-IN since 2026-10-11</b> (FlorpyDorp's 1440p play-test: the bigger wheel was not
-    /// wanted): <see cref="Resolution"/> is exactly 1 unless the player turns on
-    /// <see cref="UIAConfig.WheelInvScaleWithResolution"/> (default OFF), so with that off and the
-    /// text size at 1 every wheel and window is the 1.0.2 pixel size at any resolution.</para>
+    /// <para><b>Reference 2560x1440, ON by default</b> (FlorpyDorp 2026-10-11: "I have designed all the
+    /// UIs around 1440p ... it should get bigger or smaller from there", and it should be seamless).
+    /// <see cref="Resolution"/> = 1 at 2560x1440 (his look, unchanged), 1.5 at 3840x2160, 0.75 at
+    /// 1920x1080, clamped to 0.6..3. <see cref="UIAConfig.WheelInvScaleWithResolution"/> (key
+    /// "WheelAndInventoryScaleFrom1440p") off = exactly 1, the 1.0.2 pixel sizes at any resolution.</para>
     ///
-    /// <para>When on, <b>Resolution</b> follows the visor HUD's own per-machine toggle
-    /// (<see cref="HudConfig.HudScaleWithRes"/>, "ScaleWithResolution", default on) and its
-    /// width/height blend (<see cref="HudConfig.HudScaleMatch"/>) — the same log-interpolation
-    /// Unity's CanvasScaler uses. Two deliberate differences from
-    /// <see cref="HudConfig.EffectiveResolutionScale"/>:
-    /// (1) the reference is FIXED at 1920x1080 — the resolution the wheel and the inventory windows
-    /// were designed at — never the active HUD theme's RefW/RefH. A theme stamped at 4K (F9 "stamp
-    /// THIS UI Theme", or any blank profile created on a 4K screen) describes the HUD layout, not
-    /// the wheel, and would otherwise turn this fix off for exactly the players who need it;
-    /// (2) it never goes BELOW 1: on screens smaller than 1080p the wheel and windows keep their
-    /// designed pixel sizes (they were legible there before; shrinking 8 px text to 5 px is not).
-    /// Off = 1 everywhere, i.e. exactly the pre-#12 pixel sizes.</para>
+    /// <para>It uses the visor HUD's width/height blend (<see cref="HudConfig.HudScaleMatch"/>, the
+    /// log-interpolation Unity's CanvasScaler uses) but NOT the HUD's ScaleWithResolution toggle or
+    /// the active HUD theme's RefW/RefH: a theme stamped at another resolution describes the HUD
+    /// layout, not the wheel, and would otherwise silently switch this off.</para>
     ///
     /// <para><b>Text</b> is the player's "Wheel &amp; inventory text size" preference
     /// (<see cref="UIAConfig.WheelInvTextScale"/>, 0.75..2.5) — an accessibility knob that does NOT
@@ -48,15 +41,18 @@ namespace StationeersUIMod.UI
     {
         public const float TextMin = 0.75f;
         public const float TextMax = 2.5f;
-        private const float RefW = 1920f, RefH = 1080f;
-        private const float ResMax = 4f;   // 7680x4320 at match 0.5; a bound against a bogus Screen size
+        // 2026-10-11, FlorpyDorp: "I have designed all the UIs around 1440p ... it should get bigger or
+        // smaller from there." The wheels' and windows' pixel constants are his 2560x1440 design.
+        private const float RefW = 2560f, RefH = 1440f;
+        private const float ResMin = 0.6f; // 1280x720 would be 0.5; keeps 8 px text legible
+        private const float ResMax = 3f;   // 7680x4320; a bound against a bogus Screen size
 
         private static int _frame = -1;
         private static float _res = 1f;
         private static float _text = 1f;
 
-        /// <summary>The resolution factor: 1 unless the opt-in is on; then 1 at 1920x1080 and below,
-        /// 2 at 3840x2160 (and 1 again when the player turned the HUD's ScaleWithResolution off).</summary>
+        /// <summary>The resolution factor: 1 at 2560x1440, 1.5 at 3840x2160, 0.75 at 1920x1080
+        /// (0.6..3); exactly 1 when the player turned the setting off.</summary>
         public static float Resolution() { Refresh(); return _res; }
 
         /// <summary>The player's text multiplier (0.75..2.5, default 1).</summary>
@@ -103,16 +99,16 @@ namespace StationeersUIMod.UI
         {
             try
             {
-                // Opt-in (FlorpyDorp 2026-10-11): OFF (the default, or before the config binds) = exactly
-                // 1, i.e. the 1.0.2 pixel sizes at any resolution.
+                // On by default (FlorpyDorp 2026-10-11); OFF, or before the config binds, = exactly 1,
+                // i.e. the 1.0.2 pixel sizes at any resolution. Independent of the visor HUD's own
+                // ScaleWithResolution (a separate surface with its own per-theme reference).
                 if (UIAConfig.WheelInvScaleWithResolution == null || !UIAConfig.WheelInvScaleWithResolution.Value) return 1f;
-                if (HudConfig.HudScaleWithRes != null && !HudConfig.HudScaleWithRes.Value) return 1f;
                 float sw = Screen.width, sh = Screen.height;
                 if (sw <= 0f || sh <= 0f) return 1f;
                 float m = HudConfig.HudScaleMatch != null ? Mathf.Clamp01(HudConfig.HudScaleMatch.Value) : 0.5f;
                 float r = Mathf.Pow(sw / RefW, 1f - m) * Mathf.Pow(sh / RefH, m);
                 if (float.IsNaN(r) || float.IsInfinity(r)) return 1f;
-                return Mathf.Clamp(r, 1f, ResMax);
+                return Mathf.Clamp(r, ResMin, ResMax);
             }
             catch { return 1f; }
         }

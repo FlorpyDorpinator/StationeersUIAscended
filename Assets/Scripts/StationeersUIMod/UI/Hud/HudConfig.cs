@@ -374,7 +374,7 @@ namespace StationeersUIMod.UI.Hud
                 "position and size on any monitor (the CanvasScaler idea, done in our own layout math). " +
                 "Off = element offsets/sizes stay fixed pixels, so the HUD shrinks toward the corners on " +
                 "a bigger screen. Anchors track the screen either way. (The radial wheels and the " +
-                "inventory windows have their own opt-in: 7. HUD > WheelAndInventoryScaleWithResolution.)");
+                "inventory windows have their own setting: 7. HUD > WheelAndInventoryScaleFrom1440p.)");
             HudRefWidth = cfg.Bind(S, "ScaleReferenceWidth", 1920f,
                 new ConfigDescription("The screen WIDTH your layout was designed at. At this resolution the " +
                     "HUD renders 1:1; other resolutions scale from it. Use F9 > Global style > 'Use current " +
