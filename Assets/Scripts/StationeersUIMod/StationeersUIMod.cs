@@ -1129,6 +1129,7 @@ namespace StationeersUIMod
                 UI.RadialHintBar.Shutdown();
                 UI.Grid.GridSplitCarry.Shutdown(); // split-to-cursor: catcher canvas, ghost, world-pick hold
                 Features.SplitToCursor.Shutdown(); // ...and its pending/ready child refs
+                Core.InFlightCue.Shutdown();       // in-flight dim cue: drop its Thing refs
                 UI.Grid.TheGridPanel.Shutdown();   // destroys its canvas + unhooks OnUIClose
                 Features.GridCollapseStore.Reset(); // drop the per-save collapse cache
                 Features.GridPinStore.Reset();      // drop the per-save pin cache (disk file survives)

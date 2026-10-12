@@ -90,21 +90,38 @@ namespace StationeersUIMod.UI.Grid
             if (_swallowUntilUp && !AnyMouseHeldOrReleasing()) _swallowUntilUp = false;
             // Idle (the steady state, and always with the opt-in off): one static compare.
             if (_source == null && !SplitToCursor.Waiting(SplitToCursor.Ctx.Grid)) return;
-            bool gate = Gate();
+            string why;
+            bool gate = Gate(out why);
             if (_source == null)
             {
-                if (!gate) { SplitToCursor.Cancel(SplitToCursor.Ctx.Grid); return; }
+                if (!gate)
+                {
+                    // One line (the cancel below empties the watch, so this branch is not re-entered).
+                    SplitToCursor.Log("Grid: attach REFUSED - " + why + "; the split child stays where vanilla put it");
+                    SplitToCursor.Cancel(SplitToCursor.Ctx.Grid);
+                    return;
+                }
                 // Never start carrying in the middle of another pointer gesture (an MP child can land
                 // while a button is held): the ready result waits for the pointer to be idle.
-                if (Input.GetMouseButton(0) || Input.GetMouseButton(1)
-                    || BagGridCell.IsDragActive || HudSlotDrag.IsDragging) return;
+                string busy = Input.GetMouseButton(0) ? "left mouse button still held"
+                    : Input.GetMouseButton(1) ? "right mouse button still held"
+                    : BagGridCell.IsDragActive ? "a cell drag is in flight"
+                    : HudSlotDrag.IsDragging ? "a HUD box drag is in flight"
+                    : null;
+                if (busy != null) { SplitToCursor.NoteWaiting(SplitToCursor.Ctx.Grid, busy); return; }
                 Slot slot;
                 DynamicThing child;
                 if (SplitToCursor.TryTake(SplitToCursor.Ctx.Grid, out slot, out child)) Begin(slot, child);
                 return;
             }
 
-            if (!gate) { Cancel(); return; }
+            if (!gate)
+            {
+                SplitToCursor.Log("Grid: carry cancelled - " + why + " (the child stays in the hand)");
+                Cancel();
+                return;
+            }
+            try { InFlightCue.PublishGrid(_source.Expected); } catch { }   // its hand box / hand cell dims while carried
 
             // A new press of any button while the place-press is already armed (the catcher is
             // transparent then): its click must never reach the grid underneath, even if it is
@@ -149,6 +166,7 @@ namespace StationeersUIMod.UI.Grid
         public static void Cancel()
         {
             try { SplitToCursor.Cancel(SplitToCursor.Ctx.Grid); } catch { }
+            try { InFlightCue.PublishGrid(null); } catch { }   // the child's hand box / cell un-dims
             // Ending with a button still down (a second press mid-resolve, or a cancel during the
             // place-press): that press's release must not click the grid under it.
             if (_source != null)
@@ -195,27 +213,41 @@ namespace StationeersUIMod.UI.Grid
         // ------------------------------------------------------------------ gesture
 
         /// <summary>Every surface that could own the pointer instead of the Universal Inventory.</summary>
-        private static bool Gate()
+        private static bool Gate(out string why)
         {
+            why = null;
             try
             {
-                if (RadialController.AnyRadialOpen) return false;
-                if (Windows.HudEditorMode.Active) return false;
-                if (Guards.VanillaMenuWantsFront()) return false;
-                if (Menu.UiaControlCenter.IsOpen) return false;
-                if (Menu.Tutorial.TutorialCoach.IsOpen || Menu.HandbookViewer.IsOpen) return false;
-                return TheGridPanel.IsInteractive
-                    || (PinnedInventoryWindow.LiveCount > 0 && PinnedInventoryWindow.Interactive);
+                if (RadialController.AnyRadialOpen) { why = "a radial is open"; return false; }
+                if (Windows.HudEditorMode.Active) { why = "the F9 editor is open"; return false; }
+                if (Guards.VanillaMenuWantsFront()) { why = "a game menu is in front"; return false; }
+                if (Menu.UiaControlCenter.IsOpen) { why = "F10 is open"; return false; }
+                if (Menu.Tutorial.TutorialCoach.IsOpen || Menu.HandbookViewer.IsOpen) { why = "the tutorial/handbook is open"; return false; }
+                if (TheGridPanel.IsInteractive
+                    || (PinnedInventoryWindow.LiveCount > 0 && PinnedInventoryWindow.Interactive)) return true;
+                why = !TheGridPanel.IsOpen && PinnedInventoryWindow.LiveCount == 0
+                    ? "the Universal Inventory is closed"
+                    : "the inventory window is not interactive (cursor not free)";
+                return false;
             }
-            catch { return false; }
+            catch (System.Exception e) { why = "gate threw: " + e.Message; return false; }
         }
 
         private static void Begin(Slot slot, DynamicThing child)
         {
-            if (slot == null || child == null) return;
+            const SplitToCursor.Ctx Gc = SplitToCursor.Ctx.Grid;
+            if (slot == null || child == null) { SplitToCursor.NoteAttach(Gc, false, "no child"); return; }
             var src = new ScannedSlot { Slot = slot, Holder = slot.Parent, Location = "" }.Pin();
-            if (!ReferenceEquals(src.Expected, child)) return;   // moved between detection and now
-            if (!EnsureCatcher()) return;                       // no catcher = no safe click: vanilla stands
+            if (!ReferenceEquals(src.Expected, child))
+            {
+                SplitToCursor.NoteAttach(Gc, false, "the child moved between detection and attach");
+                return;
+            }
+            if (!EnsureCatcher())                               // no catcher = no safe click: vanilla stands
+            {
+                SplitToCursor.NoteAttach(Gc, false, "the click catcher could not be built");
+                return;
+            }
 
             _source = src;
             _pressed = false;
@@ -241,6 +273,9 @@ namespace StationeersUIMod.UI.Grid
                 return;
             }
             try { UIAudioManager.Play(UIAudioManager.ObjectIntoHandHash); } catch { }
+            try { InFlightCue.PublishGrid(child); } catch { }   // dim its source from this very frame
+            SplitToCursor.NoteAttach(Gc, true, "carry ghost on the cursor (" + child.DisplayName + " "
+                + (StateText.Plain(child) ?? "") + "); click to place, RMB/Esc keeps it in the hand");
         }
 
         /// <summary>The catcher's self-hide watchdog (<see cref="SplitCarryCatcher"/>): true when
@@ -388,6 +423,7 @@ namespace StationeersUIMod.UI.Grid
             img.preserveAspect = true;
             img.raycastTarget = false;                     // never occlude the pick under the cursor
             img.color = HudConfig.TintIcon(new Color(1f, 1f, 1f, icon != null ? 0.85f : 0f));
+            BagGridCell.AddGhostCount(_ghostRt, child, size);   // same count + style as a cell drag's ghost
             _ghostRt.SetAsLastSibling();
             UpdateGhost();
         }

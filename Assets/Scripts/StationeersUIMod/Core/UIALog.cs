@@ -19,6 +19,13 @@ namespace StationeersUIMod.Core
             UnityEngine.Debug.Log("[StationeersUIMod] " + msg);
         }
 
+        /// <summary>Info to the BepInEx log (LogOutput.log) ONLY — no in-game console echo. For
+        /// play-test diagnostics that fire on ordinary player actions (split-to-cursor).</summary>
+        public static void InfoLogOnly(string msg)
+        {
+            _log?.LogInfo(msg);
+        }
+
         public static void Warn(string msg)
         {
             _log?.LogWarning(msg);

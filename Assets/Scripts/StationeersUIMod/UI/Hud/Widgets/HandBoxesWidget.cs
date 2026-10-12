@@ -183,7 +183,12 @@ namespace StationeersUIMod.UI.Hud.Widgets
                 _icon[i].enabled = icon != null;
                 // #9 item-icon tint: per-element and per-tier since 0.9.2.5 (mode 0 inherits the
                 // global "Tint item icons" checkbox, so an untouched profile is unchanged).
-                _icon[i].color = TintItemIcon(Color.white);
+                // In flight (a radial drag / split-carry / parked chip, or the Universal Inventory's
+                // split carry): the held item reads as having left with the cursor — icon and state
+                // dimmed exactly like a dragged Grid cell (x0.35). It physically stays in the hand
+                // until the placing click (MP rule); this is the drag path's source treatment only.
+                bool inFlight = occ != null && flash == null && Core.InFlightCue.Is(occ);
+                _icon[i].color = TintItemIcon(new Color(1f, 1f, 1f, inFlight ? 0.35f : 1f));
                 _icon[i].rectTransform.localScale = Vector3.one * (flash != null ? 1f + 0.22f * flashP : 1f);
 
                 HudText.Sync(_state[i]);
@@ -191,7 +196,9 @@ namespace StationeersUIMod.UI.Hud.Widgets
                 string state = "";
                 if (occ == null) state = "empty";
                 else { try { state = StateText.For(occ) ?? ""; } catch { } }
-                _state[i].color = occ == null ? stateEmpty : TextColor();
+                var stateCol = occ == null ? stateEmpty : TextColor();
+                if (inFlight) stateCol.a *= 0.35f;
+                _state[i].color = stateCol;
                 HudText.Set(_state[i], state);
             }
         }

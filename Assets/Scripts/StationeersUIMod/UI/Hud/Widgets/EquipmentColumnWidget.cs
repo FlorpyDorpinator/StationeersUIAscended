@@ -226,7 +226,10 @@ namespace StationeersUIMod.UI.Hud.Widgets
                 b.Icon.enabled = icon != null;
                 // #9 item-icon tint: per-element and per-tier since 0.9.2.5 (mode 0 inherits the
                 // global checkbox). Keeps the filled/empty alpha cue.
-                b.Icon.color = TintItemIcon(new Color(1f, 1f, 1f, (filled || flash != null) ? 0.95f : 0f));
+                // In flight (on the radial's cursor or parked): dimmed like a dragged Grid cell (x0.35).
+                float eqA = (filled || flash != null) ? 0.95f : 0f;
+                if (flash == null && filled && Core.InFlightCue.Is(occ)) eqA *= 0.35f;
+                b.Icon.color = TintItemIcon(new Color(1f, 1f, 1f, eqA));
                 b.Icon.rectTransform.localScale = Vector3.one * (flash != null ? 1f + 0.22f * flashP : 1f);
 
                 HudText.Sync(b.Label);

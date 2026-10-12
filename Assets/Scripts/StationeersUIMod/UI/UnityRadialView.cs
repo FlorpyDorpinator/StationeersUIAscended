@@ -655,6 +655,59 @@ namespace StationeersUIMod.UI
             if (!Mathf.Approximately(t.fontSizeMax, max)) t.fontSizeMax = max;
         }
 
+        /// <summary>The usable wedge one label box must stay inside (canvas units, ring-centre origin):
+        /// the annulus [RIn, ROut] and the angular span AMid +/- HalfSpan (radians, the ring's own
+        /// convention: a direction is (cos a, -sin a)), every edge inset by Pad.</summary>
+        private struct WedgeBounds
+        {
+            public float RIn, ROut, AMid, HalfSpan, Pad;
+            public bool FullRing;
+
+            public bool Contains(float x, float y)
+            {
+                float r = Mathf.Sqrt(x * x + y * y);
+                if (r < RIn + Pad || r > ROut - Pad) return false;
+                if (FullRing) return true;
+                float d = Mathf.Abs(Mathf.DeltaAngle(AMid * Mathf.Rad2Deg, Mathf.Atan2(-y, x) * Mathf.Rad2Deg)) * Mathf.Deg2Rad;
+                float rem = HalfSpan - d;
+                if (rem <= 0f) return false;
+                return r * Mathf.Sin(Mathf.Min(rem, Mathf.PI * 0.5f)) >= Pad;   // distance to the side edge
+            }
+
+            /// <summary>Does the axis-aligned box centred at <paramref name="c"/> (half sizes hw, hh) fit?
+            /// Corners bound the outer rim and the (convex) side edges; the edge midpoints bound the
+            /// inner rim (the nearest point of a straight edge to the centre is its foot, which for a box
+            /// straddling an axis is a midpoint) — enough for the annular sector.</summary>
+            public bool Fits(Vector2 c, float hw, float hh)
+            {
+                for (int ix = -1; ix <= 1; ix++)
+                    for (int iy = -1; iy <= 1; iy++)
+                        if (!Contains(c.x + ix * hw, c.y + iy * hh)) return false;
+                // The nearest point of the top/bottom edge to the ring centre (x = 0 when the box
+                // straddles the vertical axis) and of the side edges (y = 0 likewise).
+                if (c.x - hw < 0f && c.x + hw > 0f && (!Contains(0f, c.y - hh) || !Contains(0f, c.y + hh))) return false;
+                if (c.y - hh < 0f && c.y + hh > 0f && (!Contains(c.x - hw, 0f) || !Contains(c.x + hw, 0f))) return false;
+                return true;
+            }
+
+            /// <summary>C: the widest half-width (up to <paramref name="maxHalf"/>) a horizontal label box
+            /// of half-height <paramref name="hh"/> centred at <paramref name="c"/> can have and still sit
+            /// inside the wedge. 0 when not even a sliver fits (the caller then lowers the box).</summary>
+            public float FitHalfWidth(Vector2 c, float hh, float maxHalf)
+            {
+                if (maxHalf <= 0f) return 0f;
+                if (Fits(c, maxHalf, hh)) return maxHalf;
+                if (!Fits(c, 0f, hh)) return 0f;
+                float lo = 0f, hi = maxHalf;
+                for (int it = 0; it < 12; it++)
+                {
+                    float mid = (lo + hi) * 0.5f;
+                    if (Fits(c, mid, hh)) lo = mid; else hi = mid;
+                }
+                return lo;
+            }
+        }
+
         private static float EaseOut01(float t)
         {
             t = Mathf.Clamp01(t);
@@ -861,6 +914,21 @@ namespace StationeersUIMod.UI
                     var dir = new Vector2(Mathf.Cos(aMid), -Mathf.Sin(aMid));
                     var slot = dir * midR;
 
+                    // C (2026-10-11, "SPLIT COUNT" running past its wedge at 1440p): every flat text box
+                    // on this wedge is fitted INSIDE the wedge's real outline — the annulus (hover bulge
+                    // included) and the two side edges at the gap — inset by the border + a margin, so
+                    // auto-size / wrapping shrink the text instead of letting it spill, at any wedge
+                    // count, wheel size, text size or resolution factor.
+                    var wb = new WedgeBounds
+                    {
+                        RIn = innerR,
+                        ROut = outerR + wedge.OuterBulge,
+                        AMid = aMid,
+                        HalfSpan = lone ? Mathf.PI : Mathf.Max(0.01f, sector * 0.5f - g),
+                        Pad = Mathf.Max(1f, UIAConfig.RadialBorderWidth.Value) + 3f,
+                        FullRing = lone,
+                    };
+
                     // Swipe affordance: a small outward chevron at the rim of any wedge that
                     // opens a satellite (slide-out) or a click-in branch — "you can swipe this".
                     // Scroll wedges never show it (they carry their own up/down triangles).
@@ -967,7 +1035,7 @@ namespace StationeersUIMod.UI
                         // down (the pool enables autosizing 7..11.5) instead of running into the
                         // neighbouring wedge's border.
                         float bHalf = Mathf.Min(sector * 0.5f, Mathf.PI * 0.5f);
-                        float bLen = Mathf.Clamp(2f * bR * Mathf.Sin(bHalf) - 8f, 28f, 220f);
+                        float bLen = Mathf.Clamp(2f * bR * Mathf.Sin(bHalf) - 8f, 12f, 220f);   // C: never a floor wider than the wedge
                         var brt = bind.rectTransform;
                         brt.pivot = new Vector2(0.5f, 0.5f);
                         brt.localRotation = Quaternion.Euler(0f, 0f, bAng);
@@ -1021,7 +1089,7 @@ namespace StationeersUIMod.UI
                         float tTheta = Mathf.Atan2(dir.y, dir.x) * Mathf.Rad2Deg;
                         float tAng = dir.y >= 0f ? tTheta - 90f : tTheta + 90f; // upright on both halves
                         float tHalf = Mathf.Min(sector * 0.5f, Mathf.PI * 0.5f);
-                        float tLen = Mathf.Clamp(2f * tR * Mathf.Sin(tHalf) - 14f, 30f, 220f); // the wedge's chord
+                        float tLen = Mathf.Clamp(2f * tR * Mathf.Sin(tHalf) - 14f, 12f, 220f);   // the wedge's chord (C: no floor wider than the wedge)
                         var trt = tag.rectTransform;
                         trt.pivot = new Vector2(0.5f, 0.5f);
                         trt.localRotation = Quaternion.Euler(0f, 0f, tAng);
@@ -1048,7 +1116,7 @@ namespace StationeersUIMod.UI
 
                     if (entry.IsScrollAdjust)
                     {
-                        RenderScrollWedge(i, entry, slot, dir, chordIc, ringWidth, isHovered, dimmed);
+                        RenderScrollWedge(i, entry, slot, dir, chordIc, ringWidth, isHovered, dimmed, wb);
                         continue;
                     }
                     _triUp[i].gameObject.SetActive(false);
@@ -1115,7 +1183,10 @@ namespace StationeersUIMod.UI
                         // text to fit within the wedge (down to the pool's min font) — never wider
                         // than the wedge, never onto a neighbour.
                         float vChord = 2f * sp.magnitude * Mathf.Sin(halfAngleIc);
-                        state.rectTransform.sizeDelta = new Vector2(Mathf.Clamp(vChord - 10f, 34f, 220f), 14f * _tx);
+                        float vMax = Mathf.Clamp(vChord - 10f, 34f, 220f);
+                        // C: and never wider than the wedge actually is around the value's box.
+                        float vHalf = wb.FitHalfWidth(sp, 7f * _tx, vMax * 0.5f);
+                        state.rectTransform.sizeDelta = new Vector2(Mathf.Max(10f, vHalf * 2f), 14f * _tx);
                     }
 
                     var label = _labels[i];
@@ -1166,22 +1237,52 @@ namespace StationeersUIMod.UI
                             float angDeg = Mathf.Atan2(dir.y, dir.x) * Mathf.Rad2Deg;
                             if (angDeg > 90f) angDeg -= 180f; else if (angDeg < -90f) angDeg += 180f;
                             label.rectTransform.localEulerAngles = new Vector3(0f, 0f, angDeg);
-                            label.rectTransform.sizeDelta = new Vector2(radialLen * 1.05f, ringWidth * 0.42f);
+                            // C: along the spoke the box stops short of both rims, and its thickness is the
+                            // wedge's width at the box's INNER end (the narrowest part it spans).
+                            float len = Mathf.Min(radialLen * 1.05f, (wb.ROut - innerR) - 2f * wb.Pad);
+                            float rNear = Mathf.Max(innerR + wb.Pad, midR - len * 0.5f);
+                            float thick = lone ? ringWidth * 0.42f
+                                : Mathf.Min(ringWidth * 0.42f, 2f * (rNear * Mathf.Sin(Mathf.Min(wb.HalfSpan, Mathf.PI * 0.5f)) - wb.Pad));
+                            label.rectTransform.sizeDelta = new Vector2(Mathf.Max(10f, len), Mathf.Max(8f, thick)) / contentScale;
                             label.enableWordWrapping = false; // run as one line down the spoke
                         }
                         else
                         {
-                            label.rectTransform.sizeDelta = new Vector2(boxW, ringWidth * 0.5f);
+                            // C: the widest box that still fits the wedge around the label; if a tall box
+                            // leaves only a sliver (a narrow wedge), trade height for width.
+                            float hh = ringWidth * 0.25f;
+                            float half = wb.FitHalfWidth(slot, hh, boxW * 0.5f);
+                            if (half < 22f)
+                            {
+                                float hh2 = ringWidth * 0.16f;
+                                float half2 = wb.FitHalfWidth(slot, hh2, boxW * 0.5f);
+                                if (half2 > half) { hh = hh2; half = half2; }
+                            }
+                            label.rectTransform.sizeDelta = new Vector2(Mathf.Max(10f, half * 2f), hh * 2f) / contentScale;
                         }
                         label.rectTransform.anchoredPosition = slot;
                         label.alignment = TextAlignmentOptions.Center;
                     }
                     else
                     {
-                        label.rectTransform.sizeDelta = new Vector2(boxW, ringWidth * 0.48f);
-                        label.rectTransform.anchoredPosition =
-                            slot - dir * (ringWidth * 0.02f) -
+                        Vector2 lc = slot - dir * (ringWidth * 0.02f) -
                             new Vector2(0f, iconSize * contentScale * 0.48f + 1f);
+                        // C: Top-aligned under the icon — keep the box's TOP edge where it always was,
+                        // but only as tall as two lines need, and only as wide as the wedge is there.
+                        float hh0 = ringWidth * 0.24f;
+                        float top = lc.y + hh0;
+                        float hh = Mathf.Min(hh0, 18f * _tx * contentScale);
+                        lc.y = top - hh;
+                        float half = wb.FitHalfWidth(lc, hh, boxW * 0.5f);
+                        if (half < 22f)
+                        {
+                            float hh2 = Mathf.Min(hh, 9f * _tx * contentScale);   // one line
+                            var lc2 = new Vector2(lc.x, top - hh2);
+                            float half2 = wb.FitHalfWidth(lc2, hh2, boxW * 0.5f);
+                            if (half2 > half) { hh = hh2; half = half2; lc = lc2; }
+                        }
+                        label.rectTransform.sizeDelta = new Vector2(Mathf.Max(10f, half * 2f), hh * 2f) / contentScale;
+                        label.rectTransform.anchoredPosition = lc;
                         label.alignment = TextAlignmentOptions.Top;
                     }
                 }
@@ -1190,7 +1291,7 @@ namespace StationeersUIMod.UI
             /// <summary>A scroll-adjustable value wedge: NAME on top, then an up triangle,
             /// the live value, and a down triangle — nudged by the mouse wheel.</summary>
             private void RenderScrollWedge(int i, RadialEntry entry, Vector2 slot, Vector2 dir,
-                float chordIc, float ringWidth, bool isHovered, bool dimmed)
+                float chordIc, float ringWidth, bool isHovered, bool dimmed, WedgeBounds wb)
             {
                 _icons[i].enabled = false;
                 var accent = isHovered ? RadialPalette.WedgeBorderHover.Value : RadialPalette.WedgeBorder.Value;
@@ -1214,8 +1315,13 @@ namespace StationeersUIMod.UI
                 label.rectTransform.localScale = Vector3.one;
                 label.rectTransform.localEulerAngles = Vector3.zero;
                 SetMax(label, 15f * ts);
-                label.rectTransform.sizeDelta = new Vector2(sw, 16f * ts);
-                label.rectTransform.anchoredPosition = slot + new Vector2(0f, 26f * ts);
+                // C: the chord is the wedge's width at its MIDDLE radius along the spoke; a flat box
+                // offset above the slot on a side wedge is narrower than that ("SPLIT COUNT" ran past
+                // the border at 1440p). Fit it to the wedge where it actually sits; auto-size shrinks.
+                Vector2 lp = slot + new Vector2(0f, 26f * ts);
+                float lHalf = wb.FitHalfWidth(lp, 8f * ts, sw * 0.5f);
+                label.rectTransform.sizeDelta = new Vector2(Mathf.Max(10f, lHalf * 2f), 16f * ts);
+                label.rectTransform.anchoredPosition = lp;
 
                 var up = _triUp[i];
                 up.gameObject.SetActive(true);
@@ -1237,8 +1343,10 @@ namespace StationeersUIMod.UI
                 state.color = sc;
                 state.rectTransform.localEulerAngles = Vector3.zero;
                 SetMax(state, 13f * ts);
-                state.rectTransform.sizeDelta = new Vector2(sw, 16f * ts);
-                state.rectTransform.anchoredPosition = slot - new Vector2(0f, 2f * ts);
+                Vector2 vp = slot - new Vector2(0f, 2f * ts);
+                float vHalf = wb.FitHalfWidth(vp, 8f * ts, sw * 0.5f);   // C: same fit for the value ("10")
+                state.rectTransform.sizeDelta = new Vector2(Mathf.Max(10f, vHalf * 2f), 16f * ts);
+                state.rectTransform.anchoredPosition = vp;
 
                 var down = _triDown[i];
                 down.gameObject.SetActive(true);
@@ -1321,7 +1429,7 @@ namespace StationeersUIMod.UI
                     tmp.font = Font();
                     tmp.alignment = TextAlignmentOptions.Top;
                     tmp.enableAutoSizing = true;
-                    tmp.fontSizeMin = 8f;
+                    tmp.fontSizeMin = 7f;   // C: a fitted wedge box may need a notch smaller
                     tmp.fontSizeMax = 15f;
                     tmp.enableWordWrapping = true;
                     tmp.overflowMode = TextOverflowModes.Truncate;
@@ -1334,7 +1442,7 @@ namespace StationeersUIMod.UI
                     stmp.font = Font();
                     stmp.alignment = TextAlignmentOptions.Center;
                     stmp.enableAutoSizing = true;
-                    stmp.fontSizeMin = 8.5f;
+                    stmp.fontSizeMin = 7f;   // C: likewise for the value under the icon
                     stmp.fontSizeMax = 13f;
                     stmp.enableWordWrapping = false;
                     stmp.overflowMode = TextOverflowModes.Overflow;

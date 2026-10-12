@@ -108,9 +108,9 @@ namespace StationeersUIMod.UI.Menu.Tabs
             // These are all part of the radial theme's LOOK ("radial:" family, HudTheme) — each
             // setter marks the active profile's theme dirty so the value travels with the profile
             // and switching profiles restores it, the same contract HUD colours already have.
-            var outer = UiaControls.SliderRow(sec.Body, "Wheel size", 120f, 480f, UIAConfig.RadialOuterRadius.Value,
+            var outer = UiaControls.SliderRow(sec.Body, "Wheel size", 120f, 960f, UIAConfig.RadialOuterRadius.Value,
                 v => { UIAConfig.RadialOuterRadius.Value = v; HudProfileStore.MarkThemeChanged(); }, "0", 1f);
-            var inner = UiaControls.SliderRow(sec.Body, "Hub size", 60f, 260f, UIAConfig.RadialInnerRadius.Value,
+            var inner = UiaControls.SliderRow(sec.Body, "Hub size", 60f, 520f, UIAConfig.RadialInnerRadius.Value,
                 v => { UIAConfig.RadialInnerRadius.Value = v; HudProfileStore.MarkThemeChanged(); }, "0", 1f);
             var caps = UiaControls.ToggleRow(sec.Body, "ALL CAPS labels", UIAConfig.RadialUppercaseLabels.Value,
                 v => { UIAConfig.RadialUppercaseLabels.Value = v; HudProfileStore.MarkThemeChanged(); });

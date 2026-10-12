@@ -209,8 +209,8 @@ namespace StationeersUIMod.Windows
         {
             // Every knob here is in HudTheme's "radial:" include-list (design §5.2) — all LOOK,
             // no behaviour — so every one of them marks the active profile's theme dirty.
-            FloatSlider(UIAConfig.RadialOuterRadius, "Radial size", 120f, 480f, true);
-            FloatSlider(UIAConfig.RadialInnerRadius, "Hub (center circle) size", 60f, 260f, true);
+            FloatSlider(UIAConfig.RadialOuterRadius, "Radial size", 120f, 960f, true);
+            FloatSlider(UIAConfig.RadialInnerRadius, "Hub (center circle) size", 60f, 520f, true);
             FloatSlider(UIAConfig.RadialSatelliteScale, "Child radial size", 0.5f, 1.6f, true);
             FloatSlider(UIAConfig.RadialIconRatio, "Icon size (fraction of wedge)", 0.15f, 1.1f, true);
             FloatSlider(UIAConfig.RadialBorderWidth, "Border thickness (px)", 0f, 10f, true);

@@ -522,6 +522,7 @@ namespace StationeersUIMod.Overlay
         private static bool _stayOpenRequested;
         private bool _carry;          // _parking.Dragging is a click-to-place carry, not a held drag
         private bool _carryPressed;   // LMB went down while carrying (its UP resolves the carry)
+        private readonly List<DynamicThing> _inFlightScratch = new List<DynamicThing>(16);   // Draw's InFlightCue list (no per-frame alloc)
 
         /// <summary>Split-to-cursor: keep the radial open after the action now running (consumed by
         /// the select paths like <see cref="RequestSearch"/>).</summary>
@@ -550,13 +551,26 @@ namespace StationeersUIMod.Overlay
         /// click resolves the chip through the gated ItemActions funnel.</summary>
         private void TryAttachSplitCarry()
         {
-            if (!_sticky || _searchOpen || _press != null || _parking.Dragging != null || _hubDragging) return;
-            if (Input.GetMouseButton(0) || Input.GetMouseButton(1)) return;
+            const Features.SplitToCursor.Ctx Rc = Features.SplitToCursor.Ctx.Radial;
+            if (!Features.SplitToCursor.HasReady(Rc) && !Features.SplitToCursor.Waiting(Rc)) return;   // idle: one compare
+            string gate = !_sticky ? "radial not latched (hold mode)"
+                : _searchOpen ? "search panel open"
+                : _press != null ? "a wedge press is in progress"
+                : _parking.Dragging != null ? "another item is already on the cursor"
+                : _hubDragging ? "the hub is being moved"
+                : Input.GetMouseButton(0) ? "left mouse button still held"
+                : Input.GetMouseButton(1) ? "right mouse button still held"
+                : null;
+            if (gate != null) { Features.SplitToCursor.NoteWaiting(Rc, gate); return; }
             Slot slot;
             DynamicThing child;
-            if (!Features.SplitToCursor.TryTake(Features.SplitToCursor.Ctx.Radial, out slot, out child)) return;
+            if (!Features.SplitToCursor.TryTake(Rc, out slot, out child)) return;
             var source = new ScannedSlot { Slot = slot, Holder = slot.Parent, Location = "" }.Pin();
-            if (!ReferenceEquals(source.Expected, child)) return;   // moved between detection and now
+            if (!ReferenceEquals(source.Expected, child))
+            {
+                Features.SplitToCursor.NoteAttach(Rc, false, "the child moved between detection and attach");
+                return;
+            }
             Sprite icon = null;
             try { icon = child.GetThumbnail(); } catch { }
             string name = "";
@@ -568,6 +582,8 @@ namespace StationeersUIMod.Overlay
             _satellite = null;             // hands are busy: no child radials while carrying
             _satHovered = -1;
             try { UIAudioManager.Play(UIAudioManager.ObjectIntoHandHash); } catch { }
+            Features.SplitToCursor.NoteAttach(Rc, true,
+                "carry chip on the cursor (" + name + " " + (Core.StateText.Plain(child) ?? "") + "); click to place, RMB keeps it in the hand");
         }
 
         /// <summary>Held Shift means "keep the radial open after this action" (Option A).</summary>
@@ -683,6 +699,7 @@ namespace StationeersUIMod.Overlay
             _dwellIndex = -1;
             _liveWedges = -1;   // the scroll-to-focus wedge count is per-open; drop it on close
             HudDropCue.Clear(); // #4: no drag in flight once the radial is gone
+            Core.InFlightCue.ClearRadial(); // ...and no box stays dimmed for a chip that is gone
             Core.WorldSlotCue.Hide(); // take the world-slot placement box down with the radial
             UI.SearchPanelView.Hide();
         }
@@ -2289,6 +2306,12 @@ namespace StationeersUIMod.Overlay
             // taken down again in Close()/Open(), so a close mid-drag can't strand a green box.
             var dragItem = _parking.Dragging?.Item;
             HudDropCue.Dragging = dragItem;
+            // In-flight cue: the item on the cursor and every parked chip read as having LEFT their
+            // source (the HUD hand / equipment box and any Grid cell showing them dim, like a dragged
+            // Grid cell). Visual only — the items never moved (parking is visual, see ParkingState).
+            _inFlightScratch.Clear();
+            for (int i = 0; i < _parking.Chips.Count; i++) _inFlightScratch.Add(_parking.Chips[i].Item);
+            Core.InFlightCue.PublishRadial(dragItem, _inFlightScratch);
             Core.WorldSlotCue.Tick(dragItem != null && !PointerInRadialMask() ? dragItem : null);
 
             // D-022: the curved action word over the ring names what a click (sticky) or a release

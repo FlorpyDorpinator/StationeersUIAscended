@@ -26,6 +26,7 @@ namespace StationeersUIMod.UI
             public CircleGraphic Circle;
             public Image Icon;
             public TextMeshProUGUI Name;
+            public TextMeshProUGUI Count;   // the carried item's live stack count / state (the wedge's state text)
         }
 
         public static void Render(ParkingState parking, Vector2 mouseImGui)
@@ -96,10 +97,40 @@ namespace StationeersUIMod.UI
             v.Circle.SetRadius(r);
             v.Circle.Refresh();
 
+            // The item's live count ("25" on a split-off coil) — the SAME client-safe readout a wedge
+            // shows under its icon (StateText.For = vanilla GetQuantityText, networked state), styled
+            // like the wedge state text. Read live, so a chip always shows what a placement would move.
+            string count = null;
+            try { var it = chip.Item; count = it != null ? Core.StateText.For(it) : null; } catch { count = null; }
+            bool showCount = !string.IsNullOrEmpty(count) && chip.Icon != null;
+
             v.Icon.sprite = chip.Icon;
             v.Icon.enabled = chip.Icon != null;
             v.Icon.color = new Color(1f, 1f, 1f, ghost ? 0.85f : 1f);
-            v.Icon.rectTransform.sizeDelta = Vector2.one * (r * 1.5f);
+            // With a count the icon steps up and shrinks a little so the number sits clear under it.
+            v.Icon.rectTransform.sizeDelta = Vector2.one * (r * (showCount ? 1.25f : 1.5f));
+            v.Icon.rectTransform.anchoredPosition = new Vector2(0f, showCount ? r * 0.16f : 0f);
+
+            v.Count.gameObject.SetActive(showCount);
+            if (showCount)
+            {
+                UnityRadialView.SyncFont(v.Count);
+                v.Count.fontStyle = UnityRadialView.WedgeFontStyle();
+                // #12: the player's text size, capped to the chip's lower band (it can never leave the circle).
+                float tx = WheelGridScale.Text();
+                float fsMax = Mathf.Min(13f * tx, r * 0.42f);
+                if (!Mathf.Approximately(v.Count.fontSizeMax, fsMax)) v.Count.fontSizeMax = fsMax;
+                v.Count.fontSizeMin = Mathf.Min(7f, fsMax);
+                // The circle's chord at the band's height, minus a margin: the number always fits inside.
+                float y = -r * 0.62f;
+                float half = Mathf.Sqrt(Mathf.Max(0f, r * r - (y - r * 0.2f) * (y - r * 0.2f)));
+                v.Count.rectTransform.sizeDelta = new Vector2(Mathf.Max(12f, 2f * half - 6f), r * 0.42f);
+                v.Count.rectTransform.anchoredPosition = new Vector2(0f, y);
+                Color cc = RadialPalette.TextPrimary.Value;
+                cc.a *= ghost ? 0.95f : 1f;
+                v.Count.color = cc;
+                if (v.Count.text != count) v.Count.text = count;
+            }
 
             v.Name.gameObject.SetActive(!ghost && chip.Icon == null);
             if (v.Name.gameObject.activeSelf)
@@ -156,7 +187,20 @@ namespace StationeersUIMod.UI
             tmp.raycastTarget = false;
             tmp.rectTransform.sizeDelta = new Vector2(ParkingState.ChipRadiusRef * 1.8f, 30f);
 
-            return new ChipVisual { Root = rt, Circle = circle, Icon = icon, Name = tmp };
+            var kgo = new GameObject("Count", typeof(RectTransform));
+            kgo.transform.SetParent(rt, false);
+            var ktmp = kgo.AddComponent<TextMeshProUGUI>();
+            ktmp.font = UnityRadialView.Font();
+            ktmp.alignment = TextAlignmentOptions.Center;
+            ktmp.enableAutoSizing = true;
+            ktmp.fontSizeMin = 7f;
+            ktmp.fontSizeMax = 13f;
+            ktmp.enableWordWrapping = false;
+            ktmp.overflowMode = TextOverflowModes.Truncate;
+            ktmp.raycastTarget = false;
+            kgo.SetActive(false);
+
+            return new ChipVisual { Root = rt, Circle = circle, Icon = icon, Name = tmp, Count = ktmp };
         }
     }
 }

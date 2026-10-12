@@ -101,7 +101,7 @@ namespace StationeersUIMod.UI.Grid
         private const float RegionFillAlpha = 0.4f;
 
         /// <summary>The live cell edge length — the F10 <see cref="UIAConfig.GridCellSize"/> slider
-        /// (28..80), falling back to the shipped 46 px if the config is not bound yet (hot reload before
+        /// (28..160), falling back to the shipped 46 px if the config is not bound yet (hot reload before
         /// <c>UIAConfig.Init</c>). Read once per Bind/Layout into a local; never per cell.</summary>
         private static float CellPx()
         {
@@ -1427,7 +1427,10 @@ namespace StationeersUIMod.UI.Grid
                     c.sizeDelta = new Vector2(s - 4f, s * 0.26f);
                     // Fixed size (no auto-size): capped to the caption band so a big text size never
                     // spills out of the square.
-                    Caption.fontSize = Mathf.Min(HudText.Size(Mathf.Clamp(s * 0.17f, 7f * gk, 10f * gk) * tsz), s * 0.26f);
+                    // The cap applies only while #12 scaling is in play (factor or text size above 1),
+                    // so at 1/1 the caption is exactly the 1.0.2 size whatever the HUD font scale.
+                    float capFs = HudText.Size(Mathf.Clamp(s * 0.17f, 7f * gk, 10f * gk) * tsz);
+                    Caption.fontSize = gk > 1.0001f || tsz > 1.0001f ? Mathf.Min(capFs, s * 0.26f) : capFs;
                 }
                 else
                 {

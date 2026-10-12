@@ -1158,7 +1158,7 @@ namespace StationeersUIMod.UI.Grid
             // Config-backed (UIAConfig section "9. The Grid"); TheGridPanel's size-hash poll relayouts
             // the open window (main + pinned) live, exactly as the F10 cell-size slider does.
             List<HudProp> sizes = new List<HudProp>(11);
-            sizes.Add(Fs("Cell size (px)", UIAConfig.GridCellSize, 28f, 80f, 46f,
+            sizes.Add(Fs("Cell size (px)", UIAConfig.GridCellSize, 28f, 160f, 46f,
                 "Edge length of one inventory cell. The item icon scales with it."));
             sizes.Add(Fs("Item icon scale", UIAConfig.GridIconScale, 0.4f, 1f, 0.70f,
                 "Fraction of a cell the item thumbnail fills (0.70 = the default)."));

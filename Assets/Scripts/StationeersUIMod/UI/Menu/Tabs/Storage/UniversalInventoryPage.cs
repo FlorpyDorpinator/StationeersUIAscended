@@ -21,7 +21,7 @@ namespace StationeersUIMod.UI.Menu.Tabs.Storage
                 "The one window that shows your whole inventory. These knobs are per-machine "
                 + "comfort settings - they do not travel with a UI theme.");
 
-            var cell = UiaControls.SliderRow(sec.Body, "Cell size", 28f, 80f, UIAConfig.GridCellSize.Value,
+            var cell = UiaControls.SliderRow(sec.Body, "Cell size", 28f, 160f, UIAConfig.GridCellSize.Value,
                 // global:: because the plugin CLASS shares the root namespace's name.
                 v =>
                 {

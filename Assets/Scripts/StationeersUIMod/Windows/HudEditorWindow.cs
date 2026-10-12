@@ -322,7 +322,7 @@ namespace StationeersUIMod.Windows
             ImGui.Spacing();
             ImGui.TextColored(Accent, "SIZE");
             FloatSlider(HudConfig.HudScale, "Overall HUD scale", 0.6f, 1.6f);
-            Toggle(HudConfig.HudScaleWithRes, "Scale HUD, wheels & inventory with resolution (keep the layout proportional)");
+            Toggle(HudConfig.HudScaleWithRes, "Scale HUD with resolution (keep the layout proportional)");
             if (HudConfig.HudScaleWithRes != null && HudConfig.HudScaleWithRes.Value)
             {
                 float user = Mathf.Max(0.0001f, HudConfig.HudScale != null ? HudConfig.HudScale.Value : 1f);

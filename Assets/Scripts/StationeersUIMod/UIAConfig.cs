@@ -265,6 +265,18 @@ namespace StationeersUIMod
         /// tiered HUD elements). Shown in F10 Radial > Size &amp; readout AND F10 Storage >
         /// Universal Inventory (one config entry, two doors).</summary>
         public static ConfigEntry<float> WheelInvTextScale;
+        /// <summary>GitHub #12 follow-up (FlorpyDorp's 1440p play-test 2026-10-11: "the radial wheel
+        /// is way bigger than it was before ... I don't like the change"): OPT-IN automatic resolution
+        /// scaling for the radial wheels and the Universal Inventory / pinned storage windows
+        /// (<c>UI.WheelGridScale.Resolution</c>). Default OFF = exactly the 1.0.2 pixel sizes at any
+        /// resolution. ON = the #12 behaviour: 1920x1080 reference, never below 1, following the visor
+        /// HUD's ScaleWithResolution toggle and width/height blend. A PLAYER preference (eyesight /
+        /// monitor), not a theme knob: like <see cref="WheelInvTextScale"/> it is NOT in HudTheme's
+        /// radial include-list, so it never travels with a UI theme. Shared across tiers by design
+        /// (the wheel and the windows are not tiered HUD elements). New key: no migration needed.
+        /// Shown next to the text-size row on F10 Radial > Size &amp; readout AND F10 Storage >
+        /// Universal Inventory (one config entry, two doors).</summary>
+        public static ConfigEntry<bool> WheelInvScaleWithResolution;
 
         // --- Radial visuals ---
         public static ConfigEntry<float> RadialOuterRadius;
@@ -529,9 +541,9 @@ namespace StationeersUIMod
             GridCellSize = cfg.Bind("9. The Grid", "CellSize", 46f,
                 new ConfigDescription("Edge length in pixels of one inventory cell. Item icons " +
                     "scale with it (icon = size x 0.7). Adjust from the F10 menu; the open " +
-                    "window relayouts live. Pixels at 1920x1080: a bigger screen scales the cells " +
-                    "up with it (10. Visor HUD > ScaleWithResolution).",
-                    new AcceptableValueRange<float>(28f, 80f)));
+                    "window relayouts live. (To grow the cells with a big screen automatically, turn on " +
+                    "7. HUD > WheelAndInventoryScaleWithResolution.)",
+                    new AcceptableValueRange<float>(28f, 160f)));
             GridCellCols = cfg.Bind("9. The Grid", "CellColumns", 5,
                 new ConfigDescription("How many item cells a storage region shows per row at full " +
                     "width (a 15-slot bag reads as 3 rows of 5). A narrower window or bag column " +
@@ -619,20 +631,28 @@ namespace StationeersUIMod
                 new ConfigDescription("Wheel & inventory text size: a multiplier on the text in the " +
                     "radial wheels (wedge labels, the hub readout, the action word, the key-hint strip) " +
                     "and in the Universal Inventory and pinned storage windows (cell counts, bag tabs, " +
-                    "titles, buttons). 1.0 = the designed size. Applied on top of the resolution " +
-                    "scaling (10. Visor HUD > ScaleWithResolution). Labels still fit: their boxes grow " +
+                    "titles, buttons). 1.0 = the designed size. Applied on top of the opt-in resolution " +
+                    "scaling (WheelAndInventoryScaleWithResolution). Labels still fit: their boxes grow " +
                     "with the text where they can, and text bounded by a wedge, the hub or a cell " +
                     "shrinks to fit (make the wheel, hub or cells bigger for more room). A personal " +
                     "readability setting, so it stays the same whichever UI theme is active.",
                     new AcceptableValueRange<float>(0.75f, 2.5f)));
+            WheelInvScaleWithResolution = cfg.Bind("7. HUD", "WheelAndInventoryScaleWithResolution", false,
+                "Scale the radial wheels and the Universal Inventory / pinned storage windows with the " +
+                "screen resolution: on a screen above 1920x1080 their wedges, cells and text grow in step " +
+                "(x2 at 3840x2160), never shrinking below their designed size on a smaller screen. " +
+                "Follows 10. Visor HUD > ScaleWithResolution (off there = off here too). Off (default) = " +
+                "the wheels and windows keep their fixed pixel sizes; use the Wheel size / Cell size " +
+                "sliders to resize them by hand. A personal setting, so it stays the same whichever UI " +
+                "theme is active.");
             // HardcoreGating removed in Wave B: it gated the legacy ImGui overlay's helmet/sensor
             // visibility, which no longer exists. The LIVE diegetic system is HudConfig.DiegeticTiers.
             // Key pruned from player cfgs by ConfigMigration step 2.
 
             RadialOuterRadius = cfg.Bind("8. Radial Visuals", "OuterRadius", 240f,
-                new ConfigDescription("Outer radius of radial menus in pixels.", new AcceptableValueRange<float>(120f, 480f)));
+                new ConfigDescription("Outer radius of radial menus in pixels.", new AcceptableValueRange<float>(120f, 960f)));
             RadialInnerRadius = cfg.Bind("8. Radial Visuals", "InnerRadius", 120f,
-                new ConfigDescription("Inner hub radius in pixels (the center readout circle; hovering here selects nothing).", new AcceptableValueRange<float>(60f, 260f)));
+                new ConfigDescription("Inner hub radius in pixels (the center readout circle; hovering here selects nothing).", new AcceptableValueRange<float>(60f, 520f)));
             IconFlipV = cfg.Bind("8. Radial Visuals", "IconFlipV", false,
                 "Flip item icons vertically (toggle if atlas-packed icons render upside down).");
             RadialIconRatio = cfg.Bind("8. Radial Visuals", "IconRatio", 0.62f,

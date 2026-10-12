@@ -56,7 +56,11 @@ namespace StationeersUIMod.Features
         private static int _prefab;
         private static int _preQty;
         private static long _leftBefore, _rightBefore;
+        private static int _leftQtyBefore, _rightQtyBefore;   // diagnostics only (merge detection)
         private static float _until;
+
+        // ---- diagnostics (play-test LogOutput.log; BepInEx log only, no console echo) ----
+        private static string _lastGateRadial, _lastGateGrid;   // one "waiting: <gate>" line per gate change
 
         // ---- the ready result ----
         private static Ctx _readyCtx;
@@ -85,6 +89,8 @@ namespace StationeersUIMod.Features
 
             long srcId = 0; int prefab = 0, qty = 0;
             long leftBefore = 0, rightBefore = 0;
+            int leftQty = 0, rightQty = 0;
+            string where = "?";
             try
             {
                 srcId = source.ReferenceId;
@@ -95,11 +101,20 @@ namespace StationeersUIMod.Features
                 {
                     leftBefore = OccId(human.LeftHandSlot);
                     rightBefore = OccId(human.RightHandSlot);
+                    leftQty = OccQty(human.LeftHandSlot);
+                    rightQty = OccQty(human.RightHandSlot);
+                    where = srcId == leftBefore ? "LEFT hand" : srcId == rightBefore ? "RIGHT hand" : "not a hand";
                 }
             }
             catch { return dispatch(); }               // unreadable: plain vanilla split, no watch
 
             bool ok = dispatch();
+            bool host = false;
+            try { host = Assets.Scripts.GameManager.RunSimulation; } catch { }
+            Log(ctx + ": dispatch " + (ok ? "ok" : "REFUSED (vanilla split did not run)")
+                + " | source " + SafeName(source) + " x" + qty + " id " + srcId + " in " + where
+                + " | hands before L=" + leftBefore + "(x" + leftQty + ") R=" + rightBefore + "(x" + rightQty + ")"
+                + " | " + (host ? "host/SP" : "MP client"));
             if (!ok) return false;
 
             Clear();                                    // a new split supersedes any older watch/result
@@ -109,11 +124,39 @@ namespace StationeersUIMod.Features
             _preQty = qty;
             _leftBefore = leftBefore;
             _rightBefore = rightBefore;
-            bool host = false;
-            try { host = Assets.Scripts.GameManager.RunSimulation; } catch { }
+            _leftQtyBefore = leftQty;
+            _rightQtyBefore = rightQty;
             _until = UnityEngine.Time.unscaledTime + (host ? HostWindowSec : ClientWindowSec);
             Poll();                                     // host/SP: usually found right here
             return true;
+        }
+
+        /// <summary>Is a found child waiting to be taken by <paramref name="ctx"/>? (No poll; for the
+        /// consumers' "why is it not attaching yet" diagnostics.)</summary>
+        public static bool HasReady(Ctx ctx) { return ctx != Ctx.None && _readyCtx == ctx; }
+
+        /// <summary>Consumer diagnostics: a ready child for <paramref name="ctx"/> is being held back by
+        /// <paramref name="gate"/>. Logged once per gate change (the consumers call this per frame).</summary>
+        public static void NoteWaiting(Ctx ctx, string gate)
+        {
+            if (!HasReady(ctx)) return;
+            string last = ctx == Ctx.Radial ? _lastGateRadial : _lastGateGrid;
+            if (string.Equals(last, gate, StringComparison.Ordinal)) return;
+            if (ctx == Ctx.Radial) _lastGateRadial = gate; else _lastGateGrid = gate;
+            Log(ctx + ": child ready, attach waiting on gate: " + gate);
+        }
+
+        /// <summary>Consumer diagnostics: the attach succeeded or was refused for good.</summary>
+        public static void NoteAttach(Ctx ctx, bool ok, string detail)
+        {
+            Log(ctx + ": attach " + (ok ? "SUCCEEDED" : "REFUSED") + " - " + detail);
+        }
+
+        /// <summary>One diagnostics line, prefixed "SplitToCursor:", BepInEx log only. Every caller
+        /// fires once per decision (one user action = a handful of lines), so no extra limiter.</summary>
+        internal static void Log(string msg)
+        {
+            try { UIALog.InfoLogOnly("SplitToCursor: " + msg); } catch { }
         }
 
         /// <summary>Cheap idle test (no poll): is anything — a watch or a found child — held for
@@ -137,6 +180,12 @@ namespace StationeersUIMod.Features
             if (_watchCtx != ctx) return false;
             bool host = false;
             try { host = Assets.Scripts.GameManager.RunSimulation; } catch { }
+            if (host)
+            {
+                // Host/SP applied the split synchronously and no new stack is in a hand: vanilla stands.
+                Log(ctx + ": no child to carry - " + DescribeMiss() + " (vanilla result stands)");
+                ClearWatch();
+            }
             return !host;
         }
 
@@ -152,13 +201,22 @@ namespace StationeersUIMod.Features
             if (_readyCtx != ctx) return false;
             float t = 0f;
             try { t = UnityEngine.Time.unscaledTime; } catch { }
-            if (t > _readyUntil) { ClearReady(); return false; }   // waited too long: vanilla stands
+            if (t > _readyUntil)
+            {
+                Log(ctx + ": attach REFUSED - the child waited over " + ReadySec + "s for the surface to be idle (vanilla result stands)");
+                ClearReady();
+                return false;
+            }
             var s = _readySlot;
             var c = _readyItem;
             ClearReady();
             DynamicThing now = null;
             try { now = s != null ? s.Get() : null; } catch { }
-            if (c == null || now == null || !ReferenceEquals(now, c)) return false;   // moved/destroyed since
+            if (c == null || now == null || !ReferenceEquals(now, c))
+            {
+                Log(ctx + ": attach REFUSED - the child left its hand before it could attach");
+                return false;   // moved/destroyed since
+            }
             slot = s;
             child = c;
             return true;
@@ -170,14 +228,24 @@ namespace StationeersUIMod.Features
         public static void Cancel(Ctx ctx)
         {
             if (ctx == Ctx.None) return;
-            if (_watchCtx == ctx) ClearWatch();
-            if (_readyCtx == ctx) ClearReady();
+            if (_watchCtx == ctx)
+            {
+                Log(ctx + ": watch cancelled (surface closed) - " + DescribeMiss());
+                ClearWatch();
+            }
+            if (_readyCtx == ctx)
+            {
+                Log(ctx + ": ready child dropped (surface closed before it attached); it stays in the hand");
+                ClearReady();
+            }
         }
 
         /// <summary>Hot-reload teardown: drop every static (Thing/Slot refs included).</summary>
         public static void Shutdown()
         {
             Clear();
+            _lastGateRadial = null;
+            _lastGateGrid = null;
         }
 
         // ------------------------------------------------------------------
@@ -197,7 +265,62 @@ namespace StationeersUIMod.Features
                 }
             }
             catch { ClearWatch(); return; }
-            if (now > _until) ClearWatch();             // merged / floor / refused: vanilla stands
+            if (now > _until)                           // merged / floor / refused: vanilla stands
+            {
+                Log(_watchCtx + ": no child to carry - " + DescribeMiss() + " (vanilla result stands)");
+                ClearWatch();
+            }
+        }
+
+        /// <summary>Diagnostics: why no NEW split stack is in either hand (read-only, networked state).
+        /// A hand that held the same item before and now holds MORE = vanilla merged the split into
+        /// it (Stackable.TrySplitIntoHand's merge rung); otherwise it fell to the floor (both hands
+        /// busy) or the split never applied.</summary>
+        private static string DescribeMiss()
+        {
+            try
+            {
+                var human = InventoryManager.ParentHuman;
+                if (human == null) return "no local human";
+                string l = HandNow(human.LeftHandSlot), r = HandNow(human.RightHandSlot);
+                string hands = " [hands now L=" + l + " R=" + r + "]";
+                if (Grew(human.LeftHandSlot, _leftBefore, _leftQtyBefore))
+                    return "vanilla MERGED the split into the LEFT hand's same-type stack" + hands;
+                if (Grew(human.RightHandSlot, _rightBefore, _rightQtyBefore))
+                    return "vanilla MERGED the split into the RIGHT hand's same-type stack" + hands;
+                return "no new stack in a hand (both hands busy -> dropped at your feet, or not applied yet)" + hands;
+            }
+            catch (Exception e) { return "unreadable (" + e.Message + ")"; }
+        }
+
+        private static bool Grew(Slot hand, long idBefore, int qtyBefore)
+        {
+            var occ = hand != null ? hand.Get() as Stackable : null;
+            return occ != null && idBefore != 0 && occ.ReferenceId == idBefore && occ.PrefabHash == _prefab
+                && occ.Quantity > qtyBefore;
+        }
+
+        private static string HandNow(Slot hand)
+        {
+            var o = hand != null ? hand.Get() : null;
+            if (o == null) return "empty";
+            var st = o as Stackable;
+            return SafeName(o) + (st != null ? " x" + st.Quantity : "") + " id " + o.ReferenceId;
+        }
+
+        private static string SafeName(Thing t)
+        {
+            try { return t != null ? t.DisplayName : "null"; } catch { return "?"; }
+        }
+
+        private static int OccQty(Slot s)
+        {
+            try
+            {
+                var o = s != null ? s.Get() as Stackable : null;
+                return o != null ? o.Quantity : 0;
+            }
+            catch { return 0; }
         }
 
         private static bool IsChild(Slot hand)
@@ -217,12 +340,21 @@ namespace StationeersUIMod.Features
             var ctx = _watchCtx;
             DynamicThing child = null;
             try { child = hand.Get(); } catch { }
+            string side = "?";
+            try
+            {
+                var human = InventoryManager.ParentHuman;
+                side = human != null && ReferenceEquals(hand, human.LeftHandSlot) ? "LEFT" : "RIGHT";
+            }
+            catch { }
             ClearWatch();
             if (child == null) return;
             _readyCtx = ctx;
             _readySlot = hand;
             _readyItem = child;
+            if (ctx == Ctx.Radial) _lastGateRadial = null; else _lastGateGrid = null;
             try { _readyUntil = UnityEngine.Time.unscaledTime + ReadySec; } catch { _readyUntil = 0f; }
+            Log(ctx + ": child FOUND in the " + side + " hand - " + HandNow(hand));
         }
 
         private static long OccId(Slot s)
@@ -243,6 +375,8 @@ namespace StationeersUIMod.Features
             _preQty = 0;
             _leftBefore = 0;
             _rightBefore = 0;
+            _leftQtyBefore = 0;
+            _rightQtyBefore = 0;
             _until = 0f;
         }
 

@@ -208,9 +208,11 @@ namespace StationeersUIMod.UI.Grid
             // #12: size is already resolution-scaled (GridRegionView.CellPx), so the px bounds scale
             // with it; the player's text size multiplies on top, capped to the corner box's height
             // (size x 0.30) so a big text size never spills out of the cell.
-            float gk = WheelGridScale.Geo;
-            _state.fontSize = Mathf.Min(HudText.Size(Mathf.Clamp(size * 0.16f, 8f * gk, 13f * gk) * WheelGridScale.Text()),
-                size * 0.30f);
+            // The cap applies only while #12 scaling is in play (factor or text size above 1), so at
+            // 1/1 the count is exactly the 1.0.2 size whatever the HUD font scale.
+            float gk = WheelGridScale.Geo, tsz = WheelGridScale.Text();
+            float fs = HudText.Size(Mathf.Clamp(size * 0.16f, 8f * gk, 13f * gk) * tsz);
+            _state.fontSize = gk > 1.0001f || tsz > 1.0001f ? Mathf.Min(fs, size * 0.30f) : fs;
         }
 
         /// <summary>Bind the cell to a slot and take it out of the pool. Forces an immediate content
@@ -309,7 +311,7 @@ namespace StationeersUIMod.UI.Grid
             // recolour the per-cell state text along with the window titles (it resolves to the
             // palette entry while Following, so the follow-mode look is unchanged).
             Color stateCol = GridTheme.Text;
-            if (_dragDim || _pending) stateCol.a *= 0.35f;
+            if (_dragDim || _pending || InFlightHere()) stateCol.a *= 0.35f;
             else if (GridProfileMode.Active) stateCol.a *= 0.5f;   // profile mode: content recedes, bag chrome leads
             _state.color = stateCol;
         }
@@ -356,10 +358,21 @@ namespace StationeersUIMod.UI.Grid
         /// the item is in-flight (drag source) or a send-only move is still pending its server echo.
         /// Called from RefreshIfDirty (on content change) and Repaint (every frame), so the dim tracks
         /// the drag/pending state without needing a fresh occupant diff.</summary>
+        /// <summary>Is this cell's item riding the cursor somewhere else (the Universal Inventory's
+        /// split carry, or a radial drag / carry / parked chip)? Then it dims exactly like a dragged
+        /// source cell (<see cref="Core.InFlightCue"/>; visual only).</summary>
+        private bool InFlightHere()
+        {
+            if (_slot == null) return false;
+            DynamicThing occ = null;
+            try { occ = _slot.Get(); } catch { }
+            return occ != null && Core.InFlightCue.Is(occ);
+        }
+
         private void ApplyIconTint()
         {
             float a = _iconBaseAlpha;
-            if (_dragDim || _pending) a *= 0.35f;
+            if (_dragDim || _pending || InFlightHere()) a *= 0.35f;
             // Profile mode (O4a): item cells dim slightly so the bag chrome (chips, tabs) reads as
             // the editing surface. A static bool read folded into the SAME multiply the drag dim
             // uses — no new object, no per-frame cost, clears everywhere the moment the mode flips
@@ -1123,8 +1136,41 @@ namespace StationeersUIMod.UI.Grid
             // #9: keep a dragged item's ghost tinted too, so the green wash doesn't drop mid-drag.
             img.color = HudConfig.TintIcon(new Color(1f, 1f, 1f, 0.85f));
 
+            DynamicThing ghostItem = null;
+            try { ghostItem = _slot != null ? _slot.Get() : null; } catch { }
+            AddGhostCount(_ghostRt, ghostItem, size);   // the stack count rides with the ghost
+
             _ghostRt.SetAsLastSibling();   // draw above the panel within the overlay canvas
             _ghostRt.position = new Vector3(e.position.x, e.position.y, 0f);
+        }
+
+        /// <summary>Give a floating ghost (a cell drag, or <see cref="GridSplitCarry"/>'s split carry)
+        /// the item's corner count ("25" on a coil), styled exactly like a cell's own corner text
+        /// (<see cref="SetSize"/>: same font rule, same bottom-right band, the theme's Text colour), so
+        /// what rides the cursor says how many it is. <paramref name="cellSize"/> is the cell edge the
+        /// ghost was sized from (already resolution-scaled). No text for a non-stack / empty state.</summary>
+        internal static void AddGhostCount(RectTransform ghost, DynamicThing item, float cellSize)
+        {
+            if (ghost == null || item == null) return;
+            string count = null;
+            try { count = StateText.For(item); } catch { count = null; }
+            if (string.IsNullOrEmpty(count)) return;
+            try
+            {
+                float size = Mathf.Max(8f, cellSize);
+                var t = HudText.Make(ghost, "Count", 10f, TMPro.TextAlignmentOptions.BottomRight, warp: false);
+                t.raycastTarget = false;
+                t.rectTransform.anchorMin = t.rectTransform.anchorMax = new Vector2(0.5f, 0.5f);
+                t.rectTransform.pivot = new Vector2(0.5f, 0.5f);
+                t.rectTransform.sizeDelta = new Vector2(size - 4f, size * 0.30f);
+                t.rectTransform.anchoredPosition = new Vector2(-2f, -size * 0.5f + size * 0.16f);
+                float gk = WheelGridScale.Geo, tsz = WheelGridScale.Text();
+                float fs = HudText.Size(Mathf.Clamp(size * 0.16f, 8f * gk, 13f * gk) * tsz);
+                t.fontSize = gk > 1.0001f || tsz > 1.0001f ? Mathf.Min(fs, size * 0.30f) : fs;
+                t.color = GridTheme.Text;
+                HudText.Set(t, count);
+            }
+            catch { }   // a ghost without its number still works
         }
 
         /// <summary>Destroy the drag ghost if present (idempotent; safe from Idle / teardown).</summary>

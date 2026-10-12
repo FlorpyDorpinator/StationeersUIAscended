@@ -9,7 +9,12 @@ namespace StationeersUIMod.UI
     /// canvases with no CanvasScaler, so before this every wedge, cell and font was a fixed pixel
     /// count: half the apparent size on a 3840x2160 screen.
     ///
-    /// <para><b>Resolution</b> follows the visor HUD's own per-machine toggle
+    /// <para><b>OPT-IN since 2026-10-11</b> (FlorpyDorp's 1440p play-test: the bigger wheel was not
+    /// wanted): <see cref="Resolution"/> is exactly 1 unless the player turns on
+    /// <see cref="UIAConfig.WheelInvScaleWithResolution"/> (default OFF), so with that off and the
+    /// text size at 1 every wheel and window is the 1.0.2 pixel size at any resolution.</para>
+    ///
+    /// <para>When on, <b>Resolution</b> follows the visor HUD's own per-machine toggle
     /// (<see cref="HudConfig.HudScaleWithRes"/>, "ScaleWithResolution", default on) and its
     /// width/height blend (<see cref="HudConfig.HudScaleMatch"/>) — the same log-interpolation
     /// Unity's CanvasScaler uses. Two deliberate differences from
@@ -50,8 +55,8 @@ namespace StationeersUIMod.UI
         private static float _res = 1f;
         private static float _text = 1f;
 
-        /// <summary>The resolution factor (1 at 1920x1080 and below, 2 at 3840x2160; 1 when the
-        /// player turned ScaleWithResolution off).</summary>
+        /// <summary>The resolution factor: 1 unless the opt-in is on; then 1 at 1920x1080 and below,
+        /// 2 at 3840x2160 (and 1 again when the player turned the HUD's ScaleWithResolution off).</summary>
         public static float Resolution() { Refresh(); return _res; }
 
         /// <summary>The player's text multiplier (0.75..2.5, default 1).</summary>
@@ -98,6 +103,9 @@ namespace StationeersUIMod.UI
         {
             try
             {
+                // Opt-in (FlorpyDorp 2026-10-11): OFF (the default, or before the config binds) = exactly
+                // 1, i.e. the 1.0.2 pixel sizes at any resolution.
+                if (UIAConfig.WheelInvScaleWithResolution == null || !UIAConfig.WheelInvScaleWithResolution.Value) return 1f;
                 if (HudConfig.HudScaleWithRes != null && !HudConfig.HudScaleWithRes.Value) return 1f;
                 float sw = Screen.width, sh = Screen.height;
                 if (sw <= 0f || sh <= 0f) return 1f;
