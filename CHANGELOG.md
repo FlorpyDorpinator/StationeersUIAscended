@@ -2,6 +2,45 @@
 
 All notable changes to the mod. Detailed engineering write-ups live in `Changes Reports/`.
 
+## 1.0.3 -- 2026-10-11 -- Split onto the cursor, big-screen sizing, Meson Scanner
+
+Answers the reports filed after 1.0.2: GitHub issue #12 and two Steam Workshop comments.
+FlorpyDorp named this release 1.0.3.
+
+- **Split stacks onto the cursor (new option, off by default).** F10 > Controls > Splitting
+  stacks; the same switch is in Radial > Behaviour and on the Universal Inventory page. A
+  Workshop comment asked to split without the part landing in the world. The split itself is
+  still vanilla's: the split-off part lands in an empty hand. With the option on, it then rides
+  the cursor like an item dragged off a wedge, showing its count, while its hand box dims.
+  - In a wheel, click an empty wedge, a hand box or a slot to put it there. Click open screen to
+    park it; parked items drop at your feet when the wheel closes. Right-click, or closing the
+    wheel while it is still on the cursor, keeps it in the hand.
+  - In the Universal Inventory, click a bag cell, a hand box, an open slot or open ground. Right-
+    click or Esc keeps it in the hand.
+  - Every placement is one normal, server-checked move. On a multiplayer client the part
+    attaches once the server confirms the split.
+  - If the split merged into a same-type stack in the other hand, or fell to the floor because
+    both hands were full, nothing attaches: vanilla's result stands.
+- **Wheels and inventory windows keep their size relative to the screen** (#12). They are
+  designed at 2560x1440. On other screens their wedges, cells and text scale with it: x1.5 at
+  3840x2160, x0.75 at 1920x1080, never below x0.6. Nothing changes at 2560x1440. On by default
+  (`WheelAndInventoryScaleFrom1440p`); off keeps fixed pixel sizes. It is independent of the
+  visor HUD's own resolution scaling.
+- **Wheel and inventory text size slider** (#12), 0.75 to 2.5, in F10 > Radial > Size & readout
+  and on the Universal Inventory page. The Wheel size, Hub size and Cell size slider ranges are
+  doubled.
+- **Wheel labels fit their wedge.** Text is sized to each wedge's real outline, so a label like
+  "SPLIT COUNT" no longer runs past the border.
+- **Dragged items show their count.** Wheel drag-off chips and inventory drag ghosts show the
+  stack count, and the item's hand box, equipment box or cell dims while it is in flight.
+- **Meson Scanner support** (Workshop comment). With Elmotrix's Meson Scanner mod, the current
+  scan mode shows as a tag next to the HUD's glasses box, with [LOCKED] while lock-in is on.
+  The mod showed it in the glasses window, which UI Ascended replaces. It is read live, needs no
+  theme change, and can be turned off per tier in F9 (`mesonTag`). Without the mod nothing
+  changes. Known overlap: the scanner toggles lock-in on middle-click, which is also the default
+  toolbelt-wheel key.
+- **F10:** the dark hairline under the selected folder tab is gone.
+
 ## 1.0.2 -- 2026-10-07 -- HUD behind game windows, helmet warning, Stow rebinds, waste on MP
 
 Fixes and answers the player reports filed after 1.0.1 (GitHub issues #9, #10, #11) and a

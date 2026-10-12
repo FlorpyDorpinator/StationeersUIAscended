@@ -2,7 +2,7 @@
   <Name>Stationeers UI Ascended</Name>
   <ModID>StationeersUIAscended</ModID>
   <Author>FlorpyDorp + JXSN</Author>
-  <Version>1.0.2</Version>
+  <Version>1.0.3</Version>
   <Description>
 	  [h1]Stationeers UI Ascended[/h1]
 
@@ -19,6 +19,16 @@ Reshape the visor live in the F9 HUD Designer: move, resize and restyle anything
 <br>
 ]]></InGameDescription>
   <ChangeLog>
+    [h3]Version 1.0.3 -- Split onto the cursor, big-screen sizing, Meson Scanner:[/h3]
+    [list]
+    [*] NEW OPTION, split stacks onto the cursor (off by default, F10 - Controls - Splitting stacks): split a stack in a wheel or the Universal Inventory and the split-off part rides on your cursor with its count, like dragging it off a wedge. Click a wedge, a hand box, a bag cell or a slot to put it there; in a wheel, click open screen to park it and it drops when the wheel closes. Right-click keeps it in your hand
+    [*] Wheels and inventory windows now keep the same size relative to your screen: designed at 2560x1440, they grow on bigger screens (x1.5 at 4K) and shrink on smaller ones. On by default; switch it off in F10 - Radial - Size and readout to keep fixed pixel sizes
+    [*] New Wheel and inventory text size slider (F10 - Radial and the Universal Inventory page) for bigger text, and the Wheel size and Cell size sliders now go twice as high
+    [*] Wheel labels always fit inside their wedge
+    [*] Dragged or carried items now show their stack count, and the hand box dims while the item is in flight
+    [*] Elmotrix's Meson Scanner mod: its current scan mode now shows next to the glasses box on the HUD (it used to live in the glasses window UI Ascended replaces). Can be turned off per tier in F9
+    [*] F10: no more dark line under the selected folder tab
+    [/list]
     [h3]Version 1.0.2 -- HUD behind game windows, helmet warning, Stow rebinds:[/h3]
     [list]
     [*] The HUD now steps behind the rocket UI and the game's other windows while they are open -- the trader, the comms terminal, plant genetics, the scoreboard and pop-up prompts -- instead of covering them
